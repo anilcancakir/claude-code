@@ -55,6 +55,8 @@ Use `AskUserQuestion` for each gap question that the Phase 1 results cannot reso
 
 Skip a question when the Phase 1 agents already produced a confident finding for it.
 
+The interview runs in `--dry-run` mode the same way it runs in a live run; the answers feed the Phase 3 drafts that are printed (not written). Only Phase 3 mutations are suppressed by `--dry-run`. Skipping the interview under `--dry-run` produces a misleading preview because the drafts shown would not match what a live run would write.
+
 ## Phase 1: Codebase Discovery
 
 ### 1a. Worktree disambiguation
