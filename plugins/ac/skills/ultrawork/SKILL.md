@@ -2,6 +2,7 @@
 name: ultrawork
 description: End-to-end autonomous task execution with mandatory verification gate. Covers the full loop: plan via ac:plan, wave-by-wave execution via ac:execute with F1-F4 tier routing, Oracle final review on Simple tasks, and auto-commit via ac:commit. Use whenever a task requires the complete plan-execute-verify-commit pipeline without manual checkpoints between phases. Triggers on "work on", "do this autonomously", "full loop", "ultrawork", "run end to end", or any request that names a concrete outcome and expects a committed result. Do not trigger for planning-only or execution-only requests; those route to ac:plan or ac:execute respectively.
 when_to_use: Loaded by the /ac:work command body as its execution substrate.
+user-invocable: false
 ---
 
 # Ultrawork
