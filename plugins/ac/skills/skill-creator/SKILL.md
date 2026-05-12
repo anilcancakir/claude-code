@@ -2,6 +2,7 @@
 name: skill-creator
 description: Authors Claude Code skills (`.claude/skills/<name>/SKILL.md`, project/user/plugin/managed scope). Use whenever a new skill is being written, an existing skill is being edited, a recurring workflow is being captured as a playbook, scope and invocation are being decided (inline vs forked, model-invocable vs user-only), `allowed-tools` patterns are being chosen, bundled `references/` or `scripts/` are being added, `paths:` is being scoped, or a skill that fails to trigger is being debugged. Triggers on "create a skill", "write a SKILL.md", "turn this into a skill", "make a slash command", "package this workflow", "playbook", "fix this skill", "skill not triggering", "skillify". Use even when the user does not say the word "skill" but is asking to capture a procedure they keep retyping. Pair with `ac:prompt-writer` for the body content, with `command-creator` for command-shaped skills (`/name [args]`), with `agent-creator` for context-isolated workers, with `ac:claude-md-rules-creator` for facts that belong in CLAUDE.md instead. Target is Opus 4.7; Sonnet 4.6 follows the same shape at lower effort. Undertriggering is the failure mode, lean in when the request is plausibly about authoring or fixing a skill.
 when_to_use: Creating, editing, auditing, or debugging any Claude Code skill at any scope.
+disable-model-invocation: true
 ---
 
 # Skill Creator

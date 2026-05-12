@@ -2,6 +2,7 @@
 name: claude-md-rules-creator
 description: Authors CLAUDE.md, CLAUDE.local.md, and `.claude/rules/*.md` (the standing-instruction layer Claude Code prepends as a `<system-reminder>` user message at every session start). Covers the four scopes (managed / user-global / project-team / project-personal), `paths:` for path-scoped rules, `@path` imports (depth 5, external-approval), splitting bloated files, `claudeMdExcludes`, HTML-comment maintainer notes, AGENTS.md interop, monorepo + worktree handling, and debugging "Claude is not following my CLAUDE.md". Use proactively when the user says "add to CLAUDE.md", "write a rule", "init memory", "global instructions", "user-level instructions", "team conventions", "project memory", "claude.md", "rules file", "agent instructions", or asks to refactor an oversized CLAUDE.md or fix instructions the model is ignoring. Triggers even when the user does not say "skill". Pair with `ac:skill-creator` for the surrounding shape, `ac:prompt-writer` for body content, `ac:agent-creator` for subagent CLAUDE.md inheritance.
 when_to_use: Authoring, editing, or auditing any CLAUDE.md, CLAUDE.local.md, or `.claude/rules/*.md` file. Refactoring an oversized CLAUDE.md, adding path-scoped rules, debugging instructions the model is not following, deciding between CLAUDE.md / rule / skill / hook.
+disable-model-invocation: true
 ---
 
 # CLAUDE.md and Rules Creator
