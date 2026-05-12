@@ -2,6 +2,7 @@
 description: Full E2E autonomous entry point. Runs plan, execute, and commit end-to-end with state-file checkpoint for resumability and an audit log. Interviews the user to lock requirements, generates a plan via the Metis/Prometheus/Momus chain, executes wave-by-wave with tier-aware worker routing, runs complexity-gated review, and commits. Pass `resume <slug>` to continue an interrupted run from its last saved checkpoint.
 argument-hint: <task | resume <slug>> [--no-commit] [--semi]
 effort: high
+disable-model-invocation: true
 ---
 
 # /ac:work
