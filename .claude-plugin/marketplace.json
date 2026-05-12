@@ -1,0 +1,28 @@
+{
+    "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+    "name": "ac",
+    "description": "Anilcan Cakir's Claude Code marketplace. Main `ac` plugin plus auxiliary plugins.",
+    "owner": {
+        "name": "Anilcan Cakir",
+        "email": "anilcan.cakir@gmail.com"
+    },
+    "plugins": [
+        {
+            "name": "ac",
+            "source": "./plugins/ac",
+            "description": "Structured development partner for Claude Code. Plans before coding, investigates bugs with hypothesis discipline, delegates to specialized agents.",
+            "version": "0.1.0",
+            "author": {
+                "name": "Anilcan Cakir",
+                "email": "anilcan.cakir@gmail.com"
+            },
+            "homepage": "https://github.com/anilcancakir/claude-code",
+            "category": "productivity",
+            "tags": [
+                "development-twin",
+                "plan-first",
+                "multi-agent"
+            ]
+        }
+    ]
+}

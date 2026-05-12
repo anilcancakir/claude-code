@@ -1,0 +1,15 @@
+{
+    "compilerOptions": {
+        "noEmit": true,
+        "allowJs": false
+    },
+    "include": [
+        "cli/**/*.ts"
+    ],
+    "exclude": [
+        "references/**",
+        "**/node_modules/**",
+        "**/dist/**",
+        "**/build/**"
+    ]
+}
