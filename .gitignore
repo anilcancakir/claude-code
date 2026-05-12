@@ -1,0 +1,11 @@
+.DS_Store
+node_modules/
+*.log
+
+# Planning artifacts and personal CLAUDE notes stay local.
+.ac/
+CLAUDE.md
+CLAUDE.local.md
+
+# Reference repositories live on disk for browsing but are not tracked here.
+references/
