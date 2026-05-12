@@ -8,4 +8,7 @@ CLAUDE.md
 CLAUDE.local.md
 
 # Reference repositories live on disk for browsing but are not tracked here.
-references/
+/references/
+
+# Root-level working docs are local notes; plugins/ac/docs/ is part of the plugin and stays tracked.
+/docs/
