@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "ac": {
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/cli/ac.js", "mcp"]
+    }
+  }
+}
