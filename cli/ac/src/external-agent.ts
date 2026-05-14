@@ -1,5 +1,7 @@
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 
+export type ExternalCli = "codex" | "gemini" | "opencode";
+
 export const LOCAL_TOOL_NAME = "call-external-agent" as const;
 
 export const EXTERNAL_AGENT_TOOL_DEFINITION: Tool = {
@@ -35,3 +37,28 @@ export const EXTERNAL_AGENT_TOOL_DEFINITION: Tool = {
         required: ["cli", "prompt", "directory"],
     },
 };
+
+const modelSlot = (flag: string, m: string | undefined): string[] =>
+    m && m.length > 0 ? [flag, m] : [];
+
+export function buildArgv(
+    cli: ExternalCli,
+    prompt: string,
+    directory: string,
+    model: string | undefined,
+): string[] {
+    switch (cli) {
+        case "codex": {
+            const bin = process.env["AC_EXTERNAL_AGENT_CODEX_BIN"] ?? "codex";
+            return [bin, "--cd", directory, "exec", ...modelSlot("--model", model), "--skip-git-repo-check", "-"];
+        }
+        case "gemini": {
+            const bin = process.env["AC_EXTERNAL_AGENT_GEMINI_BIN"] ?? "gemini";
+            return [bin, "-p", prompt, ...modelSlot("--model", model)];
+        }
+        case "opencode": {
+            const bin = process.env["AC_EXTERNAL_AGENT_OPENCODE_BIN"] ?? "opencode";
+            return [bin, "run", "--dir", directory, ...modelSlot("--model", model)];
+        }
+    }
+}
