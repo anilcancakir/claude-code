@@ -18061,6 +18061,42 @@ class StdioServerTransport {
   }
 }
 
+// src/external-agent.ts
+var LOCAL_TOOL_NAME = "call-external-agent";
+var EXTERNAL_AGENT_TOOL_DEFINITION = {
+  name: LOCAL_TOOL_NAME,
+  description: "Dispatch a prompt to a local AI coding CLI (codex, gemini, opencode) running in a chosen directory. Returns the CLI's completion text.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      cli: {
+        type: "string",
+        enum: ["codex", "gemini", "opencode"],
+        description: "Which local CLI to invoke."
+      },
+      prompt: {
+        type: "string",
+        description: "Prompt to send to the CLI (non-empty)."
+      },
+      directory: {
+        type: "string",
+        description: "Absolute path to the working directory for the CLI."
+      },
+      model: {
+        type: "string",
+        description: "Optional model identifier passed to the CLI (e.g. gpt-5.5, gemini-2.5-flash, anthropic/claude-sonnet-4-6)."
+      },
+      timeout_seconds: {
+        type: "number",
+        minimum: 10,
+        maximum: 3600,
+        description: "Optional hard timeout in seconds (default 600)."
+      }
+    },
+    required: ["cli", "prompt", "directory"]
+  }
+};
+
 // src/mcp.ts
 var ALLOWED = ["web-search", "web-fetch", "search-docs", "resolve-library", "code-search"];
 var PUBLIC_NAMES = new Set(["web-search", "web-fetch", "search-docs", "resolve-library", "web-code-search"]);
@@ -18084,7 +18120,10 @@ async function runMcpProxy(options) {
     if (cachedTools === undefined) {
       await ensureRemoteConnected();
       const result = await remoteClient.listTools();
-      cachedTools = result.tools.filter((t) => ALLOWED.includes(t.name)).map((t) => t.name === "code-search" ? { ...t, name: "web-code-search" } : t);
+      cachedTools = [
+        ...result.tools.filter((t) => ALLOWED.includes(t.name)).map((t) => t.name === "code-search" ? { ...t, name: "web-code-search" } : t),
+        EXTERNAL_AGENT_TOOL_DEFINITION
+      ];
     }
     return { tools: cachedTools };
   });
@@ -18118,4 +18157,4 @@ program2.command("mcp").description("Run the ac stdio MCP server (proxies tools 
 });
 await program2.parseAsync(process.argv);
 
-//# debugId=D9371F934554714064756E2164756E21
+//# debugId=DD1F13BAC1B66EA764756E2164756E21
