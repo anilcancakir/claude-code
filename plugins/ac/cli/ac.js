@@ -18062,6 +18062,9 @@ class StdioServerTransport {
 }
 
 // src/external-agent.ts
+import { spawn } from "node:child_process";
+import { statSync } from "node:fs";
+import { isAbsolute } from "node:path";
 var LOCAL_TOOL_NAME = "call-external-agent";
 var EXTERNAL_AGENT_TOOL_DEFINITION = {
   name: LOCAL_TOOL_NAME,
@@ -18096,6 +18099,248 @@ var EXTERNAL_AGENT_TOOL_DEFINITION = {
     required: ["cli", "prompt", "directory"]
   }
 };
+function validateInputs(args) {
+  const a = args;
+  const cli = a["cli"];
+  if (cli !== "codex" && cli !== "gemini" && cli !== "opencode") {
+    throw new McpError(ErrorCode.InvalidParams, "cli must be one of codex|gemini|opencode");
+  }
+  const prompt = a["prompt"];
+  if (typeof prompt !== "string" || prompt.trim().length === 0) {
+    throw new McpError(ErrorCode.InvalidParams, "prompt must be a non-empty string");
+  }
+  const directory = a["directory"];
+  if (typeof directory !== "string" || !isAbsolute(directory)) {
+    throw new McpError(ErrorCode.InvalidParams, "directory must be an absolute path");
+  }
+  let stat;
+  try {
+    stat = statSync(directory);
+  } catch {
+    throw new McpError(ErrorCode.InvalidParams, "directory does not exist");
+  }
+  if (!stat.isDirectory()) {
+    throw new McpError(ErrorCode.InvalidParams, "directory is not a directory");
+  }
+  const model = typeof a["model"] === "string" && a["model"].length > 0 ? a["model"] : undefined;
+  const rawTimeout = a["timeout_seconds"];
+  const parsed = typeof rawTimeout === "number" ? rawTimeout : 600;
+  const timeoutSeconds = Math.min(Math.max(parsed, 10), 3600);
+  return { cli, prompt, directory, model, timeoutSeconds };
+}
+var modelSlot = (flag, m) => m && m.length > 0 ? [flag, m] : [];
+function buildArgv(cli, prompt, directory, model) {
+  switch (cli) {
+    case "codex": {
+      const bin = process.env["AC_EXTERNAL_AGENT_CODEX_BIN"] ?? "codex";
+      return [bin, "--cd", directory, "exec", ...modelSlot("--model", model), "--skip-git-repo-check", "-"];
+    }
+    case "gemini": {
+      const bin = process.env["AC_EXTERNAL_AGENT_GEMINI_BIN"] ?? "gemini";
+      return [bin, "-p", prompt, ...modelSlot("--model", model)];
+    }
+    case "opencode": {
+      const bin = process.env["AC_EXTERNAL_AGENT_OPENCODE_BIN"] ?? "opencode";
+      return [bin, "run", "--dir", directory, ...modelSlot("--model", model)];
+    }
+  }
+}
+var STREAM_BUFFER_CAP = 8 * 1024 * 1024;
+var TAIL_BYTES = 65536;
+var activeChildren = new Set;
+function truncateTail(buf) {
+  if (buf.length <= TAIL_BYTES)
+    return buf.toString("utf8");
+  const droppedBytes = buf.length - TAIL_BYTES;
+  const start = buf.length - TAIL_BYTES;
+  let offset = start;
+  while (offset < buf.length - 1 && (buf[offset] & 192) === 128) {
+    offset++;
+    if (offset - start > 3)
+      break;
+  }
+  return `[truncated ${droppedBytes} bytes from head]
+${buf.subarray(offset).toString("utf8")}`;
+}
+function killGroup(child, signal) {
+  const pid = child.pid;
+  if (pid === undefined)
+    return;
+  if (process.platform === "win32") {
+    if (signal === "SIGKILL") {
+      try {
+        spawn("taskkill", ["/pid", String(pid), "/T", "/F"], { windowsHide: true });
+      } catch {
+        child.kill("SIGKILL");
+      }
+    } else {
+      child.kill();
+    }
+    return;
+  }
+  try {
+    process.kill(-pid, signal);
+  } catch {
+    try {
+      child.kill(signal);
+    } catch {}
+  }
+}
+function exitPromise(child) {
+  return new Promise((resolve) => {
+    if (child.exitCode !== null || child.signalCode !== null) {
+      resolve();
+      return;
+    }
+    child.once("exit", () => resolve());
+  });
+}
+async function killAllActiveChildren(graceMs) {
+  const children = Array.from(activeChildren);
+  if (children.length === 0)
+    return;
+  for (const child of children) {
+    killGroup(child, "SIGTERM");
+  }
+  const sigkillTimer = setTimeout(() => {
+    for (const child of children) {
+      if (activeChildren.has(child)) {
+        killGroup(child, "SIGKILL");
+      }
+    }
+  }, 2000);
+  await Promise.race([
+    Promise.all(children.map((c) => exitPromise(c))),
+    new Promise((r) => setTimeout(r, graceMs))
+  ]);
+  clearTimeout(sigkillTimer);
+}
+async function runExternalAgent(args, options) {
+  const { cli, prompt, directory, model, timeoutSeconds } = validateInputs(args);
+  const argv = buildArgv(cli, prompt, directory, model);
+  const bin = argv[0];
+  const rest = argv.slice(1);
+  const env = { ...process.env };
+  delete env.KODIZM_MCP_TOKEN;
+  delete env.KODIZM_MCP_URL;
+  delete env.AC_EXTERNAL_AGENT_CODEX_BIN;
+  delete env.AC_EXTERNAL_AGENT_GEMINI_BIN;
+  delete env.AC_EXTERNAL_AGENT_OPENCODE_BIN;
+  const spawnFn = options?.spawnImpl ?? spawn;
+  const child = spawnFn(bin, rest, {
+    cwd: directory,
+    env,
+    stdio: ["pipe", "pipe", "pipe"],
+    detached: process.platform !== "win32",
+    windowsHide: true
+  });
+  activeChildren.add(child);
+  const stdoutChunks = [];
+  const stderrChunks = [];
+  let stdoutLen = 0;
+  let stderrLen = 0;
+  let stdoutCapped = false;
+  let stderrCapped = false;
+  if (child.stdout) {
+    child.stdout.on("data", (chunk) => {
+      if (stdoutCapped)
+        return;
+      if (stdoutLen + chunk.length > STREAM_BUFFER_CAP) {
+        stdoutCapped = true;
+        return;
+      }
+      stdoutChunks.push(chunk);
+      stdoutLen += chunk.length;
+    });
+  }
+  if (child.stderr) {
+    child.stderr.on("data", (chunk) => {
+      if (stderrCapped)
+        return;
+      if (stderrLen + chunk.length > STREAM_BUFFER_CAP) {
+        stderrCapped = true;
+        return;
+      }
+      stderrChunks.push(chunk);
+      stderrLen += chunk.length;
+    });
+  }
+  if (cli !== "gemini" && child.stdin) {
+    child.stdin.write(prompt + `
+`);
+    child.stdin.end();
+  } else if (child.stdin) {
+    child.stdin.end();
+  }
+  const timeoutMs = options?.timeoutMsOverride ?? timeoutSeconds * 1000;
+  let timedOut = false;
+  let timeoutTimer;
+  let killTimer;
+  const done = () => {
+    if (timeoutTimer)
+      clearTimeout(timeoutTimer);
+    if (killTimer)
+      clearTimeout(killTimer);
+  };
+  const outcome = await new Promise((resolve) => {
+    child.once("exit", (code2, signal) => {
+      done();
+      activeChildren.delete(child);
+      resolve({ kind: "exit", code: code2, signal });
+    });
+    child.once("error", (error2) => {
+      done();
+      activeChildren.delete(child);
+      resolve({ kind: "error", error: error2 });
+    });
+    timeoutTimer = setTimeout(() => {
+      timedOut = true;
+      killGroup(child, "SIGTERM");
+      killTimer = setTimeout(() => killGroup(child, "SIGKILL"), 5000);
+    }, timeoutMs);
+  });
+  if (outcome.kind === "exit") {
+    await Promise.all([
+      new Promise((r) => {
+        if (!child.stdout || child.stdout.readableEnded || child.stdout.destroyed) {
+          r();
+          return;
+        }
+        child.stdout.once("end", () => r());
+        child.stdout.once("close", () => r());
+      }),
+      new Promise((r) => {
+        if (!child.stderr || child.stderr.readableEnded || child.stderr.destroyed) {
+          r();
+          return;
+        }
+        child.stderr.once("end", () => r());
+        child.stderr.once("close", () => r());
+      })
+    ]);
+  }
+  const stdoutBuffer = Buffer.concat(stdoutChunks, stdoutLen);
+  const stderrBuffer = Buffer.concat(stderrChunks, stderrLen);
+  if (outcome.kind === "error") {
+    const err = outcome.error;
+    if (err.code === "ENOENT") {
+      throw new McpError(ErrorCode.InternalError, `${cli} binary not found (set AC_EXTERNAL_AGENT_${cli.toUpperCase()}_BIN or install ${cli})`);
+    }
+    throw new McpError(ErrorCode.InternalError, `${cli} spawn failed: ${err.message}`);
+  }
+  if (timedOut) {
+    throw new McpError(ErrorCode.InternalError, `${cli} timed out after ${timeoutSeconds}s`);
+  }
+  const code = outcome.code;
+  if (code === 0) {
+    const text = (stdoutCapped ? `[stdout buffer cap reached]
+` : "") + truncateTail(stdoutBuffer);
+    return { content: [{ type: "text", text }] };
+  }
+  const tail = (stderrCapped ? `[stderr buffer cap reached]
+` : "") + truncateTail(stderrBuffer);
+  throw new McpError(ErrorCode.InternalError, `${cli} exited ${code}: ${tail}`);
+}
 
 // src/mcp.ts
 var ALLOWED = ["web-search", "web-fetch", "search-docs", "resolve-library", "code-search"];
@@ -18129,6 +18374,9 @@ async function runMcpProxy(options) {
   });
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const requestedName = request.params.name;
+    if (requestedName === LOCAL_TOOL_NAME) {
+      return runExternalAgent(request.params.arguments);
+    }
     if (!PUBLIC_NAMES.has(requestedName)) {
       throw new McpError(ErrorCode.InvalidParams, `Unknown tool: ${requestedName}`);
     }
@@ -18142,10 +18390,10 @@ async function runMcpProxy(options) {
   const stdioTransport = new StdioServerTransport;
   await server.connect(stdioTransport);
   process.on("SIGINT", () => {
-    server.close().then(() => remoteClient.close()).then(() => process.exit(0));
+    killAllActiveChildren(5000).then(() => server.close()).then(() => remoteClient.close()).then(() => process.exit(0));
   });
   process.on("SIGTERM", () => {
-    server.close().then(() => remoteClient.close()).then(() => process.exit(0));
+    killAllActiveChildren(5000).then(() => server.close()).then(() => remoteClient.close()).then(() => process.exit(0));
   });
 }
 
@@ -18157,4 +18405,4 @@ program2.command("mcp").description("Run the ac stdio MCP server (proxies tools 
 });
 await program2.parseAsync(process.argv);
 
-//# debugId=DD1F13BAC1B66EA764756E2164756E21
+//# debugId=57BD9C453257EB7264756E2164756E21
