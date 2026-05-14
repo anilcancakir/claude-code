@@ -4,7 +4,7 @@ import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { CallToolRequestSchema, ErrorCode, ListToolsRequestSchema, McpError } from "@modelcontextprotocol/sdk/types.js";
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
-import { EXTERNAL_AGENT_TOOL_DEFINITION, LOCAL_TOOL_NAME, runExternalAgent } from "./external-agent.ts";
+import { EXTERNAL_AGENT_TOOL_DEFINITION, killAllActiveChildren, LOCAL_TOOL_NAME, runExternalAgent } from "./external-agent.ts";
 
 const ALLOWED: ReadonlyArray<string> = ["web-search", "web-fetch", "search-docs", "resolve-library", "code-search"];
 
@@ -76,9 +76,15 @@ export async function runMcpProxy(options: { token?: string }): Promise<void> {
     await server.connect(stdioTransport);
 
     process.on("SIGINT", (): void => {
-        void server.close().then(() => remoteClient.close()).then(() => process.exit(0));
+        void killAllActiveChildren(5000)
+            .then(() => server.close())
+            .then(() => remoteClient.close())
+            .then(() => process.exit(0));
     });
     process.on("SIGTERM", (): void => {
-        void server.close().then(() => remoteClient.close()).then(() => process.exit(0));
+        void killAllActiveChildren(5000)
+            .then(() => server.close())
+            .then(() => remoteClient.close())
+            .then(() => process.exit(0));
     });
 }

@@ -161,6 +161,47 @@ function killGroup(child: ChildProcess, signal: "SIGTERM" | "SIGKILL"): void {
     }
 }
 
+// Waits for a child to exit, resolving immediately if it has already exited.
+function exitPromise(child: ChildProcess): Promise<void> {
+    return new Promise<void>((resolve) => {
+        if (child.exitCode !== null || child.signalCode !== null) {
+            resolve();
+            return;
+        }
+        child.once("exit", () => resolve());
+    });
+}
+
+// Sends SIGTERM to every active child's process group, waits up to graceMs for them to exit,
+// then SIGKILL-escalates survivors. Races the whole sequence against the graceMs ceiling.
+export async function killAllActiveChildren(graceMs: number): Promise<void> {
+    // 1. Snapshot active children before any signals race ahead.
+    const children = Array.from(activeChildren);
+    if (children.length === 0) return;
+
+    // 2. Send SIGTERM to every group.
+    for (const child of children) {
+        killGroup(child, "SIGTERM");
+    }
+
+    // 3. After 2s, escalate to SIGKILL for any survivors still in the set.
+    const sigkillTimer = setTimeout(() => {
+        for (const child of children) {
+            if (activeChildren.has(child)) {
+                killGroup(child, "SIGKILL");
+            }
+        }
+    }, 2000);
+
+    // 4. Race: wait for all children to exit OR the hard ceiling, whichever comes first.
+    await Promise.race([
+        Promise.all(children.map((c) => exitPromise(c))),
+        new Promise<void>((r) => setTimeout(r, graceMs)),
+    ]);
+
+    clearTimeout(sigkillTimer);
+}
+
 export async function runExternalAgent(
     args: unknown,
     options?: { spawnImpl?: typeof spawn; timeoutMsOverride?: number },
