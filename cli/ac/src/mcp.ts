@@ -4,7 +4,7 @@ import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { CallToolRequestSchema, ErrorCode, ListToolsRequestSchema, McpError } from "@modelcontextprotocol/sdk/types.js";
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
-import { EXTERNAL_AGENT_TOOL_DEFINITION } from "./external-agent.ts";
+import { EXTERNAL_AGENT_TOOL_DEFINITION, LOCAL_TOOL_NAME, runExternalAgent } from "./external-agent.ts";
 
 const ALLOWED: ReadonlyArray<string> = ["web-search", "web-fetch", "search-docs", "resolve-library", "code-search"];
 
@@ -53,6 +53,10 @@ export async function runMcpProxy(options: { token?: string }): Promise<void> {
 
     server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const requestedName = request.params.name;
+
+        if (requestedName === LOCAL_TOOL_NAME) {
+            return runExternalAgent(request.params.arguments);
+        }
 
         if (!PUBLIC_NAMES.has(requestedName)) {
             throw new McpError(ErrorCode.InvalidParams, `Unknown tool: ${requestedName}`);
