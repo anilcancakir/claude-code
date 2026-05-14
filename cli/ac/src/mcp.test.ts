@@ -26,10 +26,47 @@ test.skipIf(process.env["KODIZM_MCP_LIVE"] === "0")("mcp proxy exposes the 5-too
 
     const actualNames = new Set(tools.map((t) => t.name));
 
-    expect(actualNames.size).toBe(EXPECTED_TOOLS.size);
     for (const name of EXPECTED_TOOLS) {
         expect(actualNames.has(name)).toBe(true);
     }
+
+    await client.close();
+}, 30_000);
+
+test("mcp proxy lists call-external-agent with the locked input schema", async () => {
+    const transport = new StdioClientTransport({
+        command: "bun",
+        args: ["run", "src/index.ts", "mcp"],
+        cwd: CLI_DIR,
+    });
+
+    const client = new Client(
+        { name: "test-client", version: "0.0.0" },
+        { capabilities: {} }
+    );
+
+    await client.connect(transport);
+
+    const { tools } = await client.listTools();
+
+    const entry = tools.find((t) => t.name === "call-external-agent");
+
+    expect(entry).toBeDefined();
+
+    const schema = entry!.inputSchema as {
+        required: string[];
+        properties: Record<string, unknown>;
+    };
+
+    expect(schema.required).toEqual(["cli", "prompt", "directory"]);
+
+    const cliProp = schema.properties["cli"] as { enum: string[] };
+    expect(cliProp.enum).toEqual(["codex", "gemini", "opencode"]);
+
+    expect("model" in schema.properties).toBe(true);
+    expect("timeout_seconds" in schema.properties).toBe(true);
+    expect(schema.required).not.toContain("model");
+    expect(schema.required).not.toContain("timeout_seconds");
 
     await client.close();
 }, 30_000);

@@ -4,6 +4,7 @@ import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { CallToolRequestSchema, ErrorCode, ListToolsRequestSchema, McpError } from "@modelcontextprotocol/sdk/types.js";
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
+import { EXTERNAL_AGENT_TOOL_DEFINITION } from "./external-agent.ts";
 
 const ALLOWED: ReadonlyArray<string> = ["web-search", "web-fetch", "search-docs", "resolve-library", "code-search"];
 
@@ -40,9 +41,12 @@ export async function runMcpProxy(options: { token?: string }): Promise<void> {
         if (cachedTools === undefined) {
             await ensureRemoteConnected();
             const result = await remoteClient.listTools();
-            cachedTools = result.tools
-                .filter((t) => ALLOWED.includes(t.name))
-                .map((t) => t.name === "code-search" ? { ...t, name: "web-code-search" } : t);
+            cachedTools = [
+                ...result.tools
+                    .filter((t) => ALLOWED.includes(t.name))
+                    .map((t) => t.name === "code-search" ? { ...t, name: "web-code-search" } : t),
+                EXTERNAL_AGENT_TOOL_DEFINITION,
+            ];
         }
         return { tools: cachedTools };
     });
