@@ -1,3 +1,6 @@
+import { statSync } from "node:fs";
+import { isAbsolute } from "node:path";
+import { ErrorCode, McpError } from "@modelcontextprotocol/sdk/types.js";
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 
 export type ExternalCli = "codex" | "gemini" | "opencode";
@@ -37,6 +40,51 @@ export const EXTERNAL_AGENT_TOOL_DEFINITION: Tool = {
         required: ["cli", "prompt", "directory"],
     },
 };
+
+export interface ValidatedInputs {
+    cli: ExternalCli;
+    prompt: string;
+    directory: string;
+    model: string | undefined;
+    timeoutSeconds: number;
+}
+
+export function validateInputs(args: unknown): ValidatedInputs {
+    const a = args as Record<string, unknown>;
+
+    const cli = a["cli"];
+    if (cli !== "codex" && cli !== "gemini" && cli !== "opencode") {
+        throw new McpError(ErrorCode.InvalidParams, "cli must be one of codex|gemini|opencode");
+    }
+
+    const prompt = a["prompt"];
+    if (typeof prompt !== "string" || prompt.trim().length === 0) {
+        throw new McpError(ErrorCode.InvalidParams, "prompt must be a non-empty string");
+    }
+
+    const directory = a["directory"];
+    if (typeof directory !== "string" || !isAbsolute(directory)) {
+        throw new McpError(ErrorCode.InvalidParams, "directory must be an absolute path");
+    }
+
+    let stat;
+    try {
+        stat = statSync(directory);
+    } catch {
+        throw new McpError(ErrorCode.InvalidParams, "directory does not exist");
+    }
+    if (!stat.isDirectory()) {
+        throw new McpError(ErrorCode.InvalidParams, "directory is not a directory");
+    }
+
+    const model = typeof a["model"] === "string" && a["model"].length > 0 ? a["model"] : undefined;
+
+    const rawTimeout = a["timeout_seconds"];
+    const parsed = typeof rawTimeout === "number" ? rawTimeout : 600;
+    const timeoutSeconds = Math.min(Math.max(parsed, 10), 3600);
+
+    return { cli, prompt, directory, model, timeoutSeconds };
+}
 
 const modelSlot = (flag: string, m: string | undefined): string[] =>
     m && m.length > 0 ? [flag, m] : [];
