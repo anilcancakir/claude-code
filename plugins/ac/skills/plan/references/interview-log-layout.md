@@ -16,10 +16,15 @@ Read when writing or appending to `LOG_PATH`. The log is append-only across stag
 ## Stage 0 — Topic
 <original topic>
 
-## Stage 1 — Research Spawns
-- agent: ac:explore — brief: <one-line> — result: research/<file>.md
-- agent: ac:librarian — brief: <one-line> — result: research/<file>.md
-- agent: ac:oracle — (if spawned) brief: <one-line> — result: inline below
+## Stage 1: Codebase Survey + Research Spawns
+- directory survey: `research/00-directory-survey.md` (main agent, not delegated; lists top-level structure, language markers, project conventions, sub-projects, provisional research angles)
+- agent: `ac:explore` (reuse-focused, slot 1 of 4-7): brief <one-line>. Result `research/<file>.md`.
+- agent: `ac:explore` (topic angle, slot 2 of 4-7): brief <one-line>. Result `research/<file>.md`.
+- agent: `ac:explore` (topic angle, slot N of 4-7): brief <one-line>. Result `research/<file>.md`.
+- agent: `ac:librarian` (idiomatic-pattern verification, slot 1 of 2-3): brief <one-line>. Result `research/<file>.md`.
+- agent: `ac:librarian` (known-bugs dimension, slot 2 of 2-3): brief <one-line>. Result `research/<file>.md`.
+- agent: `ac:librarian` (OSS examples or second library, slot 3 of 2-3): brief <one-line>. Result `research/<file>.md`. Omit row when not spawned.
+- agent: `ac:oracle` (only when architecture intent): brief <one-line>. Result inline below.
 
 ## Stage 2 — Feasibility Synthesis
 <the internal synthesis from Stage 2d>
