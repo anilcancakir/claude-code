@@ -18343,33 +18343,35 @@ async function runExternalAgent(args, options) {
 }
 
 // src/mcp.ts
-var ALLOWED = ["web-search", "web-fetch", "search-docs", "resolve-library", "code-search"];
-var PUBLIC_NAMES = new Set(["web-search", "web-fetch", "search-docs", "resolve-library", "web-code-search"]);
+var DEFAULT_REMOTE_URL = "https://mcp.kodizm.com";
+var ALLOWED_REMOTE_TOOLS = new Set([
+  "web-search",
+  "web-fetch",
+  "search-docs",
+  "resolve-library",
+  "web-code-search"
+]);
 async function runMcpProxy(options) {
-  const token = options.token ?? process.env["KODIZM_MCP_TOKEN"] ?? "sosecret";
-  const url2 = process.env["KODIZM_MCP_URL"] ?? "https://ai-api.kodizm.com/mcp/public";
-  const remoteClient = new Client({ name: "ac", version: "0.1.0" }, { capabilities: {} });
-  const transport = new StreamableHTTPClientTransport(new URL(url2), {
-    requestInit: { headers: { Authorization: `Bearer ${token}` } }
-  });
+  const token = (options.token ?? process.env["KODIZM_MCP_TOKEN"] ?? "").trim();
+  const url2 = (options.url ?? process.env["KODIZM_MCP_URL"] ?? DEFAULT_REMOTE_URL).trim();
+  const remote = token === "" ? null : buildRemoteHandle(url2, token);
   let cachedTools;
-  let connectPromise;
-  const ensureRemoteConnected = () => {
-    if (connectPromise === undefined) {
-      connectPromise = remoteClient.connect(transport);
-    }
-    return connectPromise;
-  };
   const server = new Server({ name: "ac", version: "0.1.0" }, { capabilities: { tools: {} } });
   server.setRequestHandler(ListToolsRequestSchema, async () => {
-    if (cachedTools === undefined) {
-      await ensureRemoteConnected();
-      const result = await remoteClient.listTools();
-      cachedTools = [
-        ...result.tools.filter((t) => ALLOWED.includes(t.name)).map((t) => t.name === "code-search" ? { ...t, name: "web-code-search" } : t),
-        EXTERNAL_AGENT_TOOL_DEFINITION
-      ];
+    if (cachedTools !== undefined) {
+      return { tools: cachedTools };
     }
+    const remoteTools = [];
+    if (remote !== null) {
+      await remote.ensureConnected();
+      const result = await remote.client.listTools();
+      for (const tool of result.tools) {
+        if (ALLOWED_REMOTE_TOOLS.has(tool.name)) {
+          remoteTools.push(tool);
+        }
+      }
+    }
+    cachedTools = [...remoteTools, EXTERNAL_AGENT_TOOL_DEFINITION];
     return { tools: cachedTools };
   });
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
@@ -18377,32 +18379,53 @@ async function runMcpProxy(options) {
     if (requestedName === LOCAL_TOOL_NAME) {
       return runExternalAgent(request.params.arguments);
     }
-    if (!PUBLIC_NAMES.has(requestedName)) {
+    if (!ALLOWED_REMOTE_TOOLS.has(requestedName)) {
       throw new McpError(ErrorCode.InvalidParams, `Unknown tool: ${requestedName}`);
     }
-    await ensureRemoteConnected();
-    const remoteName = requestedName === "web-code-search" ? "code-search" : requestedName;
-    return remoteClient.callTool({
-      name: remoteName,
+    if (remote === null) {
+      throw new McpError(ErrorCode.InvalidRequest, "Remote MCP not configured; set KODIZM_MCP_TOKEN to enable kodizm tools.");
+    }
+    await remote.ensureConnected();
+    return remote.client.callTool({
+      name: requestedName,
       arguments: request.params.arguments
     });
   });
   const stdioTransport = new StdioServerTransport;
   await server.connect(stdioTransport);
-  process.on("SIGINT", () => {
-    killAllActiveChildren(5000).then(() => server.close()).then(() => remoteClient.close()).then(() => process.exit(0));
+  const shutdown = () => {
+    killAllActiveChildren(5000).then(() => server.close()).then(() => remote?.close()).then(() => process.exit(0));
+  };
+  process.on("SIGINT", shutdown);
+  process.on("SIGTERM", shutdown);
+}
+function buildRemoteHandle(url2, token) {
+  const client = new Client({ name: "ac", version: "0.1.0" }, { capabilities: {} });
+  const transport = new StreamableHTTPClientTransport(new URL(url2), {
+    requestInit: { headers: { Authorization: `Bearer ${token}` } }
   });
-  process.on("SIGTERM", () => {
-    killAllActiveChildren(5000).then(() => server.close()).then(() => remoteClient.close()).then(() => process.exit(0));
-  });
+  let connectPromise;
+  return {
+    client,
+    ensureConnected: () => {
+      if (connectPromise === undefined) {
+        connectPromise = client.connect(transport);
+      }
+      return connectPromise;
+    },
+    close: () => client.close()
+  };
 }
 
 // src/index.ts
 var program2 = new Command;
-program2.name("ac").description("ac CLI. Companion runtime for the ac Claude Code plugin.").version("0.1.0");
-program2.command("mcp").description("Run the ac stdio MCP server (proxies tools to kodizm).").option("--token <value>", "Override kodizm bearer token").action(async (opts) => {
-  await runMcpProxy({ token: opts.token });
+program2.name("ac").description("ac CLI. Companion runtime for the ac Claude Code plugin.").version("0.2.0");
+program2.command("mcp").description("Run the ac stdio MCP server (proxies tools to kodizm).").option("--url <value>", "Override the kodizm MCP endpoint (defaults to https://mcp.kodizm.com; " + "use http://127.0.0.1:<port>/mcp/kodizm for local dev).").option("--token <value>", "Override the kdz- bearer token (also reads KODIZM_MCP_TOKEN).").action(async (opts) => {
+  await runMcpProxy({
+    token: opts.token,
+    url: opts.url
+  });
 });
 await program2.parseAsync(process.argv);
 
-//# debugId=57BD9C453257EB7264756E2164756E21
+//# debugId=6EE3969C788C2F1B64756E2164756E21
