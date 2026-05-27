@@ -1,4 +1,7 @@
-// Live-network test: requires reachable https://ai-api.kodizm.com/mcp/public. Runs live by default; set KODIZM_MCP_LIVE=0 to opt out (e.g. in CI without egress).
+// Live-network test: requires a reachable kodizm MCP at $KODIZM_MCP_URL
+// (defaults to https://mcp.kodizm.com) authenticated by $KODIZM_MCP_TOKEN.
+// Auto-skips when KODIZM_MCP_TOKEN is unset so CI without a kdz- bearer
+// stays green; populate the env to pin the remote contract locally.
 import { test, expect } from "bun:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
@@ -7,43 +10,67 @@ import path from "node:path";
 
 const CLI_DIR = path.resolve(import.meta.dir, "..");
 
-const EXPECTED_TOOLS = new Set(["web-search", "web-fetch", "search-docs", "resolve-library", "web-code-search"]);
+const EXPECTED_TOOLS = new Set(
+    [
+        "web-search",
+        "web-fetch",
+        "search-docs",
+        "resolve-library",
+        "web-code-search",
+    ],
+);
 
-test.skipIf(process.env["KODIZM_MCP_LIVE"] === "0")("mcp proxy exposes the 5-tool surface", async () => {
-    const transport = new StdioClientTransport({
-        command: "bun",
-        args: ["run", "src/index.ts", "mcp"],
-        cwd: CLI_DIR,
-    });
+test.skipIf(!process.env["KODIZM_MCP_TOKEN"])(
+    "mcp proxy exposes the kodizm utility surface when a bearer is configured",
+    async () => {
+        // StdioClientTransport's default inherit list is HOME/PATH/SHELL/...,
+        // so KODIZM_MCP_TOKEN + KODIZM_MCP_URL must be forwarded explicitly
+        // for the spawned proxy to see them.
+        const env = Object.fromEntries(
+            Object.entries(process.env).filter((e): e is [string, string] => e[1] !== undefined),
+        );
 
-    const client = new Client(
-        { name: "test-client", version: "0.0.0" },
-        { capabilities: {} }
-    );
+        const transport = new StdioClientTransport(
+            {
+                command: "bun",
+                args: ["run", "src/index.ts", "mcp"],
+                cwd: CLI_DIR,
+                env,
+            },
+        );
 
-    await client.connect(transport);
+        const client = new Client(
+            { name: "test-client", version: "0.0.0" },
+            { capabilities: {} },
+        );
 
-    const { tools } = await client.listTools();
+        await client.connect(transport);
 
-    const actualNames = new Set(tools.map((t) => t.name));
+        const { tools } = await client.listTools();
 
-    for (const name of EXPECTED_TOOLS) {
-        expect(actualNames.has(name)).toBe(true);
-    }
+        const actualNames = new Set(tools.map((t) => t.name));
 
-    await client.close();
-}, 30_000);
+        for (const name of EXPECTED_TOOLS) {
+            expect(actualNames.has(name)).toBe(true);
+        }
+
+        await client.close();
+    },
+    30_000,
+);
 
 test("mcp proxy lists call-external-agent with the locked input schema", async () => {
-    const transport = new StdioClientTransport({
-        command: "bun",
-        args: ["run", "src/index.ts", "mcp"],
-        cwd: CLI_DIR,
-    });
+    const transport = new StdioClientTransport(
+        {
+            command: "bun",
+            args: ["run", "src/index.ts", "mcp"],
+            cwd: CLI_DIR,
+        },
+    );
 
     const client = new Client(
         { name: "test-client", version: "0.0.0" },
-        { capabilities: {} }
+        { capabilities: {} },
     );
 
     await client.connect(transport);
@@ -79,16 +106,20 @@ test("mcp proxy dispatches call-external-agent to runExternalAgent", async () =>
     // contains "codex" — that is sufficient evidence the dispatch reached runExternalAgent.
     process.env["AC_EXTERNAL_AGENT_CODEX_BIN"] = "node";
 
-    const transport = new StdioClientTransport({
-        command: "bun",
-        args: ["run", "src/index.ts", "mcp"],
-        cwd: CLI_DIR,
-        env: Object.fromEntries(Object.entries(process.env).filter((e): e is [string, string] => e[1] !== undefined)),
-    });
+    const transport = new StdioClientTransport(
+        {
+            command: "bun",
+            args: ["run", "src/index.ts", "mcp"],
+            cwd: CLI_DIR,
+            env: Object.fromEntries(
+                Object.entries(process.env).filter((e): e is [string, string] => e[1] !== undefined),
+            ),
+        },
+    );
 
     const client = new Client(
         { name: "test-client", version: "0.0.0" },
-        { capabilities: {} }
+        { capabilities: {} },
     );
 
     try {
@@ -96,10 +127,12 @@ test("mcp proxy dispatches call-external-agent to runExternalAgent", async () =>
 
         let thrown: unknown;
         try {
-            await client.callTool({
-                name: "call-external-agent",
-                arguments: { cli: "codex", prompt: "ping", directory: CLI_DIR },
-            });
+            await client.callTool(
+                {
+                    name: "call-external-agent",
+                    arguments: { cli: "codex", prompt: "ping", directory: CLI_DIR },
+                },
+            );
         } catch (err) {
             thrown = err;
         }
@@ -112,8 +145,6 @@ test("mcp proxy dispatches call-external-agent to runExternalAgent", async () =>
             expect(thrown).toBeInstanceOf(McpError);
             expect((thrown as McpError).message).toContain("codex");
         }
-        // If it resolves without throwing, the content array must be present.
-        // No assertion needed here — absence of thrown means the dispatch path succeeded.
     } finally {
         await client.close();
         if (prevBin === undefined) {
@@ -125,15 +156,17 @@ test("mcp proxy dispatches call-external-agent to runExternalAgent", async () =>
 }, 30_000);
 
 test("mcp proxy rejects call-external-agent with invalid cli", async () => {
-    const transport = new StdioClientTransport({
-        command: "bun",
-        args: ["run", "src/index.ts", "mcp"],
-        cwd: CLI_DIR,
-    });
+    const transport = new StdioClientTransport(
+        {
+            command: "bun",
+            args: ["run", "src/index.ts", "mcp"],
+            cwd: CLI_DIR,
+        },
+    );
 
     const client = new Client(
         { name: "test-client", version: "0.0.0" },
-        { capabilities: {} }
+        { capabilities: {} },
     );
 
     try {
@@ -141,19 +174,53 @@ test("mcp proxy rejects call-external-agent with invalid cli", async () => {
 
         let thrown: unknown;
         try {
-            await client.callTool({
-                name: "call-external-agent",
-                // "claude" is not a valid cli enum value; validateInputs throws McpError(InvalidParams, "cli must be one of ...")
-                arguments: { cli: "claude", prompt: "x", directory: "/tmp" },
-            });
+            await client.callTool(
+                {
+                    name: "call-external-agent",
+                    // "claude" is not a valid cli enum value; validateInputs throws McpError(InvalidParams, "cli must be one of ...")
+                    arguments: { cli: "claude", prompt: "x", directory: "/tmp" },
+                },
+            );
         } catch (err) {
             thrown = err;
         }
 
         // The MCP SDK surfaces InvalidParams as a rejected promise with McpError on the client.
-        // (Confirmed surfacing: the SDK re-raises the protocol error as McpError rather than isError: true result.)
         expect(thrown).toBeInstanceOf(McpError);
         expect((thrown as McpError).message).toContain("cli must be one of");
+    } finally {
+        await client.close();
+    }
+}, 30_000);
+
+test("mcp proxy serves only call-external-agent without a bearer token", async () => {
+    const env = Object.fromEntries(
+        Object.entries(process.env)
+            .filter((e): e is [string, string] => e[1] !== undefined)
+            .filter(([k]) => k !== "KODIZM_MCP_TOKEN"),
+    );
+
+    const transport = new StdioClientTransport(
+        {
+            command: "bun",
+            args: ["run", "src/index.ts", "mcp"],
+            cwd: CLI_DIR,
+            env,
+        },
+    );
+
+    const client = new Client(
+        { name: "test-client", version: "0.0.0" },
+        { capabilities: {} },
+    );
+
+    try {
+        await client.connect(transport);
+
+        const { tools } = await client.listTools();
+        const names = tools.map((t) => t.name);
+
+        expect(names).toEqual(["call-external-agent"]);
     } finally {
         await client.close();
     }

@@ -6,14 +6,27 @@ const program = new Command();
 program
     .name("ac")
     .description("ac CLI. Companion runtime for the ac Claude Code plugin.")
-    .version("0.1.0");
+    .version("0.2.0");
 
 program
     .command("mcp")
     .description("Run the ac stdio MCP server (proxies tools to kodizm).")
-    .option("--token <value>", "Override kodizm bearer token")
-    .action(async (opts: { token?: string }): Promise<void> => {
-        await runMcpProxy({ token: opts.token });
+    .option(
+        "--url <value>",
+        "Override the kodizm MCP endpoint (defaults to https://mcp.kodizm.com; "
+            + "use http://127.0.0.1:<port>/mcp/kodizm for local dev).",
+    )
+    .option(
+        "--token <value>",
+        "Override the kdz- bearer token (also reads KODIZM_MCP_TOKEN).",
+    )
+    .action(async (opts: { token?: string; url?: string }): Promise<void> => {
+        await runMcpProxy(
+            {
+                token: opts.token,
+                url: opts.url,
+            },
+        );
     });
 
 await program.parseAsync(process.argv);
