@@ -10,6 +10,15 @@ You are about to write or edit a prompt another Claude will execute. This skill 
 
 Skim this body, jump to the reference that matches the task, fill in the template, validate against the checklist. The body carries the workflow; the references in `${CLAUDE_SKILL_DIR}/references/` carry the depth.
 
+## Ground before you write
+
+Do not author a prompt from your own built-in knowledge alone. Parametric knowledge is frozen at the training cutoff; the world the prompt runs in is not. Two grounding passes come before the first line, every time.
+
+- **Read the actual target.** When the prompt names an existing file, agent, skill, command, or symbol, open it first with Read, Grep, Glob, or `ac:explore`. Editing an existing prompt means reading its current body and the references it points at, not recalling what it likely says. A prompt built on a guessed file shape ships the guess.
+- **Verify against fresh sources.** Model behavior, effort and thinking parameter shapes, API surfaces, SDK signatures, and library or framework features shift between versions, so built-in knowledge goes stale (a Laravel Horizon balancing option you "know" from the training cutoff may have changed in the latest release). Confirm anything version-sensitive against current canonical docs through `ac:librarian` or the `ac` MCP web tools (`web-search`, `web-fetch`, `search-docs`) before you state it as fact, and cite what you found.
+
+When your built-in knowledge disagrees with the file or a fresh source, the file and the source win.
+
 ## Decision flow
 
 Route by what you are about to produce. Each branch points at a reference for the depth.
