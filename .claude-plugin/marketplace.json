@@ -28,7 +28,7 @@
             "name": "subagent-monitor",
             "source": "./plugins/subagent-monitor",
             "description": "macOS and iTerm2 live subagent pane monitor. Displays in-process subagents as live split panes.",
-            "version": "0.1.0",
+            "version": "0.1.1",
             "author": {
                 "name": "Anilcan Cakir",
                 "email": "anilcan.cakir@gmail.com"
