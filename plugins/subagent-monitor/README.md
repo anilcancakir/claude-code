@@ -52,7 +52,7 @@ On the first `SessionStart` after installation, `scripts/bootstrap.sh` lazily
 creates a Python virtual environment under the plugin data directory:
 
 ```
-~/.claude/plugins/data/ac-subagent-monitor/venv/
+~/.claude/plugins/data/subagent-monitor-ac/venv/
 ```
 
 It installs `iterm2` and `pyobjc-framework-Cocoa` into that venv. Subsequent
@@ -67,7 +67,7 @@ subagent to confirm a pane opens.
 All mutable state lives under `${CLAUDE_PLUGIN_DATA}`, which resolves to:
 
 ```
-~/.claude/plugins/data/ac-subagent-monitor/
+~/.claude/plugins/data/subagent-monitor-ac/
 ```
 
 | Path | Purpose |
@@ -91,7 +91,7 @@ changes; a Claude Code restart is needed for monitor.py changes to take effect.
 
 ## Debug
 
-Everything is logged to `~/.claude/plugins/data/ac-subagent-monitor/debug.log`.
+Everything is logged to `~/.claude/plugins/data/subagent-monitor-ac/debug.log`.
 
 Successful operations log `OPEN/CLOSE/REAP ok`. Problems log `SPLIT failed`,
 `RESIZE/REBALANCE skipped`, `ERROR`, or `WATCHDOG`. Every monitor failure is
@@ -102,7 +102,7 @@ subagent simply runs without a pane.
 To close all open panes manually:
 
 ```sh
-~/.claude/plugins/data/ac-subagent-monitor/venv/bin/python \
+~/.claude/plugins/data/subagent-monitor-ac/venv/bin/python \
   /path/to/plugins/subagent-monitor/scripts/monitor.py close_all
 ```
 
