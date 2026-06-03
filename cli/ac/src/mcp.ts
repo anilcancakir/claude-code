@@ -8,13 +8,15 @@ import {
     ListToolsRequestSchema,
     McpError,
 } from "@modelcontextprotocol/sdk/types.js";
-import type { Tool } from "@modelcontextprotocol/sdk/types.js";
+import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
 import {
     EXTERNAL_AGENT_TOOL_DEFINITION,
     killAllActiveChildren,
     LOCAL_TOOL_NAME,
     runExternalAgent,
 } from "./external-agent.ts";
+import { LOCAL_WEB_FETCH_TOOL_DEFINITION, runLocalFetch } from "./local-fetch.ts";
+import { raceWebFetch } from "./web-fetch-race.ts";
 
 /**
  * Default kodizm MCP endpoint.
@@ -74,17 +76,23 @@ export async function runMcpProxy(options: { token?: string; url?: string }): Pr
             return { tools: cachedTools };
         }
 
-        // 1. Pull the upstream allowlisted surface only when a bearer
-        //    is configured; a token-less proxy still serves the local
-        //    call-external-agent tool by itself.
+        // 1. Token-less proxy: web-fetch is still served, but local-only via
+        //    LOCAL_WEB_FETCH_TOOL_DEFINITION. No bearer means no upstream surface,
+        //    so this is the complete catalogue.
+        if (remote === null) {
+            cachedTools = [LOCAL_WEB_FETCH_TOOL_DEFINITION, EXTERNAL_AGENT_TOOL_DEFINITION];
+            return { tools: cachedTools };
+        }
+
+        // 2. Bearer configured: pull the upstream allowlisted surface (which carries
+        //    remote's own web-fetch definition) and append the local agent tool.
+        //    Never append the local web-fetch definition here, or web-fetch duplicates.
         const remoteTools: Tool[] = [];
-        if (remote !== null) {
-            await remote.ensureConnected();
-            const result = await remote.client.listTools();
-            for (const tool of result.tools) {
-                if (ALLOWED_REMOTE_TOOLS.has(tool.name)) {
-                    remoteTools.push(tool);
-                }
+        await remote.ensureConnected();
+        const result = await remote.client.listTools();
+        for (const tool of result.tools) {
+            if (ALLOWED_REMOTE_TOOLS.has(tool.name)) {
+                remoteTools.push(tool);
             }
         }
 
@@ -98,6 +106,45 @@ export async function runMcpProxy(options: { token?: string; url?: string }): Pr
 
         if (requestedName === LOCAL_TOOL_NAME) {
             return runExternalAgent(request.params.arguments);
+        }
+
+        if (requestedName === "web-fetch") {
+            const args = request.params.arguments;
+            const rawUrl = args?.["url"];
+            const url = typeof rawUrl === "string" && rawUrl !== "" ? rawUrl : undefined;
+
+            // 1. Token-less: web-fetch is local-only. A missing/blank url is a caller error.
+            if (remote === null) {
+                if (url === undefined) {
+                    throw new McpError(ErrorCode.InvalidParams, "web-fetch requires a string url");
+                }
+                return runLocalFetch(url);
+            }
+
+            // 2. Bearer present with a usable url: race remote against the local fallback.
+            //    The 40s remote timeout exceeds the 30s race deadline yet stays under the SDK
+            //    60s default, so the SDK never pre-empts mid-race. No AbortSignal: the race
+            //    only stops waiting on remote, it never cancels it.
+            if (url !== undefined) {
+                await remote.ensureConnected();
+                return raceWebFetch({
+                    remoteCall: () => remote.client.callTool(
+                        {
+                            name: "web-fetch",
+                            arguments: request.params.arguments,
+                        },
+                        undefined,
+                        { timeout: 40_000 },
+                    ) as Promise<CallToolResult>,
+                    localFetch: () => runLocalFetch(url),
+                    triggerMs: 5_000,
+                    deadlineMs: 30_000,
+                    remoteLabel: "## Remote (kodizm)",
+                    localLabel: "## Local fetch (browser headers)",
+                });
+            }
+
+            // 3. Bearer present but no url: cannot race, fall through to plain remote passthrough.
         }
 
         if (!ALLOWED_REMOTE_TOOLS.has(requestedName)) {

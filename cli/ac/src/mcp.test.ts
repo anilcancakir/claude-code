@@ -193,7 +193,7 @@ test("mcp proxy rejects call-external-agent with invalid cli", async () => {
     }
 }, 30_000);
 
-test("mcp proxy serves only call-external-agent without a bearer token", async () => {
+test("mcp proxy serves web-fetch and call-external-agent without a bearer token", async () => {
     const env = Object.fromEntries(
         Object.entries(process.env)
             .filter((e): e is [string, string] => e[1] !== undefined)
@@ -220,7 +220,9 @@ test("mcp proxy serves only call-external-agent without a bearer token", async (
         const { tools } = await client.listTools();
         const names = tools.map((t) => t.name);
 
-        expect(names).toEqual(["call-external-agent"]);
+        expect(names).toContain("web-fetch");
+        expect(names).toContain("call-external-agent");
+        expect(names).toHaveLength(2);
     } finally {
         await client.close();
     }
