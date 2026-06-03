@@ -115,7 +115,13 @@ export function raceWebFetch<T = ReturnType<typeof setTimeout>>(
                         settle(combine(remoteState.result, result));
                         return;
                     }
-                    // Hold local; wait for remote or the deadline.
+                    if (remoteState.status === "rejected") {
+                        // Remote already failed definitively: no combine is possible and remote will
+                        // not improve, so settle local now instead of idling to the deadline.
+                        settle(localAlone(result));
+                        return;
+                    }
+                    // Remote still pending: hold local, wait for remote or the deadline.
                     localResult = result;
                 },
                 () => {
@@ -155,6 +161,12 @@ export function raceWebFetch<T = ReturnType<typeof setTimeout>>(
             (error) => {
                 remoteState = { status: "rejected", error };
                 if (done) return;
+                // Local already succeeded and was held pending remote; remote just failed
+                // definitively, so settle the held local now rather than waiting for the deadline.
+                if (localResult !== undefined) {
+                    settle(localAlone(localResult));
+                    return;
+                }
                 // Fast-rejection path: kick local now and disarm the trigger; do not idle to triggerMs.
                 if (triggerHandle !== undefined) {
                     clock.clearTimer(triggerHandle);

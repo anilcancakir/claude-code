@@ -126,12 +126,37 @@ test("scenario 2: remote rejects fast before trigger -> localFetch fires immedia
     expect(clock.armedCount).toBe(1); // only the deadline timer remains armed
 
     local.resolve(localResult());
-    await flush();
-
-    // Local held; settles only at the deadline.
-    clock.advance(1000);
     const result = await promise;
 
+    // Remote already rejected definitively, so local settles NOW without idling to the deadline.
+    expect(result.content).toEqual([
+        { type: "text", text: "LOCAL" },
+        { type: "text", text: "local-body" },
+    ]);
+    // The deadline timer was torn down at settle; no clock advance was needed.
+    expect(clock.armedCount).toBe(0);
+});
+
+test("scenario 2b: local held while remote pending, then remote rejects -> local settles immediately", async () => {
+    const clock = new FakeClock();
+    const remote = deferred<CallToolResult>();
+    const local = deferred<CallToolResult>();
+
+    const promise = raceWebFetch({
+        ...baseOpts,
+        remoteCall: () => remote.promise,
+        localFetch: () => local.promise,
+        clock,
+    });
+
+    clock.advance(100); // trigger fires, local invoked
+    local.resolve(localResult()); // local succeeds first, held pending remote
+    await flush();
+
+    remote.reject(new Error("remote boom")); // remote then fails definitively
+    const result = await promise;
+
+    // Held local settles at the moment remote is known-rejected, not at the deadline.
     expect(result.content).toEqual([
         { type: "text", text: "LOCAL" },
         { type: "text", text: "local-body" },
