@@ -124,18 +124,22 @@ export async function runMcpProxy(options: { token?: string; url?: string }): Pr
             // 2. Bearer present with a usable url: race remote against the local fallback.
             //    The 40s remote timeout exceeds the 30s race deadline yet stays under the SDK
             //    60s default, so the SDK never pre-empts mid-race. No AbortSignal: the race
-            //    only stops waiting on remote, it never cancels it.
+            //    only stops waiting on remote, it never cancels it. ensureConnected runs INSIDE
+            //    remoteCall so a connect failure becomes a remote-leg rejection the race falls
+            //    back from (local), not a thrown handler that loses the fallback entirely.
             if (url !== undefined) {
-                await remote.ensureConnected();
                 return raceWebFetch({
-                    remoteCall: () => remote.client.callTool(
-                        {
-                            name: "web-fetch",
-                            arguments: request.params.arguments,
-                        },
-                        undefined,
-                        { timeout: 40_000 },
-                    ) as Promise<CallToolResult>,
+                    remoteCall: async (): Promise<CallToolResult> => {
+                        await remote.ensureConnected();
+                        return await remote.client.callTool(
+                            {
+                                name: "web-fetch",
+                                arguments: request.params.arguments,
+                            },
+                            undefined,
+                            { timeout: 40_000 },
+                        ) as CallToolResult;
+                    },
                     localFetch: () => runLocalFetch(url),
                     triggerMs: 5_000,
                     deadlineMs: 30_000,

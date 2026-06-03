@@ -36571,12 +36571,14 @@ async function runMcpProxy(options) {
         return runLocalFetch(url3);
       }
       if (url3 !== undefined) {
-        await remote.ensureConnected();
         return raceWebFetch({
-          remoteCall: () => remote.client.callTool({
-            name: "web-fetch",
-            arguments: request.params.arguments
-          }, undefined, { timeout: 40000 }),
+          remoteCall: async () => {
+            await remote.ensureConnected();
+            return await remote.client.callTool({
+              name: "web-fetch",
+              arguments: request.params.arguments
+            }, undefined, { timeout: 40000 });
+          },
           localFetch: () => runLocalFetch(url3),
           triggerMs: 5000,
           deadlineMs: 30000,
@@ -36634,4 +36636,4 @@ program2.command("mcp").description("Run the ac stdio MCP server (proxies tools 
 });
 await program2.parseAsync(process.argv);
 
-//# debugId=663128D1C79A7F5F64756E2164756E21
+//# debugId=E9446D0D79BC457464756E2164756E21
