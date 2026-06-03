@@ -15,13 +15,14 @@ import type { Plugin } from "@opencode-ai/plugin"
  * name, and `chat.params` (which does) fires after the transform within the same request, so any
  * session-to-agent map is one request stale. Instead the gate reads the leading system block:
  *
- * - Provider base prompts open with "You are opencode" (anthropic.txt and siblings): inject.
+ * - Provider base prompts open with "You are opencode" in varying capitalization ("You are
+ *   OpenCode" for the OpenAI-compat prompt, "You are opencode" for the Anthropic one): inject.
  * - Our subagent bodies (`opencode/agents/*.md`) open with "## Identity": no match, skip.
  * - Internal helpers open differently ("You are a title generator", summary, compaction): skip.
  */
 const OVERLAY_PATH = join(homedir(), "Code", "claude-code", "opencode", "append-prompt.md")
 
-const PROVIDER_PROMPT_SIGNATURE = "You are opencode"
+const PROVIDER_PROMPT_SIGNATURE = "you are opencode"
 
 let cachedOverlay: string | null = null
 
@@ -59,7 +60,7 @@ export const AppendSystemPlugin: Plugin = async () => {
       // 1. Only requests running on the provider base prompt are main-thread turns.
       const head = output.system[0] ?? ""
 
-      if (!head.startsWith(PROVIDER_PROMPT_SIGNATURE)) {
+      if (!head.toLowerCase().startsWith(PROVIDER_PROMPT_SIGNATURE)) {
         return
       }
 
