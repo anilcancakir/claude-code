@@ -272,4 +272,4 @@ The matching syntax is gitignore-style. The loader drops `/**` suffixes (the ign
 - **No type-checking of frontmatter.** Invalid fields are silently ignored or trigger a debug log; they do not stop the skill from loading.
 - **No magic when triggering.** The model decides; the runtime delivers. If the description is weak, the skill stays cold.
 - **No `${CLAUDE_SKILL_DIR}` substitution for MCP skills.** MCP-loaded skills are remote; the substitution is meaningless and shell injection is skipped entirely.
-- **No silent generalization of rules across sections.** Opus 4.7 takes instructions literally, the body must state scope explicitly.
+- **No silent generalization of rules across sections.** Opus 4.8 takes instructions literally, the body must state scope explicitly.

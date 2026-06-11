@@ -74,7 +74,7 @@ when_to_use: ...
 # agent: Explore                                              # subagent type when forked (Explore | Plan | general-purpose | <custom>)
 # paths:                                                      # path-conditional activation (polyglot repos)
 #   - "lib/**/*.dart"
-# model: claude-opus-4-7                                      # override session model for this skill's run
+# model: claude-opus-4-8                                      # override session model for this skill's run
 # effort: high                                                # override session effort (low | medium | high | xhigh | max)
 # hooks:                                                      # skill-scoped deterministic enforcement
 #   PreToolUse: ...

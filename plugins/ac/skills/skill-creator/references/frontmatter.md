@@ -174,7 +174,7 @@ Pattern syntax mirrors `/permissions`:
 Override the active model while the skill runs. Same values as `/model`, plus `inherit` (no override).
 
 ```yaml
-model: claude-opus-4-7
+model: claude-opus-4-8
 # or
 model: claude-sonnet-4-6
 # or
@@ -191,7 +191,7 @@ Override the active effort level while the skill runs. Options depend on the mod
 effort: high
 ```
 
-Use when the skill needs a different reasoning budget than the session default, a complex audit skill at `high`, a quick formatter skill at `low`. Most skills inherit fine. Detail on effort tuning: `${CLAUDE_SKILL_DIR}/references/opus-4-7-tuning.md`.
+Use when the skill needs a different reasoning budget than the session default, a complex audit skill at `high`, a quick formatter skill at `low`. Most skills inherit fine. Detail on effort tuning: `${CLAUDE_SKILL_DIR}/references/opus-4-8-tuning.md`.
 
 ## `context`
 
