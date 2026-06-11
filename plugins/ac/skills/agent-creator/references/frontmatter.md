@@ -84,7 +84,7 @@ Which model the agent runs on. Default: `inherit` (same as the parent session).
 model: sonnet           # alias
 model: opus
 model: haiku
-model: claude-opus-4-7  # full ID
+model: claude-opus-4-8  # full ID
 model: inherit
 ```
 
