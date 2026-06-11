@@ -1,5 +1,5 @@
 ---
-description: Interactive planner for Claude Code main thread (Opus 4.7). Spawns parallel research via ac:explore, ac:librarian, optionally ac:oracle. Reads referenced files itself. Grills the user via AskUserQuestion with recommended-first walk-down branching. Audits the plan for reuse, quality, and efficiency before writing. Writes a tier-assigned plan to .ac/plans/<slug>/plan.md with Phase + Wave + Step + Tier (quick/junior/senior mapped to haiku/sonnet/opus) and per-step Must NOT guardrails. Accepts a free-form topic or a .ac/tasks/*.yaml file. Planning only; execute phase comes later. Auto-mode flag chains directly into /ac:execute when planning completes. Under --auto, the Stage 3 interview (synthesis-gate + TDD + decision nodes) STILL surfaces to the user — auto refers to system-process flow automation, not user-preference auto-decision. Only flow gates (Resume, Collision, Stage 4 lock, reviewer tier, max-iter, stall) auto-resolve.
+description: Interactive planner for Claude Code main thread (Opus 4.8). Spawns parallel research via ac:explore, ac:librarian, optionally ac:oracle. Reads referenced files itself. Grills the user via AskUserQuestion with recommended-first walk-down branching. Audits the plan for reuse, quality, and efficiency before writing. Writes a tier-assigned plan to .ac/plans/<slug>/plan.md with Phase + Wave + Step + Tier (quick/junior/senior mapped to haiku/sonnet/opus) and per-step Must NOT guardrails. Accepts a free-form topic or a .ac/tasks/*.yaml file. Planning only; execute phase comes later. Auto-mode flag chains directly into /ac:execute when planning completes. Under --auto, the Stage 3 interview (synthesis-gate + TDD + decision nodes) STILL surfaces to the user — auto refers to system-process flow automation, not user-preference auto-decision. Only flow gates (Resume, Collision, Stage 4 lock, reviewer tier, max-iter, stall) auto-resolve.
 when_to_use: Before non-trivial implementation work that crosses files or modules. Triggers on /ac:plan, "plan this", "let's plan X", "make a plan for Y", "grill me on this design", or when the user provides a .ac/tasks/*.yaml task definition. Use proactively for cross-module changes and refactors. Pair with /ac:execute for end-to-end auto-mode runs. Undertriggering is the failure mode for planning quality.
 argument-hint: [--auto] <topic description | .ac/tasks/*.yaml>
 effort: max
@@ -7,7 +7,7 @@ effort: max
 
 # /ac:plan
 
-Interactive planner that runs entirely on the main thread (Opus 4.7). Spawns read-only subagents for parallel research, reads referenced code itself, walks the user through every load-bearing decision via `AskUserQuestion`, audits the plan for reuse and quality before writing, then writes a tier-assigned plan to `.ac/plans/<slug>/plan.md`.
+Interactive planner that runs entirely on the main thread (Opus 4.8). Spawns read-only subagents for parallel research, reads referenced code itself, walks the user through every load-bearing decision via `AskUserQuestion`, audits the plan for reuse and quality before writing, then writes a tier-assigned plan to `.ac/plans/<slug>/plan.md`.
 
 Request: $ARGUMENTS
 
@@ -100,15 +100,7 @@ Then register the pipeline as a TaskCreate task list so the user sees progress i
 
 ```
 TaskCreate({ subject: "Stage 0: Setup", description: "Parse args, derive slug, mkdir, gitignore, collision check", activeForm: "Setting up" });
-// Repeat sequentially for the remaining stages in this exact order:
-//   Stage 1: Codebase Survey + Parallel Research (activeForm: "Surveying + researching")
-//   Stage 2: Main-Agent Deep Read     (activeForm: "Reading referenced code")
-//   Stage 3: Grill-me Interview       (activeForm: "Walking decision tree with user")
-//   Stage 3.5: Oracle Sanity Check    (activeForm: "Evaluating oracle triggers")
-//   Stage 4: Synthesis Preview        (activeForm: "Confirming locked synthesis")
-//   Stage 5: Plan Write               (activeForm: "Writing plan.md")
-//   Stage 5.5: Independent Review     (activeForm: "Spawning reviewer subagent")
-//   Stage 6: Deliver                  (activeForm: "Delivering summary")
+// Repeat sequentially for Stage 1 through Stage 6, matching the subject/description to each stage header below.
 ```
 
 Update each task to `in_progress` via TaskUpdate on stage entry and to `completed` on verified exit. On Stage 3 entry, the activeForm may switch dynamically as the interview progresses through individual nodes (`activeForm: "Asking node 3 of 7"`, etc.).
@@ -751,19 +743,13 @@ When `AUTO_MODE = false`: do NOT invoke `/ac:execute` automatically. The user re
 </error_handling>
 
 <reminders>
-End-of-prompt restatement of the rules that matter most for plan quality:
+Failure-mode anchors for plan quality:
 
-- Read referenced files yourself. Subagent reports are candidate lists; decisions follow from code you have read.
-- Apply the Stage 3b routing rule before every `AskUserQuestion`. Code-answerable and docs-answerable questions never reach the user.
-- Reuse-vs-build bias: the existing option is the recommended choice unless research clearly contradicts.
-- Every load-bearing decision is locked, deferred, or risk-accepted. The plan file contains zero open questions.
-- The plan file is LLM-target structured markdown. No prose flourish. Field labels parsable. file_path:line_number concrete. Shape lives at `${CLAUDE_SKILL_DIR}/references/plan-template.md`.
-- Tier write-style: just enough detail for the assigned model to act. Line-by-line prescription is a sign the tier is wrong or the work is migrating into the plan.
-- Stage 5.5 is an independent subagent review after write (the only audit pass; the planner's in-context self-audit was removed because the fresh-context reviewer at Stage 5.5 caught everything the in-context audit did and more).
-- Stage 5.5 reviewer receives only the plan file path; it has no other context. Revise on REJECT via `Edit`, not re-`Write`.
+- Read referenced files yourself before any decision. Subagent reports are candidate lists, not decisions.
+- Apply the Stage 3b routing rule before every `AskUserQuestion`; code-answerable and docs-answerable questions never reach the user.
+- Every load-bearing decision is locked, deferred, or risk-accepted. Zero open questions in the plan file.
+- Tier write-style: just enough detail for the assigned model to act. Line-by-line prescription is a sign the tier is wrong.
+- Stage 5.5 reviewer receives only the plan file path. Revise on REJECT via `Edit`, not re-`Write`.
 - TaskUpdate as you enter and complete each stage. CC's native progress UI relies on it.
-- Do not auto-invoke `/ac:execute` when `AUTO_MODE = false`. The user reviews the plan, then runs `/ac:execute <slug>` themselves.
-- Auto mode: when `AUTO_MODE = true` (set by `--auto` flag at Stage 0a OR by the Stage 4 `Lock all and run on auto mode` option), three categories of `AskUserQuestion` call sites behave differently. (a) Auto-eligible (Resume?, Collision, Stage 3d Stalled, Stage 4 Lock-all, Stage 5.5b Reviewer tier, max-iter, stall): auto-resolved by picking `(Recommended)` + per-node heartbeat. (b) Interview-surface (Stage 3a Proceed?, 3b.1 TDD?, 3c decision-tree nodes): STILL SURFACE to the user — auto refers to flow automation, not user-preference auto-decision. (c) BLOCKER (Stage 3.5 Oracle CRITICAL finding; Stage 5 write fails twice; subagent malformed-output twice): always surface to the user. At Stage 6, AUTO_MODE chains into `/ac:execute --auto <slug>` by invoking the `ac:execute` skill via the `Skill` tool with `args: "<slug> --auto"`, continuing the run in the same turn.
-- Stage 3.5 Oracle Sanity Check runs after Stage 3 interview when at least one of four triggers fires (security-critical surface, composable framework-API pattern, conflicting research signals, destructive migration). Spawns ONE `ac:oracle` with the trigger-matched brief; findings inline into Stage 4 preview. CRITICAL findings flip a BLOCKER even in auto mode; IMPORTANT findings are advisory.
-- Plan collision in auto mode picks `Append suffix` (NOT `Overwrite`) per the librarian-identified anti-pattern; auto mode prefers preservation over silent destruction.
+- Do not invoke `/ac:execute` when `AUTO_MODE = false`. The user reviews the plan first.
 </reminders>

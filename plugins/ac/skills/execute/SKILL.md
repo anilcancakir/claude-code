@@ -1,5 +1,5 @@
 ---
-description: Executor for plans approved by /ac:plan. Runs entirely on the main thread (Opus 4.7) with an auto-continue policy: wave-by-wave loop until the plan is complete, no schedule/wakeup polling. Spawns tier-routed worker subagents (ac:plan-worker-quick → haiku, ac:plan-worker-junior → sonnet, ac:plan-worker-senior → opus). Per-step 4-layer verification (Automated + Manual Code Review + Hands-on QA + Plan state) by the main thread. Wave-after checkpoint commits for complex plans. Final code-review by ac:plan-code-review (standard 4-stage) or ac:plan-code-deep-review (complex 6-stage) plus ac:oracle in parallel (complex only, --no-oracle opt-out). TDD enforcement when the plan's Conventions say so. Targets 0-iter quality with max-5 + stall revision loop.
+description: Executor for plans approved by /ac:plan. Runs entirely on the main thread (Opus 4.8) with an auto-continue policy: wave-by-wave loop until the plan is complete, no schedule/wakeup polling. Spawns tier-routed worker subagents (ac:plan-worker-quick → haiku, ac:plan-worker-junior → sonnet, ac:plan-worker-senior → opus). Per-step 4-layer verification (Automated + Manual Code Review + Hands-on QA + Plan state) by the main thread. Wave-after checkpoint commits for complex plans. Final code-review by ac:plan-code-review (standard 4-stage) or ac:plan-code-deep-review (complex 6-stage) plus ac:oracle in parallel (complex only, --no-oracle opt-out). TDD enforcement when the plan's Conventions say so. Targets 0-iter quality with max-5 + stall revision loop.
 when_to_use: After /ac:plan produces a plan file the user wants executed. Triggers on /ac:execute <slug>, "run the plan", "execute this", or when /ac:plan in auto mode chains directly into this skill at Stage 6a. Accepts a plan slug or a full path to plan.md. Pair with /ac:plan for end-to-end auto-mode runs.
 argument-hint: <plan-slug | .ac/plans/<slug>/plan.md> [--auto] [--no-oracle] [--no-checkpoint-commits]
 effort: max
@@ -41,9 +41,9 @@ Subagent envelope reminder: subagents are separate HTTP calls with their own sys
 </capabilities>
 
 <constraints>
-- Auto-continue policy: NEVER ask the user "should I continue", "proceed to next step?", or any approval-style question between verified steps. Loop until the plan is complete. Only pause for genuine blockers: 3-strike verification failure, code-review stall, or a step the plan declares impossible to execute.
-- Verbatim discipline: when constructing a worker briefing, copy the step's `Description`, `Files`, `Done when`, `QA`, and `Must NOT` fields VERBATIM from the plan. Paraphrasing silently flips opt-in/opt-out and is the most common worker failure mode.
-- Per-step verification is 4-layer and mandatory on every step: A) Automated, B) Manual Code Review (NON-NEGOTIABLE — read every changed file), C) Hands-on QA when the step's QA field specifies a tool, D) Plan state (read plan file, count remaining checkboxes).
+- Auto-continue policy: do not ask the user "should I continue", "proceed to next step?", or any approval-style question between verified steps. Loop until the plan is complete. Only pause for genuine blockers: 3-strike verification failure, code-review stall, or a step the plan declares impossible to execute.
+- Verbatim discipline: when constructing a worker briefing, copy the step's `Description`, `Files`, `Done when`, `QA`, and `Must NOT` fields verbatim from the plan. Paraphrasing silently flips opt-in/opt-out and is the most common worker failure mode.
+- Per-step verification is 4-layer and applies to every step: A) Automated, B) Manual Code Review (read every changed file — do not skip), C) Hands-on QA when the step's QA field specifies a tool, D) Plan state (read plan file, count remaining checkboxes).
 - TDD enforcement: read the plan's `## Codebase Conventions` → `**TDD**` field. The value is one of `tdd`, `tests-after`, or `none`. Inject the matching directive into every worker briefing (see the worker briefing template's MUST DO section in Phase 2b for the three exact phrasings). Default to `none` when the field is missing.
 - Wave-after commits: complex plans only, via `/ac:commit --skip-preflight --no-push` after each wave's verification passes. Standard and simple plans get a single final commit at Phase 4. `--no-checkpoint-commits` flag disables all wave-after commits.
 - Final commit always (Phase 4): `/ac:commit --skip-preflight`. `--skip-preflight` because per-step verification + Phase 3 code-review already covered the verification ground.
@@ -123,7 +123,7 @@ Map each step's `Tier:` to a subagent and model:
 |---|---|---|---|
 | `quick` | `ac:plan-worker-quick` | `claude-haiku-4-5-20251001` | low |
 | `junior` | `ac:plan-worker-junior` | `claude-sonnet-4-6` | medium |
-| `senior` | `ac:plan-worker-senior` | `claude-opus-4-7` | high |
+| `senior` | `ac:plan-worker-senior` | `claude-opus-4-8` | high |
 
 ### 1d. Codebase state escalation
 
@@ -233,7 +233,7 @@ Workers run foreground (`run_in_background: false` implicit). The orchestrator w
 
 TaskUpdate each step to `in_progress` immediately after spawning its worker.
 
-### 2d. Per-step verification (4-layer, MANDATORY)
+### 2d. Per-step verification (4-layer, applies to every step)
 
 For each completed worker, run all four layers in order. You are the QA gate. Subagents lie. Automated checks alone are NOT enough.
 
@@ -254,7 +254,7 @@ For each completed worker, run all four layers in order. You are the QA gate. Su
 2. Run the project's build command (from `RUNTIME_CONTEXT` or `CLAUDE.md`). Exit code 0 required. For sub-project layouts: use the sub-project's `package.json` scripts (`bun run build` / `npm run build` / etc.) inside the sub-project dir.
 3. Run the project's test command. All tests pass required. Pre-existing failures unrelated to the step are noted, not blocking. For sub-project layouts: use the sub-project's test command (`bun test` / `npm test` / etc.) inside the sub-project dir.
 
-**Layer B: Manual Code Review (NON-NEGOTIABLE — DO NOT SKIP)**
+**Layer B: Manual Code Review (read every changed file — do not skip)**
 
 This is the layer you are most tempted to skip. Do not skip it.
 
@@ -568,16 +568,10 @@ TaskUpdate Phase 4 to `completed`. End the turn.
 
 ## Reminders
 
-End-of-prompt restatement of the rules that matter most for execution:
+Failure-mode anchors for execution:
 
-- Auto-continue between steps and waves. The user did not ask you for permission to do each step; they asked you to execute the plan.
-- Per-step Manual Code Review is non-negotiable. Read every changed file. If you cannot explain what changed, you have not reviewed it.
-- Verbatim discipline on worker briefings (template at `${CLAUDE_SKILL_DIR}/references/worker-briefing-template.md`). Paraphrasing the plan's fields silently inverts opt-in/opt-out and is the most common worker failure mode.
-- TDD mode is one of `tdd` / `tests-after` / `none`. Inject the matching directive into every worker briefing; do not invent a fourth mode.
-- Wave-after checkpoint commits for complex plans only; final commit always.
-- Subagents are tier-routed: `quick` → `ac:plan-worker-quick` (haiku), `junior` → `ac:plan-worker-junior` (sonnet), `senior` → `ac:plan-worker-senior` (opus). Codebase state legacy/chaotic escalates `quick` → `junior` in routing only.
-- Final code-review is the gate to Phase 4. Standard plans run `ac:plan-code-review` only; complex plans run `ac:plan-code-deep-review` plus `ac:oracle` in parallel (opt out with `--no-oracle`).
-- Phase 3 revision loop targets 0 iter (workers produce correct output first time) with max-5 hard cap + stall detection on `CODE_REVIEW_PREV_ISSUES`; 3-strike rule on Phase 2 step failures (`STEP_FAILURE_COUNT`). Different counters for different scopes; do not conflate.
-- TaskUpdate as you enter and exit each step / phase. CC's native progress UI relies on it.
-- Auto mode: when `AUTO_MODE = true` (set by `--auto` flag in Phase 1a OR inherited from `/ac:plan` Stage 6a auto-mode chain via the Skill tool), auto-eligible `AskUserQuestion` calls (Phase 2a Execute, Phase 3d max-iter, Phase 3d stall) auto-pick `(Recommended)` and emit a one-line status. BLOCKER call sites (Phase 2i dep-failed, Phase 2j 3-strike, Phase 3d step 6 plan-spec issue, error-handling halts) always surface to the user even in auto mode; the BLOCKER halt message names the class and why.
-- Auto mode does NOT disable per-step verification, wave-after commits, or final code-review. It auto-resolves preference / confirmation questions only; substantive verification stays intact.
+- Auto-continue between steps and waves; do not ask for approval between verified steps.
+- Read every changed file in Layer B (Manual Code Review). Skipping it is the most common quality miss.
+- Copy worker briefing fields verbatim from the plan. Paraphrasing inverts opt-in/opt-out.
+- Inject `TDD_MODE` directive into every worker briefing (`tdd` / `tests-after` / `none`).
+- TaskUpdate each step and phase on entry and exit; the progress UI relies on it.
