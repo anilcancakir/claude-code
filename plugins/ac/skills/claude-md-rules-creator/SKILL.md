@@ -8,7 +8,7 @@ when_to_use: Authoring, editing, or auditing any CLAUDE.md, CLAUDE.local.md, or 
 
 You are about to write or edit a CLAUDE.md, CLAUDE.local.md, or `.claude/rules/*.md` file. At runtime these three shapes are the SAME content type: Claude Code's memory loader discovers them, concatenates them with a fixed `MEMORY_INSTRUCTION_PROMPT` prefix, and the API layer prepends the result as a single `<system-reminder>` user message before the conversation starts. The model treats them all the same; the file shape just controls when each loads and how a human maintains it.
 
-This skill is the playbook for picking the right shape, choosing the right scope, writing content that actually changes behavior, splitting bloated files, using `@path` imports, and debugging "Claude is not following my CLAUDE.md". Target is Opus 4.7. Same rules work for Sonnet 4.6 and Haiku 4.5 with lower effort levels.
+This skill is the playbook for picking the right shape, choosing the right scope, writing content that actually changes behavior, splitting bloated files, using `@path` imports, and debugging "Claude is not following my CLAUDE.md". Target is Opus 4.8. Same rules work for Sonnet 4.6 and Haiku 4.5 with lower effort levels.
 
 ## Three jobs, not one
 
@@ -16,7 +16,7 @@ Writing a CLAUDE.md or rule splits into three tasks. Conflating them is the most
 
 1. **Surrounding skill shape.** None. CLAUDE.md and `.claude/rules/*.md` are not skills, not commands, not agents. They are plain markdown files the memory loader picks up. No frontmatter fields apply except `paths:` (only on `.claude/rules/*.md`). Route through `ac:skill-creator` ONLY if you are wrapping CLAUDE.md authoring inside a custom slash command or skill.
 2. **CLAUDE.md / rule shape.** Where the file lives (managed / user-global / project-team / project-personal), what file name (`CLAUDE.md` / `CLAUDE.local.md` / `.claude/rules/<topic>.md`), `paths:` frontmatter for rules, `@path` imports, HTML comments. This file teaches that.
-3. **Body content.** The markdown text the model reads. This is a standing instruction set, a prompt at runtime. Route through `ac:prompt-writer` for prompt architecture, snippets, and Opus 4.7 tuning.
+3. **Body content.** The markdown text the model reads. This is a standing instruction set, a prompt at runtime. Route through `ac:prompt-writer` for prompt architecture, snippets, and Opus 4.8 tuning.
 
 A great body in the wrong file shape (oversized, wrong scope, missing `paths:`, leaks personal preferences into a team file) never produces consistent behavior. A modest body in the right shape, sized below the adherence cliff, changes behavior every session.
 

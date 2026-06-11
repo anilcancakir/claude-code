@@ -1,6 +1,6 @@
 ---
 name: command-creator
-description: Authors Claude Code slash commands (`/name [args]` markdown files at `.claude/commands/<name>.md` or `<plugin>/commands/<name>.md`, plus the equivalent `.claude/skills/<name>/SKILL.md` directory format). Use whenever a new slash command is being designed, an existing command is being edited, an argument-driven workflow is being captured, shell injection is being added to gather live context (git diff, PR data, env), multi-phase command bodies are being structured, `argument-hint` and `arguments` frontmatter are being chosen, approval gates with AskUserQuestion are being inserted before destructive actions, or a command that fires the wrong way is being debugged. Triggers on "create a slash command", "build a /command", "add a plugin command", "make a /pr-summary", "write a command body", "shell injection in command", "argument design for command", "fix this command". Use even when the user does not say the word "command" but is asking for `/name` invocation with arguments, a side-effect workflow, or a context-gathering recipe. Pair with `ac:skill-creator` for the surrounding skill shape (frontmatter, scope, invocation control, bundling) and `ac:prompt-writer` for the body content. Target is Opus 4.7; Sonnet 4.6 follows the same shape at lower effort. Undertriggering is the failure mode, lean in when the request implies a slash command.
+description: Authors Claude Code slash commands (`/name [args]` markdown files at `.claude/commands/<name>.md` or `<plugin>/commands/<name>.md`, plus the equivalent `.claude/skills/<name>/SKILL.md` directory format). Use whenever a new slash command is being designed, an existing command is being edited, an argument-driven workflow is being captured, shell injection is being added to gather live context (git diff, PR data, env), multi-phase command bodies are being structured, `argument-hint` and `arguments` frontmatter are being chosen, approval gates with AskUserQuestion are being inserted before destructive actions, or a command that fires the wrong way is being debugged. Triggers on "create a slash command", "build a /command", "add a plugin command", "make a /pr-summary", "write a command body", "shell injection in command", "argument design for command", "fix this command". Use even when the user does not say the word "command" but is asking for `/name` invocation with arguments, a side-effect workflow, or a context-gathering recipe. Pair with `ac:skill-creator` for the surrounding skill shape (frontmatter, scope, invocation control, bundling) and `ac:prompt-writer` for the body content. Target is Opus 4.8; Sonnet 4.6 follows the same shape at lower effort. Undertriggering is the failure mode, lean in when the request implies a slash command.
 when_to_use: Creating, editing, auditing, or debugging any Claude Code slash command (markdown file under `commands/` or skill-directory at `skills/<name>/SKILL.md`).
 disable-model-invocation: true
 ---
@@ -9,7 +9,7 @@ disable-model-invocation: true
 
 You are about to write or edit a Claude Code slash command another Claude will execute. A command is a markdown file that becomes a `/name` invocation: when the user types `/foo bar baz`, Claude Code reads the file, substitutes `&#36;ARGUMENTS` with `bar baz`, runs shell injection blocks, and injects the resulting prompt as a single user message. The model then executes the body as the next turn.
 
-This skill is the playbook for designing arguments, shell-injection-driven context gathering, phase-based body structure, approval gates, and the storage-format choice. Target is Opus 4.7. The same shape works for Sonnet 4.6 and Haiku 4.5 at lower effort levels.
+This skill is the playbook for designing arguments, shell-injection-driven context gathering, phase-based body structure, approval gates, and the storage-format choice. Target is Opus 4.8. The same shape works for Sonnet 4.6 and Haiku 4.5 at lower effort levels.
 
 ## Three jobs, not one
 
@@ -17,7 +17,7 @@ Writing a slash command splits into three tasks. Conflating them is the most com
 
 1. **Surrounding skill shape.** Frontmatter fields, scope (project/user/plugin/managed), invocation control (`disable-model-invocation`, `user-invocable`), `paths:`, `allowed-tools`, `model`, `effort`. Same rules as any skill. Route through `ac:skill-creator` (its body, references, and pre-flight checklist all apply).
 2. **Command-specific shape.** Argument design, shell injection for context gathering, phase-based body structure, approval gates, storage format (flat `.md` vs skill-directory). This file teaches that.
-3. **Body content.** The markdown the model reads when the command fires. This is a prompt. Route through `ac:prompt-writer` (architecture, snippets, anti-patterns, Opus 4.7 tuning).
+3. **Body content.** The markdown the model reads when the command fires. This is a prompt. Route through `ac:prompt-writer` (architecture, snippets, anti-patterns, Opus 4.8 tuning).
 
 A great command body in the wrong shape never gets used. A modest body in the right shape with crisp arguments and well-placed approval gates gets used every day.
 
@@ -265,7 +265,7 @@ Body structure follows the phase template above. For each phase, write the Goal,
 
 The body is a prompt. Hand it off to `/ac:prompt-writer` for architecture, snippets, and anti-patterns.
 
-Skill-creator's body conventions also apply: persona at top if relevant, success criteria per step, end-of-prompt reminders for the top constraints, no aggressive caps (state the rule plain and explain the why), Opus 4.7 takes instructions literally so state scope explicitly.
+Skill-creator's body conventions also apply: persona at top if relevant, success criteria per step, end-of-prompt reminders for the top constraints, no aggressive caps (state the rule plain and explain the why), Opus 4.8 takes instructions literally so state scope explicitly.
 
 > **Repeat the shell-injection footgun warning here**: if your body contains documentation examples showing the syntax, escape the bang as `\!` to keep the preprocessor from executing them on every invocation. Live usage of injection (the real thing) takes a plain `!`.
 

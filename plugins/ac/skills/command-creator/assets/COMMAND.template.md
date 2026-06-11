@@ -84,7 +84,7 @@ when_to_use: ...
 # allowed-tools: Bash(gh pr view:*) Read Grep      # body chains tool calls you want pre-approved (narrow patterns only)
 # context: fork                                    # body is a bounded actionable task, run isolated
 # agent: Explore                                   # subagent type when forked (Explore | Plan | general-purpose | <custom>)
-# model: claude-opus-4-7                           # override session model for this command's run
+# model: claude-opus-4-8                           # override session model for this command's run
 # effort: high                                     # override session effort (low | medium | high | xhigh | max)
 # shell: bash                                      # default; powershell on Windows when CLAUDE_CODE_USE_POWERSHELL_TOOL=1
 # version: "0.1.0"                                 # free-form bookkeeping
