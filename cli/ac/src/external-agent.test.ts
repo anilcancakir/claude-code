@@ -92,22 +92,22 @@ test("buildArgv codex respects AC_EXTERNAL_AGENT_CODEX_BIN env override", () => 
 // validateInputs — happy paths
 
 test("validateInputs happy path minimal", () => {
-    const result = validateInputs({ cli: "codex", prompt: "hi", directory: "/Users/anilcan" });
+    const result = validateInputs({ cli: "codex", prompt: "hi", directory: "/tmp" });
     expect(result).toEqual({
         cli: "codex",
         prompt: "hi",
-        directory: "/Users/anilcan",
+        directory: "/tmp",
         model: undefined,
         timeoutSeconds: 600,
     });
 });
 
 test("validateInputs happy path with model and timeout", () => {
-    const result = validateInputs({ cli: "gemini", prompt: "hi", directory: "/Users/anilcan", model: "pro", timeout_seconds: 120 });
+    const result = validateInputs({ cli: "gemini", prompt: "hi", directory: "/tmp", model: "pro", timeout_seconds: 120 });
     expect(result).toEqual({
         cli: "gemini",
         prompt: "hi",
-        directory: "/Users/anilcan",
+        directory: "/tmp",
         model: "pro",
         timeoutSeconds: 120,
     });
@@ -116,9 +116,9 @@ test("validateInputs happy path with model and timeout", () => {
 // validateInputs — rejection cases
 
 test("validateInputs rejects missing cli", () => {
-    expect(() => validateInputs({ prompt: "hi", directory: "/Users/anilcan" })).toThrow(McpError);
+    expect(() => validateInputs({ prompt: "hi", directory: "/tmp" })).toThrow(McpError);
     try {
-        validateInputs({ prompt: "hi", directory: "/Users/anilcan" });
+        validateInputs({ prompt: "hi", directory: "/tmp" });
     } catch (err) {
         expect(err).toBeInstanceOf(McpError);
         expect((err as McpError).code).toBe(-32602);
@@ -126,11 +126,11 @@ test("validateInputs rejects missing cli", () => {
 });
 
 test("validateInputs rejects invalid cli", () => {
-    expect(() => validateInputs({ cli: "claude", prompt: "hi", directory: "/Users/anilcan" })).toThrow(McpError);
+    expect(() => validateInputs({ cli: "claude", prompt: "hi", directory: "/tmp" })).toThrow(McpError);
 });
 
 test("validateInputs rejects empty prompt", () => {
-    expect(() => validateInputs({ cli: "codex", prompt: "  ", directory: "/Users/anilcan" })).toThrow(McpError);
+    expect(() => validateInputs({ cli: "codex", prompt: "  ", directory: "/tmp" })).toThrow(McpError);
 });
 
 test("validateInputs rejects relative directory", () => {
@@ -167,10 +167,10 @@ test("validateInputs rejects file path that is not a directory", () => {
 });
 
 test("validateInputs clamps timeout to min and max", () => {
-    const low = validateInputs({ cli: "codex", prompt: "hi", directory: "/Users/anilcan", timeout_seconds: 5 });
+    const low = validateInputs({ cli: "codex", prompt: "hi", directory: "/tmp", timeout_seconds: 5 });
     expect(low.timeoutSeconds).toBe(10);
 
-    const high = validateInputs({ cli: "codex", prompt: "hi", directory: "/Users/anilcan", timeout_seconds: 10000 });
+    const high = validateInputs({ cli: "codex", prompt: "hi", directory: "/tmp", timeout_seconds: 10000 });
     expect(high.timeoutSeconds).toBe(3600);
 });
 
