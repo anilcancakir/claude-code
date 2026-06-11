@@ -332,6 +332,6 @@ Source: https://docs.claude.com/en/docs/build-with-claude/prompt-caching.md > Ca
 - [ ] Top constraints repeated as `<reminders>` at the end.
 - [ ] Output format locked (Structured Outputs > tool call > XML tag > prose).
 - [ ] Positive instructions ("do this") not negative ("do not do that").
-- [ ] Scope stated explicitly (Claude 4.7 will not generalize).
+- [ ] Scope stated explicitly (Claude 4.8 will not generalize).
 - [ ] No tag-name collisions with the CC reserved tags listed above.
 - [ ] Cache breakpoints placed at stable boundaries (system block, conversation history).

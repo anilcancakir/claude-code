@@ -69,7 +69,7 @@ The live CC system prompt carries the rules below. Custom agents and skills inhe
 
 **Match existing style.** Even if you would do it differently, match the project's existing patterns. Adjacent code style is the prior, not your preference.
 
-These rules are derived from the bullets currently embedded in Claude Code's "Doing tasks" section of the live system prompt. The closest published reference is the prompt-engineering best practices page (https://docs.claude.com/en/docs/build-with-claude/prompt-engineering/claude-prompting-best-practices.md), section "Prompting Claude Opus 4.7", which describes the same calibration philosophy.
+These rules are derived from the bullets currently embedded in Claude Code's "Doing tasks" section of the live system prompt. The closest published reference is the prompt-engineering best practices page (https://docs.claude.com/en/docs/build-with-claude/prompt-engineering/claude-prompting-best-practices.md) alongside the model-specific guide (https://docs.claude.com/en/docs/build-with-claude/prompt-engineering/prompting-claude-opus-4-8.md), which describes the same calibration philosophy.
 
 ## Communication during tool use
 

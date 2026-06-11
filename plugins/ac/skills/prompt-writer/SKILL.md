@@ -1,12 +1,12 @@
 ---
 name: prompt-writer
-description: Writes high-signal prompts for Claude Opus 4.7 (system prompts, subagent briefings, skill bodies, command bodies, agent bodies, CLAUDE.md files, .claude/rules/*.md) and audits existing ones. Use whenever instructions are being authored or edited for any Claude to execute, even when the user does not say the word "prompt". Triggers on "write a system prompt", "brief a subagent", "draft an agent body", "skill content", "command body", "CLAUDE.md", "rules file", "audit this prompt", "improve this instruction", "make this prompt better". Sibling creator skills (skill-creator, command-creator, agent-creator, claude-md-rules-creator) call this skill for the prompt body itself. Use aggressively; undertriggering is the failure mode.
+description: Writes high-signal prompts for Claude Opus 4.8 (system prompts, subagent briefings, skill bodies, command bodies, agent bodies, CLAUDE.md files, .claude/rules/*.md) and audits existing ones. Use whenever instructions are being authored or edited for any Claude to execute, even when the user does not say the word "prompt". Triggers on "write a system prompt", "brief a subagent", "draft an agent body", "skill content", "command body", "CLAUDE.md", "rules file", "audit this prompt", "improve this instruction", "make this prompt better". Sibling creator skills (skill-creator, command-creator, agent-creator, claude-md-rules-creator) call this skill for the prompt body itself. Use aggressively; undertriggering is the failure mode.
 when_to_use: Authoring or editing any prompt, instruction, SKILL.md body, command body, subagent prompt, CLAUDE.md content, or .claude/rules/*.md file that another Claude will execute.
 ---
 
 # Prompt Writer
 
-You are about to write or edit a prompt another Claude will execute. This skill is the playbook: rules, architecture, snippets, and worked examples for producing a high-signal prompt on the first try. Primary target is Claude Opus 4.7; the same patterns work on Sonnet 4.6 with lower effort levels.
+You are about to write or edit a prompt another Claude will execute. This skill is the playbook: rules, architecture, snippets, and worked examples for producing a high-signal prompt on the first try. Primary target is Claude Opus 4.8; the same patterns work on Sonnet 4.6 with lower effort levels.
 
 Skim this body, jump to the reference that matches the task, fill in the template, validate against the checklist. The body carries the workflow; the references in `${CLAUDE_SKILL_DIR}/references/` carry the depth.
 
@@ -62,7 +62,7 @@ The ten rules that change outcomes the most. Detail lives in the references.
 1. **Static in system, dynamic in user.** Persona, schema, examples, invariants go in the system prompt so prompt caching can amortize them. Per-request data (the document, the question, the file under review) goes in user messages.
 2. **Wrap every distinct block in XML tags.** Claude is fine-tuned to parse XML. Tag boundaries are the only reliable way to separate instructions from data. Use descriptive, consistent names: `<role>`, `<context>`, `<examples>`, `<input>`, `<output_format>`.
 3. **Tell the model what to do, not what to avoid.** "Provide concise responses" beats "do not be verbose." Negative instructions force the model to imagine the wrong behavior first.
-4. **State scope explicitly.** Claude 4.7 takes instructions literally and will not silently generalize. Write "apply to every X, not just the first."
+4. **State scope explicitly.** Claude 4.8 takes instructions literally and will not silently generalize. Write "apply to every X, not just the first."
 5. **Examples are the highest-leverage tool for gray areas.** 3 to 5 diverse, labeled examples beat any abstract instruction. Wrap each in `<example>` inside `<examples>`. Cover edge cases.
 6. **Repeat the top constraint right before generation.** Recency wins. End the prompt with the one or two rules the model must not break.
 7. **No "CRITICAL: you MUST" language.** Modern Claude overtriggers on aggressive wording. Plain instructions work; if a rule needs weight, explain the why.
@@ -129,25 +129,25 @@ You are [persona, one sentence: who, domain, tone].
 </reminders>
 ```
 
-## Model tuning knobs (Claude Opus 4.7)
+## Model tuning knobs (Claude Opus 4.8)
 
-Default target is `claude-opus-4-7`. Sonnet 4.6 (`claude-sonnet-4-6`) and Haiku 4.5 (`claude-haiku-4-5-20251001`) follow the same patterns at lower effort. Full per-knob detail in `${CLAUDE_SKILL_DIR}/references/opus-4-7-tuning.md`.
+Default target is `claude-opus-4-8`. Sonnet 4.6 (`claude-sonnet-4-6`) and Haiku 4.5 (`claude-haiku-4-5-20251001`) follow the same patterns at lower effort. Full per-knob detail in `${CLAUDE_SKILL_DIR}/references/opus-4-8-tuning.md`.
 
 **Effort.** `xhigh` for coding and agentic work; `high` for intelligence-sensitive non-coding tasks; `medium` only with cost or latency justification; `low` only for short scoped tasks; `max` for the hardest problems (diminishing returns past `xhigh`). Set `max_tokens` to ~64k at `xhigh` or `max`. When you see shallow reasoning, raise effort instead of papering over with prompt instructions.
 
-**Thinking.** On Opus 4.7 use `thinking: { type: "adaptive" }` plus the `output_config.effort` parameter; manual `{ type: "enabled", budget_tokens: N }` returns a 400 error. On Sonnet 4.6 and Opus 4.6 adaptive is recommended (manual is deprecated but still functional). On Haiku 4.5 the situation is inverted: manual extended thinking is the only supported shape; adaptive is not accepted. Add `display: "summarized"` when the UI needs to render thinking content.
+**Thinking.** On Opus 4.8 set `thinking: { type: "adaptive" }` explicitly (off otherwise) plus the `output_config.effort` parameter; manual `{ type: "enabled", budget_tokens: N }` returns a 400 error. On Sonnet 4.6 and Opus 4.6 adaptive is recommended (manual is deprecated but still functional). On Haiku 4.5 the situation is inverted: manual extended thinking is the only supported shape; adaptive is not accepted. Add `display: "summarized"` when the UI needs to render thinking content.
 
-**Literal interpretation.** 4.7 will not generalize a rule across sections unless told. State scope every time: "Apply to every X, not just the first."
+**Literal interpretation.** 4.8 will not generalize a rule across sections unless told. State scope where a rule must span: "Apply to every X, not just the first."
 
 **Verbosity.** Self-calibrates to perceived task complexity. Remove old "be concise" hedges; if you need a specific length, ask positively ("Provide concise, focused responses").
 
-**Tool use.** 4.7 reasons more, calls tools less. To increase tool calls, raise effort or describe when and how explicitly. Avoid "CRITICAL: ALWAYS use this tool" wording.
+**Tool use.** 4.8 reasons more, calls tools less. To increase tool calls, raise effort or describe when and how explicitly. Avoid "CRITICAL: ALWAYS use this tool" wording.
 
 **Subagent spawning.** Lower by default. For fan-out, write: "Spawn multiple subagents in the same turn when fanning out across items. Do not spawn for work you can complete in a single response."
 
 **Prefill is gone.** Prefilling the last assistant message returns a 400 error on Claude 4.6 and later. Use Structured Outputs, tool calls with enums, or direct instruction wrapped in XML tags.
 
-**Image coordinates.** 1:1 with actual pixels on Opus 4.7. Remove client-side scale-factor conversion when consuming pointing or bounding boxes.
+**Image coordinates.** 1:1 with actual pixels on Opus 4.8 (the convention since 4.7). Remove client-side scale-factor conversion when consuming pointing or bounding boxes.
 
 ## When the prompt runs inside Claude Code
 
@@ -270,8 +270,8 @@ Surface-level set; the full audit checklist with the why behind each fix is in `
 | Static and dynamic mixed in user message | Move static to system; dynamic stays in user. |
 | Long documents at the bottom of the user turn | Move documents to the top for inputs over 20k tokens. |
 | "Based on your findings, fix the bug" (in subagent prompts) | Specify file paths, line numbers, exact change; do not delegate synthesis. |
-| Stale anti-laziness scaffolding from older models | Remove; trust 4.7 defaults. |
-| `thinking: { type: "enabled", budget_tokens }` on Opus 4.7 | Switch to `thinking: { type: "adaptive" }` plus `output_config={"effort": ...}`. |
+| Stale anti-laziness scaffolding from older models | Remove; trust 4.8 defaults. |
+| `thinking: { type: "enabled", budget_tokens }` on Opus 4.8 | Switch to `thinking: { type: "adaptive" }` plus `output_config={"effort": ...}`. |
 | Top-level `output_format={...}` parameter | Move into `output_config={"format": {...}}`. |
 | `betas=["effort-2025-11-24"]` header carried over | Drop it; effort is GA. |
 | `client.beta.messages.create` for thinking or effort | Use `client.messages.create`. |
@@ -292,7 +292,7 @@ Before shipping a prompt:
 - [ ] Output format locked via Structured Outputs, tool call, or XML tag.
 - [ ] If input above 20k tokens: documents at top, question at bottom.
 - [ ] Effort level set via `output_config={"effort": ...}` and matches task complexity.
-- [ ] Thinking parameter shape matches the model: `adaptive` on Opus 4.7 (required) and Sonnet 4.6 / Opus 4.6 (recommended); manual `enabled` + `budget_tokens` only on Haiku 4.5.
+- [ ] Thinking parameter shape matches the model: `adaptive` on Opus 4.8 (set explicitly; off otherwise) and Sonnet 4.6 / Opus 4.6 (recommended); manual `enabled` + `budget_tokens` only on Haiku 4.5.
 - [ ] Output shape lock uses `output_config.format` (Structured Outputs), tool call with enum, or XML wrap; not the deprecated top-level `output_format` or last-assistant prefill.
 - [ ] No `effort-2025-11-24` beta header; `client.messages.create` (not `client.beta`).
 - [ ] Colleague test passes.
@@ -302,7 +302,7 @@ Before shipping a prompt:
 | File | Load when... |
 |---|---|
 | `${CLAUDE_SKILL_DIR}/references/architecture.md` | Designing message structure, XML tag names, long-context layout, example design. |
-| `${CLAUDE_SKILL_DIR}/references/opus-4-7-tuning.md` | Tuning effort, verbosity, tool use, subagent spawning, frontend defaults, code-review re-tuning. |
+| `${CLAUDE_SKILL_DIR}/references/opus-4-8-tuning.md` | Tuning effort, verbosity, tool use, subagent spawning, frontend defaults, code-review re-tuning. |
 | `${CLAUDE_SKILL_DIR}/references/claude-code-conventions.md` | Writing prompts that run in the Claude Code harness: agents, slash commands, hooks, harness rules. |
 | `${CLAUDE_SKILL_DIR}/references/subagent-prompts.md` | Briefing a fresh subagent, designing a `subagent_type`, lookup vs investigation, length caps. |
 | `${CLAUDE_SKILL_DIR}/references/snippets.md` | Need a copy-paste building block (verbosity, parallel tools, hallucination control, output format, frontend, identity, scope). |

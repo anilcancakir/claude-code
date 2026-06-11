@@ -103,7 +103,7 @@ Not every task warrants a subagent. Spawning has a cost: the agent must rebuild 
 - Sequential work that needs to maintain main-context state.
 - The total cost of context-building plus run plus result-summarization exceeds doing it directly.
 
-**Default behavior on Opus 4.7.** Spawns fewer subagents unprompted. If fan-out is needed, prompt for it explicitly. Source: https://docs.claude.com/en/docs/about-claude/models/migration-guide.md > Behavior changes > Subagent behavior.
+**Default behavior on Opus 4.8.** Spawns fewer subagents unprompted. If fan-out is needed, prompt for it explicitly. Source: https://docs.claude.com/en/docs/build-with-claude/prompt-engineering/prompting-claude-opus-4-8.md > Controlling subagent spawning.
 
 ## Foreground vs background
 

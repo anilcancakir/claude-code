@@ -60,7 +60,7 @@ Show one short response you like rather than writing "do not be verbose." Exampl
 
 **The mistake.** Asking for a generalization without saying what to generalize over.
 
-**Why it fails.** Modern Claude (especially 4.7) takes instructions literally. It will not silently generalize from the example you showed to other things in the file.
+**Why it fails.** Modern Claude (especially 4.8) takes instructions literally. It will not silently generalize from the example you showed to other things in the file.
 
 Source: https://docs.claude.com/en/docs/about-claude/models/migration-guide.md > Behavior changes > Literal interpretation.
 
@@ -72,7 +72,7 @@ Source: https://docs.claude.com/en/docs/about-claude/models/migration-guide.md >
 | "Use TypeScript strict mode." | "Use TypeScript strict mode in every file you create or modify in this PR, not only in the new ones." |
 | "Match the existing style." | "Match the existing style in `src/services/`. The conventions are: PascalCase class names, camelCase methods, constructor injection, no facades." |
 
-This is verbose. The compensation is precision: 4.7 does exactly what you asked.
+This is verbose. The compensation is precision: 4.8 does exactly what you asked.
 
 ## Subagent prompt failures
 
@@ -224,11 +224,11 @@ Return your response as JSON conforming to the schema provided. Do not wrap the 
 
 ## Thinking-parameter failures (model migration)
 
-### `thinking: { type: "enabled", budget_tokens: N }` on Opus 4.7
+### `thinking: { type: "enabled", budget_tokens: N }` on Opus 4.8
 
 **The mistake.** Using the legacy thinking-budget shape on a model that has moved to adaptive thinking.
 
-**Why it fails.** Adaptive thinking replaces `budget_tokens`. The legacy shape is deprecated; on Opus 4.7 it is unsupported. Source: https://docs.claude.com/en/docs/about-claude/models/migration-guide.md > Migrate `thinking` parameter for Claude Opus 4.7.
+**Why it fails.** Adaptive thinking replaces `budget_tokens`. The legacy shape is deprecated; on Opus 4.8 it is unsupported and returns a 400 error. Source: https://docs.claude.com/en/docs/about-claude/models/migration-guide.md > Migrating from Claude Opus 4.7 to Claude Opus 4.8.
 
 **The fix.**
 
@@ -245,33 +245,33 @@ If you need to display thinking content in your UI, add `"display": "summarized"
 
 **Why it fails.** `output_format` is deprecated and will be removed. The supported parameter is `output_config.format` (`output_config={"format": {...}}` in Python, the equivalent shape in other SDKs).
 
-Source: https://docs.claude.com/en/docs/about-claude/models/migration-guide.md > Migrating to Claude Opus 4.7 > Migrate `output_format` to `output_config.format`.
+Source: https://docs.claude.com/en/docs/about-claude/models/migration-guide.md > Migrate `output_format` to `output_config.format`.
 
 **The fix.** Move the format field into `output_config`.
 
 ```python
 # old
-client.messages.create(model="claude-opus-4-7", output_format={...}, ...)
+client.messages.create(model="claude-opus-4-8", output_format={...}, ...)
 
 # new
-client.messages.create(model="claude-opus-4-7", output_config={"format": {...}}, ...)
+client.messages.create(model="claude-opus-4-8", output_config={"format": {...}}, ...)
 ```
 
 ### Carrying over `effort-2025-11-24` beta header
 
-**The mistake.** Keeping `betas=["effort-2025-11-24"]` in requests after upgrading to Opus 4.7.
+**The mistake.** Keeping `betas=["effort-2025-11-24"]` in requests after upgrading to Opus 4.8.
 
-**Why it fails.** The effort parameter is GA. The beta header is a no-op on Opus 4.7 and is being phased out.
+**Why it fails.** The effort parameter is GA. The beta header is a no-op on Opus 4.8 and is being phased out.
 
 **The fix.** Drop the beta header. Use `client.messages.create` (not `client.beta.messages.create`).
 
 Source: https://docs.claude.com/en/docs/about-claude/models/migration-guide.md > Migration checklist > "Remove `effort-2025-11-24` beta header".
 
-### Image-coordinate scale-factor math on Opus 4.7
+### Image-coordinate scale-factor math on Opus 4.8
 
 **The mistake.** Multiplying pointing or bounding-box coordinates by a scale factor on the client.
 
-**Why it fails.** On Opus 4.7, coordinates are 1:1 with actual image pixels. The conversion was removed. Source: https://docs.claude.com/en/docs/about-claude/models/migration-guide.md > Breaking changes > Image coordinates.
+**Why it fails.** On Opus 4.8, coordinates are 1:1 with actual image pixels (the convention since 4.7). The conversion was removed. Source: https://docs.claude.com/en/docs/about-claude/models/migration-guide.md > Breaking changes > Image coordinates.
 
 **The fix.** Remove the client-side conversion. Use the raw coordinates.
 
@@ -373,8 +373,8 @@ When reviewing an existing prompt:
 - [ ] No "based on your findings, do X" in subagent prompts.
 - [ ] No anti-laziness scaffolding from older models.
 - [ ] No compat hacks, no impossible-scenario error handling, no multi-paragraph docstrings (CC defaults).
-- [ ] Thinking parameter uses `adaptive` on Opus 4.7 / Sonnet 4.6 (manual `enabled` still works on Sonnet 4.6 and Haiku 4.5 but is deprecated on Sonnet 4.6).
-- [ ] No image-coordinate scale-factor conversion on Opus 4.7.
+- [ ] Thinking parameter uses `adaptive` on Opus 4.8 / Sonnet 4.6 (manual `enabled` still works on Haiku 4.5 but is deprecated on Sonnet 4.6).
+- [ ] No image-coordinate scale-factor conversion on Opus 4.8.
 - [ ] Output format uses `output_config.format`, not deprecated `output_format`.
 - [ ] No `effort-2025-11-24` beta header carried over (effort is GA).
 - [ ] `client.messages.create`, not `client.beta.messages.create`.

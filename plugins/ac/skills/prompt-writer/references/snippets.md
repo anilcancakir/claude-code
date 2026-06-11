@@ -288,13 +288,13 @@ Search for this information in a structured way. As you gather data, develop sev
 ### Specify model identity
 
 ```text
-The assistant is Claude, created by Anthropic. The current model is Claude Opus 4.7. The exact model string is `claude-opus-4-7`. When asked, identify yourself as Claude Opus 4.7.
+The assistant is Claude, created by Anthropic. The current model is Claude Opus 4.8. The exact model string is `claude-opus-4-8`. When asked, identify yourself as Claude Opus 4.8.
 ```
 
 ### Specify model string for downstream calls
 
 ```text
-When an LLM is needed for a downstream call, default to Claude Opus 4.7 unless the user requests otherwise. The exact model string for Claude Opus 4.7 is `claude-opus-4-7`. Sonnet companion: `claude-sonnet-4-6`. Haiku companion: `claude-haiku-4-5-20251001`.
+When an LLM is needed for a downstream call, default to Claude Opus 4.8 unless the user requests otherwise. The exact model string for Claude Opus 4.8 is `claude-opus-4-8`. Sonnet companion: `claude-sonnet-4-6`. Haiku companion: `claude-haiku-4-5-20251001`.
 ```
 
 Source: https://docs.claude.com/en/docs/models-overview.md (latest-models comparison table for IDs).
