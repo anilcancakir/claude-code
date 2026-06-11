@@ -6,7 +6,7 @@ const program = new Command();
 program
     .name("ac")
     .description("ac CLI. Companion runtime for the ac Claude Code plugin.")
-    .version("0.2.0");
+    .version("0.3.0");
 
 program
     .command("mcp")
