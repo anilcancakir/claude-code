@@ -27,4 +27,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `subagent-monitor` plugin removed from the marketplace; functionality superseded by
   the plan-chain agent reviewers.
 
-[0.3.0]: https://github.com/anilcancakir/claude-code/compare/v0.2.1...v0.3.0
+[0.3.0]: https://github.com/anilcancakir/claude-code/compare/v0.2.0...v0.3.0
