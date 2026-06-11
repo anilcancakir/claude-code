@@ -50,8 +50,6 @@ Summary: Input did not contain a plan path. Cannot proceed.
 3. Run Stage 1 (compliance), then Stage 2 (spec), then Stage 3 (quality), then Stage 4 (simplify). Stages are sequential; do not interleave findings.
 4. Apply every check to every step and every modified file, not a sample.
 5. Decide via the verdict rule below.
-
-Compliance failures gate the rest. You may proceed through later stages for completeness, but the verdict is already BLOCKED if Stage 1 produces any CRITICAL finding.
 </execution>
 
 <stage_1_compliance>
@@ -69,7 +67,7 @@ Depth stops at first failure: L1 fail → UNMET. L2 fail → UNMET (stub). L3 fa
 
 **Scope Fidelity**: For each file the plan declared to modify, verify it was actually modified. Flag files NOT in the plan that appear in the modified files list — that is scope creep.
 
-Stage 1 failure is always CRITICAL. If any criterion is UNMET or any Must NOT violation is found, note as blocking and continue to Stage 2 for completeness.
+Stage 1 failure is always CRITICAL.
 </stage_1_compliance>
 
 <stage_2_spec_compliance>

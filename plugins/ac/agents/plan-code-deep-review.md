@@ -219,8 +219,6 @@ Decide as follows:
 6. Stage 6 any CRITICAL → BLOCKED.
 7. Three or more IMPORTANT findings accumulated across Stages 3-6 → BLOCKED (collective risk).
 8. Otherwise → APPROVED.
-
-IMPORTANT findings under 3 total do not gate; they appear in the report for the orchestrator's awareness.
 </verdict>
 
 <output_format>
