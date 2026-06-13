@@ -1,5 +1,5 @@
 ---
-description: Interactive post-install setup for the ac plugin. Phase 0 parses flags (--dry-run, --skip-skills, --skip-settings, --skip-claude-md), detects the OS, the presence of the my-coding and my-language user skills, the global CLAUDE.md and settings.json, and probes ac MCP reachability. Phases 1-2 run short style interviews and delegate my-coding and my-language skill creation to ac:skill-creator with the bundled templates, skipping any skill that already exists unless the user picks Recreate. Phase 3 merges a portable delegation section into the global CLAUDE.md behind a .proposed gate. Phase 4 backs up and idempotently merges the anti-builtin parity into settings.json (enabledPlugins, MCP allow rule, plan-mode and MCP-gated web-tool denies plus matching PreToolUse hooks). Phase 5 reports what was created, merged, skipped, and the backup path.
+description: Interactive post-install setup for the ac plugin. Phase 0 parses flags (--dry-run, --skip-skills, --skip-settings, --skip-claude-md), detects the OS, the presence of the my-coding and my-language user skills, the global CLAUDE.md and settings.json, and probes ac MCP reachability. Phases 1-2 run short style interviews and delegate my-coding and my-language skill creation to ac:skill-creator with the bundled templates, skipping any skill that already exists unless the user picks Recreate. Phase 3 merges a portable delegation section into the global CLAUDE.md behind a .proposed gate. Phase 4 backs up and idempotently merges the anti-builtin parity into settings.json (enabledPlugins, MCP allow rule including WebSearch and WebFetch built-ins, plan-mode deny plus EnterPlanMode PreToolUse hook). Phase 5 reports what was created, merged, skipped, and the backup path.
 argument-hint: [--dry-run] [--skip-skills] [--skip-settings] [--skip-claude-md]
 effort: high
 ---
@@ -44,7 +44,7 @@ Run these detections and record the result. On any failure, note it and continue
 
 ### 0c. Probe ac MCP reachability
 
-Call `mcp__plugin_ac_ac__resolve-library` with a trivial query (for example `react`). Record `MCP_REACHABLE = true` when it returns a result, `false` on error, timeout, or tool-not-available. This gates the web-tool deny in Phase 4: when the probe fails, the `WebSearch` and `WebFetch` deny and hook entries are skipped so you never block web tools without a working replacement.
+Call `mcp__plugin_ac_ac__resolve-library` with a trivial query (for example `react`). Record `MCP_REACHABLE = true` when it returns a result, `false` on error, timeout, or tool-not-available. This gates whether Phase 3's CLAUDE.md section names the ac MCP fallback tools: include the fallback steering text only when `MCP_REACHABLE` is true, so the delegation section does not point at tools the user cannot reach.
 
 If the probe path does not resolve, tell the user they can run `/mcp` to confirm the exact server name and re-run. The bundled server is keyed `ac` in `.mcp.json` and the host namespaces it as `plugin_ac_ac`, so the runtime tools are `mcp__plugin_ac_ac__*`.
 
@@ -198,25 +198,28 @@ Merge the anti-builtin parity into the parsed object. Preserve every existing ke
 2. `enableAllProjectMcpServers = true`.
 3. `permissions.defaultMode = "acceptEdits"` (set only when the key is absent; do not override an existing user choice).
 4. `effortLevel = "high"` (set only when the key is absent).
-5. Add `mcp__plugin_ac_ac__*` to `permissions.allow` (create the array if missing, skip if present).
-6. Add to `permissions.deny`: `EnterPlanMode`, `ExitPlanMode`, `Agent(Plan)`, `Agent(Explore)`. Add `WebSearch` and `WebFetch` only when `MCP_REACHABLE` is true.
-7. Add to `hooks.PreToolUse`: an `EnterPlanMode` matcher always, and a `WebSearch|WebFetch` matcher only when `MCP_REACHABLE` is true. Each hook echoes a one-line "blocked, use the ac: replacement" message to stderr and exits 2.
+5. Add `mcp__plugin_ac_ac__*`, `WebSearch`, and `WebFetch` to `permissions.allow` (create the array if missing, skip any entry already present).
+6. Add to `permissions.deny`: `EnterPlanMode`, `ExitPlanMode`, `Agent(Plan)`, `Agent(Explore)`.
+7. Add to `hooks.PreToolUse`: an `EnterPlanMode` matcher. The hook echoes a one-line "blocked, use /ac:plan instead." message to stderr and exits 2.
+8. Idempotent strip for prior install versions: remove any `WebSearch` or `WebFetch` entry from `permissions.deny`; remove any `hooks.PreToolUse` entry whose matcher equals `WebSearch|WebFetch`. This migrates an old setup cleanly when re-running.
 
-When `MCP_REACHABLE` is false, skip the `WebSearch`/`WebFetch` deny and the web-tool hook, and print a one-line note: web tools stay enabled because the ac MCP replacement was unreachable.
+When `MCP_REACHABLE` is false, the CLAUDE.md fallback steering section (Phase 3) simply omits the mention of the ac web-fetch and web-search tools; the built-in WebSearch and WebFetch remain primary either way.
 
-The allow array entry for the bundled MCP surface:
+The allow array entries (bundled MCP surface plus the built-in web tools):
 
 ```json
 {
   "permissions": {
     "allow": [
-      "mcp__plugin_ac_ac__*"
+      "mcp__plugin_ac_ac__*",
+      "WebSearch",
+      "WebFetch"
     ]
   }
 }
 ```
 
-The deny array, shown with the web-tool entries included (present only when `MCP_REACHABLE` is true):
+The deny array (plan-mode entries only):
 
 ```json
 {
@@ -225,9 +228,7 @@ The deny array, shown with the web-tool entries included (present only when `MCP
       "EnterPlanMode",
       "ExitPlanMode",
       "Agent(Plan)",
-      "Agent(Explore)",
-      "WebSearch",
-      "WebFetch"
+      "Agent(Explore)"
     ]
   }
 }
@@ -242,20 +243,6 @@ The always-added plan-mode hook entry:
     {
       "type": "command",
       "command": "echo 'EnterPlanMode blocked, use /ac:plan instead.' >&2; exit 2"
-    }
-  ]
-}
-```
-
-The web-tool hook entry (added only when `MCP_REACHABLE` is true):
-
-```json
-{
-  "matcher": "WebSearch|WebFetch",
-  "hooks": [
-    {
-      "type": "command",
-      "command": "echo 'Web tools blocked, use ac:librarian instead.' >&2; exit 2"
     }
   ]
 }
@@ -277,7 +264,7 @@ my-language: <created | recreated | skipped (exists) | skipped (--skip-skills) |
 CLAUDE.md:   <written | merged + applied | proposed (awaiting review) | skipped (--skip-claude-md) | dry-run>
 settings:    <merged | skipped (--skip-settings) | dry-run>
 Backup:      <~/.claude/settings.json.bak-ac-install | none (settings absent or dry-run)>
-MCP probe:   <reachable | unreachable (web-tool deny skipped)>
+MCP probe:   <reachable | unreachable (CLAUDE.md fallback steering omitted)>
 ```
 
 Next steps to print:

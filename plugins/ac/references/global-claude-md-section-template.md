@@ -17,7 +17,18 @@ Use the `ac:` replacement when a built-in variant would otherwise be called:
 
 - `Agent({subagent_type: "Explore"})` becomes `Agent({subagent_type: "ac:explore"})`.
 - `Agent({subagent_type: "Plan"})`, `EnterPlanMode`, or `ExitPlanMode` becomes the `/ac:plan` flow.
-- Built-in `WebFetch` or `WebSearch` becomes the `ac` MCP server equivalents.
+
+## Web tools
+
+Built-in `WebFetch` and `WebSearch` are the primary path for web access. Fall back to `mcp__plugin_ac_ac__web-fetch` or `mcp__plugin_ac_ac__web-search` when the built-in:
+
+- errors or times out,
+- returns empty or auth-walled content,
+- hits a cross-host redirect it cannot follow,
+- truncates content below usefulness, or
+- returns a result insufficient to answer the prompt.
+
+`resolve-library`, `search-docs`, and `web-code-search` have no built-in equivalent and stay primary ac tools.
 
 ## Code lookup ladder
 
