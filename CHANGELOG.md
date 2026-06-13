@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Web tool routing inverted: built-in `WebFetch` and `WebSearch` are now the primary web path
+  on the main thread and inside the `ac:librarian` and `ac:oracle` subagents, with the ac MCP
+  `web-fetch` / `web-search` as a fallback when the built-in errors, returns empty or
+  insufficient content, or hits an unfollowable redirect.
+- `/ac:install` no longer denies or hooks the built-in `WebSearch` / `WebFetch`; it
+  allow-lists them and strips any web deny or hook a prior install version added.
+- `resolve-library`, `search-docs`, and `web-code-search` remain primary ac MCP tools.
+
 ## [0.3.0] - 2026-06-11
 
 ### Added
