@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-06-14
+
 ### Changed
 
 - Web tool routing inverted: built-in `WebFetch` and `WebSearch` are now the primary web path
@@ -16,6 +18,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `/ac:install` no longer denies or hooks the built-in `WebSearch` / `WebFetch`; it
   allow-lists them and strips any web deny or hook a prior install version added.
 - `resolve-library`, `search-docs`, and `web-code-search` remain primary ac MCP tools.
+- `/ac:install` now applies two web-tool hang mitigations: it sets `skipWebFetchPreflight`
+  (removes the per-fetch `api.anthropic.com` preflight, a hang source now that built-in
+  `WebFetch` is primary) and sets `API_TIMEOUT_MS` to 120000 when absent. Claude Code has no
+  tool-scoped web timeout (anthropics/claude-code#34565), so these are the only available levers.
 
 ## [0.3.0] - 2026-06-11
 
@@ -37,4 +43,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `subagent-monitor` plugin removed from the marketplace; functionality superseded by
   the plan-chain agent reviewers.
 
+[0.4.0]: https://github.com/anilcancakir/claude-code/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/anilcancakir/claude-code/compare/v0.2.0...v0.3.0
