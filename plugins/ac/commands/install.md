@@ -202,6 +202,9 @@ Merge the anti-builtin parity into the parsed object. Preserve every existing ke
 6. Add to `permissions.deny`: `EnterPlanMode`, `ExitPlanMode`, `Agent(Plan)`, `Agent(Explore)`.
 7. Add to `hooks.PreToolUse`: an `EnterPlanMode` matcher. The hook echoes a one-line "blocked, use /ac:plan instead." message to stderr and exits 2.
 8. Idempotent strip for prior install versions: remove any `WebSearch` or `WebFetch` entry from `permissions.deny`; remove any `hooks.PreToolUse` entry whose matcher equals `WebSearch|WebFetch`. This migrates an old setup cleanly when re-running.
+9. Web-tool hang mitigation. Claude Code has no tool-scoped timeout for the built-in `WebFetch` / `WebSearch` (tracked upstream as anthropics/claude-code#34565), and the ac fallback cannot rescue an indefinite hang because the model stays blocked on the stalled call. Apply the two supported levers, both non-destructive:
+   - `skipWebFetchPreflight = true` (top-level settings key; set only when absent). Removes the per-fetch `api.anthropic.com/api/web/domain_info` preflight, a real hang source on slow or egress-restricted networks. Now that built-in `WebFetch` is the primary path, this preflight runs on every fetch. Tradeoff: it skips the Anthropic domain-safety blocklist; surface this in the Phase 5 summary.
+   - `env.API_TIMEOUT_MS = "120000"` (set only when absent; do not override an existing user value). Bounds the model API calls that `WebFetch`'s summary step and `WebSearch`'s server-tool turn ride on, capping the worst-case model-side hang at two minutes. The 60s fetch and 10s preflight caps are hardcoded and not configurable.
 
 When `MCP_REACHABLE` is false, the CLAUDE.md fallback steering section (Phase 3) simply omits the mention of the ac web-fetch and web-search tools; the built-in WebSearch and WebFetch remain primary either way.
 
@@ -265,7 +268,10 @@ CLAUDE.md:   <written | merged + applied | proposed (awaiting review) | skipped 
 settings:    <merged | skipped (--skip-settings) | dry-run>
 Backup:      <~/.claude/settings.json.bak-ac-install | none (settings absent or dry-run)>
 MCP probe:   <reachable | unreachable (CLAUDE.md fallback steering omitted)>
+Web hang:    <skipWebFetchPreflight set + API_TIMEOUT_MS=120000 set | skipWebFetchPreflight kept (already set) | API_TIMEOUT_MS kept (user value preserved)>
 ```
+
+Note when `skipWebFetchPreflight` was set: it skips the Anthropic domain-safety blocklist preflight. This removes a per-fetch hang source now that built-in `WebFetch` is primary; Claude Code has no tool-scoped web timeout (anthropics/claude-code#34565), so this plus `API_TIMEOUT_MS` are the only available levers.
 
 Next steps to print:
 
