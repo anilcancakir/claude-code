@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.2] - 2026-06-17
+
 ### Fixed
 
 - `ac:librarian` direct-page-fetch step no longer frames the ac web-fetch as a guaranteed
@@ -64,6 +66,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `subagent-monitor` plugin removed from the marketplace; functionality superseded by
   the plan-chain agent reviewers.
 
+[0.4.2]: https://github.com/anilcancakir/claude-code/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/anilcancakir/claude-code/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/anilcancakir/claude-code/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/anilcancakir/claude-code/compare/v0.2.0...v0.3.0
