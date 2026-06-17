@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `ac:librarian` direct-page-fetch step no longer frames the ac web-fetch as a guaranteed
+  path; aligned with the fallback-only steering applied elsewhere in 0.4.1. librarian is the
+  highest-traffic agent and `omitClaudeMd`, so only its body and the tool descriptions reach it.
+
 ## [0.4.1] - 2026-06-17
 
 ### Fixed
