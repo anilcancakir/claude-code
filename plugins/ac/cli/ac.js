@@ -36552,7 +36552,7 @@ async function runMcpProxy(options) {
   const url2 = (options.url ?? process.env["KODIZM_MCP_URL"] ?? DEFAULT_REMOTE_URL).trim();
   const remote = token === "" ? null : buildRemoteHandle(url2, token);
   let cachedTools;
-  const server = new Server({ name: "ac", version: "0.4.1" }, { capabilities: { tools: {} } });
+  const server = new Server({ name: "ac", version: "0.4.2" }, { capabilities: { tools: {} } });
   server.setRequestHandler(ListToolsRequestSchema, async () => {
     if (cachedTools !== undefined) {
       return { tools: cachedTools };
@@ -36625,7 +36625,7 @@ async function runMcpProxy(options) {
   process.on("SIGTERM", shutdown);
 }
 function buildRemoteHandle(url2, token) {
-  const client = new Client({ name: "ac", version: "0.4.1" }, { capabilities: {} });
+  const client = new Client({ name: "ac", version: "0.4.2" }, { capabilities: {} });
   const transport = new StreamableHTTPClientTransport(new URL(url2), {
     requestInit: { headers: { Authorization: `Bearer ${token}` } }
   });
@@ -36644,7 +36644,7 @@ function buildRemoteHandle(url2, token) {
 
 // src/index.ts
 var program2 = new Command;
-program2.name("ac").description("ac CLI. Companion runtime for the ac Claude Code plugin.").version("0.4.1");
+program2.name("ac").description("ac CLI. Companion runtime for the ac Claude Code plugin.").version("0.4.2");
 program2.command("mcp").description("Run the ac stdio MCP server (proxies tools to kodizm).").option("--url <value>", "Override the kodizm MCP endpoint (defaults to https://mcp.kodizm.com; " + "use http://127.0.0.1:<port>/mcp/kodizm for local dev).").option("--token <value>", "Override the kdz- bearer token (also reads KODIZM_MCP_TOKEN).").action(async (opts) => {
   await runMcpProxy({
     token: opts.token,
@@ -36653,4 +36653,4 @@ program2.command("mcp").description("Run the ac stdio MCP server (proxies tools 
 });
 await program2.parseAsync(process.argv);
 
-//# debugId=6CA3DA250516108464756E2164756E21
+//# debugId=64F125A1F7F9AE0464756E2164756E21
