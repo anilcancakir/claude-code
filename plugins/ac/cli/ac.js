@@ -36290,7 +36290,9 @@ var defaultLookup = async (hostname) => {
 };
 var LOCAL_WEB_FETCH_TOOL_DEFINITION = {
   name: "web-fetch",
-  description: "Fetch a URL from this machine using a real browser header set and return the page as markdown. " + "Validates the URL against an SSRF guard (no private, loopback, link-local, or cloud-metadata " + "targets) and does not follow redirects.",
+  description: "FALLBACK ONLY. Prefer the built-in WebFetch tool first (load it via ToolSearch if it is not " + "already active). Use this ac web-fetch only when the built-in WebFetch errors or times out, " + "is rate-limited or blocked (HTTP 403/429), returns empty or auth-walled content, or cannot " + `follow a cross-host redirect.
+
+` + "Fetch a URL from this machine using a real browser header set and return the page as markdown. " + "Validates the URL against an SSRF guard (no private, loopback, link-local, or cloud-metadata " + "targets) and does not follow redirects.",
   inputSchema: {
     type: "object",
     properties: {
@@ -36530,12 +36532,27 @@ var ALLOWED_REMOTE_TOOLS = new Set([
   "resolve-library",
   "web-code-search"
 ]);
+var FALLBACK_DIRECTIVES = {
+  "web-search": "FALLBACK ONLY. Prefer the built-in WebSearch tool first (load it via ToolSearch if it " + "is not already active). Use this ac web-search only when the built-in WebSearch errors, " + `is unavailable or rate-limited, or returns insufficient results.
+
+`,
+  "web-fetch": "FALLBACK ONLY. Prefer the built-in WebFetch tool first (load it via ToolSearch if it is " + "not already active). Use this ac web-fetch only when the built-in WebFetch errors or " + "times out, is rate-limited or blocked (HTTP 403/429), returns empty or auth-walled " + `content, or cannot follow a cross-host redirect.
+
+`
+};
+function applyFallbackDirective(tool) {
+  const directive = FALLBACK_DIRECTIVES[tool.name];
+  if (directive === undefined) {
+    return tool;
+  }
+  return { ...tool, description: directive + (tool.description ?? "") };
+}
 async function runMcpProxy(options) {
   const token = (options.token ?? process.env["KODIZM_MCP_TOKEN"] ?? "").trim();
   const url2 = (options.url ?? process.env["KODIZM_MCP_URL"] ?? DEFAULT_REMOTE_URL).trim();
   const remote = token === "" ? null : buildRemoteHandle(url2, token);
   let cachedTools;
-  const server = new Server({ name: "ac", version: "0.4.0" }, { capabilities: { tools: {} } });
+  const server = new Server({ name: "ac", version: "0.4.1" }, { capabilities: { tools: {} } });
   server.setRequestHandler(ListToolsRequestSchema, async () => {
     if (cachedTools !== undefined) {
       return { tools: cachedTools };
@@ -36549,7 +36566,7 @@ async function runMcpProxy(options) {
     const result = await remote.client.listTools();
     for (const tool of result.tools) {
       if (ALLOWED_REMOTE_TOOLS.has(tool.name)) {
-        remoteTools.push(tool);
+        remoteTools.push(applyFallbackDirective(tool));
       }
     }
     cachedTools = [...remoteTools, EXTERNAL_AGENT_TOOL_DEFINITION];
@@ -36608,7 +36625,7 @@ async function runMcpProxy(options) {
   process.on("SIGTERM", shutdown);
 }
 function buildRemoteHandle(url2, token) {
-  const client = new Client({ name: "ac", version: "0.4.0" }, { capabilities: {} });
+  const client = new Client({ name: "ac", version: "0.4.1" }, { capabilities: {} });
   const transport = new StreamableHTTPClientTransport(new URL(url2), {
     requestInit: { headers: { Authorization: `Bearer ${token}` } }
   });
@@ -36627,7 +36644,7 @@ function buildRemoteHandle(url2, token) {
 
 // src/index.ts
 var program2 = new Command;
-program2.name("ac").description("ac CLI. Companion runtime for the ac Claude Code plugin.").version("0.4.0");
+program2.name("ac").description("ac CLI. Companion runtime for the ac Claude Code plugin.").version("0.4.1");
 program2.command("mcp").description("Run the ac stdio MCP server (proxies tools to kodizm).").option("--url <value>", "Override the kodizm MCP endpoint (defaults to https://mcp.kodizm.com; " + "use http://127.0.0.1:<port>/mcp/kodizm for local dev).").option("--token <value>", "Override the kdz- bearer token (also reads KODIZM_MCP_TOKEN).").action(async (opts) => {
   await runMcpProxy({
     token: opts.token,
@@ -36636,4 +36653,4 @@ program2.command("mcp").description("Run the ac stdio MCP server (proxies tools 
 });
 await program2.parseAsync(process.argv);
 
-//# debugId=3DE36B28BB312B2F64756E2164756E21
+//# debugId=6CA3DA250516108464756E2164756E21
