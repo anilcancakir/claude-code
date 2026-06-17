@@ -46,6 +46,44 @@ const ALLOWED_REMOTE_TOOLS: ReadonlySet<string> = new Set([
 ]);
 
 /**
+ * Fallback-only directives prepended to the web-fetch and web-search tool
+ * descriptions at list time.
+ *
+ * Claude Code's own built-in WebFetch description tells the model to prefer an
+ * MCP web-fetch tool when one is registered, which biases every agent toward
+ * this proxy by default. CLAUDE.md and agent-body prose lose that contest
+ * because the tool description is read at the exact moment of tool selection.
+ * Marking these two tools fallback-only in the description is the one lever
+ * that reaches every consumer, including subagents that omit CLAUDE.md, and
+ * counters the built-in's "prefer MCP" hint at the same layer. The other three
+ * tools (search-docs, resolve-library, web-code-search) have no built-in
+ * equivalent and stay primary, so they are not rewritten.
+ */
+const FALLBACK_DIRECTIVES: Readonly<Record<string, string>> = {
+    "web-search":
+        "FALLBACK ONLY. Prefer the built-in WebSearch tool first (load it via ToolSearch if it "
+        + "is not already active). Use this ac web-search only when the built-in WebSearch errors, "
+        + "is unavailable or rate-limited, or returns insufficient results.\n\n",
+    "web-fetch":
+        "FALLBACK ONLY. Prefer the built-in WebFetch tool first (load it via ToolSearch if it is "
+        + "not already active). Use this ac web-fetch only when the built-in WebFetch errors or "
+        + "times out, is rate-limited or blocked (HTTP 403/429), returns empty or auth-walled "
+        + "content, or cannot follow a cross-host redirect.\n\n",
+};
+
+/**
+ * Prepend the fallback directive to a web tool's description, leaving the
+ * other proxied tools untouched.
+ */
+function applyFallbackDirective(tool: Tool): Tool {
+    const directive = FALLBACK_DIRECTIVES[tool.name];
+    if (directive === undefined) {
+        return tool;
+    }
+    return { ...tool, description: directive + (tool.description ?? "") };
+}
+
+/**
  * Lazily-connected remote MCP handle.
  *
  * The first listTools / callTool dispatch triggers the upstream
@@ -67,7 +105,7 @@ export async function runMcpProxy(options: { token?: string; url?: string }): Pr
     let cachedTools: Tool[] | undefined;
 
     const server = new Server(
-        { name: "ac", version: "0.4.0" },
+        { name: "ac", version: "0.4.1" },
         { capabilities: { tools: {} } },
     );
 
@@ -92,7 +130,7 @@ export async function runMcpProxy(options: { token?: string; url?: string }): Pr
         const result = await remote.client.listTools();
         for (const tool of result.tools) {
             if (ALLOWED_REMOTE_TOOLS.has(tool.name)) {
-                remoteTools.push(tool);
+                remoteTools.push(applyFallbackDirective(tool));
             }
         }
 
@@ -194,7 +232,7 @@ export async function runMcpProxy(options: { token?: string; url?: string }): Pr
  */
 function buildRemoteHandle(url: string, token: string): RemoteHandle {
     const client = new Client(
-        { name: "ac", version: "0.4.0" },
+        { name: "ac", version: "0.4.1" },
         { capabilities: {} },
     );
     const transport = new StreamableHTTPClientTransport(
