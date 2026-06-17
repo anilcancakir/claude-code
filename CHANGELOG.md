@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-06-17
+
+### Fixed
+
+- Built-in-first web routing now actually holds. The 0.4.0 prose steering was
+  overridden because Claude Code's own built-in WebFetch description tells the model
+  to prefer a registered MCP web-fetch tool, and the ac web tools are directly callable
+  while the built-ins are deferred behind ToolSearch. The ac MCP `web-fetch` / `web-search`
+  tool descriptions are now marked `FALLBACK ONLY` (prefer the built-in first; use these
+  only on error, rate-limit/block, empty or auth-walled content, or an unfollowable
+  redirect), which reaches every agent including `omitClaudeMd` subagents at tool-selection
+  time. `librarian` and `oracle` bodies no longer frame the ac tools as the friction-free path.
+- `resolve-library`, `search-docs`, and `web-code-search` descriptions are unchanged
+  (no built-in equivalent; they stay primary).
+
 ## [0.4.0] - 2026-06-14
 
 ### Changed
@@ -43,5 +58,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `subagent-monitor` plugin removed from the marketplace; functionality superseded by
   the plan-chain agent reviewers.
 
+[0.4.1]: https://github.com/anilcancakir/claude-code/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/anilcancakir/claude-code/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/anilcancakir/claude-code/compare/v0.2.0...v0.3.0
