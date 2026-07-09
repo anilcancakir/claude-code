@@ -2,6 +2,7 @@
 description: Deep project-initialization command. Phase 0 parses arguments, scopes the gap-fill interview, and runs the gitignore guard for `CLAUDE.local.md`. Phase 1 spawns four parallel `ac:explore` agents across manifest plus build, languages plus frameworks, conventions plus style, and existing agent infra (AGENTS.md, .cursor/rules, .github/copilot-instructions.md). Phase 2 scores subdirectory rule candidates with an 8-factor matrix (path-scoped semantics, `>15 / 8-15 / <8` thresholds) clipped to `--max-depth` and a max-5 cap. Phase 3 invokes the `ac:claude-md-rules-creator` skill once, then drafts the root `CLAUDE.md`, optional `CLAUDE.local.md`, and up to 5 `.claude/rules/*.md` files with `paths:` frontmatter, honoring the skill's pre-flight checklist and the `.proposed` sidecar plus AskUserQuestion gate on existing files. Phase 4 reads back every emitted file, runs a parent-vs-child dedupe pass, and reports a per-file summary. Flags `--max-depth=N` (default 2), `--dry-run`, `--no-local`, `--force-overwrite` (overridden by `--dry-run`).
 argument-hint: [path] [--max-depth=N] [--dry-run] [--no-local] [--force-overwrite]
 effort: high
+disable-model-invocation: true
 ---
 
 # /ac:init-project
@@ -127,6 +128,16 @@ When clipping drops one or more candidates that scored above the strong threshol
 
 Note inline that the thresholds and factor weights are starting values. Tune them on the first three real projects before treating them as final.
 
+### Decision-table alignment
+
+The 8 factors are proxies feeding a single decision, not an invented taxonomy of their own: does this convention belong at file scope (root `CLAUDE.md`) or at path scope (`.claude/rules/<topic>.md`). Frame the scoring against the official "build your setup over time" decision table (see `code.claude.com/docs/en/features-overview#build-your-setup-over-time`): a convention gets corrected wrong twice -> it belongs in `CLAUDE.md`; the same playbook gets pasted a third time -> it belongs in a skill; a step's output floods the conversation -> it belongs in a subagent; you want a rule enforced every single time, no exceptions -> it belongs in a hook. This command only emits `CLAUDE.md` and path-scoped rules, so it only ever answers the first branch of that table (file-scope vs. path-scope CLAUDE.md placement); factors 6 (external-tool overlap) and 7 (hot-path frequency) are the closest proxies for "pasted a third time" pointing at a candidate a human maintainer may later want to promote to a skill, and factor 4 (off-limits surface) is the closest proxy for "want it every time" pointing at a candidate that may need a hook instead of a rule (see the maintainer note below: a path-scoped rule cannot guarantee load-time enforcement, so a hard safety invariant should not rely on scoring above a rule threshold alone).
+
+### Maintainer note: path-scoped rule reliability
+
+Path-scoped `.claude/rules/*.md` files load on READ, not on create: a brand-new file that matches a rule's `paths:` glob does not trigger that rule until an existing file at that path is subsequently read. Two GitHub issues bear on this: #16853 (OPEN as of this writing) reports silent load failures even on matching reads, with no error surfaced to the user or the transcript; #63142 (CLOSED) confirms load-on-read is by-design, not a bug, so a brand-new file legitimately never fires its own rule on the write that created it.
+
+Consequence for this command's output: do not route safety-critical or create-time conventions (an off-limits path that must never be edited even on its first write, a convention that must hold from the very first file in a directory) into a `.claude/rules/*.md` file alone. Those belong in the root `CLAUDE.md` (loads every session, unconditionally) or in a hook (enforced deterministically regardless of load timing). Keep path-scoped rules for organizational conventions where a missed load on rare stale-read paths is a minor inconvenience, not a correctness or safety failure. Tell the user, in the Phase 4 report, to verify with `/memory` (the docs-blessed inspection command) that each emitted `.claude/rules/*.md` file actually shows up as loaded, rather than assuming the write alone guarantees enforcement.
+
 ## Phase 3: Draft and Write
 
 ### 3a. Invoke the writing skill (once, at phase entry)
@@ -162,6 +173,8 @@ For each surviving Phase 2 candidate (max 5), draft a focused rule file at `<PAT
 Length budget per rule: 30 to 80 lines sweet spot, 200 hard ceiling. When a draft exceeds 80 lines, split the topic before writing.
 
 Run the pre-flight checklist at `SKILL.md:336-361` against each rule draft. The path-scoped-specific items at the bottom of the checklist matter most here: glob actually matches your intent, no `paths: ['**']`.
+
+Before drafting each candidate, re-apply the Phase 2 maintainer note: if the candidate content is safety-critical or must hold on a file's very first write, redirect it to the root `CLAUDE.md` draft (3b) or flag it for a hook instead of emitting it here, since a path-scoped rule loads on read only and cannot guarantee create-time enforcement.
 
 ### 3e. Existing-file safety and dry-run handling
 
@@ -221,3 +234,4 @@ Canonical anchors used by this command body. Cross-check before editing.
 - `plugins/ac/skills/claude-md-rules-creator/SKILL.md:336-361` (pre-flight checklist applied before every `Write` or `Edit`).
 - `plugins/ac/commands/plan.md:7-10` (intro cadence mirrored above).
 - `plugins/ac/commands/work.md:17-23` (CAN / CANNOT / MUST orchestrator block shape).
+- `code.claude.com/docs/en/features-overview#build-your-setup-over-time` (official "build your setup over time" decision table: CLAUDE.md / skill / subagent / hook).
