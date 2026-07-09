@@ -30,7 +30,7 @@ export const EXTERNAL_AGENT_TOOL_DEFINITION: Tool = {
             },
             model: {
                 type: "string",
-                description: "Optional model identifier passed to the CLI (e.g. gpt-5.5, gemini-2.5-flash, anthropic/claude-sonnet-4-6).",
+                description: "Optional model identifier passed to the CLI (e.g. gpt-5.5, gemini-2.5-flash, anthropic/claude-sonnet-5).",
             },
             timeout_seconds: {
                 type: "number",

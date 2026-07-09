@@ -6,7 +6,72 @@ import { test, expect } from "bun:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { McpError } from "@modelcontextprotocol/sdk/types.js";
+import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import path from "node:path";
+import { applyAlwaysLoad, SERVER_INSTRUCTIONS, toIsErrorResult } from "./mcp.ts";
+
+// Bearer-free unit coverage for the exported proxy transforms. These do not
+// spawn the subprocess and are NOT skipIf-gated, so A2 (alwaysLoad) and A11
+// (isError normalization) are exercised in CI without a kdz- bearer.
+
+function makeTool(name: string, meta?: Record<string, unknown>): Tool {
+    return {
+        name,
+        description: `${name} description`,
+        inputSchema: { type: "object" },
+        ...(meta ? { _meta: meta } : {}),
+    };
+}
+
+function joinText(content: Array<{ type: string }>): string {
+    return content.map((c) => (c as { text?: string }).text ?? "").join("");
+}
+
+test("applyAlwaysLoad merges anthropic/alwaysLoad for the three docs tools", () => {
+    for (const name of ["search-docs", "resolve-library", "web-code-search"]) {
+        const out = applyAlwaysLoad(makeTool(name));
+        expect(out._meta?.["anthropic/alwaysLoad"]).toBe(true);
+    }
+});
+
+test("applyAlwaysLoad leaves web-fetch and web-search untouched", () => {
+    for (const name of ["web-fetch", "web-search"]) {
+        const input = makeTool(name);
+        const out = applyAlwaysLoad(input);
+        expect(out).toBe(input);
+        expect(out._meta).toBeUndefined();
+    }
+});
+
+test("applyAlwaysLoad preserves existing _meta (anthropic/searchHint)", () => {
+    const input = makeTool("search-docs", { "anthropic/searchHint": "docs" });
+    const out = applyAlwaysLoad(input);
+    expect(out._meta?.["anthropic/searchHint"]).toBe("docs");
+    expect(out._meta?.["anthropic/alwaysLoad"]).toBe(true);
+});
+
+test("applyAlwaysLoad does not mutate the input tool", () => {
+    const input = makeTool("search-docs");
+    applyAlwaysLoad(input);
+    expect(input._meta).toBeUndefined();
+});
+
+test("toIsErrorResult wraps an Error message in an isError CallToolResult", () => {
+    const out = toIsErrorResult(new Error("upstream 429"));
+    expect(out.isError).toBe(true);
+    expect(joinText(out.content)).toContain("upstream 429");
+});
+
+test("toIsErrorResult stringifies a non-Error thrown value", () => {
+    const out = toIsErrorResult("boom");
+    expect(out.isError).toBe(true);
+    expect(joinText(out.content)).toContain("boom");
+});
+
+test("SERVER_INSTRUCTIONS is non-empty and under the 2KB truncation bound", () => {
+    expect(SERVER_INSTRUCTIONS.length).toBeGreaterThan(0);
+    expect(SERVER_INSTRUCTIONS.length).toBeLessThan(2048);
+});
 
 const CLI_DIR = path.resolve(import.meta.dir, "..");
 

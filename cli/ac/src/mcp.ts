@@ -84,6 +84,72 @@ function applyFallbackDirective(tool: Tool): Tool {
 }
 
 /**
+ * Primary docs/OSS-research tools that Claude Code should keep resident rather
+ * than defer behind tool-search.
+ *
+ * These three have no built-in equivalent, so marking them `alwaysLoad` loads
+ * them at session start (CC reads the connected server's tools/list with no
+ * provenance tracking, so the per-tool `_meta` flag is honored on proxied
+ * tools). web-fetch and web-search are deliberately excluded: they stay
+ * fallback-only, and marking them alwaysLoad would force them resident against
+ * the built-in web tools.
+ */
+const ALWAYS_LOAD_TOOLS: ReadonlySet<string> = new Set([
+    "search-docs",
+    "resolve-library",
+    "web-code-search",
+]);
+
+/**
+ * Merge the `anthropic/alwaysLoad` directive into a docs tool's `_meta`,
+ * preserving any upstream `_meta` (e.g. `anthropic/searchHint`) and leaving
+ * every other proxied tool untouched.
+ */
+export function applyAlwaysLoad(tool: Tool): Tool {
+    if (!ALWAYS_LOAD_TOOLS.has(tool.name)) {
+        return tool;
+    }
+    return {
+        ...tool,
+        _meta: {
+            ...tool._meta,
+            "anthropic/alwaysLoad": true,
+        },
+    };
+}
+
+/**
+ * Normalize a remote-passthrough failure into an `isError` tool result.
+ *
+ * A remote network/rate-limit/upstream failure is a tool-execution failure,
+ * distinct from a dispatch error (unknown tool, missing bearer) which stays an
+ * McpError. Mirrors the web-fetch-race error->result shape so the model sees a
+ * readable failure instead of a protocol-level rejection.
+ */
+export function toIsErrorResult(err: unknown): CallToolResult {
+    const message = err instanceof Error ? err.message : String(err);
+    return {
+        isError: true,
+        content: [{ type: "text", text: `remote tool call failed: ${message}` }],
+    };
+}
+
+/**
+ * Server-level usage guidance loaded at session start regardless of
+ * tool-search deferral. Kept under the 2KB truncation bound.
+ */
+export const SERVER_INSTRUCTIONS =
+    "ac proxies a documentation and open-source research surface. Routing: call "
+    + "resolve-library first to map a library name to its cached documentation id, then "
+    + "search-docs to read that library's cached docs; call web-code-search to find real "
+    + "usage patterns across public GitHub repositories. Prefer these three over generic "
+    + "web access; they return curated, cached results with no live-fetch latency. Use "
+    + "web-fetch and web-search only as a fallback, when the built-in WebFetch/WebSearch "
+    + "and the docs tools above cannot answer (broken or auth-walled pages, non-library "
+    + "sources, live pages absent from the cache). call-external-agent dispatches a prompt "
+    + "to a local coding CLI (codex, gemini, opencode) in a chosen directory.";
+
+/**
  * Lazily-connected remote MCP handle.
  *
  * The first listTools / callTool dispatch triggers the upstream
@@ -105,8 +171,8 @@ export async function runMcpProxy(options: { token?: string; url?: string }): Pr
     let cachedTools: Tool[] | undefined;
 
     const server = new Server(
-        { name: "ac", version: "0.4.2" },
-        { capabilities: { tools: {} } },
+        { name: "ac", version: "0.5.0" },
+        { capabilities: { tools: {} }, instructions: SERVER_INSTRUCTIONS },
     );
 
     server.setRequestHandler(ListToolsRequestSchema, async () => {
@@ -130,7 +196,7 @@ export async function runMcpProxy(options: { token?: string; url?: string }): Pr
         const result = await remote.client.listTools();
         for (const tool of result.tools) {
             if (ALLOWED_REMOTE_TOOLS.has(tool.name)) {
-                remoteTools.push(applyFallbackDirective(tool));
+                remoteTools.push(applyAlwaysLoad(applyFallbackDirective(tool)));
             }
         }
 
@@ -202,12 +268,19 @@ export async function runMcpProxy(options: { token?: string; url?: string }): Pr
 
         await remote.ensureConnected();
 
-        return remote.client.callTool(
-            {
-                name: requestedName,
-                arguments: request.params.arguments,
-            },
-        );
+        // Remote passthrough for docs/search tools. A network/rate-limit/upstream
+        // failure here is a tool-execution failure, so normalize it to an isError
+        // result rather than letting it propagate as a protocol-level rejection.
+        try {
+            return await remote.client.callTool(
+                {
+                    name: requestedName,
+                    arguments: request.params.arguments,
+                },
+            ) as CallToolResult;
+        } catch (err) {
+            return toIsErrorResult(err);
+        }
     });
 
     const stdioTransport = new StdioServerTransport();
@@ -232,7 +305,7 @@ export async function runMcpProxy(options: { token?: string; url?: string }): Pr
  */
 function buildRemoteHandle(url: string, token: string): RemoteHandle {
     const client = new Client(
-        { name: "ac", version: "0.4.2" },
+        { name: "ac", version: "0.5.0" },
         { capabilities: {} },
     );
     const transport = new StreamableHTTPClientTransport(

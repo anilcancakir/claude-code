@@ -27587,7 +27587,7 @@ var EXTERNAL_AGENT_TOOL_DEFINITION = {
       },
       model: {
         type: "string",
-        description: "Optional model identifier passed to the CLI (e.g. gpt-5.5, gemini-2.5-flash, anthropic/claude-sonnet-4-6)."
+        description: "Optional model identifier passed to the CLI (e.g. gpt-5.5, gemini-2.5-flash, anthropic/claude-sonnet-5)."
       },
       timeout_seconds: {
         type: "number",
@@ -36547,12 +36547,37 @@ function applyFallbackDirective(tool) {
   }
   return { ...tool, description: directive + (tool.description ?? "") };
 }
+var ALWAYS_LOAD_TOOLS = new Set([
+  "search-docs",
+  "resolve-library",
+  "web-code-search"
+]);
+function applyAlwaysLoad(tool) {
+  if (!ALWAYS_LOAD_TOOLS.has(tool.name)) {
+    return tool;
+  }
+  return {
+    ...tool,
+    _meta: {
+      ...tool._meta,
+      "anthropic/alwaysLoad": true
+    }
+  };
+}
+function toIsErrorResult(err) {
+  const message = err instanceof Error ? err.message : String(err);
+  return {
+    isError: true,
+    content: [{ type: "text", text: `remote tool call failed: ${message}` }]
+  };
+}
+var SERVER_INSTRUCTIONS = "ac proxies a documentation and open-source research surface. Routing: call " + "resolve-library first to map a library name to its cached documentation id, then " + "search-docs to read that library's cached docs; call web-code-search to find real " + "usage patterns across public GitHub repositories. Prefer these three over generic " + "web access; they return curated, cached results with no live-fetch latency. Use " + "web-fetch and web-search only as a fallback, when the built-in WebFetch/WebSearch " + "and the docs tools above cannot answer (broken or auth-walled pages, non-library " + "sources, live pages absent from the cache). call-external-agent dispatches a prompt " + "to a local coding CLI (codex, gemini, opencode) in a chosen directory.";
 async function runMcpProxy(options) {
   const token = (options.token ?? process.env["KODIZM_MCP_TOKEN"] ?? "").trim();
   const url2 = (options.url ?? process.env["KODIZM_MCP_URL"] ?? DEFAULT_REMOTE_URL).trim();
   const remote = token === "" ? null : buildRemoteHandle(url2, token);
   let cachedTools;
-  const server = new Server({ name: "ac", version: "0.4.2" }, { capabilities: { tools: {} } });
+  const server = new Server({ name: "ac", version: "0.5.0" }, { capabilities: { tools: {} }, instructions: SERVER_INSTRUCTIONS });
   server.setRequestHandler(ListToolsRequestSchema, async () => {
     if (cachedTools !== undefined) {
       return { tools: cachedTools };
@@ -36566,7 +36591,7 @@ async function runMcpProxy(options) {
     const result = await remote.client.listTools();
     for (const tool of result.tools) {
       if (ALLOWED_REMOTE_TOOLS.has(tool.name)) {
-        remoteTools.push(applyFallbackDirective(tool));
+        remoteTools.push(applyAlwaysLoad(applyFallbackDirective(tool)));
       }
     }
     cachedTools = [...remoteTools, EXTERNAL_AGENT_TOOL_DEFINITION];
@@ -36611,10 +36636,14 @@ async function runMcpProxy(options) {
       throw new McpError(ErrorCode.InvalidRequest, "Remote MCP not configured; set KODIZM_MCP_TOKEN to enable kodizm tools.");
     }
     await remote.ensureConnected();
-    return remote.client.callTool({
-      name: requestedName,
-      arguments: request.params.arguments
-    });
+    try {
+      return await remote.client.callTool({
+        name: requestedName,
+        arguments: request.params.arguments
+      });
+    } catch (err) {
+      return toIsErrorResult(err);
+    }
   });
   const stdioTransport = new StdioServerTransport;
   await server.connect(stdioTransport);
@@ -36625,7 +36654,7 @@ async function runMcpProxy(options) {
   process.on("SIGTERM", shutdown);
 }
 function buildRemoteHandle(url2, token) {
-  const client = new Client({ name: "ac", version: "0.4.2" }, { capabilities: {} });
+  const client = new Client({ name: "ac", version: "0.5.0" }, { capabilities: {} });
   const transport = new StreamableHTTPClientTransport(new URL(url2), {
     requestInit: { headers: { Authorization: `Bearer ${token}` } }
   });
@@ -36644,7 +36673,7 @@ function buildRemoteHandle(url2, token) {
 
 // src/index.ts
 var program2 = new Command;
-program2.name("ac").description("ac CLI. Companion runtime for the ac Claude Code plugin.").version("0.4.2");
+program2.name("ac").description("ac CLI. Companion runtime for the ac Claude Code plugin.").version("0.5.0");
 program2.command("mcp").description("Run the ac stdio MCP server (proxies tools to kodizm).").option("--url <value>", "Override the kodizm MCP endpoint (defaults to https://mcp.kodizm.com; " + "use http://127.0.0.1:<port>/mcp/kodizm for local dev).").option("--token <value>", "Override the kdz- bearer token (also reads KODIZM_MCP_TOKEN).").action(async (opts) => {
   await runMcpProxy({
     token: opts.token,
@@ -36653,4 +36682,4 @@ program2.command("mcp").description("Run the ac stdio MCP server (proxies tools 
 });
 await program2.parseAsync(process.argv);
 
-//# debugId=64F125A1F7F9AE0464756E2164756E21
+//# debugId=03479D67C9FE214D64756E2164756E21

@@ -53,14 +53,14 @@ test("buildArgv gemini without model", () => {
 });
 
 test("buildArgv opencode with model", () => {
-    const argv = buildArgv("opencode", "do a thing", "/tmp/proj", "anthropic/claude-sonnet-4-6");
+    const argv = buildArgv("opencode", "do a thing", "/tmp/proj", "anthropic/claude-sonnet-5");
     expect(argv).toEqual([
         "opencode",
         "run",
         "--dir",
         "/tmp/proj",
         "--model",
-        "anthropic/claude-sonnet-4-6",
+        "anthropic/claude-sonnet-5",
     ]);
 });
 
