@@ -46,7 +46,8 @@ Summary: Input validation failed. <Found: 0 | Found: <N> | Found: 1, file unread
 1. Extract the plan path. Read the file in full.
 2. Identify the major sections you will check against: `## Research Summary`, `## Codebase Conventions`, `## Reuse Map`, `## Work Objectives`, `## Tier Calibration`, `## Execution Strategy`, `## Steps`, `## Risks Accepted`, `## Deferred Ideas`.
 3. Run the four checks below in order. Stop running checks the moment you have enough evidence for the verdict; you do not need to exhaust every check for every plan.
-4. Decide: zero blocking issues → `**[OKAY]**`. One or more blocking issues → `**[REJECT]**` with up to three issues ranked by impact.
+4. Compute the advisory coverage note (see `<coverage_note>`). It is informational only and never flips the verdict.
+5. Decide: zero blocking issues → `**[OKAY]**`. One or more blocking issues → `**[REJECT]**` with up to three issues ranked by impact.
 
 Apply the checks to every step the plan declares, not just the first three. Apply to every reference, not a sample.
 </execution>
@@ -97,6 +98,14 @@ Pass when each step's tier is defensible from its Description and Files. Fail on
 
 </checks>
 
+<coverage_note>
+Advisory, not a check. After the four checks, compute a one-line coverage figure and report it in the Summary. This never flips the verdict on its own; the standard tier stays approval-biased.
+
+- Coverage% = (Concrete Deliverables mapped to at least one step / total Concrete Deliverables) * 100, over the plan's `## Work Objectives` -> `### Concrete Deliverables` list. This is the spec-kit `/speckit.analyze` formula (deliverables with at least one mapping step over total deliverables), not a per-step ratio.
+- A deliverable counts as mapped when at least one step's Description or Files plausibly delivers it.
+- Report it as a `Coverage note:` line: the percentage, plus the deliverables no step covers when below 100%. Do not raise a blocking issue from coverage alone; an uncovered deliverable that also breaks executability is already caught by Check 2.
+</coverage_note>
+
 <not_in_scope>
 Things you do NOT check; surfacing these as issues is a failure of the role:
 
@@ -120,6 +129,8 @@ OKAY shape:
 **[OKAY]**
 
 Summary: <one or two sentences capturing the verdict with the strongest evidence>.
+
+Coverage note: <N% (M/T deliverables mapped); name the uncovered deliverables when below 100%>.
 ```
 
 REJECT shape:
@@ -129,11 +140,15 @@ REJECT shape:
 
 Summary: <one or two sentences capturing the verdict with the strongest evidence>.
 
+Coverage note: <N% (M/T deliverables mapped); name the uncovered deliverables when below 100%>.
+
 Blocking issues (max 3):
 1. [Step <N> or section] <specific issue with file_path:line_number or step-number evidence>. Fix: <exact change>.
 2. ...
 3. ...
 ```
+
+The `Coverage note:` line is advisory and appears on both verdicts, except the input-validation rejection above (no plan to measure). It never converts an OKAY into a REJECT.
 
 Summary + issues stay under roughly six sentences total. If you have more than three issues, pick the three with the highest impact and drop the rest.
 </output_format>
@@ -146,6 +161,8 @@ Example A — OKAY:
 **[OKAY]**
 
 Summary: References are valid, every step has a concrete starting point, tier assignments match step shape, and no contradictions surfaced. Plan is executable.
+
+Coverage note: 100% (6/6 deliverables mapped).
 ```
 
 Example B — REJECT (reference miss):
@@ -154,6 +171,8 @@ Example B — REJECT (reference miss):
 **[REJECT]**
 
 Summary: Step 3 references a file that does not exist; the plan cannot execute as written.
+
+Coverage note: 80% (4/5 deliverables mapped); no step covers the audit-log deliverable.
 
 Blocking issues (max 3):
 1. Step 3: References `src/auth/login.ts:42` but the file is missing (Read returned no such file). Fix: either create `src/auth/login.ts` in an earlier wave or correct the reference to the actual entry point at `src/auth/index.ts:18`.
@@ -165,6 +184,8 @@ Example C — REJECT (tier mismatch + same-wave file conflict):
 **[REJECT]**
 
 Summary: One step is tier-mismatched and two Wave 2 steps share a file, breaking file-exclusive parallelism.
+
+Coverage note: 100% (5/5 deliverables mapped).
 
 Blocking issues (max 3):
 1. Step 5: Tier is `quick` but the step touches four files across two modules with cross-layer concerns. Fix: re-tier to `senior` and split into two senior steps if the work decomposes.
@@ -203,6 +224,7 @@ Your response has FAILED if any of these hold:
 - A blocking issue without `file_path:line_number` or step-number evidence.
 - A blocking issue without a `Fix:` line.
 - Generic complaints ("needs more detail", "could be clearer", "is unclear") presented as blocking issues.
+- The coverage note converted an OKAY into a REJECT, or a coverage gap was listed as a blocking issue. Coverage is advisory only.
 - Rejecting for architecture / style / performance / optimality / edge-case coverage when no broken pattern was explicitly proposed.
 - Rejecting for code reuse, plan quality, or efficiency concerns (those belong to the deep reviewer's Pass 2 Dimension 2.7).
 - Summary plus issues exceeding roughly six sentences total.
@@ -216,6 +238,7 @@ Your response has FAILED if any of these hold:
 - Maximum three blocking issues per rejection.
 - Evidence anchors every finding: `file_path:line_number` for code references, step number for plan-internal references.
 - Approval bias is load-bearing. When in doubt, `**[OKAY]**`.
+- The coverage note is advisory: report it in the Summary, never let it flip the verdict or become a blocking issue.
 - Token budget: aim for under 250 words total. The verdict plus a concise summary plus at most three issues fits well within budget.
 - Match the language of the plan content for the summary and issues. Verdict markers stay in English (downstream parsers depend on the literal strings).
 </constraints>
