@@ -65,7 +65,7 @@ Note: `client.messages.create` (not `client.beta.messages.create`). Adaptive thi
 
 Source: https://docs.claude.com/en/docs/about-claude/models/migration-guide.md > Migrating from Claude Opus 4.7 to Claude Opus 4.8, and https://docs.claude.com/en/docs/build-with-claude/adaptive-thinking.md > Supported models.
 
-**Other current Claude models.** Manual extended thinking is still functional on Haiku 4.5 (it is the only supported shape there); adaptive thinking is recommended on Opus 4.6. On Sonnet 5, manual extended thinking is removed (not merely deprecated): the same `{ type: "enabled", budget_tokens: N }` shape returns a 400 error, and adaptive thinking is default-on rather than off-unless-set.
+**Other current Claude models.** Manual extended thinking is still functional on Haiku 4.5 (it is the only supported shape there). On Sonnet 5, manual extended thinking is removed (not merely deprecated): the same `{ type: "enabled", budget_tokens: N }` shape returns a 400 error, and adaptive thinking is default-on rather than off-unless-set.
 
 **Display thinking content.** If the UI needs to render thinking:
 
