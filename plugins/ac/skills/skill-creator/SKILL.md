@@ -1,6 +1,6 @@
 ---
 name: skill-creator
-description: Authors Claude Code skills (`.claude/skills/<name>/SKILL.md`, project/user/plugin/managed scope). Use whenever a new skill is being written, an existing skill is being edited, a recurring workflow is being captured as a playbook, scope and invocation are being decided (inline vs forked, model-invocable vs user-only), `allowed-tools` patterns are being chosen, bundled `references/` or `scripts/` are being added, `paths:` is being scoped, or a skill that fails to trigger is being debugged. Triggers on "create a skill", "write a SKILL.md", "turn this into a skill", "make a slash command", "package this workflow", "playbook", "fix this skill", "skill not triggering", "skillify". Use even when the user does not say the word "skill" but is asking to capture a procedure they keep retyping. Pair with `ac:prompt-writer` for the body content, with `command-creator` for command-shaped skills (`/name [args]`), with `agent-creator` for context-isolated workers, with `ac:claude-md-rules-creator` for facts that belong in CLAUDE.md instead. Target is Opus 4.8; Sonnet 4.6 follows the same shape at lower effort. Undertriggering is the failure mode, lean in when the request is plausibly about authoring or fixing a skill.
+description: Authors Claude Code skills (`.claude/skills/<name>/SKILL.md`, project/user/plugin/managed scope). Use whenever a new skill is being written, an existing skill is being edited, a recurring workflow is being captured as a playbook, scope and invocation are being decided (inline vs forked, model-invocable vs user-only), `allowed-tools` patterns are being chosen, bundled `references/` or `scripts/` are being added, `paths:` is being scoped, or a skill that fails to trigger is being debugged. Triggers on "create a skill", "write a SKILL.md", "turn this into a skill", "make a slash command", "package this workflow", "playbook", "fix this skill", "skill not triggering", "skillify". Use even when the user does not say the word "skill" but is asking to capture a procedure they keep retyping. Pair with `ac:prompt-writer` for the body content, with `command-creator` for command-shaped skills (`/name [args]`), with `agent-creator` for context-isolated workers, with `ac:claude-md-rules-creator` for facts that belong in CLAUDE.md instead. Target is Opus 4.8; Sonnet 5 follows the same shape at lower effort. Undertriggering is the failure mode, lean in when the request is plausibly about authoring or fixing a skill.
 when_to_use: Creating, editing, auditing, or debugging any Claude Code skill at any scope.
 disable-model-invocation: true
 ---
@@ -9,7 +9,7 @@ disable-model-invocation: true
 
 You are about to write or edit a skill another Claude will load. A skill is a directory with a `SKILL.md`. Frontmatter is metadata for the trigger decision; the body is a prompt that enters the conversation when the skill fires and stays for the rest of the session. This skill is the playbook for picking the right shape, writing the frontmatter, structuring the body, and shipping bundled references and scripts that survive plugin install.
 
-Target is Opus 4.8. Same rules work for Sonnet 4.6 and Haiku 4.5 with lower effort levels. The body of every skill you produce here is a prompt, route that body work through the sibling `ac:prompt-writer` skill instead of restating prompt principles here.
+Target is Opus 4.8. Same rules work for Sonnet 5 and Haiku 4.5 with lower effort levels. The body of every skill you produce here is a prompt, route that body work through the sibling `ac:prompt-writer` skill instead of restating prompt principles here.
 
 ## Two jobs, not one
 
@@ -314,9 +314,9 @@ This skill stays focused on the skill shape itself. The work around the skill ro
 
 When the user request implies any of the rows above, do both: invoke the matching creator for shape, then keep this skill loaded for what is still skill-shaped.
 
-## Opus 4.8 and Sonnet 4.6 tuning
+## Opus 4.8 and Sonnet 5 tuning
 
-Default target is `claude-opus-4-8`. Sonnet 4.6 (`claude-sonnet-4-6`) and Haiku 4.5 (`claude-haiku-4-5-20251001`) follow the same shape at lower effort levels. Full per-knob detail: `${CLAUDE_SKILL_DIR}/references/opus-4-8-tuning.md`.
+Default target is `claude-opus-4-8`. Sonnet 5 (`claude-sonnet-5`) and Haiku 4.5 (`claude-haiku-4-5-20251001`) follow the same shape at lower effort levels. Full per-knob detail: `${CLAUDE_SKILL_DIR}/references/opus-4-8-tuning.md`.
 
 Quick deltas to keep in mind while authoring:
 
@@ -438,7 +438,7 @@ Check only the items that apply to your skill's specific needs:
 | `${CLAUDE_SKILL_DIR}/references/claude-code-mechanics.md` | Understanding runtime lifecycle (load, invocation, auto-compact, char budget), substitutions, shell injection, location precedence. |
 | `${CLAUDE_SKILL_DIR}/references/examples.md` | Copying from a worked example: reference, manual-action, forked, scripted, path-conditional, plugin-distributed. |
 | `${CLAUDE_SKILL_DIR}/references/anti-patterns.md` | Diagnosing a misbehaving skill or auditing one before shipping. |
-| `${CLAUDE_SKILL_DIR}/references/opus-4-8-tuning.md` | Tuning effort, verbosity, tool use, subagent spawning, thinking, model overrides; Sonnet 4.6 and Haiku 4.5 deltas. |
+| `${CLAUDE_SKILL_DIR}/references/opus-4-8-tuning.md` | Tuning effort, verbosity, tool use, subagent spawning, thinking, model overrides; Sonnet 5 and Haiku 4.5 deltas. |
 | `${CLAUDE_SKILL_DIR}/assets/SKILL.template.md` | Starting a new skill from a blank annotated template. |
 
 For the prompt body itself, invoke `/ac:prompt-writer` and follow the references it lists from its own body:

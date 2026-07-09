@@ -176,7 +176,7 @@ Override the active model while the skill runs. Same values as `/model`, plus `i
 ```yaml
 model: claude-opus-4-8
 # or
-model: claude-sonnet-4-6
+model: claude-sonnet-5
 # or
 model: inherit
 ```

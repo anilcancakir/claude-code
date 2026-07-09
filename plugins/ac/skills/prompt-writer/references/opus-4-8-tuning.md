@@ -1,6 +1,6 @@
 # Opus 4.8 Tuning
 
-Specific, load-bearing knobs for `claude-opus-4-8`. Read this when writing or debugging a prompt for Opus 4.8, or when tuning a prompt up from Opus 4.7, 4.6, or Sonnet 4.6.
+Specific, load-bearing knobs for `claude-opus-4-8`. Read this when writing or debugging a prompt for Opus 4.8, or when tuning a prompt up from Opus 4.7, 4.6, or Sonnet 5.
 
 Primary sources (raw markdown via the `.md` suffix on `docs.claude.com`):
 
@@ -31,7 +31,7 @@ Source: https://docs.claude.com/en/docs/build-with-claude/prompt-engineering/pro
 
 **The rule.** When you see shallow reasoning on a complex problem, raise effort to `high` or `xhigh`. Do not paper over with prompt instructions. Effort is the cleaner lever, and it matters more on 4.8 than on prior Opus, so experiment with it actively when you upgrade.
 
-**Token budget.** At `xhigh` or `max`, set `max_tokens` to roughly 64k. The model needs room to think and act across subagents and tool calls. Maximum output tokens on Opus 4.8 is 128k; Sonnet 4.6 and Haiku 4.5 are 64k.
+**Token budget.** At `xhigh` or `max`, set `max_tokens` to roughly 64k, more if you want headroom given the 128k ceiling. The model needs room to think and act across subagents and tool calls. Maximum output tokens: Opus 4.8 and Sonnet 5 are both 128k (verified against the models overview comparison table); Haiku 4.5 is 64k.
 
 Source: https://docs.claude.com/en/docs/about-claude/models/overview.md (latest-models comparison table, "Max output" row).
 
@@ -65,7 +65,7 @@ Note: `client.messages.create` (not `client.beta.messages.create`). Adaptive thi
 
 Source: https://docs.claude.com/en/docs/about-claude/models/migration-guide.md > Migrating from Claude Opus 4.7 to Claude Opus 4.8, and https://docs.claude.com/en/docs/build-with-claude/adaptive-thinking.md > Supported models.
 
-**Other Claude models in the 4.6 / 4.5 generation.** Manual extended thinking is still functional on Haiku 4.5 (it is the only supported shape there); adaptive thinking is recommended on Opus 4.6 and Sonnet 4.6.
+**Other current Claude models.** Manual extended thinking is still functional on Haiku 4.5 (it is the only supported shape there); adaptive thinking is recommended on Opus 4.6. On Sonnet 5, manual extended thinking is removed (not merely deprecated): the same `{ type: "enabled", budget_tokens: N }` shape returns a 400 error, and adaptive thinking is default-on rather than off-unless-set.
 
 **Display thinking content.** If the UI needs to render thinking:
 
@@ -236,9 +236,9 @@ Source: https://docs.claude.com/en/docs/about-claude/models/migration-guide.md >
 
 ## Sampling parameters and tokenizer
 
-Setting `temperature`, `top_p`, or `top_k` to a non-default value returns a 400 error on Opus 4.8, the same as on 4.7. The SDK request types still define these fields for compatibility with earlier models, so code that sets them type-checks, but the API rejects the request server-side. If you removed these parameters when migrating to 4.7, no further changes are needed.
+Setting `temperature`, `top_p`, or `top_k` to a non-default value returns a 400 error on Opus 4.8, the same as on 4.7. Sonnet 5 rejects non-default sampling params with the same 400 error. The SDK request types still define these fields for compatibility with earlier models, so code that sets them type-checks, but the API rejects the request server-side. If you removed these parameters when migrating to 4.7, no further changes are needed.
 
-Opus 4.7 introduced a different tokenizer than 4.6; 4.8 carries it forward. If you are coming from 4.6 or earlier, re-baseline end-to-end cost and latency and re-tune any client-side token-count estimations.
+Opus 4.7 introduced a different tokenizer than 4.6; 4.8 carries it forward. Sonnet 5 uses the same tokenizer generation: expect roughly 30% more tokens for equivalent text than the pre-4.7 tokenizer produced. If you are coming from 4.6 or earlier (on any model line), re-baseline end-to-end cost and latency and re-tune any client-side token-count estimations.
 
 Source: https://docs.claude.com/en/docs/about-claude/models/migration-guide.md > Migrating from Claude Opus 4.7 to Claude Opus 4.8.
 
@@ -264,15 +264,18 @@ Your context window will be automatically compacted as it approaches its limit, 
 
 Pair with the memory tool or filesystem state files (`progress.txt`, `tests.json`). Source: https://docs.claude.com/en/docs/build-with-claude/compaction.md > Context awareness pattern.
 
-## Sonnet 4.6 quick deltas
+## Sonnet 5 quick deltas
 
-If your prompt targets `claude-sonnet-4-6` instead of Opus 4.8:
+If your prompt targets `claude-sonnet-5` instead of Opus 4.8:
 
 - Default effort is `high` (Sonnet 4.5 had no effort param). Set explicitly to avoid latency.
 - `medium` for most applications, `low` for high-volume or latency-sensitive workloads.
-- 64k `max_tokens` recommended at `medium`/`high`.
-- Use Opus 4.8 instead for the hardest, longest-horizon problems (large code migrations, deep research, extended autonomous work). Sonnet 4.6 is for fast, cost-efficient workloads.
-- Sonnet 4.6 context window: 1M tokens (per `https://docs.claude.com/en/docs/about-claude/models/overview.md`).
+- `max_tokens` up to 128k available (Sonnet 5 matches Opus 4.8's max output, verified against the models overview comparison table); 64k is still a reasonable default at `medium`/`high`, raise it for `xhigh`/`max`-effort agentic runs.
+- Adaptive thinking is default-on; manual extended thinking (`thinking: {type: "enabled", budget_tokens: N}`) is removed and returns a 400 error, not a soft deprecation.
+- Non-default `temperature`/`top_p`/`top_k` values are rejected with a 400 error, same as Opus 4.8.
+- Uses the same tokenizer generation as Opus 4.7/4.8 (roughly 30% more tokens for equivalent text than pre-4.7 models); re-baseline token-count estimates carried over from an older Sonnet generation.
+- Use Opus 4.8 instead for the hardest, longest-horizon problems (large code migrations, deep research, extended autonomous work). Sonnet 5 is for fast, cost-efficient workloads.
+- Sonnet 5 context window: 1M tokens (verified against `https://docs.claude.com/en/docs/about-claude/models/overview.md`, matching Opus 4.8).
 
 Source: https://docs.claude.com/en/docs/about-claude/models/overview.md and https://docs.claude.com/en/docs/build-with-claude/adaptive-thinking.md.
 
@@ -281,7 +284,7 @@ Source: https://docs.claude.com/en/docs/about-claude/models/overview.md and http
 `claude-haiku-4-5-20251001` is for latency-sensitive and high-throughput pipelines.
 
 - 64k `max_tokens`.
-- Context window: 200k tokens (smaller than Opus 4.8 and Sonnet 4.6's 1M).
+- Context window: 200k tokens (smaller than Opus 4.8 and Sonnet 5's 1M).
 - Use `medium` or `low` effort.
 - **Thinking shape on Haiku 4.5 differs from Opus 4.8.** Haiku 4.5 accepts manual extended thinking (`thinking: {type: "enabled", budget_tokens: N}`); it does NOT accept adaptive thinking. If you are sharing a prompt path between models, branch on model ID and use the right shape per side.
 

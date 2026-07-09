@@ -1,6 +1,6 @@
 # Opus 4.8 Tuning for Skill Bodies
 
-Skill-specific tuning for the current Claude family. Default target is Opus 4.8 (`claude-opus-4-8`). Sonnet 4.6 (`claude-sonnet-4-6`) and Haiku 4.5 (`claude-haiku-4-5-20251001`) follow the same patterns at lower effort levels. This reference focuses on the knobs that matter when authoring the body of a skill; for prompt-architecture tuning beyond skills, route through `ac:prompt-writer/references/opus-4-8-tuning.md`.
+Skill-specific tuning for the current Claude family. Default target is Opus 4.8 (`claude-opus-4-8`). Sonnet 5 (`claude-sonnet-5`) and Haiku 4.5 (`claude-haiku-4-5-20251001`) follow the same patterns at lower effort levels. This reference focuses on the knobs that matter when authoring the body of a skill; for prompt-architecture tuning beyond skills, route through `ac:prompt-writer/references/opus-4-8-tuning.md`.
 
 4.7 to 4.8 is a tuning step, not a port. There are no breaking API changes, and a skill body that ran on Opus 4.7 runs on 4.8 unchanged. The deltas below are where 4.8 rewards a sharper body.
 
@@ -17,7 +17,7 @@ Skill-specific tuning for the current Claude family. Default target is Opus 4.8 
 - User-facing progress updates
 - Long-horizon skills (compact-survival)
 - Frontend and visual output
-- Sonnet 4.6 quick deltas
+- Sonnet 5 quick deltas
 - Haiku 4.5 quick deltas
 
 ## Effort and the `effort:` frontmatter field
@@ -94,7 +94,7 @@ Claude Code skills enable extended thinking on invoke if the body contains the l
 - Long-horizon planning
 - Skills that benefit from chain-of-thought before action
 
-For API-level skills (not Claude Code), thinking on Opus 4.8 is `{ type: "adaptive" }` and is off unless you set it explicitly; depth is then steered by `effort`. The legacy `{ type: "enabled", budget_tokens: N }` shape returns a 400 error on Opus 4.8 and Sonnet 4.6. Detail in `ac:prompt-writer/references/opus-4-8-tuning.md`.
+For API-level skills (not Claude Code), thinking on Opus 4.8 is `{ type: "adaptive" }` and is off unless you set it explicitly; depth is then steered by `effort`. The legacy `{ type: "enabled", budget_tokens: N }` shape returns a 400 error on Opus 4.8 and Sonnet 5. On Sonnet 5, manual extended thinking is removed entirely (the API rejects it with a 400 error, it is not merely deprecated), and adaptive thinking is default-on rather than off-unless-set. Detail in `ac:prompt-writer/references/opus-4-8-tuning.md`.
 
 ## Model overrides, when to set `model:`
 
@@ -102,7 +102,7 @@ For API-level skills (not Claude Code), thinking on Opus 4.8 is `{ type: "adapti
 |----------|----------------|
 | Heavy refactor under a Haiku session | `claude-opus-4-8` |
 | Boilerplate-only skill under an Opus session | `claude-haiku-4-5-20251001` |
-| Sonnet sweet spot for long context | `claude-sonnet-4-6` |
+| Sonnet sweet spot for long context | `claude-sonnet-5` |
 | Inherit session default | `inherit` or omit |
 
 Override applies for the rest of the current turn and is not saved. Session model resumes on the next user prompt. Carry the `[1m]` suffix when overriding if the user is on Opus 4.8 1M context, otherwise the effective window drops to 200K and may trip autocompact mid-skill.
@@ -154,16 +154,18 @@ Opus 4.8 carries a persistent house style: warm cream backgrounds (around `#F4F1
 - For variety across runs, have the skill propose distinct visual directions and let the user pick one before building.
 - Bundle a script for the heavy lifting and orchestrate around it. See Example 4 in `${CLAUDE_SKILL_DIR}/references/examples.md`.
 
-## Sonnet 4.6 quick deltas
+## Sonnet 5 quick deltas
 
-Sonnet 4.6 follows the same shape as Opus 4.8 with these differences:
+Sonnet 5 follows the same shape as Opus 4.8 with these differences:
 
 - Drop `effort` one level vs Opus (where Opus uses `high`, Sonnet uses `medium`).
-- Adaptive thinking still applies (`thinking: { type: "adaptive" }` on the API).
+- Adaptive thinking is default-on and cannot be turned off by omitting the field; manual extended thinking (`thinking: { type: "enabled", budget_tokens: N }`) is removed and returns a 400 error, not merely deprecated.
+- Non-default `temperature`/`top_p`/`top_k` values are rejected with a 400 error, same as Opus 4.8.
 - Tool use is slightly less conservative than Opus 4.8 by default.
-- Long-context behavior is strong (1M context available); some teams prefer Sonnet 4.6 for long-document RAG over Opus 4.8.
+- Long-context behavior is strong (1M context, matching Opus 4.8); some teams prefer Sonnet 5 for long-document RAG over Opus 4.8. Sonnet 5's max output is 128k tokens, on par with Opus 4.8 (verified against the models overview table; the prior Sonnet 4.6 generation topped out lower).
+- Sonnet 5 uses the same tokenizer introduced with Opus 4.7 (roughly 30% more tokens per equivalent text than pre-4.7 models); re-baseline any client-side token-count estimates carried over from an older Sonnet generation.
 
-If a skill must run reliably on both Opus 4.8 and Sonnet 4.6, do not set `model:` or `effort:`. Let the session inherit. The body should not assume a specific model's quirks.
+If a skill must run reliably on both Opus 4.8 and Sonnet 5, do not set `model:` or `effort:`. Let the session inherit. The body should not assume a specific model's quirks.
 
 ## Haiku 4.5 quick deltas
 

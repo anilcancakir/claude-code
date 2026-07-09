@@ -8,7 +8,7 @@ when_to_use: Authoring, editing, or auditing any CLAUDE.md, CLAUDE.local.md, or 
 
 You are about to write or edit a CLAUDE.md, CLAUDE.local.md, or `.claude/rules/*.md` file. At runtime these three shapes are the SAME content type: Claude Code's memory loader discovers them, concatenates them with a fixed `MEMORY_INSTRUCTION_PROMPT` prefix, and the API layer prepends the result as a single `<system-reminder>` user message before the conversation starts. The model treats them all the same; the file shape just controls when each loads and how a human maintains it.
 
-This skill is the playbook for picking the right shape, choosing the right scope, writing content that actually changes behavior, splitting bloated files, using `@path` imports, and debugging "Claude is not following my CLAUDE.md". Target is Opus 4.8. Same rules work for Sonnet 4.6 and Haiku 4.5 with lower effort levels.
+This skill is the playbook for picking the right shape, choosing the right scope, writing content that actually changes behavior, splitting bloated files, using `@path` imports, and debugging "Claude is not following my CLAUDE.md". Target is Opus 4.8. Same rules work for Sonnet 5 and Haiku 4.5 with lower effort levels.
 
 ## Three jobs, not one
 

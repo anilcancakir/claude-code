@@ -373,7 +373,7 @@ When reviewing an existing prompt:
 - [ ] No "based on your findings, do X" in subagent prompts.
 - [ ] No anti-laziness scaffolding from older models.
 - [ ] No compat hacks, no impossible-scenario error handling, no multi-paragraph docstrings (CC defaults).
-- [ ] Thinking parameter uses `adaptive` on Opus 4.8 / Sonnet 4.6 (manual `enabled` still works on Haiku 4.5 but is deprecated on Sonnet 4.6).
+- [ ] Thinking parameter uses `adaptive` on Opus 4.8 (set explicitly) and Sonnet 5 (default-on); manual `enabled` still works on Haiku 4.5 but returns a 400 error on Sonnet 5 (removed, not deprecated).
 - [ ] No image-coordinate scale-factor conversion on Opus 4.8.
 - [ ] Output format uses `output_config.format`, not deprecated `output_format`.
 - [ ] No `effort-2025-11-24` beta header carried over (effort is GA).

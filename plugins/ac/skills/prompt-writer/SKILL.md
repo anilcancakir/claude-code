@@ -6,7 +6,7 @@ when_to_use: Authoring or editing any prompt, instruction, SKILL.md body, comman
 
 # Prompt Writer
 
-You are about to write or edit a prompt another Claude will execute. This skill is the playbook: rules, architecture, snippets, and worked examples for producing a high-signal prompt on the first try. Primary target is Claude Opus 4.8; the same patterns work on Sonnet 4.6 with lower effort levels.
+You are about to write or edit a prompt another Claude will execute. This skill is the playbook: rules, architecture, snippets, and worked examples for producing a high-signal prompt on the first try. Primary target is Claude Opus 4.8; the same patterns work on Sonnet 5 with lower effort levels.
 
 Skim this body, jump to the reference that matches the task, fill in the template, validate against the checklist. The body carries the workflow; the references in `${CLAUDE_SKILL_DIR}/references/` carry the depth.
 
@@ -131,11 +131,11 @@ You are [persona, one sentence: who, domain, tone].
 
 ## Model tuning knobs (Claude Opus 4.8)
 
-Default target is `claude-opus-4-8`. Sonnet 4.6 (`claude-sonnet-4-6`) and Haiku 4.5 (`claude-haiku-4-5-20251001`) follow the same patterns at lower effort. Full per-knob detail in `${CLAUDE_SKILL_DIR}/references/opus-4-8-tuning.md`.
+Default target is `claude-opus-4-8`. Sonnet 5 (`claude-sonnet-5`) and Haiku 4.5 (`claude-haiku-4-5-20251001`) follow the same patterns at lower effort. Full per-knob detail in `${CLAUDE_SKILL_DIR}/references/opus-4-8-tuning.md`.
 
 **Effort.** `xhigh` for coding and agentic work; `high` for intelligence-sensitive non-coding tasks; `medium` only with cost or latency justification; `low` only for short scoped tasks; `max` for the hardest problems (diminishing returns past `xhigh`). Set `max_tokens` to ~64k at `xhigh` or `max`. When you see shallow reasoning, raise effort instead of papering over with prompt instructions.
 
-**Thinking.** On Opus 4.8 set `thinking: { type: "adaptive" }` explicitly (off otherwise) plus the `output_config.effort` parameter; manual `{ type: "enabled", budget_tokens: N }` returns a 400 error. On Sonnet 4.6 and Opus 4.6 adaptive is recommended (manual is deprecated but still functional). On Haiku 4.5 the situation is inverted: manual extended thinking is the only supported shape; adaptive is not accepted. Add `display: "summarized"` when the UI needs to render thinking content.
+**Thinking.** On Opus 4.8 set `thinking: { type: "adaptive" }` explicitly (off otherwise) plus the `output_config.effort` parameter; manual `{ type: "enabled", budget_tokens: N }` returns a 400 error. On Sonnet 5, manual extended thinking is removed entirely (the same 400 error, not a soft deprecation) and adaptive thinking is default-on; you do not need to set `thinking` explicitly to get it. On Haiku 4.5 the situation is inverted: manual extended thinking is the only supported shape; adaptive is not accepted. Add `display: "summarized"` when the UI needs to render thinking content.
 
 **Literal interpretation.** 4.8 will not generalize a rule across sections unless told. State scope where a rule must span: "Apply to every X, not just the first."
 
@@ -292,7 +292,7 @@ Before shipping a prompt:
 - [ ] Output format locked via Structured Outputs, tool call, or XML tag.
 - [ ] If input above 20k tokens: documents at top, question at bottom.
 - [ ] Effort level set via `output_config={"effort": ...}` and matches task complexity.
-- [ ] Thinking parameter shape matches the model: `adaptive` on Opus 4.8 (set explicitly; off otherwise) and Sonnet 4.6 / Opus 4.6 (recommended); manual `enabled` + `budget_tokens` only on Haiku 4.5.
+- [ ] Thinking parameter shape matches the model: `adaptive` on Opus 4.8 (set explicitly; off otherwise) and default-on on Sonnet 5 (manual `enabled` + `budget_tokens` returns a 400 error on both); manual `enabled` + `budget_tokens` only on Haiku 4.5.
 - [ ] Output shape lock uses `output_config.format` (Structured Outputs), tool call with enum, or XML wrap; not the deprecated top-level `output_format` or last-assistant prefill.
 - [ ] No `effort-2025-11-24` beta header; `client.messages.create` (not `client.beta`).
 - [ ] Colleague test passes.
