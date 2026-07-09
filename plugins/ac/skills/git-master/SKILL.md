@@ -3,6 +3,7 @@ name: git-master
 description: "Git expert - atomic commits with style detection, rebase/squash, and history archaeology (blame, bisect, pickaxe). Use for git operations."
 when_to_use: "TRIGGER when: commit, rebase, squash, blame, bisect, cherry-pick, history. DO NOT TRIGGER when: GitHub API."
 user-invocable: false
+allowed-tools: Bash(git:*)
 ---
 
 # Git Master
