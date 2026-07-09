@@ -2,6 +2,7 @@
 description: Interactive post-install setup for the ac plugin. Phase 0 parses flags (--dry-run, --skip-skills, --skip-settings, --skip-claude-md), detects the OS, the presence of the my-coding and my-language user skills, the global CLAUDE.md and settings.json, and probes ac MCP reachability. Phases 1-2 run short style interviews and delegate my-coding and my-language skill creation to ac:skill-creator with the bundled templates, skipping any skill that already exists unless the user picks Recreate. Phase 3 merges a portable delegation section into the global CLAUDE.md behind a .proposed gate. Phase 4 backs up and idempotently merges the anti-builtin parity into settings.json (enabledPlugins, MCP allow rule including WebSearch and WebFetch built-ins, plan-mode deny plus EnterPlanMode PreToolUse hook). Phase 5 reports what was created, merged, skipped, and the backup path.
 argument-hint: [--dry-run] [--skip-skills] [--skip-settings] [--skip-claude-md]
 effort: high
+disable-model-invocation: true
 ---
 
 # /ac:install
