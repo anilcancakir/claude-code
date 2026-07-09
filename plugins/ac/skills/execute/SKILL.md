@@ -122,7 +122,7 @@ Map each step's `Tier:` to a subagent and model:
 | Tier | Subagent | Model | Effort |
 |---|---|---|---|
 | `quick` | `ac:plan-worker-quick` | `claude-haiku-4-5-20251001` | low |
-| `junior` | `ac:plan-worker-junior` | `claude-sonnet-4-6` | medium |
+| `junior` | `ac:plan-worker-junior` | `claude-sonnet-5` | medium |
 | `senior` | `ac:plan-worker-senior` | `claude-opus-4-8` | high |
 
 ### 1d. Codebase state escalation
@@ -139,6 +139,28 @@ WORKER_RETRY_PER_STEP = {}              # max 1 tier-escalation retry per step
 CODE_REVIEW_ITER = 0                    # Phase 3 revision loop counter
 CODE_REVIEW_PREV_ISSUES = Infinity      # Phase 3 stall detection sentinel
 ```
+
+Then write the on-disk active-execution marker at `.ac/state/active-execution.json`. This marker is the contract the `ac` plugin's PreToolUse file-scope hook reads to scope worker edits to the active wave; it exists only during an active run and is removed on every terminal branch. Create `.ac/state/` if absent, then write:
+
+```
+{
+  "slug": "<plan slug>",
+  "pid": <orchestrator process id>,
+  "session_id": "<current session id>",
+  "started_at": "<ISO-8601 UTC timestamp>",
+  "current_wave": 1,
+  "wave_files": []
+}
+```
+
+Marker schema (the fields the file-scope hook consumes):
+- `slug`: the plan slug; lets the hook name which run holds the scope lock.
+- `pid` and `started_at`: liveness fields. The hook treats the marker as stale and fails open when `pid` is not a live process or `started_at` is older than a sane bound, so a crashed run that skipped its delete never bricks the next session.
+- `session_id`: diagnostic only, no verdict effect.
+- `current_wave`: the wave index the run is on; refreshed at each wave start (2c).
+- `wave_files`: absolute paths of the ACTIVE wave's step Files. The hook allows a worker edit only when the target resolves inside this set (or under `.ac/`). Empty until Wave 1 starts, when 2c populates it.
+
+Marker lifecycle: written here, its `current_wave` and `wave_files` refreshed at each wave start (2c), and deleted at Phase 4 start (4a) plus on every branch that terminates or aborts the run before Phase 4 completes (the 2i / 2j / 3d Stop branches and the error-handling aborts). The marker must never survive a halt; a stale marker outside an active run is what the file-scope hook's staleness check exists to tolerate, not a state to rely on.
 
 ### 1f. TDD mode
 
@@ -215,6 +237,8 @@ Length rule: the briefing under 30 lines is too short; under-spec'd briefings pr
 
 ### 2c. Launch workers in parallel within the wave
 
+**Refresh the active-execution marker first**: before spawning any worker, update `.ac/state/active-execution.json` for this wave: set `current_wave` to the wave index, and set `wave_files` to the union of the absolute paths in every step's `Files` list for the steps in this wave. This scopes the plugin's PreToolUse file-scope hook to exactly the files the wave's workers are authorized to touch; a worker edit outside this set (and outside `.ac/`) is what the hook denies.
+
 **Step Type routing**: before spawning, inspect each step's `Type:` field:
 - `code` or `infra`: spawn a tier-routed worker subagent (default flow below).
 - `verification`: do NOT spawn a worker. Run the step's `Commands` field directly via Bash, capture output to the paths listed in the step's `Evidence` field, then advance to Phase 2d. Verification steps are orchestrator-direct because they run commands and inspect output, not edit files; worker spawn would add overhead with no value. For verification steps, Phase 2d Layer A blends with your captured Bash output, Layer B is largely n/a (no source files changed), Layer C IS the Evidence file, and Layer D applies (checkbox tick).
@@ -279,14 +303,21 @@ This is the layer you are most tempted to skip. Do not skip it.
 
 **Layer C: Hands-on QA (when applicable)**
 
-If the step's `QA` field specifies a tool:
+If the step's `QA` field specifies a tool, run the scenario and gate it against this rubric. Each dimension is a check the QA must satisfy before the step passes Layer C:
+
+- [ ] **Reproducer-validity**: the QA is a valid reproducer when it (a) is runnable via one command, (b) fails on HEAD before the change with a matching exit code (for a bug-fix or regression step), (c) is deterministic across 3 consecutive runs (no flake), and (d) has no external-service dependency that can make it pass or fail for reasons unrelated to the step. When a dimension does not apply (a pure feature-add has no failing-on-HEAD baseline), note it n/a rather than skipping the rubric.
+- [ ] **Evidence-not-assertion**: record the command AND its output, or a screenshot / artifact path, never a bare "verified". A claim without a captured command-plus-output is not evidence.
+- [ ] **Lowest-test-layer routing**: exercise the change at the lowest layer that can prove it. A unit test beats an integration test beats an end-to-end run when all three would prove the same behavior; escalate a layer only when the lower one cannot reach the behavior.
+- [ ] **Browser-as-human-user**: for any UI-touching step, walk the change through the browser as a human user would (a playwright walk-through: navigate, interact, assert on rendered state), not just a `curl` against the endpoint. `curl` proves the API answered; only the browser walk-through proves the user-facing surface works.
+
+Run the QA per the step's tool and capture evidence to the existing path convention:
 
 - `playwright` / browser → run the playwright scenario; capture screenshot to `.ac/plans/<slug>/evidence/<step-id>-<scenario>.png`.
 - `curl` / API → run the curl request, save response body to `.ac/plans/<slug>/evidence/<step-id>-<scenario>.json`.
 - `interactive_bash` / CLI/TUI → run the command sequence, capture terminal output.
 - `bun test` / project test → run the targeted test, save output.
 
-Verify the expected result matches. If not, treat as failed.
+Verify the expected result matches and every applicable rubric dimension holds. If not, treat as failed.
 
 Steps with no QA field (or QA field of `none`) skip this layer.
 
@@ -332,6 +363,7 @@ After all steps in the wave have terminal verification status (verified, failed,
 2. Extract actionable patterns from worker outputs and your verification observations. Examples: naming conventions surfaced, error-handling style applied, gotchas avoided, dependency injection style, file organization choices.
 3. Append up to 5 items to `ACCUMULATED_WISDOM` (max 15 total). Generic statements ("be careful with edge cases") are not wisdom; concrete codified patterns are. `[REMEDIATION]`-prefixed lines from step 1 count toward the 5-item-per-wave cap.
 4. Persist to `.ac/plans/<slug>/wisdom.md` with H2 `## Wave <N>` and the bullet list. Overwrite the file each update (append-only logic is inside the file structure, but the Write is full-file).
+5. **Wave-barrier re-grounding**: re-read `PLAN_PATH` (the authoritative checkbox / step state) and `.ac/plans/<slug>/wisdom.md`, then emit a 2-3 line wave-summary (what completed this wave, what the next wave depends on). This re-grounds orchestrator state against the plan file after the Edit-based checkbox ticks of Layer D and enables a clean resume; it does NOT reduce context (main-thread context is append-only, so re-reading adds tokens rather than freeing them). If orchestrator context genuinely approaches the window on a large plan, use native `/compact` at this barrier as the real context lever.
 
 ### 2g. Wave checkpoint commit (complex plans only)
 
@@ -375,9 +407,9 @@ AskUserQuestion (header `Dep failed?`, options
 )
 ```
 
-- `Stop and investigate`: halt; user resolves and re-runs `/ac:execute <slug>` to resume.
-- `Fix manually and resume`: pause, user fixes the failed step's output, then user manually marks the step verified and re-runs.
-- `Skip the dependent steps`: mark dependent steps as `skipped` (note in report), continue to non-dependent steps in the next wave.
+- `Stop and investigate`: delete `.ac/state/active-execution.json`, then halt; user resolves and re-runs `/ac:execute <slug>` to resume (Phase 1 writes a fresh marker on resume).
+- `Fix manually and resume`: delete `.ac/state/active-execution.json`, then pause; user fixes the failed step's output, marks the step verified, and re-runs.
+- `Skip the dependent steps`: mark dependent steps as `skipped` (note in report), continue to non-dependent steps in the next wave (the run continues, so the marker stays in place).
 
 **Auto mode**: this is a BLOCKER call site (see `<auto_mode>`). Surface the question to the user EVEN IF `AUTO_MODE = true`. Before calling `AskUserQuestion`, emit one line: `BLOCKER: Wave <M+1> has a hard dependency on a failed step in Wave <N>. Auto mode halted; user judgment required.` Continue per the user's response. AUTO_MODE stays set unless the user picks `Stop and investigate`, which terminates the run.
 
@@ -395,9 +427,9 @@ AskUserQuestion (header `Halted?`, options
 )
 ```
 
-- `Accept and continue`: log failed steps, continue to next wave. Failed steps surface in Phase 4 report.
-- `Fix manually and re-verify`: pause execution, surface the failing step's context, wait for the user's hands-on intervention; user re-runs `/ac:execute <slug>` to resume.
-- `Stop and investigate`: halt execution entirely; no Phase 3, no Phase 4. Print failure summary.
+- `Accept and continue`: log failed steps, continue to next wave (the run continues, so the marker stays in place). Failed steps surface in Phase 4 report.
+- `Fix manually and re-verify`: delete `.ac/state/active-execution.json`, then pause execution, surface the failing step's context, wait for the user's hands-on intervention; user re-runs `/ac:execute <slug>` to resume.
+- `Stop and investigate`: delete `.ac/state/active-execution.json`, then halt execution entirely; no Phase 3, no Phase 4. Print failure summary.
 
 **Auto mode**: this is a BLOCKER call site (see `<auto_mode>`). Surface the question to the user EVEN IF `AUTO_MODE = true`. The `(Recommended for known-isolated failures)` qualifier on the first option is context-dependent; three accumulated failures is systemic enough to warrant explicit user triage. Before calling `AskUserQuestion`, emit one line: `BLOCKER: 3 step failures accumulated. Auto mode halted; user triage required.` Continue per the user's response.
 
@@ -480,9 +512,11 @@ If any reviewer returned BLOCKED:
    )
    ```
 
-   - `Proceed anyway`: advance to Phase 4 with reviewer issues noted in the report.
-   - `Stop and surface findings`: halt before Phase 4, print the unresolved findings, exit.
-   - `Investigate manually`: same as Stop, but message says "user will investigate then re-run /ac:execute".
+   - `Proceed anyway`: advance to Phase 4 with reviewer issues noted in the report (Phase 4a performs the marker teardown).
+   - `Stop and surface findings`: delete `.ac/state/active-execution.json`, halt before Phase 4, print the unresolved findings, exit.
+   - `Investigate manually`: delete `.ac/state/active-execution.json`, same as Stop, but message says "user will investigate then re-run /ac:execute".
+
+   These three outcomes apply to both the max-iter gate here and the Phase 3d stall gate below (same option labels, same handlers).
 
    **Auto mode**: this is auto-eligible (see `<auto_mode>`). When `AUTO_MODE = true`, skip the question, auto-pick `Proceed anyway (Recommended)`, emit one line: `Auto mode: code-review hit max-iter (>3); proceeding to Phase 4 with unresolved findings noted in report.` Proceed.
 
@@ -527,6 +561,8 @@ Goal: commit the work, generate the dev report, render the execution summary.
 
 ### 4a. Final commit
 
+**Marker teardown** (the first action in Phase 4, before the F7 check and any commit): delete `.ac/state/active-execution.json` if present. The run has reached deliver; the plugin's PreToolUse file-scope hook must find no marker outside an active run.
+
 **F7 skip-condition check** (run FIRST, before any commit invocation):
 
 1. For each file in `MODIFIED_FILES`, run `git check-ignore -q <file>`. If ALL files exit 0 (every modified file is under a gitignored path), AND `git status --porcelain` shows tracked modifications NOT present in `MODIFIED_FILES` (parent repo has unrelated tracked work), the F7 case has fired: skip the final commit.
@@ -558,10 +594,12 @@ TaskUpdate Phase 4 to `completed`. End the turn.
 
 ## Error handling
 
-- **Plan not found**: print `Plan not found at <path>. Run /ac:plan first.`, stop. No partial work.
+Marker teardown applies to every halt below: whenever the run terminates or aborts before Phase 4 completes, delete `.ac/state/active-execution.json` first so the plugin's PreToolUse file-scope hook finds no stale marker on the next session. Branches that continue the run (`Accept and continue`, `Skip the dependent steps`, `Continue without checkpoint`) leave the marker in place.
+
+- **Plan not found**: print `Plan not found at <path>. Run /ac:plan first.`, stop. No partial work (no marker was written yet at this point).
 - **Worker returns malformed output** (no Changes Made / Verification sections): re-spawn the same tier once with a format reminder. If still malformed, treat as Phase 2 failure (increments `VERIFY_RETRY_COUNT`).
-- **Verification fails for a step that subsequent steps depend on**: do NOT continue to dependent waves. Stop the wave loop, surface via `AskUserQuestion` (`Step <N> is a hard dependency for Wave <M+1>. Fix manually and resume, or abort?`). BLOCKER in auto mode: surface even when `AUTO_MODE = true`; emit one line `BLOCKER: dependency-failed equivalent; auto mode halted.` Same semantic as Phase 2i.
-- **Wave checkpoint commit fails** (git error, conflicts): print the git error, surface via `AskUserQuestion` (`Checkpoint commit failed: <error>. Continue without checkpoint / Abort`). Do not auto-retry; commit failures often hide deeper repo state issues. BLOCKER in auto mode: surface even when `AUTO_MODE = true`; commit failures usually mean the working tree is in an unexpected state and auto-continuing could lose work.
+- **Verification fails for a step that subsequent steps depend on**: do NOT continue to dependent waves. Stop the wave loop, surface via `AskUserQuestion` (`Step <N> is a hard dependency for Wave <M+1>. Fix manually and resume, or abort?`). On the fix-and-resume or abort branch, delete `.ac/state/active-execution.json` first per the teardown rule above. BLOCKER in auto mode: surface even when `AUTO_MODE = true`; emit one line `BLOCKER: dependency-failed equivalent; auto mode halted.` Same semantic as Phase 2i.
+- **Wave checkpoint commit fails** (git error, conflicts): print the git error, surface via `AskUserQuestion` (`Checkpoint commit failed: <error>. Continue without checkpoint / Abort`). On the `Abort` branch, delete `.ac/state/active-execution.json` first. Do not auto-retry; commit failures often hide deeper repo state issues. BLOCKER in auto mode: surface even when `AUTO_MODE = true`; commit failures usually mean the working tree is in an unexpected state and auto-continuing could lose work.
 - **Final code-review reviewer subagent itself returns malformed**: re-spawn once with same prompt. If still malformed, treat as BLOCKED with the malformed output noted in the revision loop.
 - **Plan-spec issue surfaced by reviewer** (the plan, not the code, is wrong): surface via `AskUserQuestion` as described in 3d step 6. Do not silently rewrite the plan.
 - **`/ac:commit` (final, Phase 4) fails**: surface the failure, render the dev report and execution summary anyway (so the work is not lost in chat history), exit with the commit error printed.
