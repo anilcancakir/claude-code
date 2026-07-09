@@ -7,6 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-07-10
+
+### Added
+
+- MCP proxy alwaysLoad metadata injection for three core research tools: `search-docs`,
+  `resolve-library`, and `web-code-search` now load upfront in tool discovery without
+  requiring explicit tool search, reducing latency for research-heavy workflows.
+- MCP server instructions (2KB budget) providing session-start guidance on the proxy's
+  doc/OSS research routing and fallback logic.
+- isError normalization on remote tool failures: docs-search tool network errors and
+  rate-limit failures now return `isError: true` instead of empty results, signaling
+  upstream issues to the model for graceful fallback handling.
+- Plugin hooks for session and tool-use gating: `SessionStart` hook displays the active
+  plan's next unchecked step; `PreToolUse` hook agent-gates file edits to keep worker
+  writes within the active execution wave, with fail-open semantics for safety.
+- Layer-3 QA rubric for execute: refined reproducer-validity checks (runnable via one
+  command, fails on HEAD, deterministic across runs), evidence-not-assertion reporting,
+  and browser-as-human-user walks for UI-touching steps.
+- Advisory coverage and Nyquist verification fields in plan templates and reviewers:
+  requirements-to-steps coverage percentage (advisory, not auto-blocking), and a
+  sub-60-second verify command per step (MISSING steps scaffolded to Wave 0).
+- Wave-barrier re-grounding in execute: after each wave completes, re-read the plan
+  file and wisdom to sync orchestrator state, enabling clean resume and
+  multi-session iteration without context bloat.
+
+### Changed
+
+- Model tier references throughout the codebase updated to Sonnet 5: plan routing,
+  tier tables, and prose guidance now reflect Sonnet 5's 85.2% SWE-bench Verified
+  and 63.2% Pro benchmarks, with corrected Opus 4.8 numbers (88.6% / 69.2%).
+- Execute skill now writes and maintains `.ac/state/active-execution.json` marker
+  during plan execution, enabling the PreToolUse hook to scope worker edits to the
+  active wave and prevent out-of-scope mutations.
+
+[0.5.0]: https://github.com/anilcancakir/claude-code/compare/v0.4.2...v0.5.0
 ## [0.4.2] - 2026-06-17
 
 ### Fixed
