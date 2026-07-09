@@ -1,0 +1,27 @@
+{
+  "description": "ac plan-execution hooks: SessionStart surfaces the in-progress plan as resume context; PreToolUse scopes subagent file edits to the active wave (fail-open agent-gated guard).",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/hooks/session-start-plan-state.sh"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/hooks/pretooluse-file-scope.sh"
+          }
+        ]
+      }
+    ]
+  }
+}
