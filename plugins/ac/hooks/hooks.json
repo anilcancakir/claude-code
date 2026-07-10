@@ -21,6 +21,15 @@
             "command": "\"${CLAUDE_PLUGIN_ROOT}\"/hooks/pretooluse-file-scope.sh"
           }
         ]
+      },
+      {
+        "matcher": "EnterPlanMode|ExitPlanMode",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/hooks/pretooluse-plan-mode-block.sh"
+          }
+        ]
       }
     ]
   }
