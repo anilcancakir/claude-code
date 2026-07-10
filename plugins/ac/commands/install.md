@@ -17,9 +17,9 @@ Precondition: the ac plugin is already installed and loaded (you are running thi
 
 You are the `/ac:install` orchestrator. You interview the user, delegate skill creation to `ac:skill-creator`, and write user-scope config files behind explicit gates.
 
-**CAN**: Use `Read`, `Write`, `Edit`, `Bash`, `AskUserQuestion`. Invoke `ac:skill-creator` via the `Skill` tool (Phases 1 and 2). Probe the ac MCP server by calling `mcp__plugin_ac_ac__resolve-library`. Write a `~/.claude/CLAUDE.md.proposed` sidecar and a `~/.claude/settings.json.bak-ac-install` backup.
+**CAN**: Use `Read`, `Write`, `Edit`, `Bash`, `AskUserQuestion`. Invoke `ac:skill-creator` via the `Skill` tool (Phases 1, 2, and 2.5). Probe the ac MCP server by calling `mcp__plugin_ac_ac__resolve-library`. Write a `~/.claude/CLAUDE.md.proposed` sidecar and a `~/.claude/settings.json.bak-ac-install` backup.
 
-**CANNOT**: Hand-write `my-coding` or `my-language` `SKILL.md` content; that is `ac:skill-creator`'s job. Blind-overwrite `~/.claude/CLAUDE.md` or `~/.claude/settings.json`; both go through merge plus a gate or a backup. Run `/plugin marketplace add` or `/plugin install`. Edit files outside `~/.claude/`. Write an allow rule broader than the literal server segment (`mcp__plugin_ac_ac__*`, never `mcp__*`).
+**CANNOT**: Hand-write `my-coding`, `my-language`, or `my-workflow` `SKILL.md` content; that is `ac:skill-creator`'s job. Blind-overwrite `~/.claude/CLAUDE.md` or `~/.claude/settings.json`; both go through merge plus a gate or a backup. Run `/plugin marketplace add` or `/plugin install`. Edit files outside `~/.claude/`. Write an allow rule broader than the literal server segment (`mcp__plugin_ac_ac__*`, never `mcp__*`).
 
 **MUST**: Honor every flag from 0a for the rest of the run. Under `--dry-run`, render every planned change but call no `Write` or `Edit`. Back up `~/.claude/settings.json` before the Phase 4 merge. Skip a skill that already exists unless the user chooses Recreate. Keep the merged global `CLAUDE.md` within the 200-line guidance.
 
@@ -215,8 +215,9 @@ When `CLAUDE_MD_EXISTS` is false, write the template's fenced block directly to 
 
 When `CLAUDE_MD_EXISTS` is true, merge instead of replacing. Read the current file:
 
-1. If both fence markers are present, replace everything between them (inclusive of the markers) with the template's fenced block, and preserve every byte outside the fenced region verbatim.
-2. If the markers are absent, append the template's fenced block (including the leading HTML-comment header) after the user's content.
+1. If both fence markers are present in order (start before end), replace everything between them (inclusive of the markers) with the template's fenced block, and preserve every byte outside the fenced region verbatim.
+2. If neither marker is present, append the template's fenced block (including the leading HTML-comment header) after the user's content.
+3. If exactly one marker is present, or the two appear out of order, do not guess the boundary: append a fresh fenced block as in case 2, leave the stray marker untouched (ADD-only), and flag the anomaly in the gate diff so the user can reconcile the duplicate by hand.
 
 Do not do a fuzzy heading-based match; the markers are the only anchor. Confirm the merged result stays within 200 lines; trim the pointer wording before the user's own content if it would overflow.
 
@@ -280,8 +281,8 @@ The ac wiring is not security-sensitive, so it merges without a prompt. All ADD-
 1. `enabledPlugins["ac@ac"] = true`.
 2. Add `mcp__plugin_ac_ac__*`, `WebSearch`, and `WebFetch` to `permissions.allow` (create the array if missing, skip any entry already present). Never widen to `mcp__*`.
 3. Add to `permissions.deny`: `EnterPlanMode`, `ExitPlanMode`, `Agent(Plan)`, `Agent(Explore)`. These are the load-bearing plan-mode block.
-4. Idempotent migration strip for prior install versions. This removes only artifacts a previous run of THIS command wrote; it never touches a user key or a Group B key:
-   - Remove any `WebSearch` or `WebFetch` entry from `permissions.deny`.
+4. Idempotent migration strip for prior install versions. This removes artifacts a previous run of THIS command wrote. The hook entries below carry an install-specific fingerprint (matcher plus command), so their removal never touches user config; the deny-string entry cannot be fingerprinted, so it is stripped on the assumption a prior install wrote it (see the caveat):
+   - Remove any `WebSearch` or `WebFetch` entry from `permissions.deny`. Caveat: these plain strings are indistinguishable from a user-authored deny, so a user who intentionally denies `WebSearch`/`WebFetch` will see it removed on re-run and must re-add it. Surface this removal in the gate diff so the user can catch it.
    - Remove any `hooks.PreToolUse` entry whose matcher equals `WebSearch|WebFetch`.
    - Remove the `hooks.PreToolUse` entry a prior install wrote for plan mode: matcher `EnterPlanMode` whose command echoes the `use /ac:plan` steer and exits 2. The plan-mode block now ships in the plugin's `hooks.json`, so this command writes NO settings hook.
 
