@@ -7,6 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-07-10
+
+### Added
+
+- `my-workflow` bundled seed template shipped inside the plugin, so `/ac:install` can
+  scaffold a personal workflow-discipline skill (operating mode, code-lookup ladder,
+  investigation and reproduction, verification and done criteria, delegation routing,
+  and web-tool fallback) alongside `my-coding` and `my-language`.
+- Plan-mode `PreToolUse` hook (matcher `EnterPlanMode|ExitPlanMode`) that steers native
+  plan mode toward `/ac:plan`, failing open on any parse uncertainty. `permissions.deny`
+  stays the load-bearing block; the hook adds the steer.
+
+### Changed
+
+- `/ac:install` reworked to reproduce an operator's full setup on a fresh machine: a
+  Phase 2.5 `my-workflow` scaffold, a lean CLAUDE.md delegation pointer merged between
+  `ac:delegation` fence markers (procedural discipline now lives in the `my-workflow`
+  skill), and a Phase 4 settings merge grouped into safe-silent tuning (Group A, set only
+  when absent), core ac parity (Group C), and security-sensitive opt-in keys (Group B,
+  default off), plus an interactive MCP-token prompt whose value is masked in every
+  rendered surface. Secrets and machine-personal values are excluded from every bundled
+  default.
+- Global CLAUDE.md delegation section template slimmed to a fence-wrapped pointer; the
+  procedural ladders moved into the `my-workflow` skill for token savings.
+- Marked the `/ac:install` command non-model-invocable and dropped a superseded Opus 4.6
+  reference from the prompt-writer tuning note.
+
+### Fixed
+
+- Remote connection failures in the docs-tool passthrough now normalize to `isError: true`
+  instead of throwing a dispatch error, so an unreachable kodizm remote degrades gracefully
+  (`ensureConnected()` moved inside the `callTool` try/catch).
+- Version drift in the plugin manifest: `plugin.json` was left at 0.4.2 through the 0.5.0
+  release. The version is now synced across the marketplace manifest, plugin manifest, CLI
+  package, CLI bundle, and the CLI `--version` string.
+
 ## [0.5.0] - 2026-07-10
 
 ### Added
@@ -41,6 +77,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   during plan execution, enabling the PreToolUse hook to scope worker edits to the
   active wave and prevent out-of-scope mutations.
 
+[0.6.0]: https://github.com/anilcancakir/claude-code/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/anilcancakir/claude-code/compare/v0.4.2...v0.5.0
 ## [0.4.2] - 2026-06-17
 
