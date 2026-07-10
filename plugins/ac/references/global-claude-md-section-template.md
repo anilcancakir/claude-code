@@ -2,51 +2,11 @@
 [//]: # (It is not a blind overwrite: existing custom sections are preserved.)
 [//]: # (Interview answers from /ac:install tune the routing descriptions below.)
 
-## Delegation (when the ac plugin is loaded)
+<!-- ac:delegation:start -->
 
-The rest of this section applies only in projects where the `ac` plugin is present; elsewhere these tool names are inert.
+## Workflow discipline
 
-Route a request through the listed entrypoint instead of acting directly:
-
-- Codebase exploration above three queries, or across multiple naming conventions: `Agent({subagent_type: "ac:explore"})`.
-- External library, framework, or API research: `Agent({subagent_type: "ac:librarian"})`.
-- Architecture question, debugging stall, or a cross-cutting decision needing a second opinion: `Agent({subagent_type: "ac:oracle"})` before implementing.
-- Multi-step, multi-file, or design-decision work: `/ac:plan <topic>` (interview-driven planner; chains to `/ac:execute` and `/ac:commit`).
-
-Use the `ac:` replacement when a built-in variant would otherwise be called:
-
-- `Agent({subagent_type: "Explore"})` becomes `Agent({subagent_type: "ac:explore"})`.
-- `Agent({subagent_type: "Plan"})`, `EnterPlanMode`, or `ExitPlanMode` becomes the `/ac:plan` flow.
-
-## Web tools
-
-Built-in `WebFetch` and `WebSearch` are the primary path for web access. Fall back to `mcp__plugin_ac_ac__web-fetch` or `mcp__plugin_ac_ac__web-search` when the built-in:
-
-- errors or times out,
-- returns empty or auth-walled content,
-- hits a cross-host redirect it cannot follow,
-- truncates content below usefulness, or
-- returns a result insufficient to answer the prompt.
-
-`resolve-library`, `search-docs`, and `web-code-search` have no built-in equivalent and stay primary ac tools.
-
-## Code lookup ladder
-
-Pick the most semantic layer that can answer; climb only when the layer below cannot reach.
-
-- Semantic (LSP `findReferences`, `goToDefinition`, `workspaceSymbol`, `hover`) for symbol-level work: rename, "who calls X", "where is Y defined".
-- Syntactic (`sg` ast-grep via Bash) for AST patterns LSP cannot reach: structural matches, function shapes, call expressions.
-- Textual (Grep, Glob) for text patterns: TODOs, log messages, config keywords, filename patterns.
-- History (`git log`, `blame`, `diff`) for evolution: "when was X added", regression hunting.
-
-## Verification
-
-A task is done only when these hold for the touched scope:
-
-- LSP diagnostics on changed files: zero errors, zero warnings.
-- Existing tests covering the change: green.
-- Build: exit code zero.
-- End-to-end: for user-visible behavior, exercise the artifact; "should work" is not verified.
+Delegation, code-lookup, investigation, and verification discipline (including the `ac:explore`/`ac:librarian`/`ac:oracle`/`/ac:plan` routing) live in the `my-workflow` skill, not here. Load it for any engineering task.
 
 ## Skills
 
@@ -54,3 +14,6 @@ Detailed coding and writing rules live in your personal skills, not here.
 
 - Load `my-coding` before the first edit on any task that produces or modifies code.
 - Load `my-language` before the first sentence on any prose longer than one sentence.
+- Load `my-workflow` before any engineering task for delegation, code-lookup, and verification discipline.
+
+<!-- ac:delegation:end -->
