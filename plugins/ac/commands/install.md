@@ -1,5 +1,5 @@
 ---
-description: Interactive post-install setup for the ac plugin. Phase 0 parses flags (--dry-run, --skip-skills, --skip-settings, --skip-claude-md), detects the OS, the presence of the my-coding and my-language user skills, the global CLAUDE.md and settings.json, and probes ac MCP reachability. Phases 1-2 run short style interviews and delegate my-coding and my-language skill creation to ac:skill-creator with the bundled templates, skipping any skill that already exists unless the user picks Recreate. Phase 3 merges a portable delegation section into the global CLAUDE.md behind a .proposed gate. Phase 4 backs up and idempotently merges the anti-builtin parity into settings.json (enabledPlugins, MCP allow rule including WebSearch and WebFetch built-ins, plan-mode deny plus EnterPlanMode PreToolUse hook). Phase 5 reports what was created, merged, skipped, and the backup path.
+description: Interactive post-install setup for the ac plugin. Phase 0 parses flags (--dry-run, --skip-skills, --skip-settings, --skip-claude-md), detects the OS, the presence of the my-coding, my-language, and my-workflow user skills, the global CLAUDE.md and settings.json, and probes ac MCP reachability. Phases 1, 2, and 2.5 run short interviews and delegate my-coding, my-language, and my-workflow skill creation to ac:skill-creator with the bundled templates, skipping any skill that already exists unless the user picks Recreate. Phase 3 merges a lean workflow-pointer section into the global CLAUDE.md between the ac:delegation fence markers behind a .proposed gate. Phase 4 backs up (non-clobber) and idempotently merges settings.json in groups: safe-silent tuning (Group A, set-only-when-absent), core ac parity (Group C, enabledPlugins plus MCP allow plus plan-mode deny), security-sensitive keys behind an explicit opt-in multiSelect (Group B, default off), and an interactive MCP-token prompt whose value is masked in every rendered surface. The plan-mode block ships in the plugin hooks, so Phase 4 writes no settings hook. Phase 5 reports what was created, merged, skipped, and the backup path.
 argument-hint: [--dry-run] [--skip-skills] [--skip-settings] [--skip-claude-md]
 effort: high
 disable-model-invocation: true
@@ -7,7 +7,7 @@ disable-model-invocation: true
 
 # /ac:install
 
-Interactive setup for a machine that already has the ac plugin installed. This command tunes your user-scope environment: it generates your personal `my-coding` and `my-language` skills, merges a portable delegation section into your global `~/.claude/CLAUDE.md`, and configures `~/.claude/settings.json` so the ac workflow replaces the matching Claude Code built-ins.
+Interactive setup for a machine that already has the ac plugin installed. This command tunes your user-scope environment: it generates your personal `my-coding`, `my-language`, and `my-workflow` skills, merges a lean workflow-pointer section into your global `~/.claude/CLAUDE.md`, and configures `~/.claude/settings.json` so the ac workflow replaces the matching Claude Code built-ins. Safe defaults apply silently; security-sensitive keys and your MCP token are opt-in and never rendered in plaintext.
 
 Request: $ARGUMENTS
 
@@ -40,8 +40,9 @@ Run these detections and record the result. On any failure, note it and continue
 1. OS: `uname -ms`.
 2. Existing `my-coding` skill: `test -d ~/.claude/skills/my-coding` (record `MY_CODING_EXISTS`).
 3. Existing `my-language` skill: `test -d ~/.claude/skills/my-language` (record `MY_LANGUAGE_EXISTS`).
-4. Existing global CLAUDE.md: `test -f ~/.claude/CLAUDE.md` (record `CLAUDE_MD_EXISTS`).
-5. Existing settings: `test -f ~/.claude/settings.json` (record `SETTINGS_EXISTS`).
+4. Existing `my-workflow` skill: `test -d ~/.claude/skills/my-workflow` (record `MY_WORKFLOW_EXISTS`).
+5. Existing global CLAUDE.md: `test -f ~/.claude/CLAUDE.md` (record `CLAUDE_MD_EXISTS`).
+6. Existing settings: `test -f ~/.claude/settings.json` (record `SETTINGS_EXISTS`).
 
 ### 0c. Probe ac MCP reachability
 
@@ -150,19 +151,74 @@ Hand it the brief plus the bundled template path, and instruct it to create the 
 
 Do not write the SKILL.md yourself. The skill-creator owns the file content.
 
+## Phase 2.5: my-workflow skill (skip if `--skip-skills`)
+
+Skip this entire phase when `SKIP_SKILLS = true`. Same shape as Phases 1 and 2, but the workflow discipline is mostly generic; the interview only personalizes a few placeholders.
+
+### 2.5a. Skip-if-present gate
+
+When `MY_WORKFLOW_EXISTS` is true, ask before touching it:
+
+```
+AskUserQuestion({
+  header: "my-workflow?",
+  question: "A my-workflow skill already exists at ~/.claude/skills/my-workflow/. How should I handle it?",
+  options: [
+    {label: "Skip (Recommended)", description: "Leave the existing my-workflow skill untouched and continue."},
+    {label: "Recreate", description: "Run the short workflow interview and regenerate my-workflow from scratch."}
+  ]
+})
+```
+
+On Skip, continue to Phase 3. On Recreate, run 2.5b and 2.5c. When `MY_WORKFLOW_EXISTS` is false, run 2.5b and 2.5c directly.
+
+### 2.5b. Short workflow interview
+
+The workflow discipline itself is generic to any ac user, so the template carries it as static content. The interview only fills the personal placeholders. Gather these through `AskUserQuestion` in tight rounds:
+
+1. Operator name (for the skill title, for example the byline on `<operator name>'s workflow discipline`).
+2. End-to-end trigger words: the phrases that mean "verify it through actual use, do not stop at compiles" (default examples: "ship it", "make it work").
+3. Real-world-test tools: how the operator runs a live check (multiSelect with defaults SSH, browser automation, HTTP client, REPL, plus an "Add your own" free-text option).
+4. Primary stack, for the optional stack-specific verification line (free text, or "skip").
+
+Compile the answers into a short brief: the operator name, the trigger words, the real-world-test tools, and the optional stack note.
+
+### 2.5c. Delegate to ac:skill-creator
+
+Under `--dry-run`, print the compiled brief and the target path, then skip the invocation. Otherwise invoke the skill:
+
+```
+Skill({skill: "ac:skill-creator"})
+```
+
+Hand it the brief plus the bundled template path, and instruct it to create the skill at user scope:
+
+- Create the `my-workflow` skill at `~/.claude/skills/my-workflow/` as a single `SKILL.md` file; do not create a `references/` subdirectory for it (the discipline fits in one file).
+- Read the structural template at `${CLAUDE_PLUGIN_ROOT}/references/workflow-template.md` and fill only its angle-bracket placeholders from the brief (`<operator name>`, the end-to-end trigger words, the real-world-test tools, the optional stack line). Keep every static discipline section verbatim.
+- Leave the `<!-- WORKFLOW_CUSTOM_PLACEHOLDER -->` marker in place for the operator's later additions.
+
+Do not write the SKILL.md yourself. The skill-creator owns the file content; this command only supplies the brief and the template path.
+
 ## Phase 3: global CLAUDE.md (skip if `--skip-claude-md`)
 
 Skip this entire phase when `SKIP_CLAUDE_MD = true`.
 
 ### 3a. Build the proposed section
 
-Read the portable section template at `${CLAUDE_PLUGIN_ROOT}/references/global-claude-md-section-template.md`. Tune its routing descriptions from the Phase 1 and 2 interview answers (for example, name the user's primary stack where the template references coding rules). Keep the section lean; it has to fit inside the 200-line global CLAUDE.md budget.
+Read the portable section template at `${CLAUDE_PLUGIN_ROOT}/references/global-claude-md-section-template.md`. This template is a lean pointer: a short `## Workflow discipline` line that routes procedural detail to the `my-workflow` skill, plus a `## Skills` list, all wrapped between `<!-- ac:delegation:start -->` and `<!-- ac:delegation:end -->` fence markers. The procedural discipline itself lives in the `my-workflow` skill (Phase 2.5), not in CLAUDE.md. Keep the pointer verbatim; light tuning of the Skills routing wording from the Phase 1, 2, and 2.5 answers is fine, but do not paste procedural prose back in.
 
-### 3b. Merge, do not overwrite
+### 3b. Merge via the fence markers, do not overwrite
 
-When `CLAUDE_MD_EXISTS` is false, write the tuned section directly to `~/.claude/CLAUDE.md` (skip under `--dry-run`, print the planned content instead).
+The fence markers make the merge deterministic. Treat the whole block from `<!-- ac:delegation:start -->` through `<!-- ac:delegation:end -->` (inclusive) as the ac-managed region.
 
-When `CLAUDE_MD_EXISTS` is true, merge instead of replacing. Read the current file, splice the tuned section in (replace an existing ac delegation section if one is present, otherwise append), and preserve every other section verbatim. Confirm the merged result stays within 200 lines; trim the section wording before the user's own content if it would overflow.
+When `CLAUDE_MD_EXISTS` is false, write the template's fenced block directly to `~/.claude/CLAUDE.md` (skip under `--dry-run`, print the planned content instead).
+
+When `CLAUDE_MD_EXISTS` is true, merge instead of replacing. Read the current file:
+
+1. If both fence markers are present, replace everything between them (inclusive of the markers) with the template's fenced block, and preserve every byte outside the fenced region verbatim.
+2. If the markers are absent, append the template's fenced block (including the leading HTML-comment header) after the user's content.
+
+Do not do a fuzzy heading-based match; the markers are the only anchor. Confirm the merged result stays within 200 lines; trim the pointer wording before the user's own content if it would overflow.
 
 Then gate the write per the `init-project` `.proposed` pattern:
 
@@ -187,25 +243,49 @@ On Apply, write `~/.claude/CLAUDE.md` with the merged content and delete the sid
 
 Skip this entire phase when `SKIP_SETTINGS = true`.
 
+The values in this phase are authored from the ac install spec, not read out of any existing profile. Every write is ADD-only: never strip, downgrade, or overwrite a key the user already set. "Set only when absent" means if the key exists at all, even with a different value, leave it untouched. For arrays, append the missing entries and skip any already present.
+
 ### 4a. Read and back up
 
-Read `~/.claude/settings.json`. When `SETTINGS_EXISTS` is false, start from `{}`. Before any write, back the file up with `cp ~/.claude/settings.json ~/.claude/settings.json.bak-ac-install` (only when the file exists). Under `--dry-run`, skip the backup; you write nothing.
+Read `~/.claude/settings.json`. When `SETTINGS_EXISTS` is false, start from `{}`. Before any write, back the file up with `cp -n ~/.claude/settings.json ~/.claude/settings.json.bak-ac-install` (only when the file exists). The `-n` flag is deliberate: a re-run must not clobber the pristine first backup. Under `--dry-run`, skip the backup; you write nothing.
 
-### 4b. Idempotent merge
+### 4b. Group A: safe-silent tuning (set only when absent)
 
-Merge the anti-builtin parity into the parsed object. Preserve every existing key, append new entries to arrays, and skip any entry already present. Apply these changes:
+These are non-secret performance and workflow defaults. Set each only when its key is absent; no prompt, no override.
+
+Top-level keys:
+
+1. `disableWorkflows = true` (setting key, not an env duplicate; do not also write `CLAUDE_CODE_DISABLE_WORKFLOWS`).
+2. `disableArtifact = true`.
+3. `effortLevel = "xhigh"`.
+4. `alwaysThinkingEnabled = true`.
+5. `statusLine = {"type": "command", "command": "bunx -y ccstatusline@latest", "padding": 0}` (assumes `bun`/`npx` on PATH; note this in the Phase 5 summary).
+
+Under `env` (string values), each set only when absent:
+
+6. `MAX_MCP_OUTPUT_TOKENS = "50000"`.
+7. `MCP_TIMEOUT = "30000"`.
+8. `MCP_TOOL_TIMEOUT = "60000"`.
+9. `API_TIMEOUT_MS = "30000"`.
+10. `BASH_DEFAULT_TIMEOUT_MS = "180000"`.
+11. `BASH_MAX_TIMEOUT_MS = "900000"`.
+12. `BASH_MAX_OUTPUT_LENGTH = "50000"`.
+13. `CLAUDE_CODE_FILE_READ_MAX_OUTPUT_TOKENS = "30000"`.
+14. `CLAUDE_CODE_MAX_RETRIES = "15"` (clamped at 15; do not raise it).
+
+### 4c. Group C: core ac parity (always merged)
+
+The ac wiring is not security-sensitive, so it merges without a prompt. All ADD-only:
 
 1. `enabledPlugins["ac@ac"] = true`.
-2. `enableAllProjectMcpServers = true`.
-3. `permissions.defaultMode = "acceptEdits"` (set only when the key is absent; do not override an existing user choice).
-4. `effortLevel = "high"` (set only when the key is absent).
-5. Add `mcp__plugin_ac_ac__*`, `WebSearch`, and `WebFetch` to `permissions.allow` (create the array if missing, skip any entry already present).
-6. Add to `permissions.deny`: `EnterPlanMode`, `ExitPlanMode`, `Agent(Plan)`, `Agent(Explore)`.
-7. Add to `hooks.PreToolUse`: an `EnterPlanMode` matcher. The hook echoes a one-line "blocked, use /ac:plan instead." message to stderr and exits 2.
-8. Idempotent strip for prior install versions: remove any `WebSearch` or `WebFetch` entry from `permissions.deny`; remove any `hooks.PreToolUse` entry whose matcher equals `WebSearch|WebFetch`. This migrates an old setup cleanly when re-running.
-9. Web-tool hang mitigation. Claude Code has no tool-scoped timeout for the built-in `WebFetch` / `WebSearch` (tracked upstream as anthropics/claude-code#34565), and the ac fallback cannot rescue an indefinite hang because the model stays blocked on the stalled call. Apply the two supported levers, both non-destructive:
-   - `skipWebFetchPreflight = true` (top-level settings key; set only when absent). Removes the per-fetch `api.anthropic.com/api/web/domain_info` preflight, a real hang source on slow or egress-restricted networks. Now that built-in `WebFetch` is the primary path, this preflight runs on every fetch. Tradeoff: it skips the Anthropic domain-safety blocklist; surface this in the Phase 5 summary.
-   - `env.API_TIMEOUT_MS = "120000"` (set only when absent; do not override an existing user value). Bounds the model API calls that `WebFetch`'s summary step and `WebSearch`'s server-tool turn ride on, capping the worst-case model-side hang at two minutes. The 60s fetch and 10s preflight caps are hardcoded and not configurable.
+2. Add `mcp__plugin_ac_ac__*`, `WebSearch`, and `WebFetch` to `permissions.allow` (create the array if missing, skip any entry already present). Never widen to `mcp__*`.
+3. Add to `permissions.deny`: `EnterPlanMode`, `ExitPlanMode`, `Agent(Plan)`, `Agent(Explore)`. These are the load-bearing plan-mode block.
+4. Idempotent migration strip for prior install versions. This removes only artifacts a previous run of THIS command wrote; it never touches a user key or a Group B key:
+   - Remove any `WebSearch` or `WebFetch` entry from `permissions.deny`.
+   - Remove any `hooks.PreToolUse` entry whose matcher equals `WebSearch|WebFetch`.
+   - Remove the `hooks.PreToolUse` entry a prior install wrote for plan mode: matcher `EnterPlanMode` whose command echoes the `use /ac:plan` steer and exits 2. The plan-mode block now ships in the plugin's `hooks.json`, so this command writes NO settings hook.
+
+This command writes no `hooks.*` entry of its own. The plan-mode PreToolUse block is delivered by the plugin (`plugins/ac/hooks/hooks.json`, matcher `EnterPlanMode|ExitPlanMode`); `permissions.deny` above is the load-bearing guard either way.
 
 When `MCP_REACHABLE` is false, the CLAUDE.md fallback steering section (Phase 3) simply omits the mention of the ac web-fetch and web-search tools; the built-in WebSearch and WebFetch remain primary either way.
 
@@ -238,23 +318,47 @@ The deny array (plan-mode entries only):
 }
 ```
 
-The always-added plan-mode hook entry:
+### 4d. Group B: security-sensitive keys (explicit opt-in, default off)
 
-```json
-{
-  "matcher": "EnterPlanMode",
-  "hooks": [
-    {
-      "type": "command",
-      "command": "echo 'EnterPlanMode blocked, use /ac:plan instead.' >&2; exit 2"
-    }
+These change permission or telemetry behavior, so they are never silent. Present one `AskUserQuestion` multiSelect with every option unchecked by default. Write only the keys the operator checks; each is ADD-only (set only when absent, and do not extend the 4c migration strip to these keys). Under `--dry-run`, skip this prompt and note that no security-sensitive keys would be set.
+
+```
+AskUserQuestion({
+  header: "Opt-in?",
+  question: "These change permission or telemetry behavior and are off by default. Select any you want applied. Each is added only when the key is absent; nothing you already set is changed.",
+  multiSelect: true,
+  options: [
+    {label: "Auto-accept edits", description: "permissions.defaultMode=acceptEdits. Edits apply without a per-edit prompt."},
+    {label: "Skip dangerous prompt", description: "permissions.skipDangerousModePermissionPrompt=true. No confirmation when entering bypass mode."},
+    {label: "All project MCP", description: "enableAllProjectMcpServers=true. Every project-scoped MCP server loads without asking."},
+    {label: "Skip fetch preflight", description: "skipWebFetchPreflight=true. Drops the per-fetch domain-safety blocklist preflight (a hang source) at the cost of that safety check."},
+    {label: "AFK timeout 10m", description: "env.CLAUDE_AFK_TIMEOUT_MS=600000."},
+    {label: "Disable agent teams", description: "env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=0."},
+    {label: "OTEL telemetry", description: "env.CLAUDE_CODE_ENABLE_TELEMETRY=1 plus OTEL_METRICS_EXPORTER=otlp, OTEL_EXPORTER_OTLP_PROTOCOL=grpc, OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317. Exports metrics to a local collector."}
   ]
-}
+})
 ```
 
-### 4c. Show the diff and write
+Map each checked option to its keys, writing each only when absent. Unchecked options write nothing:
 
-Render the merged result as a diff against the original: which keys, deny entries, allow entries, and hooks are newly added versus already configured. Under `--dry-run`, stop here; write nothing. Otherwise write the merged object back to `~/.claude/settings.json` and report the newly-added versus already-present breakdown.
+- Auto-accept edits: `permissions.defaultMode = "acceptEdits"`.
+- Skip dangerous prompt: `permissions.skipDangerousModePermissionPrompt = true`.
+- All project MCP: `enableAllProjectMcpServers = true`.
+- Skip fetch preflight: `skipWebFetchPreflight = true`.
+- AFK timeout 10m: `env.CLAUDE_AFK_TIMEOUT_MS = "600000"`.
+- Disable agent teams: `env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS = "0"`.
+- OTEL telemetry: `env.CLAUDE_CODE_ENABLE_TELEMETRY = "1"`, `env.OTEL_METRICS_EXPORTER = "otlp"`, `env.OTEL_EXPORTER_OTLP_PROTOCOL = "grpc"`, `env.OTEL_EXPORTER_OTLP_ENDPOINT = "http://localhost:4317"`.
+
+### 4e. MCP token (interactive, masked)
+
+The ac MCP token is a secret; it is never bundled and never rendered. Two keys:
+
+1. `env.KODIZM_MCP_URL = "https://mcp.kodizm.com"` (set only when absent; this is the public default, safe to write).
+2. Prompt the operator to paste their `kdz-` MCP token, or leave it blank to skip. Under `--dry-run`, skip this prompt. Write `env.KODIZM_MCP_TOKEN` ONLY when the operator supplies a non-empty value; a blank or skipped answer leaves the key untouched. Never echo the pasted value, and never write it to a log, the diff, or the summary.
+
+### 4f. Show the diff and write (mask secrets)
+
+Render the merged result as a diff against the original: which keys, deny entries, and allow entries were newly added versus already present, grouped as Group A / Group C / Group B (opt-in) / token. Mask every secret-pattern value: render `env.KODIZM_MCP_TOKEN` as `<set>` when newly written, `<unchanged>` when it was already present and left as-is, and omit it entirely when skipped. Never print the token value or any `kdz-` string in the diff. Under `--dry-run`, stop here; write nothing. Otherwise write the merged object back to `~/.claude/settings.json` and report the newly-added versus already-present breakdown, with the token still masked.
 
 ## Phase 5: Summary
 
@@ -263,22 +367,33 @@ Report the outcome in one block:
 ```
 ## /ac:install Complete
 
-my-coding:   <created | recreated | skipped (exists) | skipped (--skip-skills) | dry-run>
-my-language: <created | recreated | skipped (exists) | skipped (--skip-skills) | dry-run>
-CLAUDE.md:   <written | merged + applied | proposed (awaiting review) | skipped (--skip-claude-md) | dry-run>
-settings:    <merged | skipped (--skip-settings) | dry-run>
-Backup:      <~/.claude/settings.json.bak-ac-install | none (settings absent or dry-run)>
-MCP probe:   <reachable | unreachable (CLAUDE.md fallback steering omitted)>
-Web hang:    <skipWebFetchPreflight set + API_TIMEOUT_MS=120000 set | skipWebFetchPreflight kept (already set) | API_TIMEOUT_MS kept (user value preserved)>
+my-coding:    <created | recreated | skipped (exists) | skipped (--skip-skills) | dry-run>
+my-language:  <created | recreated | skipped (exists) | skipped (--skip-skills) | dry-run>
+my-workflow:  <created | recreated | skipped (exists) | skipped (--skip-skills) | dry-run>
+CLAUDE.md:    <written | merged + applied | proposed (awaiting review) | skipped (--skip-claude-md) | dry-run>
+settings:     <merged | skipped (--skip-settings) | dry-run>
+Group A:      <N tuning keys set | all already present>
+Group B:      <opt-ins applied: comma-list | none selected | skipped (dry-run)>
+MCP token:    <set | unchanged | skipped>
+MCP URL:      <set to https://mcp.kodizm.com | unchanged>
+Backup:       <~/.claude/settings.json.bak-ac-install | kept (pre-existing) | none (settings absent or dry-run)>
+MCP probe:    <reachable | unreachable (CLAUDE.md fallback steering omitted)>
 ```
 
-Note when `skipWebFetchPreflight` was set: it skips the Anthropic domain-safety blocklist preflight. This removes a per-fetch hang source now that built-in `WebFetch` is primary; Claude Code has no tool-scoped web timeout (anthropics/claude-code#34565), so this plus `API_TIMEOUT_MS` are the only available levers.
+Never print the token value in this block: `MCP token` shows only `<set>`, `<unchanged>`, or `<skipped>`.
+
+Notes to print when relevant:
+
+- `my-workflow`: the workflow discipline (delegation, code-lookup, investigation, verification) now lives in this skill; the global CLAUDE.md carries only a lean pointer to it.
+- If a Group B opt-in was applied, restate its tradeoff. `skipWebFetchPreflight` skips the Anthropic domain-safety blocklist preflight (a hang source; Claude Code has no tool-scoped web timeout, tracked as anthropics/claude-code#34565). `permissions.skipDangerousModePermissionPrompt` and `acceptEdits` reduce confirmation friction.
+- `statusLine` uses `bunx -y ccstatusline@latest`; it needs `bun`/`npx` on PATH to render.
+- Plan-mode block: the plugin ships the PreToolUse hook and `permissions.deny` covers `EnterPlanMode` and `ExitPlanMode`. Verify it live: try entering native plan mode and confirm it is blocked with the `/ac:plan` steer.
 
 Next steps to print:
 
 - Restart Claude Code for the settings.json changes to take effect.
 - Run `/mcp` to verify the ac MCP tools are reachable.
-- The `my-coding` and `my-language` skills load automatically in every session; no restart needed for those.
+- The `my-coding`, `my-language`, and `my-workflow` skills load automatically in every session; no restart needed for those.
 
 ## References
 
@@ -291,4 +406,6 @@ Anchors this command body relies on. Cross-check before editing.
 - `ac:skill-creator` (delegated my-coding and my-language authoring at user scope).
 - `${CLAUDE_PLUGIN_ROOT}/references/coding-style-template.md` (Phase 1 my-coding seed template).
 - `${CLAUDE_PLUGIN_ROOT}/references/language-style-template.md` (Phase 2 my-language seed template).
-- `${CLAUDE_PLUGIN_ROOT}/references/global-claude-md-section-template.md` (Phase 3 portable delegation section).
+- `${CLAUDE_PLUGIN_ROOT}/references/workflow-template.md` (Phase 2.5 my-workflow single-file seed template).
+- `${CLAUDE_PLUGIN_ROOT}/references/global-claude-md-section-template.md` (Phase 3 lean pointer, wrapped in the `<!-- ac:delegation:start -->` / `<!-- ac:delegation:end -->` fence markers used for the deterministic merge).
+- `plugins/ac/hooks/hooks.json` (ships the plan-mode PreToolUse block, matcher `EnterPlanMode|ExitPlanMode`; Phase 4 writes no settings hook).
