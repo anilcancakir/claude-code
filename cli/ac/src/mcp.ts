@@ -266,12 +266,14 @@ export async function runMcpProxy(options: { token?: string; url?: string }): Pr
             );
         }
 
-        await remote.ensureConnected();
-
-        // Remote passthrough for docs/search tools. A network/rate-limit/upstream
-        // failure here is a tool-execution failure, so normalize it to an isError
-        // result rather than letting it propagate as a protocol-level rejection.
+        // Remote passthrough for docs/search tools. A connection failure OR a
+        // network/rate-limit/upstream failure is a tool-execution failure, so normalize it
+        // to an isError result rather than letting it propagate as a protocol-level
+        // rejection. ensureConnected is inside the try so a lazy-connect failure (remote
+        // unreachable, auth rejected at connect) is normalized too, matching the web-fetch
+        // race leg where the connect runs inside the fallback-guarded call.
         try {
+            await remote.ensureConnected();
             return await remote.client.callTool(
                 {
                     name: requestedName,

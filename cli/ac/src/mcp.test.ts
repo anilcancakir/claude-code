@@ -292,3 +292,48 @@ test("mcp proxy serves web-fetch and call-external-agent without a bearer token"
         await client.close();
     }
 }, 30_000);
+
+test("mcp proxy normalizes a remote connection failure to isError, not a thrown McpError", async () => {
+    // Bearer-free and deterministic: a dummy token routes resolve-library through the
+    // remote passthrough, and an unreachable URL forces the lazy connect to fail. The
+    // handler must return isError:true (a readable tool-execution failure), NOT throw a
+    // protocol-level McpError. Guards the ensureConnected-inside-try normalization so a
+    // remote outage is reported as "lookup failed" rather than crashing the tool call.
+    const env = Object.fromEntries(
+        Object.entries(process.env)
+            .filter((e): e is [string, string] => e[1] !== undefined)
+            .filter(([k]) => k !== "KODIZM_MCP_TOKEN" && k !== "KODIZM_MCP_URL"),
+    );
+    env["KODIZM_MCP_TOKEN"] = "kdz-dummy-unreachable";
+    env["KODIZM_MCP_URL"] = "http://127.0.0.1:1/mcp";
+
+    const transport = new StdioClientTransport(
+        {
+            command: "bun",
+            args: ["run", "src/index.ts", "mcp"],
+            cwd: CLI_DIR,
+            env,
+        },
+    );
+
+    const client = new Client(
+        { name: "test-client", version: "0.0.0" },
+        { capabilities: {} },
+    );
+
+    try {
+        await client.connect(transport);
+
+        const result = await client.callTool(
+            {
+                name: "resolve-library",
+                arguments: { query: "react" },
+            },
+        ) as { isError?: boolean; content?: Array<{ type: string; text?: string }> };
+
+        expect(result.isError).toBe(true);
+        expect(result.content?.[0]?.text ?? "").toContain("remote tool call failed");
+    } finally {
+        await client.close();
+    }
+}, 30_000);

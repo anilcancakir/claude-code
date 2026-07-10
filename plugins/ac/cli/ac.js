@@ -36635,8 +36635,8 @@ async function runMcpProxy(options) {
     if (remote === null) {
       throw new McpError(ErrorCode.InvalidRequest, "Remote MCP not configured; set KODIZM_MCP_TOKEN to enable kodizm tools.");
     }
-    await remote.ensureConnected();
     try {
+      await remote.ensureConnected();
       return await remote.client.callTool({
         name: requestedName,
         arguments: request.params.arguments
@@ -36682,4 +36682,4 @@ program2.command("mcp").description("Run the ac stdio MCP server (proxies tools 
 });
 await program2.parseAsync(process.argv);
 
-//# debugId=03479D67C9FE214D64756E2164756E21
+//# debugId=725450850187CC5864756E2164756E21
