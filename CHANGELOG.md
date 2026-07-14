@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-07-14
+
+### Changed
+
+- Model-tier reference refreshed with 2026-07 benchmarks and commentary: added a
+  Terminal-Bench column (Sonnet 5 leads Opus 4.8, 80.4% vs 74.6%), marked the Haiku 4.5
+  SWE-bench Pro cell "not reported", replaced the unverifiable Sonnet 5 SWE-bench Verified
+  figure with a sourced confidence note, and tuned the tier decision heuristic to favor
+  Sonnet 5 as the default workhorse, reserving Opus 4.8 for genuinely cross-layer,
+  long-horizon, or critical work.
+
 ## [0.6.0] - 2026-07-10
 
 ### Added
@@ -77,6 +88,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   during plan execution, enabling the PreToolUse hook to scope worker edits to the
   active wave and prevent out-of-scope mutations.
 
+[0.6.1]: https://github.com/anilcancakir/claude-code/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/anilcancakir/claude-code/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/anilcancakir/claude-code/compare/v0.4.2...v0.5.0
 ## [0.4.2] - 2026-06-17
