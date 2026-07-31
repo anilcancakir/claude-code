@@ -2,13 +2,13 @@
 
 Common prompt-writing failures, the why, and the fix. Read this when auditing an existing prompt or debugging a prompt that produces wrong output.
 
-Primary sources (raw markdown via the `.md` suffix on `docs.claude.com`):
+Primary sources (raw markdown via the `.md` suffix on `platform.claude.com` for API docs and `code.claude.com` for Claude Code docs):
 
-- Anthropic prompt engineering best practices: https://docs.claude.com/en/docs/build-with-claude/prompt-engineering/claude-prompting-best-practices.md
-- Migration guide (4.7 breaking changes and behavior shifts): https://docs.claude.com/en/docs/about-claude/models/migration-guide.md
-- System prompts guide: https://docs.claude.com/en/docs/system-prompts.md
-- Subagents page: https://docs.claude.com/en/docs/sub-agents.md
-- Extended thinking: https://docs.claude.com/en/docs/build-with-claude/extended-thinking.md
+- Anthropic prompt engineering best practices: https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/claude-prompting-best-practices.md
+- Migration guide (4.7 breaking changes and behavior shifts): https://platform.claude.com/docs/en/about-claude/models/migration-guide.md
+- System prompts guide: https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/claude-prompting-best-practices.md#give-claude-a-role
+- Subagents page: https://code.claude.com/docs/en/sub-agents.md
+- Extended thinking: https://platform.claude.com/docs/en/build-with-claude/extended-thinking.md
 
 ## Aggressive language
 
@@ -18,7 +18,7 @@ Primary sources (raw markdown via the `.md` suffix on `docs.claude.com`):
 
 **Why it fails.** Modern Claude follows aggressive language too literally. "CRITICAL: you MUST use this tool when researching" causes overtriggering; the model uses the tool even when reasoning would be faster.
 
-Source: https://docs.claude.com/en/docs/about-claude/models/migration-guide.md > Behavior changes (tool triggering on 4.7).
+Source: https://platform.claude.com/docs/en/about-claude/models/migration-guide.md > Behavior changes (tool triggering on 4.7).
 
 **The fix.** Plain instruction.
 
@@ -42,7 +42,7 @@ Same problem at a smaller scale. CAPS in a sentence shift the model into "this i
 
 **Why it fails.** The model has to imagine the wrong behavior first, then suppress it. The imagined behavior leaks into the output.
 
-Source: https://docs.claude.com/en/docs/build-with-claude/prompt-engineering/claude-prompting-best-practices.md > Be clear and direct.
+Source: https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/claude-prompting-best-practices.md > Be clear and direct.
 
 **The fix.** Positive instruction or positive example.
 
@@ -60,9 +60,9 @@ Show one short response you like rather than writing "do not be verbose." Exampl
 
 **The mistake.** Asking for a generalization without saying what to generalize over.
 
-**Why it fails.** Modern Claude (especially 4.8) takes instructions literally. It will not silently generalize from the example you showed to other things in the file.
+**Why it fails.** Modern Claude takes instructions literally. It will not silently generalize from the example you showed to other things in the file.
 
-Source: https://docs.claude.com/en/docs/about-claude/models/migration-guide.md > Behavior changes > Literal interpretation.
+Source: https://platform.claude.com/docs/en/about-claude/models/migration-guide.md > Behavior changes > Literal interpretation.
 
 **The fix.** State scope explicitly.
 
@@ -72,7 +72,9 @@ Source: https://docs.claude.com/en/docs/about-claude/models/migration-guide.md >
 | "Use TypeScript strict mode." | "Use TypeScript strict mode in every file you create or modify in this PR, not only in the new ones." |
 | "Match the existing style." | "Match the existing style in `src/services/`. The conventions are: PascalCase class names, camelCase methods, constructor injection, no facades." |
 
-This is verbose. The compensation is precision: 4.8 does exactly what you asked.
+This is verbose. The compensation is precision: the model does exactly what you asked.
+
+The mirror-image failure is leaving the scope's UPPER bound unstated. Opus 5 can widen a task on its own and re-verify finished work, so a prompt that says which files to change should also say that nothing else changes: "Change only the files listed. If you find an adjacent problem, report it in one line; do not fix it here." Source: https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/prompting-claude-opus-5.md > Task scope and over-verification.
 
 ## Subagent prompt failures
 
@@ -82,7 +84,7 @@ This is verbose. The compensation is precision: 4.8 does exactly what you asked.
 
 **Why it fails.** The agent has less context than the orchestrator. It does not know the user's goals, cannot ask the user, and has not seen the previous turns of the conversation. The result is shallow generic work.
 
-Source: https://docs.claude.com/en/docs/sub-agents.md > Writing prompts for subagents > Never delegate understanding.
+Source: https://code.claude.com/docs/en/sub-agents.md > Writing prompts for subagents > Never delegate understanding.
 
 **The fix.** Prove you understood. Include specifics.
 
@@ -112,7 +114,7 @@ Audit `packages/*/src/**/*.ts` for unused exports (exported symbols with zero im
 
 **Why it fails.** The model cannot reliably distinguish "process this" from "do this." Instructions inside the document leak into behavior.
 
-Source: https://docs.claude.com/en/docs/build-with-claude/prompt-engineering/claude-prompting-best-practices.md > Structure prompts with XML tags.
+Source: https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/claude-prompting-best-practices.md > Structure prompts with XML tags.
 
 **The fix.** XML tags. Always.
 
@@ -132,7 +134,7 @@ Summarize the document in three bullet points.
 
 **Why it fails.** Prompt cache cannot amortize a system prompt that changes every request. You pay full token cost on every call.
 
-Source: https://docs.claude.com/en/docs/build-with-claude/prompt-caching.md > Best practices.
+Source: https://platform.claude.com/docs/en/build-with-claude/prompt-caching.md > Best practices.
 
 **The fix.** Static in system, dynamic in user.
 
@@ -156,7 +158,7 @@ Source: https://docs.claude.com/en/docs/build-with-claude/prompt-caching.md > Be
 
 **Why it fails.** The model loses track of the question by the time it has read all the document. Quality drops up to 30 percent per Anthropic's published long-context guidance.
 
-Source: https://docs.claude.com/en/docs/build-with-claude/prompt-engineering/claude-prompting-best-practices.md > Long context prompting tips.
+Source: https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/claude-prompting-best-practices.md > Long context prompting tips.
 
 **The fix.** Long inputs at the very top of the user message, question at the bottom.
 
@@ -178,7 +180,7 @@ Source: https://docs.claude.com/en/docs/build-with-claude/prompt-engineering/cla
 
 **Why it fails.** Returns a 400 error on Claude 4.6 and later. Prefills on the last assistant turn are no longer supported.
 
-Source: https://docs.claude.com/en/docs/about-claude/models/migration-guide.md > Breaking changes > Prefill removal.
+Source: https://platform.claude.com/docs/en/about-claude/models/migration-guide.md > Breaking changes > Prefill removal.
 
 **The fix.** Use Structured Outputs, tool calls with enums, or direct instruction:
 
@@ -192,7 +194,7 @@ Return your response as JSON conforming to the schema provided. Do not wrap the 
 
 **Why it fails.** The model invents a schema. Different runs produce different schemas. Downstream parsing fails.
 
-**The fix.** Define the schema explicitly. Either via the Structured Outputs API feature (https://docs.claude.com/en/docs/build-with-claude/structured-outputs.md) or by including a JSON schema definition in the prompt.
+**The fix.** Define the schema explicitly. Either via the Structured Outputs API feature (https://platform.claude.com/docs/en/build-with-claude/structured-outputs.md) or by including a JSON schema definition in the prompt.
 
 ## Tool use failures
 
@@ -224,20 +226,38 @@ Return your response as JSON conforming to the schema provided. Do not wrap the 
 
 ## Thinking-parameter failures (model migration)
 
-### `thinking: { type: "enabled", budget_tokens: N }` on Opus 4.8
+### `thinking: { type: "enabled", budget_tokens: N }`
 
 **The mistake.** Using the legacy thinking-budget shape on a model that has moved to adaptive thinking.
 
-**Why it fails.** Adaptive thinking replaces `budget_tokens`. The legacy shape is deprecated; on Opus 4.8 it is unsupported and returns a 400 error. Source: https://docs.claude.com/en/docs/about-claude/models/migration-guide.md > Migrating from Claude Opus 4.7 to Claude Opus 4.8.
+**Why it fails.** Adaptive thinking replaces `budget_tokens`. The legacy shape returns a 400 error on Opus 4.7, Opus 4.8, Opus 5, and Sonnet 5. It remains the ONLY accepted shape on Haiku 4.5, which rejects adaptive; branch on model ID when a code path serves both. Source: https://platform.claude.com/docs/en/build-with-claude/extended-thinking.md > Migrating to adaptive thinking.
 
 **The fix.**
 
 ```python
+# On Opus 5 / Sonnet 5 / Fable 5 thinking is already on by default; this is the
+# explicit equivalent, not a requirement.
 thinking={"type": "adaptive"}
 output_config={"effort": "high"}  # max, xhigh, high, medium, low
 ```
 
 If you need to display thinking content in your UI, add `"display": "summarized"` on the thinking config.
+
+### `thinking: { type: "disabled" }` at effort `xhigh` or `max`
+
+**The mistake.** Turning thinking off on an Opus 5 request that also asks for top-end effort.
+
+**Why it fails.** New constraint in Opus 5: disabling thinking is only permitted at effort `high` or below. Above that it returns a 400 error. Source: https://platform.claude.com/docs/en/about-claude/models/migration-guide.md > Migrating from Claude Opus 4.8 to Claude Opus 5.
+
+**The fix.** Drop effort to `high` when thinking must be off, or leave thinking on. Note that running with thinking disabled has its own documented artifacts (tool calls leaking into the text response, stray XML tags), so budget for mitigation rather than assuming clean output.
+
+### Carrying an explicit thinking enable forward from 4.8
+
+**The mistake.** Keeping `thinking={"type": "adaptive"}` as a required line because a 4.8 integration needed it.
+
+**Why it fails.** Nothing breaks, but the line is now noise: thinking is on by default on Opus 5, Sonnet 5, and Fable 5. Keeping it implies a toggle that no longer exists, which misleads the next reader.
+
+**The fix.** Drop it unless you are also setting `display`.
 
 ### Using `output_format` instead of `output_config.format`
 
@@ -245,33 +265,33 @@ If you need to display thinking content in your UI, add `"display": "summarized"
 
 **Why it fails.** `output_format` is deprecated and will be removed. The supported parameter is `output_config.format` (`output_config={"format": {...}}` in Python, the equivalent shape in other SDKs).
 
-Source: https://docs.claude.com/en/docs/about-claude/models/migration-guide.md > Migrate `output_format` to `output_config.format`.
+Source: https://platform.claude.com/docs/en/about-claude/models/migration-guide.md > Migrate `output_format` to `output_config.format`.
 
 **The fix.** Move the format field into `output_config`.
 
 ```python
 # old
-client.messages.create(model="claude-opus-4-8", output_format={...}, ...)
+client.messages.create(model="claude-opus-5", output_format={...}, ...)
 
 # new
-client.messages.create(model="claude-opus-4-8", output_config={"format": {...}}, ...)
+client.messages.create(model="claude-opus-5", output_config={"format": {...}}, ...)
 ```
 
 ### Carrying over `effort-2025-11-24` beta header
 
-**The mistake.** Keeping `betas=["effort-2025-11-24"]` in requests after upgrading to Opus 4.8.
+**The mistake.** Keeping `betas=["effort-2025-11-24"]` in requests after upgrading to a current model.
 
-**Why it fails.** The effort parameter is GA. The beta header is a no-op on Opus 4.8 and is being phased out.
+**Why it fails.** The effort parameter is GA. The beta header is a no-op and is being phased out.
 
 **The fix.** Drop the beta header. Use `client.messages.create` (not `client.beta.messages.create`).
 
-Source: https://docs.claude.com/en/docs/about-claude/models/migration-guide.md > Migration checklist > "Remove `effort-2025-11-24` beta header".
+Source: https://platform.claude.com/docs/en/about-claude/models/migration-guide.md > Migration checklist > "Remove `effort-2025-11-24` beta header".
 
-### Image-coordinate scale-factor math on Opus 4.8
+### Image-coordinate scale-factor math
 
 **The mistake.** Multiplying pointing or bounding-box coordinates by a scale factor on the client.
 
-**Why it fails.** On Opus 4.8, coordinates are 1:1 with actual image pixels (the convention since 4.7). The conversion was removed. Source: https://docs.claude.com/en/docs/about-claude/models/migration-guide.md > Breaking changes > Image coordinates.
+**Why it fails.** Coordinates are 1:1 with actual image pixels, the convention since Opus 4.7 and unchanged on Opus 5. The conversion was removed. Source: https://platform.claude.com/docs/en/about-claude/models/migration-guide.md > Breaking changes > Image coordinates.
 
 **The fix.** Remove the client-side conversion. Use the raw coordinates.
 
@@ -337,7 +357,7 @@ These come from the live Claude Code system prompt's "Doing tasks" section. Cust
 
 **Why it fails.** Modern Claude produces high-quality interim updates natively and triggers tools appropriately. The scaffolding causes overtriggering.
 
-Source: https://docs.claude.com/en/docs/about-claude/models/migration-guide.md > Behavior changes > Progress updates.
+Source: https://platform.claude.com/docs/en/about-claude/models/migration-guide.md > Behavior changes > Progress updates.
 
 **The fix.** Remove the scaffolding. Trust the defaults.
 
@@ -373,8 +393,13 @@ When reviewing an existing prompt:
 - [ ] No "based on your findings, do X" in subagent prompts.
 - [ ] No anti-laziness scaffolding from older models.
 - [ ] No compat hacks, no impossible-scenario error handling, no multi-paragraph docstrings (CC defaults).
-- [ ] Thinking parameter uses `adaptive` on Opus 4.8 (set explicitly) and Sonnet 5 (default-on); manual `enabled` still works on Haiku 4.5 but returns a 400 error on Sonnet 5 (removed, not deprecated).
-- [ ] No image-coordinate scale-factor conversion on Opus 4.8.
+- [ ] Thinking is left at its default on Opus 5 / Sonnet 5 / Fable 5 (on); manual `enabled` + `budget_tokens` is used only on Haiku 4.5, which rejects adaptive.
+- [ ] No `thinking: { type: "disabled" }` paired with effort `xhigh` or `max` (400 on Opus 5).
+- [ ] No `effort` set for Haiku 4.5 (unsupported on that model).
+- [ ] Length controlled by an explicit target, not by lowering effort (effort is not a length lever on Opus 5).
+- [ ] Scope's upper bound stated, not just its span (Opus 5 widens scope on its own).
+- [ ] No 4.8-era subagent fan-out encouragement (Opus 5 already delegates readily).
+- [ ] No image-coordinate scale-factor conversion.
 - [ ] Output format uses `output_config.format`, not deprecated `output_format`.
 - [ ] No `effort-2025-11-24` beta header carried over (effort is GA).
 - [ ] `client.messages.create`, not `client.beta.messages.create`.

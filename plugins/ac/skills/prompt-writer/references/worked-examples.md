@@ -2,12 +2,12 @@
 
 Full prompts as case studies. Use as starting templates. Each example shows the rationale below the prompt so you can adapt to your own case.
 
-Primary sources (raw markdown via the `.md` suffix on `docs.claude.com`):
+Primary sources (raw markdown via the `.md` suffix on `platform.claude.com` for API docs and `code.claude.com` for Claude Code docs):
 
-- Anthropic prompt engineering best practices: https://docs.claude.com/en/docs/build-with-claude/prompt-engineering/claude-prompting-best-practices.md
-- Anthropic Claude Code subagents: https://docs.claude.com/en/docs/sub-agents.md
-- Anthropic Claude Code skills: https://docs.claude.com/en/docs/skills.md
-- Anthropic Claude Code commands: https://docs.claude.com/en/commands.md
+- Anthropic prompt engineering best practices: https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/claude-prompting-best-practices.md
+- Anthropic Claude Code subagents: https://code.claude.com/docs/en/sub-agents.md
+- Anthropic Claude Code skills: https://code.claude.com/docs/en/skills.md
+- Anthropic Claude Code commands: https://code.claude.com/docs/en/commands.md
 
 ## Example 1: System prompt for a document-extraction pipeline
 
@@ -213,7 +213,7 @@ If there are no issues, say so explicitly: "No issues found. The change is consi
 - **Description is pushy:** "Use whenever the user mentions PRs, diffs, reviews," covers undertriggering. Includes a "do not skip in favor of inline comments" line.
 - **Tool list is explicit.**
 - **Approach is numbered and decisional.** Not "do a thorough review."
-- **Coverage rule counters the filtering tendency** modern Claude shows in code review contexts (see https://docs.claude.com/en/docs/about-claude/models/migration-guide.md > Behavior changes > Code review).
+- **Coverage rule counters the filtering tendency** modern Claude shows in code review contexts (see https://platform.claude.com/docs/en/about-claude/models/migration-guide.md > Behavior changes > Code review).
 - **Output contract is specific.** Markdown report with numbered sections, fields per finding.
 - **Constraints repeat the most important rules** at the end.
 
@@ -290,7 +290,7 @@ Do not use information that is not supported by quotes from the documents.
 
 ### Why this works
 
-- **Documents at the top of the user turn.** Long-context layout rule (https://docs.claude.com/en/docs/build-with-claude/prompt-engineering/claude-prompting-best-practices.md > Long context prompting tips).
+- **Documents at the top of the user turn.** Long-context layout rule (https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/claude-prompting-best-practices.md > Long context prompting tips).
 - **Each document wrapped in `<document>` with `<source>` and `<document_content>`.**
 - **Quote-grounded answer pattern.** Quotes first, then memo. Reduces hallucination.
 - **Output format is highly specific.** Numbered sections, field shapes, length caps per section.

@@ -2,15 +2,15 @@
 
 Rules that apply specifically to prompts running inside Claude Code (the CLI). Read this when writing custom agents, slash commands, hooks, plugins, or any system prompt that will execute in the CC harness.
 
-Primary sources (raw markdown via the `.md` suffix on `docs.claude.com`):
+Primary sources (raw markdown via the `.md` suffix on `platform.claude.com` for API docs and `code.claude.com` for Claude Code docs):
 
-- Claude Code skills reference: https://docs.claude.com/en/docs/skills.md
-- Claude Code subagents: https://docs.claude.com/en/docs/sub-agents.md
-- Claude Code hooks: https://docs.claude.com/en/docs/hooks.md
-- Claude Code plugins: https://docs.claude.com/en/docs/plugins.md
-- Claude Code memory (CLAUDE.md): https://docs.claude.com/en/docs/memory.md
-- Claude Code permissions: https://docs.claude.com/en/docs/permissions.md
-- Claude Code commands reference: https://docs.claude.com/en/commands.md
+- Claude Code skills reference: https://code.claude.com/docs/en/skills.md
+- Claude Code subagents: https://code.claude.com/docs/en/sub-agents.md
+- Claude Code hooks: https://code.claude.com/docs/en/hooks.md
+- Claude Code plugins: https://code.claude.com/docs/en/plugins.md
+- Claude Code memory (CLAUDE.md): https://code.claude.com/docs/en/memory.md
+- Claude Code permissions: https://code.claude.com/docs/en/permissions.md
+- Claude Code commands reference: https://code.claude.com/docs/en/commands.md
 
 ## What Claude Code is
 
@@ -25,7 +25,7 @@ Claude Code is Anthropic's agentic coding CLI, distributed as the npm package `@
 
 When a prompt runs inside Claude Code, the harness sets defaults the prompt should respect, not override.
 
-Source: https://docs.claude.com/en/docs/skills.md.
+Source: https://code.claude.com/docs/en/skills.md.
 
 ## Harness essentials
 
@@ -33,15 +33,15 @@ These behaviors are part of the live Claude Code system prompt and govern model 
 
 **Terminal markdown rendering.** User-facing text renders as GitHub-flavored markdown in a terminal. Plan formatting accordingly. Use code blocks for code, backticks for filenames and commands. Headers and bullet lists work, but excessive formatting noise hurts readability.
 
-**Permission denials are signal.** Tools run behind a user-selected permission mode. A denied call means the user declined. Adjust the approach; do not retry verbatim. After two denials of the same action, ask before a third. Source: https://docs.claude.com/en/docs/permissions.md.
+**Permission denials are signal.** Tools run behind a user-selected permission mode. A denied call means the user declined. Adjust the approach; do not retry verbatim. After two denials of the same action, ask before a third. Source: https://code.claude.com/docs/en/permissions.md.
 
 **`<system-reminder>` tags are harness, not user.** The runtime injects `<system-reminder>` and related tags into the conversation. Treat their content as system signal; do not respond to them in user-facing output, do not cite them as if the user said them.
 
-**Hooks intercept tool calls.** A user-configured hook can block, modify, or annotate any tool call. Treat hook output as user feedback: if a hook blocks an edit, do not retry the same edit; address the underlying concern. Source: https://docs.claude.com/en/docs/hooks.md.
+**Hooks intercept tool calls.** A user-configured hook can block, modify, or annotate any tool call. Treat hook output as user feedback: if a hook blocks an edit, do not retry the same edit; address the underlying concern. Source: https://code.claude.com/docs/en/hooks.md.
 
 **Context compaction is automatic.** Long conversations get compacted by the runtime. Invoked skills carry forward within a 25,000-token budget, keeping the first 5,000 tokens of the most recent invocation of each. The model can also save state to the filesystem (`progress.txt`, `tests.json`) to survive a fresh context window.
 
-Source: https://docs.claude.com/en/docs/skills.md > Skill content lifecycle.
+Source: https://code.claude.com/docs/en/skills.md > Skill content lifecycle.
 
 **Independent tool calls run in parallel.** Three reads with no dependencies go in one assistant message with three tool-use blocks. Sequential only when call N depends on call N-1.
 
@@ -69,7 +69,7 @@ The live CC system prompt carries the rules below. Custom agents and skills inhe
 
 **Match existing style.** Even if you would do it differently, match the project's existing patterns. Adjacent code style is the prior, not your preference.
 
-These rules are derived from the bullets currently embedded in Claude Code's "Doing tasks" section of the live system prompt. The closest published reference is the prompt-engineering best practices page (https://docs.claude.com/en/docs/build-with-claude/prompt-engineering/claude-prompting-best-practices.md) alongside the model-specific guide (https://docs.claude.com/en/docs/build-with-claude/prompt-engineering/prompting-claude-opus-4-8.md), which describes the same calibration philosophy.
+These rules are derived from the bullets currently embedded in Claude Code's "Doing tasks" section of the live system prompt. The closest published reference is the prompt-engineering best practices page (https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/claude-prompting-best-practices.md) alongside the model-specific guide (https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/prompting-claude-opus-5.md), which describes the same calibration philosophy.
 
 ## Communication during tool use
 
@@ -108,7 +108,7 @@ The harness asks the model to consider blast radius before acting. Codify this i
 
 **Do not use destructive shortcuts to clear obstacles.** If a hook fails, fix the underlying issue, not the hook. If a lock file exists, find what holds it; do not delete it.
 
-Source: published guidance is the "Executing actions with care" framing in Claude Code's behavior, plus permission scoping at https://docs.claude.com/en/docs/permissions.md.
+Source: published guidance is the "Executing actions with care" framing in Claude Code's behavior, plus permission scoping at https://code.claude.com/docs/en/permissions.md.
 
 ## Tool selection defaults
 
@@ -129,11 +129,11 @@ The live system prompt has two sub-agent variants tied to whether sub-agent-as-f
 
 > "Use the Agent tool with specialized agents when the task at hand matches the agent's description. Subagents are valuable for parallelizing independent queries or for protecting the main context window from excessive results, but they should not be used excessively when not needed. Importantly, avoid duplicating work that subagents are already doing; if you delegate research to a subagent, do not also perform the same searches yourself."
 
-Both variants come from the same harness; only one is active per session depending on feature flags. Source: https://docs.claude.com/en/docs/sub-agents.md and https://docs.claude.com/en/docs/skills.md > Run skills in a subagent.
+Both variants come from the same harness; only one is active per session depending on feature flags. Source: https://code.claude.com/docs/en/sub-agents.md and https://code.claude.com/docs/en/skills.md > Run skills in a subagent.
 
 ## Skill mechanics that affect prompt writing
 
-From https://docs.claude.com/en/docs/skills.md (verbatim sections):
+From https://code.claude.com/docs/en/skills.md (verbatim sections):
 
 - A skill is a directory with `SKILL.md`. Frontmatter is metadata; the markdown body is a prompt the loader injects when the skill triggers.
 - `description` plus `when_to_use` is capped at 1,536 characters in the skill listing. Front-load the use case.
@@ -201,13 +201,13 @@ Return a [shape] containing:
 - [Second constraint]
 ```
 
-The `description` field is the primary triggering mechanism. Skill and agent descriptions tend to undertrigger; the fix is "Use this skill aggressively whenever the user mentions X, Y, or Z, even if they do not say the word 'agent'." Source: https://docs.claude.com/en/docs/skills.md > Skill not triggering.
+The `description` field is the primary triggering mechanism. Skill and agent descriptions tend to undertrigger; the fix is "Use this skill aggressively whenever the user mentions X, Y, or Z, even if they do not say the word 'agent'." Source: https://code.claude.com/docs/en/skills.md > Skill not triggering.
 
-The bundled `general-purpose` subagent is the canonical pattern for a clean subagent body. Its exposed behavior (per https://docs.claude.com/en/docs/sub-agents.md) is: concise role, list of strengths, numbered guidelines, end-of-prompt constraints (do not create files unless necessary, prefer editing, no proactive `*.md` files). Mirror that shape for new subagents.
+The bundled `general-purpose` subagent is the canonical pattern for a clean subagent body. Its exposed behavior (per https://code.claude.com/docs/en/sub-agents.md) is: concise role, list of strengths, numbered guidelines, end-of-prompt constraints (do not create files unless necessary, prefer editing, no proactive `*.md` files). Mirror that shape for new subagents.
 
 ## Slash commands
 
-Slash commands (`/command-name`) are user-invocable workflows. The body is a prompt the model executes when the user types the command. Per CC docs, custom commands have been merged into skills; a file at `.claude/commands/deploy.md` and a skill at `.claude/skills/deploy/SKILL.md` both create `/deploy` and work the same way. Source: https://docs.claude.com/en/docs/skills.md.
+Slash commands (`/command-name`) are user-invocable workflows. The body is a prompt the model executes when the user types the command. Per CC docs, custom commands have been merged into skills; a file at `.claude/commands/deploy.md` and a skill at `.claude/skills/deploy/SKILL.md` both create `/deploy` and work the same way. Source: https://code.claude.com/docs/en/skills.md.
 
 **Convention.** Slash commands are imperative workflows. Number the steps. Be explicit about what to do at each step.
 
@@ -240,7 +240,7 @@ You produce a plan. You do not modify files. The user will review and approve be
 
 ## Hooks and CLAUDE.md interactions
 
-The harness reads `CLAUDE.md` files (project, user, managed) and injects them into context. Custom agents can rely on these for project-specific conventions but should not duplicate them. Source: https://docs.claude.com/en/docs/memory.md.
+The harness reads `CLAUDE.md` files (project, user, managed) and injects them into context. Custom agents can rely on these for project-specific conventions but should not duplicate them. Source: https://code.claude.com/docs/en/memory.md.
 
 **Anti-pattern.** Repeating coding rules from CLAUDE.md inside every custom agent. Trust the harness.
 
@@ -250,7 +250,7 @@ The harness reads `CLAUDE.md` files (project, user, managed) and injects them in
 
 Skills and commands support `` !`<command>` `` (inline) and ` ```! ` (block) preprocessing. Both forms execute the inner command at skill-render time and replace the placeholder with the command's stdout before the model sees the body.
 
-Source: https://docs.claude.com/en/docs/skills.md > Inject dynamic context.
+Source: https://code.claude.com/docs/en/skills.md > Inject dynamic context.
 
 **Footgun.** The CC preprocessor scans the SKILL.md body bytes with regexes that do not respect markdown fences. If you paste `` !`gh pr view` `` or a ` ```! ... ``` ` block as a documentation example, even inside a 4-backtick wrapper, CC will execute it on every invocation.
 

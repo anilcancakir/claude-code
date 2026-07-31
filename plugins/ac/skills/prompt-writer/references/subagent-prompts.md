@@ -2,12 +2,12 @@
 
 How to write the `prompt` field of an Agent tool call, brief a fresh subagent, or design a custom `subagent_type`. Read this when about to spawn an agent and need to write the briefing.
 
-Primary sources (raw markdown via the `.md` suffix on `docs.claude.com`):
+Primary sources (raw markdown via the `.md` suffix on `platform.claude.com` for API docs and `code.claude.com` for Claude Code docs):
 
-- Anthropic Claude Code subagents page: https://docs.claude.com/en/docs/sub-agents.md
-- Claude Code skills (for the `context: fork` pattern and skill-as-subagent): https://docs.claude.com/en/docs/skills.md
-- Anthropic prompt engineering best practices: https://docs.claude.com/en/docs/build-with-claude/prompt-engineering/claude-prompting-best-practices.md
-- Anthropic migration guide (4.7 subagent behavior changes): https://docs.claude.com/en/docs/about-claude/models/migration-guide.md
+- Anthropic Claude Code subagents page: https://code.claude.com/docs/en/sub-agents.md
+- Claude Code skills (for the `context: fork` pattern and skill-as-subagent): https://code.claude.com/docs/en/skills.md
+- Anthropic prompt engineering best practices: https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/claude-prompting-best-practices.md
+- Anthropic migration guide (4.7 subagent behavior changes): https://platform.claude.com/docs/en/about-claude/models/migration-guide.md
 
 The guidance below mirrors the canonical "Writing the prompt" section embedded in Claude Code's live system prompt (the section the harness uses to brief the orchestrator when it considers spawning an Agent). When the live system prompt and this reference disagree, the live system prompt wins.
 
@@ -17,7 +17,7 @@ A fresh subagent has zero context. It has not seen the conversation, does not kn
 
 > "Brief the agent like a smart colleague who just walked into the room, it hasn't seen this conversation, doesn't know what you've tried, doesn't understand why this task matters."
 
-This is the canonical instruction the harness gives its orchestrator. Source: Anthropic Claude Code subagents page (https://docs.claude.com/en/docs/sub-agents.md) > Writing prompts for subagents.
+This is the canonical instruction the harness gives its orchestrator. Source: Anthropic Claude Code subagents page (https://code.claude.com/docs/en/sub-agents.md) > Writing prompts for subagents.
 
 Five things to include in every subagent brief:
 
@@ -33,7 +33,7 @@ The shape of the prompt depends on what kind of work is being delegated.
 
 > "Lookups: hand over the exact command. Investigations: hand over the question, prescribed steps become dead weight when the premise is wrong."
 
-Source: Anthropic Claude Code subagents page (https://docs.claude.com/en/docs/sub-agents.md).
+Source: Anthropic Claude Code subagents page (https://code.claude.com/docs/en/sub-agents.md).
 
 **Lookups.** Hand over the exact command. No need for reasoning; the agent runs the command and reports.
 
@@ -55,7 +55,7 @@ The most common subagent prompt failure: phrases that delegate synthesis you owe
 
 > "Never delegate understanding. Don't write 'based on your findings, fix the bug' or 'based on the research, implement it.' Those phrases push synthesis onto the agent instead of doing it yourself. Write prompts that prove you understood: include file paths, line numbers, what specifically to change."
 
-Source: Anthropic Claude Code subagents page (https://docs.claude.com/en/docs/sub-agents.md) > Writing prompts for subagents.
+Source: Anthropic Claude Code subagents page (https://code.claude.com/docs/en/sub-agents.md) > Writing prompts for subagents.
 
 **Anti-patterns and patterns.**
 
@@ -103,7 +103,7 @@ Not every task warrants a subagent. Spawning has a cost: the agent must rebuild 
 - Sequential work that needs to maintain main-context state.
 - The total cost of context-building plus run plus result-summarization exceeds doing it directly.
 
-**Default behavior on Opus 4.8.** Spawns fewer subagents unprompted. If fan-out is needed, prompt for it explicitly. Source: https://docs.claude.com/en/docs/build-with-claude/prompt-engineering/prompting-claude-opus-4-8.md > Controlling subagent spawning.
+**Default behavior on Opus 5.** Delegates to subagents MORE readily than prior models. This inverts the Opus 4.8 default, where the model spawned fewer subagents unprompted and prompts had to encourage fan-out. On Opus 5 the useful steering is the opposite: name when NOT to spawn ("complete work directly when you can already see what needs to change; spawn only when the work needs its own context window"). A prompt still carrying 4.8-era fan-out encouragement pushes an already-eager default. Source: https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/prompting-claude-opus-5.md > Controlling subagent spawning.
 
 ## Foreground vs background
 
@@ -115,7 +115,7 @@ In Claude Code, an agent can run foreground (default) or background.
 
 **Anti-pattern.** Spawning multiple foreground agents serially when they could run in parallel. If three agents are independent, send all three in one message with three Agent tool calls.
 
-Source: https://docs.claude.com/en/docs/sub-agents.md > Spawning agents (foreground vs background section).
+Source: https://code.claude.com/docs/en/sub-agents.md > Spawning agents (foreground vs background section).
 
 ## Forking variant (no `subagent_type`)
 
@@ -125,7 +125,7 @@ When the orchestrator calls Agent without specifying `subagent_type`, CC may cre
 
 The "if you are the fork, do not re-delegate" line is important: a fork that calls Agent again spawns a sub-fork, multiplying context cost. Stay direct.
 
-Source: https://docs.claude.com/en/docs/sub-agents.md > Forking subagent context (or the most current section name; the forking variant is gated by a feature flag in the harness).
+Source: https://code.claude.com/docs/en/sub-agents.md > Forking subagent context (or the most current section name; the forking variant is gated by a feature flag in the harness).
 
 ## Worked examples (canonical patterns)
 
@@ -151,7 +151,7 @@ Review migration 0042_user_schema.sql for safety. Context: we're adding a NOT NU
 
 Why this works: the agent starts with no context from this conversation, so the prompt briefs it: what to assess, the relevant background, and what form the answer should take.
 
-Source: these two examples are the canonical "Example usage" block embedded in Claude Code's live system prompt under "Writing the prompt", mirrored in the subagents docs at https://docs.claude.com/en/docs/sub-agents.md.
+Source: these two examples are the canonical "Example usage" block embedded in Claude Code's live system prompt under "Writing the prompt", mirrored in the subagents docs at https://code.claude.com/docs/en/sub-agents.md.
 
 ## Parallel fan-out pattern
 
@@ -171,7 +171,7 @@ Three independent reads, one orchestrator turn, three parallel runs.
 
 When delegating to the bundled `general-purpose` subagent (a built-in Claude Code subagent for researching complex questions, searching for code, and executing multi-step tasks), match the shape its system prompt expects.
 
-The bundled body sets these expectations (paraphrased from the harness's behavior, documented in https://docs.claude.com/en/docs/sub-agents.md):
+The bundled body sets these expectations (paraphrased from the harness's behavior, documented in https://code.claude.com/docs/en/sub-agents.md):
 
 - Concise report covering what was done and key findings; the caller will relay it.
 - Do not gold-plate, but do not leave the task half-done.
@@ -206,7 +206,7 @@ To continue a previously spawned agent with full context, use SendMessage with t
 
 ## `subagent_type` design (pushy descriptions)
 
-When defining a custom `subagent_type` in `.claude/agents/<name>.md`, the `description` field is the primary triggering mechanism. From https://docs.claude.com/en/docs/skills.md > Skill not triggering troubleshooting: check the description includes keywords users would naturally say.
+When defining a custom `subagent_type` in `.claude/agents/<name>.md`, the `description` field is the primary triggering mechanism. From https://code.claude.com/docs/en/skills.md > Skill not triggering troubleshooting: check the description includes keywords users would naturally say.
 
 **Pushy description pattern.**
 

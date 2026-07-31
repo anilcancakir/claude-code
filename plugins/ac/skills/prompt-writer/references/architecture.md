@@ -2,13 +2,13 @@
 
 Structural rules for assembling a prompt. Read this when designing message structure, choosing XML tags, working with long-context inputs, or laying out examples.
 
-Primary sources (raw markdown via the `.md` suffix on `docs.claude.com`):
+Primary sources (raw markdown via the `.md` suffix on `platform.claude.com` for API docs and `code.claude.com` for Claude Code docs):
 
-- Anthropic prompt engineering best practices: https://docs.claude.com/en/docs/build-with-claude/prompt-engineering/claude-prompting-best-practices.md
-- Anthropic system prompts guide: https://docs.claude.com/en/docs/system-prompts.md
-- Anthropic prompt caching: https://docs.claude.com/en/docs/build-with-claude/prompt-caching.md
-- Anthropic extended thinking: https://docs.claude.com/en/docs/build-with-claude/extended-thinking.md
-- Anthropic Structured Outputs: https://docs.claude.com/en/docs/build-with-claude/structured-outputs.md
+- Anthropic prompt engineering best practices: https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/claude-prompting-best-practices.md
+- Anthropic system prompts guide: https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/claude-prompting-best-practices.md#give-claude-a-role
+- Anthropic prompt caching: https://platform.claude.com/docs/en/build-with-claude/prompt-caching.md
+- Anthropic extended thinking: https://platform.claude.com/docs/en/build-with-claude/extended-thinking.md
+- Anthropic Structured Outputs: https://platform.claude.com/docs/en/build-with-claude/structured-outputs.md
 
 ## The 7-component message structure
 
@@ -30,11 +30,11 @@ Source: Anthropic prompt-engineering best practices > "Use XML tags", "Use examp
 
 **System vs user.** Anything that does not change per request goes in system, so the prompt cache can amortize the tokens. Persona, schema, examples, invariants. Anything that changes per request goes in user. The document, the question, the file under review.
 
-Source: https://docs.claude.com/en/docs/build-with-claude/prompt-caching.md > Best practices for prompt caching.
+Source: https://platform.claude.com/docs/en/build-with-claude/prompt-caching.md > Best practices for prompt caching.
 
 **Examples before dynamic content.** The model needs to see the format before seeing the input. If examples come after, the model reads the input first and may anchor on its content rather than the format.
 
-Source: https://docs.claude.com/en/docs/build-with-claude/prompt-engineering/claude-prompting-best-practices.md > Use examples effectively.
+Source: https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/claude-prompting-best-practices.md > Use examples effectively.
 
 **Instructions before reminders.** Instructions describe how to process. Reminders re-state the most important constraints. Reminders sit at the end because recency matters: the last thing the model reads is what it weighs most before generating.
 
@@ -59,13 +59,13 @@ Use this as a blueprint when emitting a prompt for the Messages API.
 }
 ```
 
-Splitting the system field into two blocks lets the second block carry the `cache_control` marker. Source: https://docs.claude.com/en/docs/build-with-claude/prompt-caching.md > Structuring your cached prompt.
+Splitting the system field into two blocks lets the second block carry the `cache_control` marker. Source: https://platform.claude.com/docs/en/build-with-claude/prompt-caching.md > Structuring your cached prompt.
 
 ## XML tags as delimiters
 
 Claude is fine-tuned to parse XML. Tag boundaries are the only reliable way to separate instructions from data, especially when the data itself contains markdown, code, or other prompts.
 
-Source: https://docs.claude.com/en/docs/build-with-claude/prompt-engineering/claude-prompting-best-practices.md > Structure prompts with XML tags.
+Source: https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/claude-prompting-best-practices.md > Structure prompts with XML tags.
 
 **Rules.**
 
@@ -103,13 +103,13 @@ Source: https://docs.claude.com/en/docs/build-with-claude/prompt-engineering/cla
 | `<task-notification>`, `<task-id>`, `<task-type>` | Background task completion notifications. |
 | `<fork-boilerplate>`, `<teammate-message>`, `<channel-message>`, `<cross-session-message>` | Multi-agent and cross-session communication. |
 
-For the harness-level details (how these tags are emitted and consumed), see Anthropic's hooks and subagents documentation: https://docs.claude.com/en/docs/hooks.md and https://docs.claude.com/en/docs/sub-agents.md.
+For the harness-level details (how these tags are emitted and consumed), see Anthropic's hooks and subagents documentation: https://code.claude.com/docs/en/hooks.md and https://code.claude.com/docs/en/sub-agents.md.
 
 ## Few-shot examples
 
 Examples are the highest-leverage tool for any task with judgment. Three to five labeled examples beat any abstract instruction.
 
-Source: https://docs.claude.com/en/docs/build-with-claude/prompt-engineering/claude-prompting-best-practices.md > Use examples effectively.
+Source: https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/claude-prompting-best-practices.md > Use examples effectively.
 
 **Make them.**
 
@@ -149,13 +149,13 @@ Source: https://docs.claude.com/en/docs/build-with-claude/prompt-engineering/cla
 
 **Reasoning traces inside examples.** Including `<reasoning>` shows the chain of thought you want. With adaptive thinking enabled, the model will generalize that style to its own thinking blocks.
 
-Source: https://docs.claude.com/en/docs/build-with-claude/extended-thinking.md > Best practices > Multishot examples with thinking.
+Source: https://platform.claude.com/docs/en/build-with-claude/extended-thinking.md > Best practices > Multishot examples with thinking.
 
 ## Long-context (above 20k tokens)
 
 When the input is long, the layout inside the user turn changes.
 
-Source: https://docs.claude.com/en/docs/build-with-claude/prompt-engineering/claude-prompting-best-practices.md > Long context prompting tips.
+Source: https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/claude-prompting-best-practices.md > Long context prompting tips.
 
 **Rules for long-context.**
 
@@ -204,7 +204,7 @@ The two-step output (quotes first, conclusion second) reduces hallucination beca
 
 Lock the output shape. Four tools available, in order of strength:
 
-1. **Structured Outputs.** Define a JSON schema; the model conforms. Use for classification, extraction, any structured data. Replaces prefill on Claude 4.6+. Source: https://docs.claude.com/en/docs/build-with-claude/structured-outputs.md.
+1. **Structured Outputs.** Define a JSON schema; the model conforms. Use for classification, extraction, any structured data. Replaces prefill on Claude 4.6+. Source: https://platform.claude.com/docs/en/build-with-claude/structured-outputs.md.
 2. **Tool call with enum.** For classification, define a tool whose only param is an enum of valid labels. The model has to pick one.
 3. **XML tag wrapping.** Tell the model to put the answer in `<answer>` tags. Easy to parse.
 4. **Direct instruction.** "Respond in plain text only, no markdown." Works most of the time, easiest to specify.
@@ -230,7 +230,7 @@ Format your response in plain text only. Do not use LaTeX, MathJax, or any marku
 
 For multi-step tasks, use numbered lists when the order or completeness matters. The model executes in the order written.
 
-Source: https://docs.claude.com/en/docs/system-prompts.md > Use numbered lists or bullet points to define sequential steps.
+Source: https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/claude-prompting-best-practices.md#give-claude-a-role > Use numbered lists or bullet points to define sequential steps.
 
 **Pattern: structured first, ambiguous second.**
 
@@ -246,7 +246,7 @@ Without ordering, the model may anchor on the ambiguous input first, propagating
 
 A role focuses behavior and tone. Even one sentence makes a difference.
 
-Source: https://docs.claude.com/en/docs/system-prompts.md > Give Claude a role.
+Source: https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/claude-prompting-best-practices.md#give-claude-a-role > Give Claude a role.
 
 **Less effective:**
 
@@ -319,7 +319,7 @@ Prompt caching turns the architecture into a money-and-latency lever. Cacheable 
 
 The API supports up to 4 ephemeral cache breakpoints. A cache hit requires the prefix to be byte-identical across requests; any change before the marker invalidates the cache. Thinking parameters are part of the cache key.
 
-Source: https://docs.claude.com/en/docs/build-with-claude/prompt-caching.md > Cache breakpoints and invalidation.
+Source: https://platform.claude.com/docs/en/build-with-claude/prompt-caching.md > Cache breakpoints and invalidation.
 
 ## Quick checklist for architecture
 
@@ -332,6 +332,6 @@ Source: https://docs.claude.com/en/docs/build-with-claude/prompt-caching.md > Ca
 - [ ] Top constraints repeated as `<reminders>` at the end.
 - [ ] Output format locked (Structured Outputs > tool call > XML tag > prose).
 - [ ] Positive instructions ("do this") not negative ("do not do that").
-- [ ] Scope stated explicitly (Claude 4.8 will not generalize).
+- [ ] Scope stated explicitly in both directions (where the rule spans, and where the task stops).
 - [ ] No tag-name collisions with the CC reserved tags listed above.
 - [ ] Cache breakpoints placed at stable boundaries (system block, conversation history).

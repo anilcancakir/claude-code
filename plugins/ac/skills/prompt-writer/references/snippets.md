@@ -2,14 +2,14 @@
 
 Categorized copy-paste snippets, distilled from Anthropic's prompt-engineering guidance. Use as building blocks. Adapt to the specific case; do not paste verbatim without thinking.
 
-Primary sources (raw markdown via the `.md` suffix on `docs.claude.com`):
+Primary sources (raw markdown via the `.md` suffix on `platform.claude.com` for API docs and `code.claude.com` for Claude Code docs):
 
-- Prompt engineering best practices: https://docs.claude.com/en/docs/build-with-claude/prompt-engineering/claude-prompting-best-practices.md
-- System prompts guide: https://docs.claude.com/en/docs/system-prompts.md
-- Extended thinking: https://docs.claude.com/en/docs/build-with-claude/extended-thinking.md
-- Prompt caching: https://docs.claude.com/en/docs/build-with-claude/prompt-caching.md
-- Context compaction: https://docs.claude.com/en/docs/build-with-claude/compaction.md
-- Migration guide (4.7 behavior changes): https://docs.claude.com/en/docs/about-claude/models/migration-guide.md
+- Prompt engineering best practices: https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/claude-prompting-best-practices.md
+- System prompts guide: https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/claude-prompting-best-practices.md#give-claude-a-role
+- Extended thinking: https://platform.claude.com/docs/en/build-with-claude/extended-thinking.md
+- Prompt caching: https://platform.claude.com/docs/en/build-with-claude/prompt-caching.md
+- Context compaction: https://platform.claude.com/docs/en/build-with-claude/compaction.md
+- Migration guide (4.7 behavior changes): https://platform.claude.com/docs/en/about-claude/models/migration-guide.md
 
 ## Verbosity and length
 
@@ -224,7 +224,7 @@ For each finding, include `file_path:line_number` and a one-sentence fix.
 Your context window will be automatically compacted as it approaches its limit, allowing you to continue working indefinitely from where you left off. Do not stop tasks early due to token budget concerns. As you approach your token budget limit, save your current progress and state to memory before the context window refreshes. Always be as persistent and autonomous as possible and complete tasks fully, even if the end of your budget is approaching. Never artificially stop any task early regardless of the context remaining.
 ```
 
-Source: https://docs.claude.com/en/docs/build-with-claude/compaction.md > Context awareness pattern.
+Source: https://platform.claude.com/docs/en/build-with-claude/compaction.md > Context awareness pattern.
 
 ### Multi-context-window state pattern
 
@@ -288,16 +288,16 @@ Search for this information in a structured way. As you gather data, develop sev
 ### Specify model identity
 
 ```text
-The assistant is Claude, created by Anthropic. The current model is Claude Opus 4.8. The exact model string is `claude-opus-4-8`. When asked, identify yourself as Claude Opus 4.8.
+The assistant is Claude, created by Anthropic. The current model is Claude Opus 5. The exact model string is `claude-opus-5`. When asked, identify yourself as Claude Opus 5.
 ```
 
 ### Specify model string for downstream calls
 
 ```text
-When an LLM is needed for a downstream call, default to Claude Opus 4.8 unless the user requests otherwise. The exact model string for Claude Opus 4.8 is `claude-opus-4-8`. Sonnet companion: `claude-sonnet-5`. Haiku companion: `claude-haiku-4-5-20251001`.
+When an LLM is needed for a downstream call, default to Claude Opus 5 unless the user requests otherwise. The exact model string for Claude Opus 5 is `claude-opus-5`. Sonnet companion: `claude-sonnet-5`. Haiku companion: `claude-haiku-4-5-20251001`.
 ```
 
-Source: https://docs.claude.com/en/docs/models-overview.md (latest-models comparison table for IDs).
+Source: https://platform.claude.com/docs/en/about-claude/models/overview.md (latest-models comparison table for IDs).
 
 ## Tone
 
