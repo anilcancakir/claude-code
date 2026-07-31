@@ -1,6 +1,6 @@
 # Frontmatter Reference
 
-Every field a Claude Code agent recognizes, what it does, when to set it, and valid values. Read this when designing or auditing the YAML block at the top of an agent file. Source of truth: `tools/AgentTool/loadAgentsDir.ts` and `utils/plugins/loadPluginAgents.ts` in the CC source; live Anthropic docs at [sub-agents.md](https://docs.claude.com/en/docs/claude-code/sub-agents.md).
+Every field a Claude Code agent recognizes, what it does, when to set it, and valid values. Read this when designing or auditing the YAML block at the top of an agent file. Source of truth: `tools/AgentTool/loadAgentsDir.ts` and `utils/plugins/loadPluginAgents.ts` in the CC source; live Anthropic docs at [sub-agents.md](https://code.claude.com/docs/en/sub-agents.md).
 
 ## Contents
 
@@ -84,7 +84,7 @@ Which model the agent runs on. Default: `inherit` (same as the parent session).
 model: sonnet           # alias
 model: opus
 model: haiku
-model: claude-opus-4-8  # full ID
+model: claude-opus-5    # full ID
 model: inherit
 ```
 

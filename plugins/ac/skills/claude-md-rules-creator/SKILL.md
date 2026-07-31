@@ -1,14 +1,14 @@
 ---
 name: claude-md-rules-creator
-description: Authors CLAUDE.md, CLAUDE.local.md, and `.claude/rules/*.md` (the standing-instruction layer Claude Code prepends as a `<system-reminder>` user message at every session start). Covers the four scopes (managed / user-global / project-team / project-personal), `paths:` for path-scoped rules, `@path` imports (depth 5, external-approval), splitting bloated files, `claudeMdExcludes`, HTML-comment maintainer notes, AGENTS.md interop, monorepo + worktree handling, and debugging "Claude is not following my CLAUDE.md". Use proactively when the user says "add to CLAUDE.md", "write a rule", "init memory", "global instructions", "user-level instructions", "team conventions", "project memory", "claude.md", "rules file", "agent instructions", or asks to refactor an oversized CLAUDE.md or fix instructions the model is ignoring. Triggers even when the user does not say "skill". Pair with `ac:skill-creator` for the surrounding shape, `ac:prompt-writer` for body content, `ac:agent-creator` for subagent CLAUDE.md inheritance.
-when_to_use: Authoring, editing, or auditing any CLAUDE.md, CLAUDE.local.md, or `.claude/rules/*.md` file. Refactoring an oversized CLAUDE.md, adding path-scoped rules, debugging instructions the model is not following, deciding between CLAUDE.md / rule / skill / hook.
+description: Authors and audits CLAUDE.md, CLAUDE.local.md, and `.claude/rules/*.md`, covering the four scopes (managed, user-global, project-team, project-personal), `paths:` for path-scoped rules, `@path` imports, splitting an oversized file, and debugging instructions the model ignores. Use when standing instructions are being written or fixed. Triggers on "add to CLAUDE.md", "write a rule", "init memory", "global instructions", "team conventions", "project memory", "rules file", or a complaint that Claude is not following CLAUDE.md. Pair with `ac:prompt-writer` for the prose and `ac:skill-creator` when the content is really a skill.
+when_to_use: Authoring, editing, or auditing any CLAUDE.md, CLAUDE.local.md, or `.claude/rules/*.md` file.
 ---
 
 # CLAUDE.md and Rules Creator
 
 You are about to write or edit a CLAUDE.md, CLAUDE.local.md, or `.claude/rules/*.md` file. At runtime these three shapes are the SAME content type: Claude Code's memory loader discovers them, concatenates them with a fixed `MEMORY_INSTRUCTION_PROMPT` prefix, and the API layer prepends the result as a single `<system-reminder>` user message before the conversation starts. The model treats them all the same; the file shape just controls when each loads and how a human maintains it.
 
-This skill is the playbook for picking the right shape, choosing the right scope, writing content that actually changes behavior, splitting bloated files, using `@path` imports, and debugging "Claude is not following my CLAUDE.md". Target is Opus 4.8. Same rules work for Sonnet 5 and Haiku 4.5 with lower effort levels.
+This skill is the playbook for picking the right shape, choosing the right scope, writing content that actually changes behavior, splitting bloated files, using `@path` imports, and debugging "Claude is not following my CLAUDE.md". Target is Opus 5. Same rules work for Sonnet 5 at lower cost and for Haiku 4.5, which supports no effort parameter.
 
 ## Three jobs, not one
 
@@ -16,7 +16,7 @@ Writing a CLAUDE.md or rule splits into three tasks. Conflating them is the most
 
 1. **Surrounding skill shape.** None. CLAUDE.md and `.claude/rules/*.md` are not skills, not commands, not agents. They are plain markdown files the memory loader picks up. No frontmatter fields apply except `paths:` (only on `.claude/rules/*.md`). Route through `ac:skill-creator` ONLY if you are wrapping CLAUDE.md authoring inside a custom slash command or skill.
 2. **CLAUDE.md / rule shape.** Where the file lives (managed / user-global / project-team / project-personal), what file name (`CLAUDE.md` / `CLAUDE.local.md` / `.claude/rules/<topic>.md`), `paths:` frontmatter for rules, `@path` imports, HTML comments. This file teaches that.
-3. **Body content.** The markdown text the model reads. This is a standing instruction set, a prompt at runtime. Route through `ac:prompt-writer` for prompt architecture, snippets, and Opus 4.8 tuning.
+3. **Body content.** The markdown text the model reads. This is a standing instruction set, a prompt at runtime. Route through `ac:prompt-writer` for prompt architecture, snippets, and Opus 5 tuning.
 
 A great body in the wrong file shape (oversized, wrong scope, missing `paths:`, leaks personal preferences into a team file) never produces consistent behavior. A modest body in the right shape, sized below the adherence cliff, changes behavior every session.
 
@@ -151,10 +151,10 @@ If your CLAUDE.md does not answer these five, add the missing ones. If it answer
 
 ## `@path` imports
 
-The loader recognizes a `@path` syntax for splitting content across files (max recursion depth: 5):
+The loader recognizes a `@path` syntax for splitting content across files (four hops of importing):
 
 - Syntax: `@path`, `@./relative`, `@~/home`, `@/absolute`. The regex requires whitespace or start-of-line before the `@`.
-- Imports recurse up to 5 hops. Cycles are detected and broken via path tracking.
+- Imports recurse up to four hops. The loader's `MAX_INCLUDE_DEPTH = 5` (`utils/claudemd.ts:537`) is an exclusive bound on a zero-indexed depth (`:630`, `depth >= MAX_INCLUDE_DEPTH`), so levels 0 through 4 are processed and four levels of importing land; the docs state the same as "a maximum depth of four hops". Cycles are detected and broken via path tracking.
 - Only text-file extensions (~70 are listed) - `.md`, `.txt`, `.json`, `.ts`, `.py`, etc. Binary files (images, PDFs) are silently skipped.
 - Imports inside fenced code blocks and codespans are NOT followed (the marked lexer respects token boundaries).
 - Imports inside block-level HTML comments are NOT followed (comments are stripped before lex).
@@ -356,7 +356,7 @@ Check the items that apply to your file's shape:
 - [ ] (`CLAUDE.local.md`) Listed in `.gitignore`.
 - [ ] (`.claude/rules/<topic>.md` with `paths:`) Glob actually matches your intent; no `paths: ['**']` (treated as no `paths:`).
 - [ ] (`.claude/rules/<topic>.md` without `paths:`) Topic is universal and one focused subject; not a dumping ground.
-- [ ] (Imports) `@path` references resolve; no circular cycles deeper than 5 hops; external imports approved if needed.
+- [ ] (Imports) `@path` references resolve; no chain deeper than four hops; external imports approved if needed.
 - [ ] (HTML comments) Maintainer notes wrapped in `<!-- ... -->` are block-level (own line); inline comments survive injection.
 - [ ] (Run `/memory`) The file appears in the loaded list. If not, the path is wrong, the scope source is disabled, or `claudeMdExcludes` is filtering it.
 
@@ -377,14 +377,14 @@ Check the items that apply to your file's shape:
 | `${CLAUDE_SKILL_DIR}/assets/global-CLAUDE.template.md` | Starting a user-global `~/.claude/CLAUDE.md` from a blank template. |
 | `${CLAUDE_SKILL_DIR}/assets/rule.template.md` | Starting a `.claude/rules/<topic>.md` from a blank template with optional `paths:` frontmatter. |
 
-For the prompt-writing principles that apply to CLAUDE.md prose, invoke `/ac:prompt-writer`. For deciding between CLAUDE.md vs skill vs command vs agent vs hook, the decision flow above plus the matrix in [features-overview](https://docs.claude.com/en/docs/claude-code/features-overview.md) cover it.
+For the prompt-writing principles that apply to CLAUDE.md prose, invoke `/ac:prompt-writer`. For deciding between CLAUDE.md vs skill vs command vs agent vs hook, the decision flow above plus the matrix in [features-overview](https://code.claude.com/docs/en/features-overview.md) cover it.
 
 Canonical Anthropic documentation, served as raw markdown by appending `.md` to the URL:
 
-- Memory page (CLAUDE.md, rules, auto memory): `https://docs.claude.com/en/docs/claude-code/memory.md`
-- Features overview (CLAUDE.md vs skills vs rules vs hooks): `https://docs.claude.com/en/docs/claude-code/features-overview.md`
-- Context window (what survives compaction): `https://docs.claude.com/en/docs/claude-code/context-window.md`
-- Hooks (`InstructionsLoaded` event for debugging): `https://docs.claude.com/en/docs/claude-code/hooks.md`
-- Settings (`claudeMdExcludes`, `--setting-sources`): `https://docs.claude.com/en/docs/claude-code/settings.md`
+- Memory page (CLAUDE.md, rules, auto memory): `https://code.claude.com/docs/en/memory.md`
+- Features overview (CLAUDE.md vs skills vs rules vs hooks): `https://code.claude.com/docs/en/features-overview.md`
+- Context window (what survives compaction): `https://code.claude.com/docs/en/context-window.md`
+- Hooks (`InstructionsLoaded` event for debugging): `https://code.claude.com/docs/en/hooks.md`
+- Settings (`claudeMdExcludes`, `--setting-sources`): `https://code.claude.com/docs/en/settings.md`
 
 When canonical docs conflict with observed CLI behavior, trust the live binary.

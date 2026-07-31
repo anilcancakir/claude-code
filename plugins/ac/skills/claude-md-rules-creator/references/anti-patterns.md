@@ -2,7 +2,7 @@
 
 A catalog of failure modes specific to CLAUDE.md and `.claude/rules/*.md`. Each entry: the symptom, why it happens, and the fix. Use this when auditing an existing file before shipping, or when diagnosing "Claude is not following my CLAUDE.md".
 
-Sources: Anthropic's official docs at `https://docs.claude.com/en/docs/claude-code/memory.md` and `https://docs.claude.com/en/docs/claude-code/best-practices.md`, HumanLayer's "Writing a Good CLAUDE.md", Boris Cherny's Claude Code team tips, and community GitHub issues (anthropics/claude-code#23478, #32057, #34209, #38491, #45587).
+Sources: Anthropic's official docs at `https://code.claude.com/docs/en/memory.md` and `https://code.claude.com/docs/en/best-practices.md`, HumanLayer's "Writing a Good CLAUDE.md", Boris Cherny's Claude Code team tips, and community GitHub issues (anthropics/claude-code#23478, #32057, #34209, #38491, #45587).
 
 ## Contents
 

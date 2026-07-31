@@ -360,6 +360,6 @@ Do not include:
 - **Imperative voice in Execution.** "Read the file" not "you should read the file".
 - **Positive instructions.** "Do X" beats "Do not skip X". Negative-only instructions force the model to imagine the wrong behavior first.
 - **No aggressive caps** ("CRITICAL", "MUST", "ALWAYS") unless safety-critical (irreversible side effects, security). Explain the why instead.
-- **State scope explicitly.** Opus 4.8 takes instructions literally. "Apply to every modified file, not just the first."
+- **State scope explicitly, in both directions.** Where a rule spans: "Apply to every modified file, not just the first." Where the agent must stop: "Change only the files the briefing names; report adjacent problems instead of fixing them." Opus 5 widens scope on its own, so the upper bound matters as much as the lower.
 - **Reminders at the end.** The last 100 to 200 tokens of the body get the most weight. Repeat the top one or two constraints there.
 - **Run through `ac:prompt-writer`'s audit before shipping.**

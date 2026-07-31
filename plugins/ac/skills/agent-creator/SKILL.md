@@ -1,15 +1,14 @@
 ---
 name: agent-creator
-description: Authors Claude Code custom subagents (`.claude/agents/<name>.md`, `~/.claude/agents/<name>.md`, or `<plugin>/agents/<name>.md`). Use whenever a new subagent is being designed, an existing agent is being edited, a tool allowlist or denylist is being chosen, a model and effort budget are being set, `permissionMode` is being picked, persistent `memory` (user/project/local) is being added, `skills:` are being preloaded into a subagent, `isolation: worktree` is being configured, the agent's system-prompt body is being structured (Identity/Execution/Output/Failures/Constraints), or an agent that fails to fire or returns the wrong shape is being debugged. Triggers on "create a custom subagent", "write a new agent", "add an `.claude/agents/` file", "make a `code-reviewer`", "tool restrictions for an agent", "agent system prompt", "preload skills into an agent", "agent memory", "agent worktree", "fix this agent". Use even when the user does not say the word "agent" but is asking to delegate a recurring task to a fresh isolated context. Pair with `ac:skill-creator` for the surrounding file-shape and scope decisions, and with `ac:prompt-writer` for the system-prompt body content. Target is Opus 4.8; Sonnet 5 follows the same shape at lower effort. Undertriggering is the failure mode, lean in when the request implies an isolated worker.
-when_to_use: Creating, editing, auditing, or debugging any Claude Code custom subagent (markdown file under `agents/` or its `--agents` JSON equivalent).
-disable-model-invocation: true
+description: Authors and audits Claude Code subagents, covering tool allowlist or denylist, model and effort, `permissionMode`, persistent `memory`, `skills:` preload, `isolation` worktrees, and the five-section system-prompt body. Use when a subagent is being designed or fixed, or when recurring work should move into a fresh isolated context. Triggers on "create a subagent", "write a new agent", "tool restrictions for an agent", "agent system prompt", "agent memory", "fix this agent". Use even when the user never says "agent" but wants a recurring task delegated to an isolated worker. Pair with `ac:prompt-writer` for the body.
+when_to_use: Creating, editing, auditing, or debugging any Claude Code subagent definition.
 ---
 
 # Agent Creator
 
 You are about to write or edit a Claude Code custom subagent another Claude will delegate to. An agent is a markdown file that becomes a named worker the orchestrator can spawn with the Agent tool: the parent fills in `subagent_type`, `prompt`, and optional `description`, `name`, `run_in_background`, `isolation`; Claude Code spawns a fresh isolated context, injects the agent's body as the system prompt, and runs the agent until completion. The agent returns its final message to the parent as the tool result.
 
-This skill is the playbook for designing tool restrictions, choosing model and effort, picking `permissionMode`, adding `memory`, preloading `skills`, structuring the system-prompt body, and routing the storage choice. Target is Opus 4.8. Same patterns work for Sonnet 5 and Haiku 4.5 at lower effort.
+This skill is the playbook for designing tool restrictions, choosing model and effort, picking `permissionMode`, adding `memory`, preloading `skills`, structuring the system-prompt body, and routing the storage choice. Target is Opus 5. Same patterns work for Sonnet 5 at lower cost and for Haiku 4.5, which supports no effort parameter.
 
 ## Three jobs, not one
 
@@ -17,7 +16,7 @@ Writing a custom subagent splits into three tasks. Conflating them is the most c
 
 1. **Surrounding skill shape.** File location, scope, naming, frontmatter parsing. Same rules as any markdown config. Route through `ac:skill-creator` for the broader file-shape decisions (scope, name validation, char budget).
 2. **Agent-specific shape.** Tool allowlist/denylist, model and effort, `permissionMode`, `memory`, `skills:` preload, `isolation`, `background`. This file teaches that.
-3. **System-prompt body content.** The markdown the orchestrator injects as the agent's system. This is a prompt. Route through `ac:prompt-writer` (architecture, snippets, anti-patterns, Opus 4.8 tuning) for the body, and apply the five-section pattern from `${CLAUDE_SKILL_DIR}/references/system-prompt-structure.md` for the shape.
+3. **System-prompt body content.** The markdown the orchestrator injects as the agent's system. This is a prompt. Route through `ac:prompt-writer` (architecture, snippets, anti-patterns, Opus 5 tuning) for the body, and apply the five-section pattern from `${CLAUDE_SKILL_DIR}/references/system-prompt-structure.md` for the shape.
 
 A great agent body inside the wrong shape (wrong tools, wrong model, wrong permission mode) returns useless work. A modest body inside the right shape returns sharp results every time.
 
@@ -76,8 +75,8 @@ A working agent needs only `name` + `description`. Everything else is opt-in.
 | `description` | yes | always; this is the trigger surface the orchestrator reads to decide delegation |
 | `tools` | optional | the agent should use only a specific subset of tools (allowlist). Omit to inherit every tool. Comma-separated string or YAML list. |
 | `disallowedTools` | optional | the agent should inherit most tools but be denied a few (denylist). Applied first, then `tools` filters the remainder. |
-| `model` | optional | the agent needs a specific model (`sonnet`/`opus`/`haiku`, full ID like `claude-opus-4-8`, or `inherit`). Default: `inherit`. |
-| `effort` | optional | the agent needs a different reasoning budget than the session (`low`/`medium`/`high`/`xhigh`/`max`). |
+| `model` | optional | the agent needs a specific model (`sonnet`/`opus`/`haiku`, full ID like `claude-opus-5`, or `inherit`). Default: `inherit`. |
+| `effort` | optional | the agent needs a different reasoning budget than the session (`low`/`medium`/`high`/`xhigh`/`max`). Omit for a Haiku 4.5 agent; that model does not support the parameter. |
 | `permissionMode` | optional, NON-PLUGIN ONLY | the agent should run with a specific permission mode (`default`/`acceptEdits`/`auto`/`dontAsk`/`bypassPermissions`/`plan`). Ignored in plugin agents. |
 | `maxTurns` | optional | the agent should stop after N agentic turns. Positive integer. |
 | `skills` | optional | named skills to preload into the agent's context at startup (full content injected, not just made available). |
@@ -131,7 +130,7 @@ tools: Agent(worker, researcher), Read, Bash
 ## Model and effort
 
 ```yaml
-model: sonnet      # or opus, haiku, claude-opus-4-8, inherit
+model: sonnet      # or opus, haiku, claude-opus-5, inherit
 effort: high       # or low, medium, xhigh, max
 ```
 
@@ -139,7 +138,7 @@ Defaults: `model: inherit` (same as parent), no effort override.
 
 Picking:
 
-- **Haiku**: fast, cheap, low-effort. Right for read-only search agents, classification, lookup. Built-in Explore uses Haiku (external builds).
+- **Haiku**: fast and cheap. Right for read-only search agents, classification, lookup. Built-in Explore uses Haiku (external builds). Note it supports no `effort` value, so do not pair `model: haiku` with `effort:`.
 - **Sonnet**: balanced. Right for code review, analysis, anything intelligence-sensitive but bounded.
 - **Opus**: deep reasoning. Right for architecture review, multi-file refactors, adversarial review (challenger pattern).
 - **Inherit**: when the agent's quality should track the session's model choice.
@@ -426,10 +425,10 @@ For surrounding skill shape, invoke `/ac:skill-creator`. For the prompt body its
 
 Canonical Anthropic documentation, served as raw markdown by appending `.md` to the URL:
 
-- Subagents: `https://docs.claude.com/en/docs/claude-code/sub-agents.md`
-- Skills (for the `skills:` preload field): `https://docs.claude.com/en/docs/claude-code/skills.md`
-- Plugins (for plugin-agent restrictions and the plugin-root substitution): `https://docs.claude.com/en/docs/claude-code/plugins.md`
-- Permission modes: `https://docs.claude.com/en/docs/claude-code/permission-modes.md`
-- Hooks: `https://docs.claude.com/en/docs/claude-code/hooks.md`
+- Subagents: `https://code.claude.com/docs/en/sub-agents.md`
+- Skills (for the `skills:` preload field): `https://code.claude.com/docs/en/skills.md`
+- Plugins (for plugin-agent restrictions and the plugin-root substitution): `https://code.claude.com/docs/en/plugins.md`
+- Permission modes: `https://code.claude.com/docs/en/permission-modes.md`
+- Hooks: `https://code.claude.com/docs/en/hooks.md`
 
 When canonical docs conflict with observed CLI behavior, trust the live binary.

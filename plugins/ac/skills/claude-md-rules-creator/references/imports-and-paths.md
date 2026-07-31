@@ -52,7 +52,7 @@ When an imported file imports another, the same rules apply: `<file>'s @paths re
 
 ## Depth limit and circular detection
 
-`MAX_INCLUDE_DEPTH = 5`. Imports recurse up to 5 hops deep. Files at depth 6 are silently skipped.
+`MAX_INCLUDE_DEPTH = 5` (`utils/claudemd.ts:537`), compared as `depth >= MAX_INCLUDE_DEPTH` (`:630`) against a zero-indexed depth. Levels 0 through 4 are processed, so **four hops of importing** land and the fifth is silently skipped. Anthropic's [memory docs](https://code.claude.com/docs/en/memory.md) state the same limit as "a maximum depth of four hops"; the constant and the docs agree once the off-by-one is accounted for.
 
 The loader tracks already-processed files in a Set. If a circular import is detected, the cycle is broken; the loader does not infinite-loop. Symlinks are also tracked via `resolvedPath` so that `<A> -> symlink -> <B> -> @<A>` is caught.
 

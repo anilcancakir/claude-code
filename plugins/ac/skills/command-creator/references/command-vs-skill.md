@@ -2,7 +2,7 @@
 
 Claude Code merged custom commands into the skill system: a file at `.claude/commands/<name>.md` and a skill at `.claude/skills/<name>/SKILL.md` both produce the same `/name` slash command and route through the same loader. The distinction is one of file shape and intended use, not runtime mechanics. Read this when deciding which storage format to use for a new command.
 
-Source of truth: [Anthropic skills docs](https://docs.claude.com/en/docs/claude-code/skills.md), `loadSkillsDir.ts` and `utils/markdownConfigLoader.ts` in CC source.
+Source of truth: [Anthropic skills docs](https://code.claude.com/docs/en/skills.md), `loadSkillsDir.ts` and `utils/markdownConfigLoader.ts` in CC source.
 
 ## Contents
 
@@ -85,7 +85,7 @@ Historically Claude Code had `.claude/commands/<name>.md` (flat) as the only way
 
 This has practical consequences:
 
-- Anthropic docs now route the "slash commands" topic to the [skills docs](https://docs.claude.com/en/docs/claude-code/skills.md). The "slash commands" page redirects to skills.
+- Anthropic docs now route the "slash commands" topic to the [skills docs](https://code.claude.com/docs/en/skills.md). The "slash commands" page redirects to skills.
 - If you have both `.claude/commands/foo.md` and `.claude/skills/foo/SKILL.md`, the skill takes precedence (per `loadSkillsDir.ts` precedence logic).
 - New plugins should prefer the skill-directory format. The flat `commands/` format is supported indefinitely for backwards compatibility but does not gain new features.
 
