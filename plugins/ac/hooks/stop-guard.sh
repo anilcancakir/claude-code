@@ -41,9 +41,25 @@ marker="$project_dir/.ac/state/active-execution.json"
 [ -f "$marker" ] || exit 0
 jq -e . "$marker" >/dev/null 2>&1 || exit 0
 
-# 2. Staleness. To reach a block we must POSITIVELY confirm the run is live, mirroring
-#    pretooluse-file-scope.sh:39-63. A crashed run that skipped its delete must never
-#    trap the next session in a block loop.
+# 2. Ownership. To reach a block we must POSITIVELY confirm this session owns the run.
+#    The marker's session_id is the only trustworthy signal here. The pid field is NOT
+#    usable: the orchestrator cannot learn its own process id (a `$$` from Bash yields a
+#    short-lived subshell), and real markers in the field carry `"pid": 0`, which passes
+#    `kill -0` only because pid 0 addresses the process group. Gating on it would either
+#    pass by accident or fail wrongly depending on what the model guessed.
+#
+#    Matching on session_id also scopes the guard correctly: a marker left behind by
+#    another session must never block turn ends in an unrelated session working in the
+#    same repository. Compaction and `--resume` both preserve the session id, so a run
+#    that survives either still matches.
+hook_session="$(printf '%s' "$input" | jq -r '.session_id // empty' 2>/dev/null)"
+marker_session="$(jq -r '.session_id // empty' "$marker" 2>/dev/null)"
+[ -n "$hook_session" ] || exit 0
+[ -n "$marker_session" ] || exit 0
+[ "$hook_session" = "$marker_session" ] || exit 0
+
+# Age bound as a second floor: a run this session started but abandoned long ago should
+# not keep blocking. A parse failure means we cannot confirm freshness, so allow.
 now_epoch="$(date -u +%s 2>/dev/null)" || exit 0
 
 started_at="$(jq -r '.started_at // empty' "$marker" 2>/dev/null)"
@@ -56,12 +72,6 @@ started_epoch="$(date -u -d "$started_at" +%s 2>/dev/null)" \
 
 age=$((now_epoch - started_epoch))
 { [ "$age" -ge 0 ] && [ "$age" -le 86400 ]; } || exit 0
-
-pid="$(jq -r '.pid // empty' "$marker" 2>/dev/null)"
-case "$pid" in
-    '' | *[!0-9]*) exit 0 ;;
-esac
-kill -0 "$pid" 2>/dev/null || exit 0
 
 # 3. Resolve the plan the marker names. Without a readable plan we cannot say what remains,
 #    and a block with no concrete next action is worse than no block, so allow.

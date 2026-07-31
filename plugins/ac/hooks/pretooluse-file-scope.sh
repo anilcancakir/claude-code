@@ -36,6 +36,20 @@ marker="$project_dir/.ac/state/active-execution.json"
 # A malformed marker is uncertainty, so allow.
 jq -e . "$marker" >/dev/null 2>&1 || exit 0
 
+# 2a. Ownership. Only the session that wrote the marker may be scoped by it. Without this
+#     check a marker left by session A denies out-of-wave edits in an unrelated session B
+#     working in the same repository, which is a false deny.
+#
+#     session_id is the signal, not pid. The orchestrator cannot learn its own process id
+#     (a `$$` from Bash yields a short-lived subshell), and real markers in the field carry
+#     `"pid": 0`, which passes `kill -0` only because pid 0 addresses the process group. The
+#     pid check below is therefore retained as a cheap sanity filter, not a liveness proof.
+hook_session="$(printf '%s' "$input" | jq -r '.session_id // empty' 2>/dev/null)"
+marker_session="$(jq -r '.session_id // empty' "$marker" 2>/dev/null)"
+[ -n "$hook_session" ] || exit 0
+[ -n "$marker_session" ] || exit 0
+[ "$hook_session" = "$marker_session" ] || exit 0
+
 # 2b. Staleness. To reach a denial we must POSITIVELY confirm the run is fresh: a crashed
 #     run that skipped its Phase-4 delete must never brick the next session. Any failure to
 #     confirm freshness falls open.

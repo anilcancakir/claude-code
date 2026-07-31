@@ -173,8 +173,9 @@ Then write the on-disk active-execution marker at `.ac/state/active-execution.js
 
 Marker schema:
 - `slug`: the plan slug. Names which run holds the scope lock, and tells the SessionStart hook which of a repository's many plan directories is the live one.
-- `pid` and `started_at`: liveness fields. Every hook treats the marker as stale and fails open when `pid` is not a live process or `started_at` is older than a sane bound, so a crashed run that skipped its delete never bricks the next session and never traps it in a Stop-guard loop.
-- `session_id`: diagnostic only, no verdict effect.
+- `session_id`: load-bearing for the `Stop` guard, which blocks a turn end only when this field matches the session the hook fired in. Write the real current session id. It scopes the guard to the run that owns the marker, so a marker left behind by another session cannot block an unrelated session working in the same repository. Compaction and `--resume` both preserve the session id, so a run that survives either still matches.
+- `started_at`: the age bound. Every hook treats a marker older than 24 hours as stale and fails open, so an abandoned run cannot keep blocking.
+- `pid`: advisory only. The orchestrator cannot learn its own process id (a `$$` from Bash yields a short-lived subshell that is dead moments later), so write `0` and do not treat this field as a liveness signal. The file-scope hook still consults it for historical reasons; the `Stop` guard deliberately does not.
 - `current_wave`: the wave index the run is on; refreshed at each wave start (2c).
 - `wave_files`: absolute paths of the ACTIVE wave's step Files. The file-scope hook allows a worker edit only when the target resolves inside this set (or under `.ac/`). Empty until Wave 1 starts, when 2c populates it.
 - `note`: a one-line resume hint in plain prose, refreshed at each wave barrier (2f step 5). The SessionStart hook reads it back verbatim after a compaction or a restart, so write what a fresh reader needs: which waves are done and committed, and which step to resume at.
