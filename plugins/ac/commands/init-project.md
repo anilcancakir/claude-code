@@ -232,6 +232,5 @@ Canonical anchors used by this command body. Cross-check before editing.
 - `plugins/ac/skills/claude-md-rules-creator/SKILL.md:117-118` (principles 8 and 9: no aggressive caps, no duplication with existing layers).
 - `plugins/ac/skills/claude-md-rules-creator/SKILL.md:266-281` (path-scoped rule shape with `paths:` frontmatter).
 - `plugins/ac/skills/claude-md-rules-creator/SKILL.md:336-361` (pre-flight checklist applied before every `Write` or `Edit`).
-- `plugins/ac/commands/plan.md:7-10` (intro cadence mirrored above).
-- `plugins/ac/commands/work.md:17-23` (CAN / CANNOT / MUST orchestrator block shape).
+- `plugins/ac/commands/install.md:20-24` (CAN / CANNOT / MUST orchestrator block shape).
 - `code.claude.com/docs/en/features-overview#build-your-setup-over-time` (official "build your setup over time" decision table: CLAUDE.md / skill / subagent / hook).

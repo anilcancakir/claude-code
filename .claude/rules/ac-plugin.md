@@ -15,15 +15,20 @@ These rules apply when editing the markdown bodies inside `plugins/ac/`. The `ac
 
 - Commands at `plugins/ac/commands/<name>.md`: `description`, `argument-hint`, `effort`. No `model:` pin; commands inherit the main-thread model.
 - Skills at `plugins/ac/skills/<kebab-name>/SKILL.md`: `name`, `description`, `when_to_use`. Some skills add `allowed-tools` or `paths`.
-- Agents at `plugins/ac/agents/<name>.md`: `name`, `description`, `model`, `tools` or `disallowedTools`, `omitClaudeMd`, optional `effort`, optional `color`.
+- Agents at `plugins/ac/agents/<name>.md`: `name`, `description`, `model`, `tools` and/or `disallowedTools`, optional `effort`, optional `skills`, optional `color`.
 
-`disallowedTools` and `tools` are mutually exclusive; pick one shape per agent.
+`tools` and `disallowedTools` may both be set. The loader applies the denylist to the inherited pool first, then filters that result by the allowlist (`tools/AgentTool/agentToolUtils.ts:145-160`, and `prompt.ts:20-27` renders the combination as "both defined: filter allowlist by denylist to match runtime behavior"). The plan-worker agents use both.
+
+`omitClaudeMd` is NOT in the markdown frontmatter parser in the pinned source; it appears only on built-in agents. Treat it as inert on plugin agents until verified against the live binary, and do not rely on it for token savings.
+
+`skills:` preloads a named skill's full body into the agent at startup (`loadAgentsDir.ts:684`). A skill that cannot be resolved logs a debug warning and is skipped, so a missing user-scope skill degrades quietly rather than failing the spawn.
 
 ## Body shape
 
-- Commands and skills follow a five-section pattern: intro paragraph, CAN / CANNOT / MUST block, numbered Phases (`## Phase 0`, `## Phase 1`, ...), fenced tool examples, References at the bottom.
-- Agents follow Identity / Execution / Output Format / Failure Conditions / Constraints.
-- Use `**CAN**`, `**CANNOT**`, `**MUST**` bold-prefixed lines exactly as in `plugins/ac/commands/work.md:17-23`.
+- Commands follow: intro paragraph, CAN / CANNOT / MUST block, numbered Phases (`## Phase 0`, `## Phase 1`, ...), fenced tool examples, References at the bottom.
+- Skills follow: intro paragraph, decision flow or scope, numbered Stages or Phases, References table at the bottom. The large workflow skills (`ac:plan`, `ac:execute`) additionally open with XML-tagged `<role>` / `<scope>` / `<capabilities>` / `<constraints>` blocks.
+- Advisory agents (`ac:explore`, `ac:librarian`, `ac:oracle`) follow Identity / Execution / Output Format / Failure Conditions / Constraints as markdown headings. Worker and reviewer agents use the same five sections as XML tags (`<role>` / `<scope>` / `<execution>` / `<output_format>` / `<failure_conditions>` / `<constraints>`). Keep a new agent consistent with its family.
+- Use `**CAN**`, `**CANNOT**`, `**MUST**` bold-prefixed lines exactly as in `plugins/ac/commands/install.md:20-24`.
 
 ## Prose conventions
 
