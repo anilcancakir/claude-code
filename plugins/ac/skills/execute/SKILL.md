@@ -174,13 +174,13 @@ Then write the on-disk active-execution marker at `.ac/state/active-execution.js
 Marker schema:
 - `slug`: the plan slug. Names which run holds the scope lock, and tells the SessionStart hook which of a repository's many plan directories is the live one.
 - `session_id`: load-bearing for the `Stop` guard, which blocks a turn end only when this field matches the session the hook fired in. Write the real current session id. It scopes the guard to the run that owns the marker, so a marker left behind by another session cannot block an unrelated session working in the same repository. Compaction and `--resume` both preserve the session id, so a run that survives either still matches.
-- `started_at`: the age bound. Every hook treats a marker older than 24 hours as stale and fails open, so an abandoned run cannot keep blocking.
+- `started_at`: written once here and preserved verbatim by every later refresh. Three mechanisms key on it, so changing it mid-run is a real defect: it is the age bound every hook uses to treat a marker older than 24 hours as stale, it is the `run` key of the `Stop` guard's block counter (a new value hands the run a fresh budget and clears the spent latch), and it is the value in the Phase 3a `## Run` header that scopes the review loop's counters. Refresh `current_wave`, `wave_files`, and `note`; never this field.
 - `pid`: advisory only. The orchestrator cannot learn its own process id (a `$$` from Bash yields a short-lived subshell that is dead moments later), so write `0` and do not treat this field as a liveness signal. The file-scope hook still consults it for historical reasons; the `Stop` guard deliberately does not.
 - `current_wave`: the wave index the run is on; refreshed at each wave start (2c).
 - `wave_files`: absolute paths of the ACTIVE wave's step Files. The file-scope hook allows a worker edit only when the target resolves inside this set (or under `.ac/`). Empty until Wave 1 starts, when 2c populates it.
 - `note`: a one-line resume hint in plain prose, refreshed at each wave barrier (2f step 5). The SessionStart hook reads it back verbatim after a compaction or a restart, so write what a fresh reader needs: which waves are done and committed, and which step to resume at.
 
-Marker lifecycle: written here, its `current_wave`, `wave_files`, and `note` refreshed at each wave start and barrier (2c, 2f), and deleted at Phase 4 start (4a) plus on every branch that terminates or aborts the run before Phase 4 completes (the 2i / 2j / 3d Stop branches and the error-handling aborts). The marker must never survive a halt: a halt that leaves it behind leaves the `Stop` guard blocking turn ends until its block budget runs out.
+Marker lifecycle: written here, with ONLY `current_wave`, `wave_files`, and `note` refreshed at each wave start and barrier (2c, 2f) while `slug`, `session_id`, `pid`, and `started_at` stay exactly as written, and deleted at Phase 4 start (4a) plus on every branch that terminates or aborts the run before Phase 4 completes (the 2i / 2j / 3d Stop branches and the error-handling aborts). The marker must never survive a halt: a halt that leaves it behind leaves the `Stop` guard blocking turn ends until its block budget runs out.
 
 ### 1f. TDD mode
 
@@ -468,10 +468,12 @@ Run build + test + lint one more time on the entire project. All must pass befor
 Then open this run's section of the review log, once, before the first reviewer spawn:
 
 ```
-Bash: mkdir -p .ac/plans/<slug> && printf '\n## Run %s\n' "<marker started_at>" >> .ac/plans/<slug>/review-log.md
+Bash: mkdir -p .ac/plans/<slug> && { grep -qx '## Run <marker started_at>' .ac/plans/<slug>/review-log.md 2>/dev/null || printf '\n## Run %s\n' '<marker started_at>' >> .ac/plans/<slug>/review-log.md; }
 ```
 
 The log is append-only across runs, and the `## Run` header is what scopes the loop counters below to THIS run. Without it a second `/ac:execute <slug>` counts the previous run's passes, computes an iteration number past the cap on its very first pass, and in auto mode rolls straight to Phase 4 having spawned no reviewer at all.
+
+The `grep -qx` guard is load-bearing, not defensive: step 6 of the revision loop sends you back through Phase 3a on every pass, and a second header would reset the count and make `GATE=MAX_ITER` unreachable. The marker's `started_at` never changes during a run, so the guard makes the append idempotent.
 
 ### 3b. Spawn the code-review pair
 
@@ -527,7 +529,7 @@ If any reviewer returned BLOCKED:
 1. **Read the counters off disk** (never increment a remembered value). One command returns all three, scoped to the current `## Run` section:
 
    ```
-   Bash: { test -f .ac/plans/<slug>/review-log.md && awk -v cap=5 '/^## Run /{iter=0;prev="";next} /^## Phase 3d Iteration/{iter++;next} /^- Issue count:/{prev=$4} END{n=iter+1; printf "ITER=%d PREV=%s GATE=%s\n", n, (prev==""?"none":prev), (n>cap?"MAX_ITER":"OK")}' .ac/plans/<slug>/review-log.md || echo "ITER=1 PREV=none GATE=OK"; } | tail -1
+   Bash: { test -f .ac/plans/<slug>/review-log.md && awk -v cap=5 '/^[[:space:]]*## Run /{iter=0;prev="";next} /^[[:space:]]*## Phase 3d Iteration/{iter++;next} /^[[:space:]]*- Issue count:/{prev=$4} END{n=iter+1; printf "ITER=%d PREV=%s GATE=%s\n", n, (prev==""?"none":prev), (n>cap?"MAX_ITER":"OK")}' .ac/plans/<slug>/review-log.md || echo "ITER=1 PREV=none GATE=OK"; } | tail -1
    ```
 
    `ITER` is the pass about to run, `PREV` is the previous pass's issue count within this run (`none` on the first pass), and `GATE` is the max-iter verdict. Read the verdict; do not recompute it. The `tail -1` matters because `grep -c` and a failed `awk` both emit a line and then the fallback emits another.
@@ -557,7 +559,7 @@ If any reviewer returned BLOCKED:
 4. **Stall detection**. Do not evaluate the inequality yourself; ask for the verdict, using `issue_count` from step 3 and `PREV` / `ITER` from step 1:
 
    ```
-   Bash: awk -v n=<issue_count> -v prev=<PREV> -v iter=<ITER> 'BEGIN{print (prev!="none" && n+0>=prev+0 && iter+0>=2) ? "STALL" : "CONTINUE"}'
+   Bash: awk -v n=<issue_count> -v prev=<PREV> -v iter=<ITER> 'BEGIN{print (prev!="none" && prev!="" && n+0>=prev+0 && iter+0>=2) ? "STALL" : "CONTINUE"}'
    ```
 
    On `STALL`:

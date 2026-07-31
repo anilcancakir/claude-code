@@ -635,13 +635,15 @@ On `Skip review` or `REVIEW_TIER == "skip"` confirmed: jump to Stage 6 Deliver, 
 
 ### 5.5c. Loop state lives in the log file
 
-There is no counter to initialize. Open this run's section of the log once, before the first reviewer spawn:
+There is no counter to initialize. Open this plan's section of the log once, before the first reviewer spawn. The header is keyed on the plan file's `**Generated**` frontmatter timestamp, and the `grep -qx` guard makes the append idempotent:
 
 ```
-Bash: printf '\n## Stage 5.5 Run %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> <LOG_PATH>
+Bash: grep -qx '## Stage 5.5 Run <plan Generated timestamp>' <LOG_PATH> 2>/dev/null || printf '\n## Stage 5.5 Run %s\n' '<plan Generated timestamp>' >> <LOG_PATH>
 ```
 
-`LOG_PATH` is append-only across runs, and the `## Stage 5.5 Run` header is what scopes the counters to THIS run. Without it, a re-plan on the same slug (the Stage 0f `Overwrite` branch keeps the slug and leaves the log in place) counts the previous run's passes, lands past the cap on its first pass, and skips the review entirely.
+`LOG_PATH` is append-only across runs, and the `## Stage 5.5 Run` header is what scopes the counters to THIS plan. Without it, a re-plan on the same slug (the Stage 0f `Overwrite` branch keeps the slug and leaves the log in place) counts the previous plan's passes, lands past the cap on its first pass, and skips the review entirely.
+
+The timestamp source matters. `Generated` changes when Stage 5 writes a new plan, which is exactly when the review budget should reset, and it does NOT change when a run resumes from a checkpoint into Stage 5.5. A `date` call here would mint a fresh header on every re-entry and hand a resumed run a clean slate, which defeats the cap across resumes.
 
 ### 5.5d. Review loop
 
@@ -650,7 +652,7 @@ Repeat:
 1. **Read the counters off disk** (never increment a remembered value). One command returns all three, scoped to the current run section:
 
    ```
-   Bash: { test -f <LOG_PATH> && awk -v cap=5 '/^## Stage 5.5 Run /{iter=0;prev="";next} /^## Stage 5.5 Iteration/{iter++;next} /^- Issue count:/{prev=$4} END{n=iter+1; printf "ITER=%d PREV=%s GATE=%s\n", n, (prev==""?"none":prev), (n>cap?"MAX_ITER":"OK")}' <LOG_PATH> || echo "ITER=1 PREV=none GATE=OK"; } | tail -1
+   Bash: { test -f <LOG_PATH> && awk -v cap=5 '/^[[:space:]]*## Stage 5.5 Run /{iter=0;prev="";next} /^[[:space:]]*## Stage 5.5 Iteration/{iter++;next} /^[[:space:]]*- Issue count:/{prev=$4} END{n=iter+1; printf "ITER=%d PREV=%s GATE=%s\n", n, (prev==""?"none":prev), (n>cap?"MAX_ITER":"OK")}' <LOG_PATH> || echo "ITER=1 PREV=none GATE=OK"; } | tail -1
    ```
 
    `ITER` is the pass about to run, `PREV` is the previous pass's issue count within this run (`none` on the first pass), and `GATE` is the max-iter verdict. Read the verdict; do not recompute it.
@@ -685,7 +687,7 @@ Repeat:
 5. **Stall detection** runs AFTER max-iter check, BEFORE revision. Count blocking issues in the REJECT output, then ask for the verdict rather than evaluating the inequality yourself:
 
    ```
-   Bash: awk -v n=<issue_count> -v prev=<PREV> -v iter=<ITER> 'BEGIN{print (prev!="none" && n+0>=prev+0 && iter+0>=2) ? "STALL" : "CONTINUE"}'
+   Bash: awk -v n=<issue_count> -v prev=<PREV> -v iter=<ITER> 'BEGIN{print (prev!="none" && prev!="" && n+0>=prev+0 && iter+0>=2) ? "STALL" : "CONTINUE"}'
    ```
 
    On `STALL`:

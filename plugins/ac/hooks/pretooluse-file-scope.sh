@@ -24,13 +24,20 @@ command -v jq >/dev/null 2>&1 || exit 0
 agent_id="$(printf '%s' "$input" | jq -r '.agent_id // empty' 2>/dev/null)" || exit 0
 [ -n "$agent_id" ] || exit 0
 
-# Resolve the project directory. $CLAUDE_PROJECT_DIR is the documented project-root anchor
-# (docs/hooks.md:406); the payload cwd is getCwd(), which can drift from the root.
-project_dir="${CLAUDE_PROJECT_DIR:-}"
-if [ -z "$project_dir" ]; then
-    project_dir="$(printf '%s' "$input" | jq -r '.cwd // empty' 2>/dev/null)"
-fi
-[ -n "$project_dir" ] || project_dir="$PWD"
+# Resolve the tree that holds the .ac/ state. The payload cwd follows a worktree; the stable
+# root deliberately does not (utils/hooks.ts:813-816: "getProjectRoot() is never updated when
+# entering a worktree"), and every .ac/ path in the execute skill is cwd-relative. So probe
+# the payload cwd first, fall back to the stable root, and only then to PWD.
+payload_dir="$(printf '%s' "$input" | jq -r '.cwd // empty' 2>/dev/null)"
+project_dir=""
+for _cand in "$payload_dir" "${CLAUDE_PROJECT_DIR:-}"; do
+    [ -n "$_cand" ] || continue
+    if [ -e "$_cand/.ac/state/active-execution.json" ]; then
+        project_dir="$_cand"
+        break
+    fi
+done
+[ -n "$project_dir" ] || project_dir="${payload_dir:-${CLAUDE_PROJECT_DIR:-$PWD}}"
 
 marker="$project_dir/.ac/state/active-execution.json"
 

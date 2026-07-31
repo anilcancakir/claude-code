@@ -42,13 +42,20 @@ input="$(cat 2>/dev/null)" || exit 0
 command -v jq >/dev/null 2>&1 || exit 0
 printf '%s' "$input" | jq -e . >/dev/null 2>&1 || exit 0
 
-# $CLAUDE_PROJECT_DIR is the documented project-root anchor (docs/hooks.md:406). The payload
-# cwd is getCwd(), which can drift from the root, so it is only the fallback.
-project_dir="${CLAUDE_PROJECT_DIR:-}"
-if [ -z "$project_dir" ]; then
-    project_dir="$(printf '%s' "$input" | jq -r '.cwd // empty' 2>/dev/null)"
-fi
-[ -n "$project_dir" ] || project_dir="$PWD"
+# Resolve the tree that holds the .ac/ state. The payload cwd follows a worktree; the stable
+# root deliberately does not (utils/hooks.ts:813-816: "getProjectRoot() is never updated when
+# entering a worktree"), and every .ac/ path in the execute skill is cwd-relative. So probe
+# the payload cwd first, fall back to the stable root, and only then to PWD.
+payload_dir="$(printf '%s' "$input" | jq -r '.cwd // empty' 2>/dev/null)"
+project_dir=""
+for _cand in "$payload_dir" "${CLAUDE_PROJECT_DIR:-}"; do
+    [ -n "$_cand" ] || continue
+    if [ -e "$_cand/.ac/state/active-execution.json" ]; then
+        project_dir="$_cand"
+        break
+    fi
+done
+[ -n "$project_dir" ] || project_dir="${payload_dir:-${CLAUDE_PROJECT_DIR:-$PWD}}"
 
 marker="$project_dir/.ac/state/active-execution.json"
 
@@ -130,9 +137,15 @@ fi
 # 6. Progress test. A guard that only counts blocks can be satisfied by one token of work
 #    and a second stop. Compare the unchecked count against the previous block's: when it has
 #    not moved, this block is the last one, and the reason says so.
+#
+#    The `unchecked > 0` condition matters. Once every step is ticked the count is pinned at
+#    zero, so without it the metric would read "no progress" forever and the guard would
+#    latch after two blocks during Phase 3 review and Phase 4 deliver, which is exactly the
+#    long context-heavy stretch it exists to cover. Past that point the block budget is the
+#    only bound, which is the correct one: there are no checkboxes left to measure.
 stop_hook_active="$(printf '%s' "$input" | jq -r '.stop_hook_active // false' 2>/dev/null)"
 no_progress="false"
-if [ -n "$prev_unchecked" ] && [ "$unchecked" -ge "$prev_unchecked" ]; then
+if [ "$unchecked" -gt 0 ] && [ -n "$prev_unchecked" ] && [ "$unchecked" -ge "$prev_unchecked" ]; then
     no_progress="true"
 fi
 
