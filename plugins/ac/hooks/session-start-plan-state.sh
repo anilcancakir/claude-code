@@ -22,9 +22,15 @@ set -u
 command -v jq >/dev/null 2>&1 || exit 0
 
 input="$(cat 2>/dev/null)" || exit 0
-project_dir="$(printf '%s' "$input" | jq -r '.cwd // empty' 2>/dev/null)"
-[ -n "$project_dir" ] || project_dir="$PWD"
 source_kind="$(printf '%s' "$input" | jq -r '.source // empty' 2>/dev/null)"
+
+# $CLAUDE_PROJECT_DIR is the documented project-root anchor (docs/hooks.md:406). The payload
+# cwd is getCwd(), which can drift from the root, so it is only the fallback.
+project_dir="${CLAUDE_PROJECT_DIR:-}"
+if [ -z "$project_dir" ]; then
+    project_dir="$(printf '%s' "$input" | jq -r '.cwd // empty' 2>/dev/null)"
+fi
+[ -n "$project_dir" ] || project_dir="$PWD"
 
 plans_dir="$project_dir/.ac/plans"
 [ -d "$plans_dir" ] || exit 0

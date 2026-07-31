@@ -8,9 +8,9 @@
 #
 # It reads the active-execution marker written by the execute skill
 # (see plugins/ac/skills/execute/SKILL.md marker contract): wave_files drives the scope
-# check; pid and started_at drive the staleness check. Denial is expressed as
-# permissionDecision:"deny" JSON on stdout with exit 0; exit 2 is never used, because a
-# non-zero crash also fails open by design.
+# check, session_id decides whether this session owns the run, and started_at bounds its
+# age. Denial is expressed as permissionDecision:"deny" JSON on stdout with exit 0; exit 2
+# is never used, because a non-zero crash also fails open by design.
 
 set -u
 
@@ -24,8 +24,12 @@ command -v jq >/dev/null 2>&1 || exit 0
 agent_id="$(printf '%s' "$input" | jq -r '.agent_id // empty' 2>/dev/null)" || exit 0
 [ -n "$agent_id" ] || exit 0
 
-# Resolve the project directory from the payload cwd; fall back to PWD.
-project_dir="$(printf '%s' "$input" | jq -r '.cwd // empty' 2>/dev/null)"
+# Resolve the project directory. $CLAUDE_PROJECT_DIR is the documented project-root anchor
+# (docs/hooks.md:406); the payload cwd is getCwd(), which can drift from the root.
+project_dir="${CLAUDE_PROJECT_DIR:-}"
+if [ -z "$project_dir" ]; then
+    project_dir="$(printf '%s' "$input" | jq -r '.cwd // empty' 2>/dev/null)"
+fi
 [ -n "$project_dir" ] || project_dir="$PWD"
 
 marker="$project_dir/.ac/state/active-execution.json"
