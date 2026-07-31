@@ -1,7 +1,7 @@
 ---
-description: Executor for plans approved by /ac:plan. Runs entirely on the main thread (Opus 4.8) with an auto-continue policy: wave-by-wave loop until the plan is complete, no schedule/wakeup polling. Spawns tier-routed worker subagents (ac:plan-worker-quick → haiku, ac:plan-worker-junior → sonnet, ac:plan-worker-senior → opus). Per-step 4-layer verification (Automated + Manual Code Review + Hands-on QA + Plan state) by the main thread. Wave-after checkpoint commits for complex plans. Final code-review by ac:plan-code-review (standard 4-stage) or ac:plan-code-deep-review (complex 6-stage) plus ac:oracle in parallel (complex only, --no-oracle opt-out). TDD enforcement when the plan's Conventions say so. Targets 0-iter quality with max-5 + stall revision loop.
+description: Executor for plans approved by /ac:plan. Runs entirely on the main thread (Opus 5) with an auto-continue policy of wave-by-wave looping until the plan is complete, no schedule/wakeup polling. Spawns tier-routed worker subagents (ac:plan-worker-quick → haiku, ac:plan-worker-junior → sonnet, ac:plan-worker-senior → opus). Per-step 4-layer verification (Automated + Manual Code Review + Hands-on QA + Plan state) by the main thread. Wave-after checkpoint commits for complex plans. Final code-review by ac:plan-code-review (standard 4-stage) or ac:plan-code-deep-review (complex 6-stage) plus ac:oracle in parallel (complex only, --no-oracle opt-out). TDD enforcement when the plan's Conventions say so. Targets 0-iter quality with max-5 + stall revision loop.
 when_to_use: After /ac:plan produces a plan file the user wants executed. Triggers on /ac:execute <slug>, "run the plan", "execute this", or when /ac:plan in auto mode chains directly into this skill at Stage 6a. Accepts a plan slug or a full path to plan.md. Pair with /ac:plan for end-to-end auto-mode runs.
-argument-hint: <plan-slug | .ac/plans/<slug>/plan.md> [--auto] [--no-oracle] [--no-checkpoint-commits]
+argument-hint: "<plan-slug | .ac/plans/<slug>/plan.md> [--auto] [--no-oracle] [--no-checkpoint-commits]"
 effort: max
 ---
 
@@ -121,9 +121,9 @@ Map each step's `Tier:` to a subagent and model:
 
 | Tier | Subagent | Model | Effort |
 |---|---|---|---|
-| `quick` | `ac:plan-worker-quick` | `claude-haiku-4-5-20251001` | low |
+| `quick` | `ac:plan-worker-quick` | `claude-haiku-4-5-20251001` | not supported on this model |
 | `junior` | `ac:plan-worker-junior` | `claude-sonnet-5` | medium |
-| `senior` | `ac:plan-worker-senior` | `claude-opus-4-8` | high |
+| `senior` | `ac:plan-worker-senior` | `claude-opus-5` | high |
 
 ### 1d. Codebase state escalation
 

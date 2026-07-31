@@ -1,13 +1,13 @@
 ---
-description: Interactive planner for Claude Code main thread (Opus 4.8). Spawns parallel research via ac:explore, ac:librarian, optionally ac:oracle. Reads referenced files itself. Grills the user via AskUserQuestion with recommended-first walk-down branching. Audits the plan for reuse, quality, and efficiency before writing. Writes a tier-assigned plan to .ac/plans/<slug>/plan.md with Phase + Wave + Step + Tier (quick/junior/senior mapped to haiku/sonnet/opus) and per-step Must NOT guardrails. Accepts a free-form topic or a .ac/tasks/*.yaml file. Planning only; execute phase comes later. Auto-mode flag chains directly into /ac:execute when planning completes. Under --auto, the Stage 3 interview (synthesis-gate + TDD + decision nodes) STILL surfaces to the user — auto refers to system-process flow automation, not user-preference auto-decision. Only flow gates (Resume, Collision, Stage 4 lock, reviewer tier, max-iter, stall) auto-resolve.
+description: Interactive planner for Claude Code main thread (Opus 5). Spawns parallel research via ac:explore, ac:librarian, optionally ac:oracle. Reads referenced files itself. Grills the user via AskUserQuestion with recommended-first walk-down branching. Audits the plan for reuse, quality, and efficiency before writing. Writes a tier-assigned plan to .ac/plans/<slug>/plan.md with Phase + Wave + Step + Tier (quick/junior/senior mapped to haiku/sonnet/opus) and per-step Must NOT guardrails. Accepts a free-form topic or a .ac/tasks/*.yaml file. Planning only; execute phase comes later. Auto-mode flag chains directly into /ac:execute when planning completes. Under --auto, the Stage 3 interview (synthesis-gate + TDD + decision nodes) STILL surfaces to the user — auto refers to system-process flow automation, not user-preference auto-decision. Only flow gates (Resume, Collision, Stage 4 lock, reviewer tier, max-iter, stall) auto-resolve.
 when_to_use: Before non-trivial implementation work that crosses files or modules. Triggers on /ac:plan, "plan this", "let's plan X", "make a plan for Y", "grill me on this design", or when the user provides a .ac/tasks/*.yaml task definition. Use proactively for cross-module changes and refactors. Pair with /ac:execute for end-to-end auto-mode runs. Undertriggering is the failure mode for planning quality.
-argument-hint: [--auto] <topic description | .ac/tasks/*.yaml>
+argument-hint: "[--auto] <topic description | .ac/tasks/*.yaml>"
 effort: max
 ---
 
 # /ac:plan
 
-Interactive planner that runs entirely on the main thread (Opus 4.8). Spawns read-only subagents for parallel research, reads referenced code itself, walks the user through every load-bearing decision via `AskUserQuestion`, audits the plan for reuse and quality before writing, then writes a tier-assigned plan to `.ac/plans/<slug>/plan.md`.
+Interactive planner that runs entirely on the main thread (Opus 5). Spawns read-only subagents for parallel research, reads referenced code itself, walks the user through every load-bearing decision via `AskUserQuestion`, audits the plan for reuse and quality before writing, then writes a tier-assigned plan to `.ac/plans/<slug>/plan.md`.
 
 Request: $ARGUMENTS
 
