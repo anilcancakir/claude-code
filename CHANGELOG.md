@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-08-01
+
+Hardens the plan and execute pipeline against a real failure: mid-run, after a genuine auto-compaction and three further waves of completed work, the orchestrator declared that its memory had filled up and told the user to resume in a new chat. No context-limit event or warning preceded it, and it retracted the reason and kept working as soon as the user pushed back. Transcript forensics also showed the reviewer stall gate never firing across five passes that returned 5, 5, 5, 5, 4 blocking issues, with the rule's full text in context at the time.
+
+The lesson driving this release: a limit written in prose is not a limit. The caps and the terminal branches now live in a hook and in shell commands whose output the model reads.
+
+### Added
+
+- `Stop` hook (`plugins/ac/hooks/stop-guard.sh`) that refuses a turn end while an `/ac:execute` run this session owns is still in flight, returning the outstanding step count and the next unchecked step. Block counter in `.ac/state/stop-guard.json`, incremented by the hook rather than the model, budget 10 with `AC_STOP_GUARD_MAX_BLOCKS` to override. Latches once spent, so it can never strand a user. Shape follows Anthropic's own `plugins/ralph-wiggum/hooks/stop-hook.sh`.
+- A `## Standing rules` block at the top of both workflow skill bodies, inside the first 5,000 tokens that survive a compaction (`docs/skills.md:298-300`): turn termination, the context policy, the marker-deletes-before-halt contract, disk-derived loop bounds, and task-list discipline.
+- `.ac/plans/<slug>/review-log.md`, an append-only record of every Phase 3 revision pass. The loop reads its own bounds back out of it.
+- A "Staying on the task" section in the generated global CLAUDE.md, covering what to do instead of stopping and that a context announcement does not discharge the task.
+- `note` field on the active-execution marker: a one-line resume hint the SessionStart hook reads back after a compaction.
+
+### Changed
+
+- Reviewer loop counters are read off disk, not carried in working memory, and the max-iter and stall verdicts arrive as the output of a shell command rather than as inequalities the model evaluates. Both logs are scoped to the current run by a `## Run` header, so a second run on the same slug can no longer count the previous run's passes and skip review entirely.
+- Auto mode is set only by the literal `--auto` flag or the Stage 4 pick. An auto-mode intention stated in the topic prose now only decides which option carries `(Recommended)`, so the one gate where the user sees whether the run is autonomous always fires.
+- The SessionStart hook names the plan the marker points at instead of the first plan directory with an unchecked step, and reports step counts, the marker note, recent commits, and, after a compaction, what compaction did to the skill bodies.
+- All three marker-reading hooks confirm ownership by `session_id` rather than `pid`, and resolve the project tree by probing the payload `cwd` before the stable root, which is what a worktree session needs.
+- Task list is one entry per wave plus the phases, slug-prefixed, created after a `TaskList` call.
+- Worked examples moved out of the skill bodies into `plan/references/slug-derivation.md` and `execute/references/cross-file-review.md`.
+
+### Fixed
+
+- The executor was told to run `/compact` as its context lever, which the model cannot do: `commands/compact/index.ts:5` marks it `type: 'local'` and `tools/SkillTool/SkillTool.ts:421-427` rejects any command that is not prompt-based. Under context pressure the only remedy on offer did not exist.
+- `TaskList` was required by the new task rule but missing from both `ToolSearch` select strings.
+- Every em-dash and en-dash removed from the plugin (182) and from the CLI source comments (19), per the project's prose rules.
+
 ## [0.7.0] - 2026-07-31
 
 ### Added
@@ -227,6 +256,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   during plan execution, enabling the PreToolUse hook to scope worker edits to the
   active wave and prevent out-of-scope mutations.
 
+[0.8.0]: https://github.com/anilcancakir/claude-code/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/anilcancakir/claude-code/compare/v0.6.1...v0.7.0
 [0.6.1]: https://github.com/anilcancakir/claude-code/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/anilcancakir/claude-code/compare/v0.5.0...v0.6.0
