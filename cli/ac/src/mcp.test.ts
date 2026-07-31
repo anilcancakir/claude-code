@@ -168,7 +168,7 @@ test("mcp proxy dispatches call-external-agent to runExternalAgent", async () =>
     const prevBin = process.env["AC_EXTERNAL_AGENT_CODEX_BIN"];
     // Point the codex bin at `node` so the dispatch path is exercised without needing a real codex install.
     // `node` will not understand codex flags and will exit non-zero, surfacing an McpError whose message
-    // contains "codex" — that is sufficient evidence the dispatch reached runExternalAgent.
+    // contains "codex"; that is sufficient evidence the dispatch reached runExternalAgent.
     process.env["AC_EXTERNAL_AGENT_CODEX_BIN"] = "node";
 
     const transport = new StdioClientTransport(
@@ -204,7 +204,7 @@ test("mcp proxy dispatches call-external-agent to runExternalAgent", async () =>
 
         // The SDK surfaces protocol-level errors as McpError on the client side.
         // Either path proves the dispatcher reached runExternalAgent:
-        //   (a) resolves with text content (node somehow exited 0 — unlikely but valid), OR
+        //   (a) resolves with text content (node somehow exited 0, unlikely but valid), OR
         //   (b) rejects with McpError whose message mentions "codex".
         if (thrown !== undefined) {
             expect(thrown).toBeInstanceOf(McpError);

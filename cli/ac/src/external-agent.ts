@@ -137,7 +137,7 @@ export function truncateTail(buf: Buffer): string {
 }
 
 // POSIX: signal the whole process group via negative PID. Windows SIGKILL: taskkill /T /F.
-// `child.pid` may be undefined when spawn never produced a pid (e.g. ENOENT) — no-op then.
+// `child.pid` may be undefined when spawn never produced a pid (e.g. ENOENT); no-op then.
 function killGroup(child: ChildProcess, signal: "SIGTERM" | "SIGKILL"): void {
     const pid = child.pid;
     if (pid === undefined) return;

@@ -89,7 +89,7 @@ test("buildArgv codex respects AC_EXTERNAL_AGENT_CODEX_BIN env override", () => 
     }
 });
 
-// validateInputs — happy paths
+// validateInputs: happy paths
 
 test("validateInputs happy path minimal", () => {
     const result = validateInputs({ cli: "codex", prompt: "hi", directory: "/tmp" });
@@ -113,7 +113,7 @@ test("validateInputs happy path with model and timeout", () => {
     });
 });
 
-// validateInputs — rejection cases
+// validateInputs: rejection cases
 
 test("validateInputs rejects missing cli", () => {
     expect(() => validateInputs({ prompt: "hi", directory: "/tmp" })).toThrow(McpError);
@@ -174,7 +174,7 @@ test("validateInputs clamps timeout to min and max", () => {
     expect(high.timeoutSeconds).toBe(3600);
 });
 
-// runExternalAgent — fake-binary harness via injectable spawnImpl.
+// runExternalAgent: fake-binary harness via injectable spawnImpl.
 
 // Substitutes the bin + argv with a node -e fake script while preserving cwd,
 // env, stdio, detached, windowsHide. Returns a spawnImpl matching typeof spawn.
@@ -265,7 +265,7 @@ test.skipIf(process.platform === "win32")("runExternalAgent process-group kill l
     try {
         psOutput = execSync(`ps -ef | grep '${sentinel}' | grep -v grep`, { encoding: "utf8" });
     } catch {
-        // grep exit 1 when no match — that's the success state.
+        // grep exit 1 when no match; that is the success state.
         psOutput = "";
     }
     expect(psOutput.trim()).toBe("");

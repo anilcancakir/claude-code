@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { isPrivateOrLoopback, stripIpv6Brackets, canonicalAddress } from "./ip-classifier.ts";
 
-// isPrivateOrLoopback — IPv4 private / loopback ranges
+// isPrivateOrLoopback: IPv4 private / loopback ranges
 
 test("isPrivateOrLoopback IPv4 loopback 127.0.0.1", () => {
     expect(isPrivateOrLoopback("127.0.0.1", 4)).toBe(true);
@@ -28,7 +28,7 @@ test("isPrivateOrLoopback IPv4 unspecified 0.0.0.0", () => {
     expect(isPrivateOrLoopback("0.0.0.0", 4)).toBe(true);
 });
 
-// isPrivateOrLoopback — IPv6 private / loopback ranges
+// isPrivateOrLoopback: IPv6 private / loopback ranges
 
 test("isPrivateOrLoopback IPv6 loopback ::1", () => {
     expect(isPrivateOrLoopback("::1", 6)).toBe(true);
@@ -46,7 +46,7 @@ test("isPrivateOrLoopback IPv6 IPv4-mapped ::ffff:127.0.0.1", () => {
     expect(isPrivateOrLoopback("::ffff:127.0.0.1", 6)).toBe(true);
 });
 
-// isPrivateOrLoopback — public addresses must return false
+// isPrivateOrLoopback: public addresses must return false
 
 test("isPrivateOrLoopback IPv4 public 8.8.8.8 returns false", () => {
     expect(isPrivateOrLoopback("8.8.8.8", 4)).toBe(false);

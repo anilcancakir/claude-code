@@ -33,27 +33,27 @@ function isPrivateOrLoopbackIpv4(address: string): boolean {
     //    169.254/16 sit above 2^31 and would otherwise produce false-negatives.
     const byte0 = (value >>> 24) & 0xff;
     const byte1 = (value >>> 16) & 0xff;
-    // 127.0.0.0/8 — loopback.
+    // 127.0.0.0/8: loopback.
     if (byte0 === 127) {
         return true;
     }
-    // 10.0.0.0/8 — RFC1918.
+    // 10.0.0.0/8: RFC1918.
     if (byte0 === 10) {
         return true;
     }
-    // 172.16.0.0/12 — RFC1918.
+    // 172.16.0.0/12: RFC1918.
     if (byte0 === 172 && (byte1 & 0xf0) === 16) {
         return true;
     }
-    // 192.168.0.0/16 — RFC1918.
+    // 192.168.0.0/16: RFC1918.
     if (byte0 === 192 && byte1 === 168) {
         return true;
     }
-    // 169.254.0.0/16 — link-local.
+    // 169.254.0.0/16: link-local.
     if (byte0 === 169 && byte1 === 254) {
         return true;
     }
-    // 0.0.0.0/8 — unspecified / "this network".
+    // 0.0.0.0/8: unspecified / "this network".
     if (byte0 === 0) {
         return true;
     }
@@ -165,7 +165,7 @@ function isPrivateOrLoopbackIpv6(address: string): boolean {
     ) {
         return true;
     }
-    // ::ffff:0:0/96 — IPv4-mapped IPv6; recurse into v4 classification.
+    // ::ffff:0:0/96 is IPv4-mapped IPv6; recurse into v4 classification.
     if (
         words[0] === 0 &&
         words[1] === 0 &&
@@ -179,12 +179,12 @@ function isPrivateOrLoopbackIpv6(address: string): boolean {
         const v4 = `${(high >>> 8) & 0xff}.${high & 0xff}.${(low >>> 8) & 0xff}.${low & 0xff}`;
         return isPrivateOrLoopbackIpv4(v4);
     }
-    // fe80::/10 link-local — top 10 bits == 1111111010xxxxxx.
+    // fe80::/10 link-local: top 10 bits == 1111111010xxxxxx.
     const first = words[0] ?? 0;
     if ((first & 0xffc0) === 0xfe80) {
         return true;
     }
-    // fc00::/7 unique-local — top 7 bits == 1111110xxxxxxxxx.
+    // fc00::/7 unique-local: top 7 bits == 1111110xxxxxxxxx.
     if ((first & 0xfe00) === 0xfc00) {
         return true;
     }
