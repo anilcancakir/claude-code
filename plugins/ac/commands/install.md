@@ -1,5 +1,5 @@
 ---
-description: Interactive post-install setup for the ac plugin. Phase 0 parses flags (--dry-run, --skip-skills, --skip-settings, --skip-claude-md), detects the OS, the presence of the my-coding, my-language, and my-workflow user skills, the global CLAUDE.md and settings.json, and probes ac MCP reachability. Phases 1, 2, and 2.5 run short interviews and delegate my-coding, my-language, and my-workflow skill creation to ac:skill-creator with the bundled templates, skipping any skill that already exists unless the user picks Recreate. Phase 3 merges a lean workflow-pointer section into the global CLAUDE.md between the ac:delegation fence markers behind a .proposed gate. Phase 4 backs up (non-clobber) and idempotently merges settings.json in groups: safe-silent tuning (Group A, set-only-when-absent), core ac parity (Group C, enabledPlugins plus MCP allow plus plan-mode deny), security-sensitive keys behind an explicit opt-in multiSelect (Group B, default off), and an interactive MCP-token prompt whose value is masked in every rendered surface. The plan-mode block ships in the plugin hooks, so Phase 4 writes no settings hook. Phase 5 reports what was created, merged, skipped, and the backup path.
+description: Interactive post-install setup for the ac plugin. Phase 0 parses flags (--dry-run, --skip-skills, --skip-settings, --skip-claude-md), detects the OS, the presence of the my-coding and my-language user skills, the global CLAUDE.md and settings.json, and probes ac MCP reachability. Phases 1 and 2 run short interviews and delegate my-coding and my-language skill creation to ac:skill-creator with the bundled templates, skipping any skill that already exists unless the user picks Recreate. Phase 3 runs a three-question placeholder interview, then merges the full workflow-discipline section (operating mode, code-lookup ladder, investigation, verification, delegation, web tools) into the global CLAUDE.md between the ac:delegation fence markers behind a .proposed gate. Phase 4 backs up (non-clobber) and idempotently merges settings.json in groups: safe-silent tuning (Group A, set-only-when-absent), core ac parity (Group C, enabledPlugins plus MCP allow plus plan-mode deny), security-sensitive keys behind an explicit opt-in multiSelect (Group B, default off), and an interactive MCP-token prompt whose value is masked in every rendered surface. The plan-mode block ships in the plugin hooks, so Phase 4 writes no settings hook. Phase 5 reports what was created, merged, skipped, and the backup path.
 argument-hint: [--dry-run] [--skip-skills] [--skip-settings] [--skip-claude-md]
 effort: high
 disable-model-invocation: true
@@ -7,7 +7,7 @@ disable-model-invocation: true
 
 # /ac:install
 
-Interactive setup for a machine that already has the ac plugin installed. This command tunes your user-scope environment: it generates your personal `my-coding`, `my-language`, and `my-workflow` skills, merges a lean workflow-pointer section into your global `~/.claude/CLAUDE.md`, and configures `~/.claude/settings.json` so the ac workflow replaces the matching Claude Code built-ins. Safe defaults apply silently; security-sensitive keys and your MCP token are opt-in and never rendered in plaintext.
+Interactive setup for a machine that already has the ac plugin installed. This command tunes your user-scope environment: it generates your personal `my-coding` and `my-language` skills, merges the workflow-discipline section into your global `~/.claude/CLAUDE.md`, and configures `~/.claude/settings.json` so the ac workflow replaces the matching Claude Code built-ins. Safe defaults apply silently; security-sensitive keys and your MCP token are opt-in and never rendered in plaintext.
 
 Request: $ARGUMENTS
 
@@ -17,11 +17,11 @@ Precondition: the ac plugin is already installed and loaded (you are running thi
 
 You are the `/ac:install` orchestrator. You interview the user, delegate skill creation to `ac:skill-creator`, and write user-scope config files behind explicit gates.
 
-**CAN**: Use `Read`, `Write`, `Edit`, `Bash`, `AskUserQuestion`. Invoke `ac:skill-creator` via the `Skill` tool (Phases 1, 2, and 2.5). Probe the ac MCP server by calling `mcp__plugin_ac_ac__resolve-library`. Write a `~/.claude/CLAUDE.md.proposed` sidecar and a `~/.claude/settings.json.bak-ac-install` backup.
+**CAN**: Use `Read`, `Write`, `Edit`, `Bash`, `AskUserQuestion`. Invoke `ac:skill-creator` via the `Skill` tool (Phases 1 and 2). Probe the ac MCP server by calling `mcp__plugin_ac_ac__resolve-library`. Write a `~/.claude/CLAUDE.md.proposed` sidecar and a `~/.claude/settings.json.bak-ac-install` backup.
 
-**CANNOT**: Hand-write `my-coding`, `my-language`, or `my-workflow` `SKILL.md` content; that is `ac:skill-creator`'s job. Blind-overwrite `~/.claude/CLAUDE.md` or `~/.claude/settings.json`; both go through merge plus a gate or a backup. Run `/plugin marketplace add` or `/plugin install`. Edit files outside `~/.claude/`. Write an allow rule broader than the literal server segment (`mcp__plugin_ac_ac__*`, never `mcp__*`).
+**CANNOT**: Hand-write `my-coding` or `my-language` `SKILL.md` content; that is `ac:skill-creator`'s job. Blind-overwrite `~/.claude/CLAUDE.md` or `~/.claude/settings.json`; both go through merge plus a gate or a backup. Run `/plugin marketplace add` or `/plugin install`. Edit files outside `~/.claude/`. Write an allow rule broader than the literal server segment (`mcp__plugin_ac_ac__*`, never `mcp__*`).
 
-**MUST**: Honor every flag from 0a for the rest of the run. Under `--dry-run`, render every planned change but call no `Write` or `Edit`. Back up `~/.claude/settings.json` before the Phase 4 merge. Skip a skill that already exists unless the user chooses Recreate. Keep the merged global `CLAUDE.md` within the 200-line guidance.
+**MUST**: Honor every flag from 0a for the rest of the run. Under `--dry-run`, render every planned change but call no `Write` or `Edit`. Back up `~/.claude/settings.json` before the Phase 4 merge. Skip a skill that already exists unless the user chooses Recreate. Keep the merged global `CLAUDE.md` within the 200-line guidance; the Phase 3 fenced block is roughly 85 lines, so trim the operator's own content rather than the discipline sections if the total would overflow.
 
 ### 0a. Parse arguments
 
@@ -40,9 +40,9 @@ Run these detections and record the result. On any failure, note it and continue
 1. OS: `uname -ms`.
 2. Existing `my-coding` skill: `test -d ~/.claude/skills/my-coding` (record `MY_CODING_EXISTS`).
 3. Existing `my-language` skill: `test -d ~/.claude/skills/my-language` (record `MY_LANGUAGE_EXISTS`).
-4. Existing `my-workflow` skill: `test -d ~/.claude/skills/my-workflow` (record `MY_WORKFLOW_EXISTS`).
-5. Existing global CLAUDE.md: `test -f ~/.claude/CLAUDE.md` (record `CLAUDE_MD_EXISTS`).
-6. Existing settings: `test -f ~/.claude/settings.json` (record `SETTINGS_EXISTS`).
+4. Existing global CLAUDE.md: `test -f ~/.claude/CLAUDE.md` (record `CLAUDE_MD_EXISTS`).
+5. Existing settings: `test -f ~/.claude/settings.json` (record `SETTINGS_EXISTS`).
+6. Legacy `my-workflow` skill: `test -d ~/.claude/skills/my-workflow` (record `LEGACY_MY_WORKFLOW`). Earlier versions of this command scaffolded a `my-workflow` skill; the discipline now ships inside the Phase 3 CLAUDE.md section, so a surviving copy duplicates it. Do not delete it, but surface it in the Phase 5 summary so the operator can remove it.
 
 ### 0c. Probe ac MCP reachability
 
@@ -151,63 +151,31 @@ Hand it the brief plus the bundled template path, and instruct it to create the 
 
 Do not write the SKILL.md yourself. The skill-creator owns the file content.
 
-## Phase 2.5: my-workflow skill (skip if `--skip-skills`)
-
-Skip this entire phase when `SKIP_SKILLS = true`. Same shape as Phases 1 and 2, but the workflow discipline is mostly generic; the interview only personalizes a few placeholders.
-
-### 2.5a. Skip-if-present gate
-
-When `MY_WORKFLOW_EXISTS` is true, ask before touching it:
-
-```
-AskUserQuestion({
-  header: "my-workflow?",
-  question: "A my-workflow skill already exists at ~/.claude/skills/my-workflow/. How should I handle it?",
-  options: [
-    {label: "Skip (Recommended)", description: "Leave the existing my-workflow skill untouched and continue."},
-    {label: "Recreate", description: "Run the short workflow interview and regenerate my-workflow from scratch."}
-  ]
-})
-```
-
-On Skip, continue to Phase 3. On Recreate, run 2.5b and 2.5c. When `MY_WORKFLOW_EXISTS` is false, run 2.5b and 2.5c directly.
-
-### 2.5b. Short workflow interview
-
-The workflow discipline itself is generic to any ac user, so the template carries it as static content. The interview only fills the personal placeholders. Gather these through `AskUserQuestion` in tight rounds:
-
-1. Operator name (for the skill title, for example the byline on `<operator name>'s workflow discipline`).
-2. End-to-end trigger words: the phrases that mean "verify it through actual use, do not stop at compiles" (default examples: "ship it", "make it work").
-3. Real-world-test tools: how the operator runs a live check (multiSelect with defaults SSH, browser automation, HTTP client, REPL, plus an "Add your own" free-text option).
-4. Primary stack, for the optional stack-specific verification line (free text, or "skip").
-
-Compile the answers into a short brief: the operator name, the trigger words, the real-world-test tools, and the optional stack note.
-
-### 2.5c. Delegate to ac:skill-creator
-
-Under `--dry-run`, print the compiled brief and the target path, then skip the invocation. Otherwise invoke the skill:
-
-```
-Skill({skill: "ac:skill-creator"})
-```
-
-Hand it the brief plus the bundled template path, and instruct it to create the skill at user scope:
-
-- Create the `my-workflow` skill at `~/.claude/skills/my-workflow/` as a single `SKILL.md` file; do not create a `references/` subdirectory for it (the discipline fits in one file).
-- Read the structural template at `${CLAUDE_PLUGIN_ROOT}/references/workflow-template.md` and fill only its angle-bracket placeholders from the brief (`<operator name>`, the end-to-end trigger words, the real-world-test tools, the optional stack line). Keep every static discipline section verbatim.
-- Leave the `<!-- WORKFLOW_CUSTOM_PLACEHOLDER -->` marker in place for the operator's later additions.
-
-Do not write the SKILL.md yourself. The skill-creator owns the file content; this command only supplies the brief and the template path.
-
 ## Phase 3: global CLAUDE.md (skip if `--skip-claude-md`)
 
 Skip this entire phase when `SKIP_CLAUDE_MD = true`.
 
-### 3a. Build the proposed section
+### 3a. Placeholder interview
 
-Read the portable section template at `${CLAUDE_PLUGIN_ROOT}/references/global-claude-md-section-template.md`. This template is a lean pointer: a short `## Workflow discipline` line that routes procedural detail to the `my-workflow` skill, plus a `## Skills` list, all wrapped between `<!-- ac:delegation:start -->` and `<!-- ac:delegation:end -->` fence markers. The procedural discipline itself lives in the `my-workflow` skill (Phase 2.5), not in CLAUDE.md. Keep the pointer verbatim; light tuning of the Skills routing wording from the Phase 1, 2, and 2.5 answers is fine, but do not paste procedural prose back in.
+The workflow discipline in the section template is generic to any ac user and ships as static content. Three angle-bracket placeholders are personal; fill them through `AskUserQuestion` in tight rounds before building the section:
 
-### 3b. Merge via the fence markers, do not overwrite
+1. End-to-end trigger words: the phrases that mean "verify it through actual use, do not stop at compiles" (default examples: "ship it", "make it work").
+2. Real-world-test tools: how the operator runs a live check (multiSelect with defaults SSH, browser automation, HTTP client, REPL, plus an "Add your own" free-text option).
+3. Primary stack, for the optional stack-specific verification line (free text, or "skip" to drop the line).
+
+Under `--dry-run`, still run this interview: the answers feed the rendered preview, and skipping them would show a preview that does not match what a live run would write.
+
+### 3b. Build the proposed section
+
+Read the portable section template at `${CLAUDE_PLUGIN_ROOT}/references/global-claude-md-section-template.md`. It carries the working discipline in eleven sections (How to read this file, Reading the request, Grounding, Project memory, Ask or resolve, Research routing, Delegation bounds, Plan or work directly, Web research, Before you call it done, Skills) wrapped between `<!-- ac:delegation:start -->` and `<!-- ac:delegation:end -->` fence markers. The fenced block is roughly 87 lines. Reproduce exactly the sections the file contains; do not add one the list above does not name.
+
+This content lives in CLAUDE.md rather than in a skill on purpose: CLAUDE.md reaches every main-thread turn unconditionally, while a skill body loads only when the model chooses to load it, which is the wrong reliability profile for standing procedural discipline. Do not reintroduce a pointer-to-a-skill shape here.
+
+Two things in the template are deliberate and should survive editing. It contains no "verify your work" or "double-check" instruction, because the current Opus generation self-verifies and explicit verification instructions are documented to cause over-verification at no quality gain; the grounding section covers the real requirement instead. And it does not restate what the Claude Code built-in system prompt already carries, so it omits reversibility, parallel tool calls, `file:line` citations, dedicated-tools-over-shell, faithful reporting, and scope fidelity, while it does keep security review and user-visible verification even though a conditional built-in slot may also carry them, because that slot is skippable and a missing safety rule costs more than a duplicated line. The Project memory section is scoped the same way: the built-in already carries duplicate-checking, path-verification, and the do-not-save list, so the template states only the two things it does not, which are to open the topic file behind a relevant pointer instead of acting on its summary, and to record the durable lesson rather than the patch. It deliberately describes memory as behavior rather than naming which files reach context, because a feature flag can move the index out of the system prompt and replace it with prefetched attachments.
+
+Keep every static section verbatim. Substitute only the three placeholders from 3a, and drop the stack-specific verification bullet entirely when the operator answered "skip". Light tuning of the Skills routing wording from the Phase 1 and 2 answers is fine; do not add new sections.
+
+### 3c. Merge via the fence markers, do not overwrite
 
 The fence markers make the merge deterministic. Treat the whole block from `<!-- ac:delegation:start -->` through `<!-- ac:delegation:end -->` (inclusive) as the ac-managed region.
 
@@ -370,7 +338,7 @@ Report the outcome in one block:
 
 my-coding:    <created | recreated | skipped (exists) | skipped (--skip-skills) | dry-run>
 my-language:  <created | recreated | skipped (exists) | skipped (--skip-skills) | dry-run>
-my-workflow:  <created | recreated | skipped (exists) | skipped (--skip-skills) | dry-run>
+my-workflow:  <not created (discipline lives in CLAUDE.md) | LEGACY COPY FOUND at ~/.claude/skills/my-workflow, now redundant>
 CLAUDE.md:    <written | merged + applied | proposed (awaiting review) | skipped (--skip-claude-md) | dry-run>
 settings:     <merged | skipped (--skip-settings) | dry-run>
 Group A:      <N tuning keys set | all already present>
@@ -385,7 +353,7 @@ Never print the token value in this block: `MCP token` shows only `<set>`, `<unc
 
 Notes to print when relevant:
 
-- `my-workflow`: the workflow discipline (delegation, code-lookup, investigation, verification) now lives in this skill; the global CLAUDE.md carries only a lean pointer to it.
+- Workflow discipline (operating mode, code-lookup ladder, investigation, verification, delegation, web tools) lives in the global CLAUDE.md section this command merges, not in a skill. CLAUDE.md reaches every main-thread turn unconditionally; a skill body loads only when the model chooses to. If `LEGACY_MY_WORKFLOW` was detected, say so and note that `rm -rf ~/.claude/skills/my-workflow` removes the now-duplicated copy.
 - If a Group B opt-in was applied, restate its tradeoff. `skipWebFetchPreflight` skips the Anthropic domain-safety blocklist preflight (a hang source; Claude Code has no tool-scoped web timeout, tracked as anthropics/claude-code#34565). `permissions.skipDangerousModePermissionPrompt` and `acceptEdits` reduce confirmation friction.
 - `statusLine` uses `bunx -y ccstatusline@latest`; it needs `bun`/`npx` on PATH to render.
 - Plan-mode block: the plugin ships the PreToolUse hook and `permissions.deny` covers `EnterPlanMode` and `ExitPlanMode`. Verify it live: try entering native plan mode and confirm it is blocked with the `/ac:plan` steer.
@@ -394,7 +362,7 @@ Next steps to print:
 
 - Restart Claude Code for the settings.json changes to take effect.
 - Run `/mcp` to verify the ac MCP tools are reachable.
-- The `my-coding`, `my-language`, and `my-workflow` skills load automatically in every session; no restart needed for those.
+- The `my-coding` and `my-language` skills load automatically in every session; no restart needed for those.
 
 ## References
 
@@ -407,6 +375,5 @@ Anchors this command body relies on. Cross-check before editing.
 - `ac:skill-creator` (delegated my-coding and my-language authoring at user scope).
 - `${CLAUDE_PLUGIN_ROOT}/references/coding-style-template.md` (Phase 1 my-coding seed template).
 - `${CLAUDE_PLUGIN_ROOT}/references/language-style-template.md` (Phase 2 my-language seed template).
-- `${CLAUDE_PLUGIN_ROOT}/references/workflow-template.md` (Phase 2.5 my-workflow single-file seed template).
-- `${CLAUDE_PLUGIN_ROOT}/references/global-claude-md-section-template.md` (Phase 3 lean pointer, wrapped in the `<!-- ac:delegation:start -->` / `<!-- ac:delegation:end -->` fence markers used for the deterministic merge).
+- `${CLAUDE_PLUGIN_ROOT}/references/global-claude-md-section-template.md` (Phase 3 full workflow-discipline section, wrapped in the `<!-- ac:delegation:start -->` / `<!-- ac:delegation:end -->` fence markers used for the deterministic merge; carries three angle-bracket placeholders the 3a interview fills).
 - `plugins/ac/hooks/hooks.json` (ships the plan-mode PreToolUse block, matcher `EnterPlanMode|ExitPlanMode`; Phase 4 writes no settings hook).
