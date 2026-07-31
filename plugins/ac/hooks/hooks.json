@@ -1,5 +1,5 @@
 {
-  "description": "ac plan-execution hooks: SessionStart surfaces the in-progress plan as resume context; PreToolUse scopes subagent file edits to the active wave (fail-open agent-gated guard).",
+  "description": "ac plan-execution hooks: SessionStart surfaces active plan state (and, after a compaction, what compaction did to the skill bodies); Stop blocks a turn-ending attempt while an execute run is still in flight; PreToolUse scopes subagent file edits to the active wave and steers native plan mode to /ac:plan. Every hook fails open.",
   "hooks": {
     "SessionStart": [
       {
@@ -8,6 +8,16 @@
           {
             "type": "command",
             "command": "\"${CLAUDE_PLUGIN_ROOT}\"/hooks/session-start-plan-state.sh"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/hooks/stop-guard.sh"
           }
         ]
       }
