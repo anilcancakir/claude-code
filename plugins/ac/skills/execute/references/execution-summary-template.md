@@ -27,7 +27,7 @@ Artifacts:
 
 <If any failed steps:>
 Failed steps (accepted via 3-strike):
-- Step <N>: <title> — <one-line reason>
+- Step <N>: <title>: <one-line reason>
 
 Plan complete.
 ```

@@ -101,7 +101,7 @@ Treat each step as if a fresh agent with NO prior context will execute it. Read 
 - Is the acceptance criterion (`Done when`) verifiable as a command, a grep, or an LSP check?
 - Is the implicit knowledge (project conventions, prior decisions, framework idioms) made explicit in the step itself or in the plan's `## Codebase Conventions` section?
 - Could the fresh agent confuse this step with an adjacent one because the boundary is fuzzy?
-- **Framework-shape completeness**: when a step declares a controller, model, resource, view, or component that the framework expects to ship with a known shape, list the expected members and verify each one appears either in the step's Description or in the Files list. Worked examples: a Laravel step that says "implement `PostController` with `index`, `store`, `update`, `destroy`" while the routes use `Route::resource('posts', ...)` is missing `show`, `create`, `edit` — `/posts/create` will hit `BadMethodCallException` at runtime; an Eloquent model the route binds via slug needs `getRouteKeyName()`; a Vue SFC needs `<template>` plus a script block. Cross-check the step's framework-conventional declaration against the framework's expected member set. Tag CRITICAL when the missing member is on the `Done when:` critical path; IMPORTANT when the gap exists but workers can plausibly notice and surface it at execute time.
+- **Framework-shape completeness**: when a step declares a controller, model, resource, view, or component that the framework expects to ship with a known shape, list the expected members and verify each one appears either in the step's Description or in the Files list. Worked examples: a Laravel step that says "implement `PostController` with `index`, `store`, `update`, `destroy`" while the routes use `Route::resource('posts', ...)` is missing `show`, `create`, `edit`: `/posts/create` will hit `BadMethodCallException` at runtime; an Eloquent model the route binds via slug needs `getRouteKeyName()`; a Vue SFC needs `<template>` plus a script block. Cross-check the step's framework-conventional declaration against the framework's expected member set. Tag CRITICAL when the missing member is on the `Done when:` critical path; IMPORTANT when the gap exists but workers can plausibly notice and surface it at execute time.
 
 Tag: CRITICAL when a fresh agent could not execute the step (description too abstract, no files, no testable acceptance). IMPORTANT when the step is executable but the fresh agent would have to guess on a non-trivial detail.
 
@@ -275,7 +275,7 @@ The `Coverage and Nyquist` section is appended to every verdict, including OKAY:
 </output_format>
 
 <severity_ladder>
-**CRITICAL** — execution will fail or produce wrong results. Examples:
+**CRITICAL**: execution will fail or produce wrong results. Examples:
 
 - A referenced file or symbol does not exist (Dimension 2.1 hard miss).
 - A step is impossible for a fresh agent to execute (Dimension 2.2 hard miss).
@@ -285,7 +285,7 @@ The `Coverage and Nyquist` section is appended to every verdict, including OKAY:
 - A consumer-before-producer wave ordering (Dimension 2.6 hard miss).
 - A step proposes new code that the Reuse Map already provides (Dimension 2.7 hard miss).
 
-**IMPORTANT** — risky but not fatal individually; three or more accumulate to Auto-REJECT. Examples:
+**IMPORTANT**: risky but not fatal individually; three or more accumulate to Auto-REJECT. Examples:
 
 - Stale line numbers (file exists, line shifted by edits since the plan was drafted).
 - Tier imbalance: >80% of steps share the same tier without justification.
@@ -295,7 +295,7 @@ The `Coverage and Nyquist` section is appended to every verdict, including OKAY:
 - A Concrete Deliverable no step covers when coverage is below the threshold (Dimension 2.8).
 - A step with no sub-60s Nyquist verify and no Wave-0 scaffold (Dimension 2.8).
 
-**Not a blocker** — approve through these; this reviewer is approval-biased:
+**Not a blocker**: approve through these; this reviewer is approval-biased:
 
 - Stylistic preferences (naming, comment density, file organization).
 - Edge cases not exhaustively documented.

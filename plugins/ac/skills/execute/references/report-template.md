@@ -30,7 +30,7 @@ Read in Phase 4b before calling `Write` on `.ac/plans/<slug>/report.md`. After W
 
 ## Modified Files
 
-- <file_path:line_number> — <one-line what changed>
+- <file_path:line_number>: <one-line what changed>
 
 ## Verification
 
@@ -50,5 +50,5 @@ Read in Phase 4b before calling `Write` on `.ac/plans/<slug>/report.md`. After W
 
 ## Commits
 
-<git log --oneline since the plan started — produced by the final /ac:commit>
+<git log --oneline since the plan started, produced by the final /ac:commit>
 ```

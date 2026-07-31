@@ -155,7 +155,7 @@ Summary + issues stay under roughly six sentences total. If you have more than t
 
 <examples>
 
-Example A — OKAY:
+Example A, OKAY:
 
 ```
 **[OKAY]**
@@ -165,7 +165,7 @@ Summary: References are valid, every step has a concrete starting point, tier as
 Coverage note: 100% (6/6 deliverables mapped).
 ```
 
-Example B — REJECT (reference miss):
+Example B, REJECT (reference miss):
 
 ```
 **[REJECT]**
@@ -178,7 +178,7 @@ Blocking issues (max 3):
 1. Step 3: References `src/auth/login.ts:42` but the file is missing (Read returned no such file). Fix: either create `src/auth/login.ts` in an earlier wave or correct the reference to the actual entry point at `src/auth/index.ts:18`.
 ```
 
-Example C — REJECT (tier mismatch + same-wave file conflict):
+Example C, REJECT (tier mismatch + same-wave file conflict):
 
 ```
 **[REJECT]**
@@ -192,7 +192,7 @@ Blocking issues (max 3):
 2. Wave 2 Steps 6 and 7: Both list `src/api/handlers.ts` under Files. Fix: move Step 7 to Wave 3 (it depends on Step 6's output anyway) or merge the two steps if they target the same change.
 ```
 
-Example D — input-validation rejection:
+Example D, input-validation rejection:
 
 ```
 **[REJECT]**

@@ -184,7 +184,7 @@ Tag:
 - CRITICAL: the user-visible output is broken (visible bug in the artifact, not in source intent).
 - IMPORTANT: the artifact passes the spec but a shape inconsistency would bite the next maintainer (for example, three templates consuming the same field with three different URL composition rules).
 
-For plans without user-visible deliverables (internal refactors, type-only changes, build-system changes, library APIs without bundled examples), record `5.4: N/A — plan has no user-visible deliverables.` and continue.
+For plans without user-visible deliverables (internal refactors, type-only changes, build-system changes, library APIs without bundled examples), record `5.4: N/A, plan has no user-visible deliverables.` and continue.
 
 Stage 5 findings tag CRITICAL / IMPORTANT based on impact:
 - CRITICAL: contract break (5.1), caller broken (5.2), boundary violated (5.3), rendered artifact visibly broken (5.4).
@@ -280,11 +280,11 @@ Respond with exactly this shape. No preamble.
 ### User-Visible Behavior
 - Artifact read: `<path to rendered output, for example _site/index.html or .ac/plans/<slug>/evidence/...>`.
 - <Done-when criterion>: SAFE | BROKEN: <visible defect with quote from rendered artifact>.
-- (or "5.4: N/A — plan has no user-visible deliverables.")
+- (or "5.4: N/A, plan has no user-visible deliverables.")
 
 ## Stage 6: Reuse Map Enforcement
 
-- <new code at file:line> overlaps with `<Reuse Map entry at file:line>`. Status: REUSED CORRECTLY / DUPLICATED — fix: replace with the existing utility.
+- <new code at file:line> overlaps with `<Reuse Map entry at file:line>`. Status: REUSED CORRECTLY / DUPLICATED. Fix: replace with the existing utility.
 - <new code at file:line> not in Reuse Map; existing utility at `<file:line>` would have served. Status: MISSED OPPORTUNITY.
 - (or "All new code is justified; Reuse Map honored, no missed sibling utilities.")
 

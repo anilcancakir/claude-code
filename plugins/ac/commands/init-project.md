@@ -1,6 +1,6 @@
 ---
 description: Deep project-initialization command. Phase 0 parses arguments, scopes the gap-fill interview, and runs the gitignore guard for `CLAUDE.local.md`. Phase 1 spawns four parallel `ac:explore` agents across manifest plus build, languages plus frameworks, conventions plus style, and existing agent infra (AGENTS.md, .cursor/rules, .github/copilot-instructions.md). Phase 2 scores subdirectory rule candidates with an 8-factor matrix (path-scoped semantics, `>15 / 8-15 / <8` thresholds) clipped to `--max-depth` and a max-5 cap. Phase 3 invokes the `ac:claude-md-rules-creator` skill once, then drafts the root `CLAUDE.md`, optional `CLAUDE.local.md`, and up to 5 `.claude/rules/*.md` files with `paths:` frontmatter, honoring the skill's pre-flight checklist and the `.proposed` sidecar plus AskUserQuestion gate on existing files. Phase 4 reads back every emitted file, runs a parent-vs-child dedupe pass, and reports a per-file summary. Flags `--max-depth=N` (default 2), `--dry-run`, `--no-local`, `--force-overwrite` (overridden by `--dry-run`).
-argument-hint: [path] [--max-depth=N] [--dry-run] [--no-local] [--force-overwrite]
+argument-hint: "[path] [--max-depth=N] [--dry-run] [--no-local] [--force-overwrite]"
 effort: high
 disable-model-invocation: true
 ---

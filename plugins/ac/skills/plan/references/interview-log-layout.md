@@ -13,7 +13,7 @@ Read when writing or appending to `LOG_PATH`. The log is append-only across stag
 ```markdown
 # Interview Log: <slug>
 
-## Stage 0 — Topic
+## Stage 0, Topic
 <original topic>
 
 ## Stage 1: Codebase Survey + Research Spawns
@@ -26,10 +26,10 @@ Read when writing or appending to `LOG_PATH`. The log is append-only across stag
 - agent: `ac:librarian` (OSS examples or second library, slot 3 of 2-3): brief <one-line>. Result `research/<file>.md`. Omit row when not spawned.
 - agent: `ac:oracle` (only when architecture intent): brief <one-line>. Result inline below.
 
-## Stage 2 — Feasibility Synthesis
+## Stage 2, Feasibility Synthesis
 <the internal synthesis from Stage 2d>
 
-## Stage 3 — Interview
+## Stage 3, Interview
 ### Node 1: <decision label>
 - Question: <text>
 - Options: <list>
@@ -38,10 +38,10 @@ Read when writing or appending to `LOG_PATH`. The log is append-only across stag
 
 ### Node 2: ...
 
-## Stage 4 — Synthesis Lock
+## Stage 4, Synthesis Lock
 <rendered preview from Stage 4>
 
-## Stage 5 — Plan Write
+## Stage 5, Plan Write
 - Path: .ac/plans/<slug>/plan.md
 - Waves: <N>
 - Steps: <N>
