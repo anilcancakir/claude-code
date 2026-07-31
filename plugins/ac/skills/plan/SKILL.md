@@ -1,5 +1,5 @@
 ---
-description: Interactive planner for Claude Code main thread (Opus 5). Spawns parallel research via ac:explore, ac:librarian, optionally ac:oracle. Reads referenced files itself. Grills the user via AskUserQuestion with recommended-first walk-down branching. Audits the plan for reuse, quality, and efficiency before writing. Writes a tier-assigned plan to .ac/plans/<slug>/plan.md with Phase + Wave + Step + Tier (quick/junior/senior mapped to haiku/sonnet/opus) and per-step Must NOT guardrails. Accepts a free-form topic or a .ac/tasks/*.yaml file. Planning only; execute phase comes later. Auto-mode flag chains directly into /ac:execute when planning completes. Under --auto, the Stage 3 interview (synthesis-gate + TDD + decision nodes) STILL surfaces to the user — auto refers to system-process flow automation, not user-preference auto-decision. Only flow gates (Resume, Collision, Stage 4 lock, reviewer tier, max-iter, stall) auto-resolve.
+description: Interactive planner for Claude Code main thread (Opus 5). Spawns parallel research via ac:explore, ac:librarian, optionally ac:oracle. Reads referenced files itself. Grills the user via AskUserQuestion with recommended-first walk-down branching. Audits the plan for reuse, quality, and efficiency before writing. Writes a tier-assigned plan to .ac/plans/<slug>/plan.md with Phase + Wave + Step + Tier (quick/junior/senior mapped to haiku/sonnet/opus) and per-step Must NOT guardrails. Accepts a free-form topic or a .ac/tasks/*.yaml file. Planning only; execute phase comes later. Auto-mode flag chains directly into /ac:execute when planning completes. Under --auto, the Stage 3 interview (synthesis-gate + TDD + decision nodes) STILL surfaces to the user; auto refers to system-process flow automation, not user-preference auto-decision. Only flow gates (Resume, Collision, Stage 4 lock, reviewer tier, max-iter, stall) auto-resolve.
 when_to_use: Before non-trivial implementation work that crosses files or modules. Triggers on /ac:plan, "plan this", "let's plan X", "make a plan for Y", "grill me on this design", or when the user provides a .ac/tasks/*.yaml task definition. Use proactively for cross-module changes and refactors. Pair with /ac:execute for end-to-end auto-mode runs. Undertriggering is the failure mode for planning quality.
 argument-hint: "[--auto] <topic description | .ac/tasks/*.yaml>"
 effort: max
@@ -11,32 +11,49 @@ Interactive planner that runs entirely on the main thread (Opus 5). Spawns read-
 
 Request: $ARGUMENTS
 
+## Standing rules
+
+These hold for the whole run, including after a compaction. Everything below this block is procedure; these are the bounds. They sit here because a re-attached skill keeps only its first 5,000 tokens (`docs/skills.md:298-300`) and this body is far larger, so a rule further down is gone from context on exactly the long runs that need it.
+
+**Turn termination.** Your turn ends on exactly one of: an `AskUserQuestion` call, the Stage 6 plan summary (or, under `AUTO_MODE = true`, the chained `ac:execute` run reaching its own terminal state), or a named BLOCKER from `<auto_mode>`. Nothing else ends it. Never end a turn by describing what you would do next.
+
+**Context.** Auto-compaction summarizes older turns and the run continues. A filling context window is not a stopping condition and not a reason to defer work to a new session. When the procedure you need has been truncated away, re-invoke the `ac:plan` skill to restore this body and read `.ac/plans/<slug>/checkpoint.json` for where the run was.
+
+**Loop bounds come from disk, never from working memory.** A counter you hold in context drifts across a long run; a file does not. Before every Stage 5.5 reviewer spawn, derive both counters from `LOG_PATH`:
+
+```
+PLAN_REVIEWER_ITER        = (count of `^## Stage 5.5 Iteration` headings in LOG_PATH) + 1
+PLAN_REVIEWER_PREV_ISSUES = the `Issue count:` value under the highest-numbered heading, or Infinity when none exists
+```
+
+**Progress surface.** Call `TaskList` before creating any task, so a resumed session extends its own list instead of duplicating it. One task per stage, never one per decision.
+
 <role>
 You are the /ac:plan planner. You orchestrate research, build your own mental model of the codebase by reading files directly, co-decide every uncertainty with the user, audit your plan for reuse and quality, and write the plan file. You do not modify source code. You do not invoke /ac:execute when AUTO_MODE = false; the user runs that command after reviewing the plan you produce. When AUTO_MODE = true you chain into /ac:execute via the Skill tool after delivering the plan summary.
 </role>
 
 <scope>
 This skill produces planning artifacts only:
-- `.ac/plans/<slug>/plan.md` — the plan file, single source of truth for downstream phases.
-- `.ac/plans/<slug>/interview-log.md` — audit trail.
-- `.ac/plans/<slug>/checkpoint.json` — resume state; deleted after Stage 5 success.
-- `.ac/plans/<slug>/research/*.md` — raw subagent outputs from Stage 1.
-- `.ac/plans/<slug>/evidence/` — empty directory; populated by `/ac:execute` Phase 2 per-step QA.
-- `.gitignore` — appended with `.ac/` on first invocation if not already ignored.
-- `.ac/plans/<slug>/abandoned.md` — only on user-chosen abandonment.
+- `.ac/plans/<slug>/plan.md`: the plan file, single source of truth for downstream phases.
+- `.ac/plans/<slug>/interview-log.md`: audit trail.
+- `.ac/plans/<slug>/checkpoint.json`: resume state; deleted after Stage 5 success.
+- `.ac/plans/<slug>/research/*.md`: raw subagent outputs from Stage 1.
+- `.ac/plans/<slug>/evidence/`: empty directory; populated by `/ac:execute` Phase 2 per-step QA.
+- `.gitignore`: appended with `.ac/` on first invocation if not already ignored.
+- `.ac/plans/<slug>/abandoned.md`: only on user-chosen abandonment.
 
 Source code is never modified by this skill. After the plan is approved, the user runs `/ac:execute <slug>` to execute it (or auto mode chains directly).
 </scope>
 
 <capabilities>
 Tools available on main thread (10 base + deferred via ToolSearch):
-- `Agent` — spawn `ac:explore`, `ac:librarian`, `ac:oracle`.
-- `Read`, `Grep`, `Glob`, `LSP` — direct codebase access.
-- `Write`, `Edit` — for the planning artifacts listed in <scope>.
-- `Bash` — read-only checks (`git`, `find`, `ls`) and one-shot `.gitignore` append.
-- `Skill` — invoke local skills when relevant (e.g., `ac:execute` for the auto-mode chain at Stage 6a, `ac:git-master` via `/ac:commit` for repo-state surfacing).
-- `ToolSearch` — load deferred tools before first use.
-- `AskUserQuestion`, `TaskCreate`, `TaskUpdate` — deferred; require ToolSearch round-trip.
+- `Agent`: spawn `ac:explore`, `ac:librarian`, `ac:oracle`.
+- `Read`, `Grep`, `Glob`, `LSP`: direct codebase access.
+- `Write`, `Edit`: for the planning artifacts listed in <scope>.
+- `Bash`: read-only checks (`git`, `find`, `ls`) and one-shot `.gitignore` append.
+- `Skill`: invoke local skills when relevant (e.g., `ac:execute` for the auto-mode chain at Stage 6a, `ac:git-master` via `/ac:commit` for repo-state surfacing).
+- `ToolSearch`: load deferred tools before first use.
+- `AskUserQuestion`, `TaskCreate`, `TaskUpdate`: deferred; require ToolSearch round-trip.
 
 Subagent envelope reminder: subagents are separate HTTP calls with their own system prompt; they cannot call Agent themselves and they do not inherit your context. Brief them with CONTEXT + GOAL + DOWNSTREAM + REQUEST.
 </capabilities>
@@ -51,7 +68,9 @@ Subagent envelope reminder: subagents are separate HTTP calls with their own sys
 </constraints>
 
 <auto_mode>
-This skill accepts a `--auto` flag (parsed in Stage 0a). When the flag is present OR the user picks `Lock all and run on auto mode` at Stage 4, the planner enters auto mode: `AUTO_MODE = true` for the rest of the run.
+This skill accepts a `--auto` flag (parsed in Stage 0a). Exactly two things set `AUTO_MODE = true`: the literal `--auto` flag in `$ARGUMENTS`, or the user picking `Lock all and run on auto mode` at Stage 4.
+
+A statement inside the topic prose does NOT set it. "auto mode enabled", "onay alinca otomatik execute et", "run it end to end", and every paraphrase of them leave `AUTO_MODE = false`, so the Stage 4 question still fires and the user still picks. Treat such a statement as evidence for which Stage 4 option to mark `(Recommended)`, never as the answer itself. The failure this rule prevents: reading intent out of prose skips the one gate where the user sees what the rest of the run will do.
 
 Auto mode automates system-process flow gates; it does NOT auto-decide user-preference content. The Stage 3 interview (synthesis-gate + TDD + decision-tree nodes) still surfaces to the user even when `AUTO_MODE = true`. The `--auto` contract is: skip confirmation prompts and recovery escalations, but never silently choose a user-preference value on the user's behalf.
 
@@ -71,9 +90,9 @@ Auto-eligible AskUserQuestion call sites (auto-pick `(Recommended)` first option
 - Stage 5.5 max-iter (auto-pick `Proceed anyway (Recommended)`)
 - Stage 5.5 stall (auto-pick `Proceed anyway (Recommended)`)
 
-Interview-surface AskUserQuestion call sites (always surface, even in AUTO_MODE = true — user-preference content decisions, NOT system-process flow gates; Stage 3b routing rule has already filtered these to user-answerable: preference / business / value judgment):
+Interview-surface AskUserQuestion call sites (always surface, even in AUTO_MODE = true, user-preference content decisions, NOT system-process flow gates; Stage 3b routing rule has already filtered these to user-answerable: preference / business / value judgment):
 - Stage 3a Proceed after synthesis preview (synthesis gateway to the interview; user may redirect `Wrong scope, correct first` or `Investigate more first` before any decision locks)
-- Stage 3b.1 TDD interview node (test mode preference: tdd / tests-after / none — value judgment about test discipline)
+- Stage 3b.1 TDD interview node (test mode preference: tdd / tests-after / none, value judgment about test discipline)
 - Stage 3c Every interview decision-tree node (each node represents a user-preference choice the 3b routing rule could not resolve via code-read or docs-spawn)
 
 BLOCKER call sites (always surface to the user, even in auto mode):
@@ -86,7 +105,7 @@ Anti-runaway guards already in the design (no additional step cap):
 - Stage 3d Stalled? fires after three consecutive non-progress turns. Same logic.
 - The chained `/ac:execute` has its own 3-strike rule (Phase 2j), max-5 code-review loop (Phase 3d), and stall detection. Those bound the execute side independently.
 
-Heartbeat discipline in auto mode: emit one short user-visible line for each of (a) stage transitions (`entered Stage X` / `Stage X completed`), (b) auto-resolved gates (`Auto mode: <header> → <selected option>` for each item in the auto-eligible list when it fires). Interview-surface call sites do NOT emit heartbeats — they fire AskUserQuestion to the user directly, and the user's selection appears in the chat as the question response. Together stage-transition + gate-resolution heartbeats give the run a visible cadence (~6-10 heartbeat lines per run is typical) without prompting.
+Heartbeat discipline in auto mode: emit one short user-visible line for each of (a) stage transitions (`entered Stage X` / `Stage X completed`), (b) auto-resolved gates (`Auto mode: <header> → <selected option>` for each item in the auto-eligible list when it fires). Interview-surface call sites do NOT emit heartbeats, they fire AskUserQuestion to the user directly, and the user's selection appears in the chat as the question response. Together stage-transition + gate-resolution heartbeats give the run a visible cadence (~6-10 heartbeat lines per run is typical) without prompting.
 </auto_mode>
 
 <bootstrap>
@@ -122,29 +141,7 @@ If `AUTO_MODE = true`, emit a single user-visible line: `Auto mode engaged. Will
 
 ### 0b. Derive slug and paths
 
-Slug derivation runs seven steps in order:
-
-1. **Absolute-path prefix strip**: if the topic STARTS with an absolute path (matches `^/[^ ]+/[^ ]*`), separate the path prefix from the trailing topic body. Store the path as `PROJECT_DIR_HINT` (used as the Recommended default for the Stage 3 D1 project-location decision when one fires). The trailing body becomes the slug-derivation input.
-2. **Tokenize**: split slug-input on whitespace into raw tokens. Preserve original casing for the final normalize step; transformations in steps 3-5 operate on derived forms without mutating the original token strings.
-3. **Diacritic-normalize for matching** (Turkish ASCII fold): produce a `normalized form` of each token by applying the fold `ı→i, İ→I, ş→s, Ş→S, ç→c, Ç→C, ö→o, Ö→O, ü→u, Ü→U, ğ→g, Ğ→G` and lowercasing. Use this `normalized form` for stopword + tech-stack matching in steps 4-5. The `normalized form` is matching-only; the original casing is preserved for step 7. ASCII fold makes `altinda` (user-typed) and `altında` (Turkish-keyboard) match the same stopword entry.
-4. **Stopword filter** (case-insensitive AND diacritic-insensitive; drop any token whose `normalized form` matches an entry below):
-   - TR: `ile, bir, bu, su, icin, gibi, kadar, cok, az, ya, ve, veya, altinda, ustunde, uzerinde, icinde, disinda, ki, mi, mu, olarak, calisak, calismak, yapalim, yapmak, kuralim, kurmak, gelistirelim, gelistirme, projesi, proje, uygulamasi, uygulama, sistemi, sistem`
-   - EN: `the, a, an, of, to, in, on, at, with, by, for, from, and, or, but, as, is, are, was, were, be`
-   List entries are in ASCII-fold + lowercase form; the token's `normalized form` from step 3 matches against this list.
-5. **Tech-stack token preference**: scan the surviving tokens for matches against this regex (case-insensitive on `normalized form`):
-   `^(laravel|vue|nuxt|react|svelte|astro|next|jetstream|livewire|inertia|django|flask|rails|spring|express|hono|trpc|graphql|grpc|kafka|redis|postgres|postgresql|mysql|mongodb|sqlite|tailwind|prisma|drizzle|vitest|jest|pest|bun|node|nodejs|deno|typescript|javascript|python|golang|rust|kotlin|swift|flutter|html|markdown|md|mcp|cli|api|server|db|cache|webhook|websocket|sdk)$`
-   If at least one token matches, the truncate step below prioritizes tech-stack matches into the first-5 slots (up to 5 if many), then fills the remaining slots with non-tech surviving tokens in their original order. When zero tech-stack matches, truncate proceeds with original order.
-6. **Truncate**: take the first 5 tokens per the priority order from step 5 (tech-stack matches first, then non-tech fill).
-7. **Normalize**: lowercase each truncated token (original casing form, NOT the diacritic-folded form), replace any run of non-alphanumeric characters within each token with a single hyphen, join with `-`, then collapse any run of consecutive `-` in the joined string to a single `-`, finally strip leading/trailing hyphens.
-
-If the resulting slug is empty (every token was a stopword — pathological case), fall back to the topic's first non-stopword word; if even that fails, use `unnamed-plan` and surface the unusual slug in Stage 3a so the user can override.
-
-Examples:
-- `"Add Health-Check Endpoint v2"` → no path-strip; no diacritic; no stopword drop; tech matches: none → tokens `["Add", "Health-Check", "Endpoint", "v2"]` → truncate 5 → normalize → `add-health-check-endpoint-v2`.
-- `"nodejs typescript ile local bir mcp server kuralim"` → no path-strip; diacritic-norm noop; drop `ile`, `bir`, `kuralim` → survivors `["nodejs", "typescript", "local", "mcp", "server"]`; tech matches `[nodejs, typescript, mcp, server]` → truncate-5 priority `[nodejs, typescript, mcp, server, local]` → `nodejs-typescript-mcp-server-local`.
-- `"/Users/anil/Code/foo/references altinda laravel jetstream blog"` → path-strip → `PROJECT_DIR_HINT = "/Users/anil/Code/foo/references/"`, slug-input `"altinda laravel jetstream blog"`; diacritic-norm `altinda` already ASCII; drop `altinda` → survivors `[laravel, jetstream, blog]`; tech matches `[laravel, jetstream]` → truncate-5 priority `[laravel, jetstream, blog]` → `laravel-jetstream-blog`.
-- `"/Users/anil/Code/foo/references altinda nodejs + typescript ile cli olarak calisak html to markdown projesi"` → path-strip; diacritic-norm noop (input already ASCII); drop `altinda, ile, olarak, calisak, to, projesi` → survivors `[nodejs, +, typescript, cli, html, markdown]`; tech matches `[nodejs, typescript, cli, html, markdown]` (5 tech) → truncate-5 `[nodejs, typescript, cli, html, markdown]` → normalize step 7 (`+` token replaced + post-join collapse) → `nodejs-typescript-cli-html-markdown`. (Tech-stack priority preempts `+` from surviving into the slug.)
-- `"the the the foo bar"` → drop `the` (3×) → tokens `[foo, bar]`; no tech matches → `foo-bar`.
+Read `${CLAUDE_SKILL_DIR}/references/slug-derivation.md` and apply it. It carries the seven ordered steps (path-strip, tokenize, Turkish ASCII fold, stopword filter, tech-stack preference, truncate to 5, normalize), the empty-slug fallback, and five worked examples.
 
 Set:
 
@@ -213,11 +210,11 @@ For each marker found (skip lockfiles and `node_modules`), Read it. Trace path-s
 
 Write the survey to `RESEARCH_DIR/00-directory-survey.md` with sections:
 
-- `## Top-level structure` — raw tree / find output.
-- `## Language / stack markers` — `file_path:line_number` for each marker plus the one-line summary (framework name + major version, key dependencies, scripts).
-- `## Project conventions` — extracted CLAUDE.md / `.claude/rules/*.md` headlines, with the `paths:` scope when present.
-- `## Sub-projects` — directories that contain their own `package.json` + `tsconfig.json` (Layer A authority targets at execute time per the executor's sub-project boundary rule).
-- `## Provisional research angles` — 5 to 10 concrete questions the survey raised, derived jointly from topic + observed structure. Feeds 1c and 1d brief construction.
+- `## Top-level structure`: raw tree / find output.
+- `## Language / stack markers`: `file_path:line_number` for each marker plus the one-line summary (framework name + major version, key dependencies, scripts).
+- `## Project conventions`: extracted CLAUDE.md / `.claude/rules/*.md` headlines, with the `paths:` scope when present.
+- `## Sub-projects`: directories that contain their own `package.json` + `tsconfig.json` (Layer A authority targets at execute time per the executor's sub-project boundary rule).
+- `## Provisional research angles`: 5 to 10 concrete questions the survey raised, derived jointly from topic + observed structure. Feeds 1c and 1d brief construction.
 
 The survey is working memory for the main agent AND a referenceable artifact for subagent briefs. Subagent briefs in 1c-1d MUST anchor their REQUEST to survey-identified paths, not generic guesses.
 
@@ -291,11 +288,11 @@ State scope: read every referenced file; do not stop after the first three. The 
 
 Sample 2 to 3 representative files and check linter, formatter, and type-checker configs. Tag the codebase with one of:
 
-- `disciplined` — consistent style, configs present, tests cover the surface. Match patterns strictly.
-- `transitional` — mixed styles, partial migrations visible. Ask which pattern to follow when it matters.
-- `legacy` — older patterns, gaps in tooling, but coherent within its era.
-- `chaotic` — no consistent style, no tests. Propose conventions and confirm with the user.
-- `greenfield` — empty or near-empty. Apply modern best practices.
+- `disciplined`: consistent style, configs present, tests cover the surface. Match patterns strictly.
+- `transitional`: mixed styles, partial migrations visible. Ask which pattern to follow when it matters.
+- `legacy`: older patterns, gaps in tooling, but coherent within its era.
+- `chaotic`: no consistent style, no tests. Propose conventions and confirm with the user.
+- `greenfield`: empty or near-empty. Apply modern best practices.
 
 ### 2c. Extract dominant conventions
 
@@ -315,8 +312,8 @@ These six fields go into the checkpoint and into the plan template's `## Codebas
 Scan for test infrastructure: `package.json` scripts containing `test`, presence of `vitest.config.*` / `jest.config.*` / `bun.test.*` / `pytest.ini` / equivalent, and a `tests/` or `__tests__/` directory with non-trivial content. Record:
 
 - `TEST_INFRA_PRESENT = true | false`
-- `TEST_FRAMEWORK = <name>` (when detected) — vitest, jest, bun test, pytest, go test, etc.
-- `TEST_COMMAND = <command>` — extracted from `package.json` or `CLAUDE.md`.
+- `TEST_FRAMEWORK = <name>` (when detected): vitest, jest, bun test, pytest, go test, etc.
+- `TEST_COMMAND = <command>`: extracted from `package.json` or `CLAUDE.md`.
 
 This drives the Stage 3 TDD interview node: if `TEST_INFRA_PRESENT = true`, the planner asks the user whether to use TDD (defaulting to yes, since the infrastructure already exists). If `TEST_INFRA_PRESENT = false`, the planner asks whether to set up test infrastructure as part of this plan or proceed without tests.
 
@@ -340,7 +337,7 @@ TaskUpdate Stage 2 to `completed`, Stage 3 to `in_progress`.
 
 Goal: walk down the decision tree with the user until every load-bearing decision is locked. Hybrid walk-down branching plus multiSelect for parallel independent decisions. Every question carries a recommended option grounded in research.
 
-**Auto-mode handling for this stage**: under `AUTO_MODE = true`, Stage 3a (Proceed?), 3b.1 (TDD?), and 3c (every decision-tree node) STILL SURFACE to the user — these are the interview-surface call sites per `<auto_mode>`. Auto mode does not suppress user-preference content decisions; it only auto-resolves system-process flow gates. Stage 3d (Stalled?) remains auto-eligible (flow-recovery, not content): when 3 consecutive non-progress turns trigger it, auto mode picks `Continue (Recommended)` and emits a heartbeat. The plan-quality outcome of the interview rests on (a) the recommendations the planner attaches to each AskUserQuestion being well-grounded in Stage 2 research, and (b) the user's selections among them. Stage 2 deep read is the gating quality step for recommendations; the user is the gating authority for selections.
+**Auto-mode handling for this stage**: under `AUTO_MODE = true`, Stage 3a (Proceed?), 3b.1 (TDD?), and 3c (every decision-tree node) STILL SURFACE to the user; these are the interview-surface call sites per `<auto_mode>`. Auto mode does not suppress user-preference content decisions; it only auto-resolves system-process flow gates. Stage 3d (Stalled?) remains auto-eligible (flow-recovery, not content): when 3 consecutive non-progress turns trigger it, auto mode picks `Continue (Recommended)` and emits a heartbeat. The plan-quality outcome of the interview rests on (a) the recommendations the planner attaches to each AskUserQuestion being well-grounded in Stage 2 research, and (b) the user's selections among them. Stage 2 deep read is the gating quality step for recommendations; the user is the gating authority for selections.
 
 ### 3a. Build the decision tree and surface the synthesis
 
@@ -356,10 +353,10 @@ Before we start the interview, here is what I found:
 
 You asked: <restate>
 What exists today: <N similar implementations at file:line refs>
-Codebase fit: <High | Medium | Low> — <reason>
+Codebase fit: <High | Medium | Low> (<reason>)
 Codebase state: <classification>
-Effort: <Small | Medium | Large> — <file counts>
-Reuse candidates: <count>; top 3: <file:line — what>
+Effort: <Small | Medium | Large> (<file counts>)
+Reuse candidates: <count>; top 3: <file:line, what>
 Prerequisites: <list or "None">
 Risks: <list or "None significant">
 
@@ -379,15 +376,15 @@ Before raising any question to the user, route it through this three-way check:
 </routing_rule>
 
 <routing_examples>
-Example A — code-answerable, do not ask the user:
+Example A (code-answerable), do not ask the user:
 - Question: "Does this codebase use ESLint or Biome?"
 - Routing: code-answerable. Read package.json and look for `.eslintrc.*` or `biome.json`. Record the result in canonical_refs.
 
-Example B — docs-answerable, spawn `ac:librarian`:
+Example B (docs-answerable), spawn `ac:librarian`:
 - Question: "What's the recommended retry strategy for OpenAI's chat completions API in 2026?"
 - Routing: external docs. Spawn `ac:librarian` with brief targeting "OpenAI rate-limit and retry guidance, official docs, 2026".
 
-Example C — user-answerable, `AskUserQuestion`:
+Example C (user-answerable), use `AskUserQuestion`:
 - Question: "Should we cache responses in Redis or in-memory?"
 - Routing: user preference and operational trade-off. Research provides the option list; the user picks. `AskUserQuestion` with recommended option backed by Stage 2 findings.
 </routing_examples>
@@ -402,16 +399,16 @@ Branch on `TEST_INFRA_PRESENT` from Stage 2c.1:
 
 - If `TEST_INFRA_PRESENT = true`:
   `AskUserQuestion` (header `TDD?`, options:
-  - `Yes, TDD (Recommended)` — `TDD_MODE = "tdd"`. Worker briefings will require "write failing test first, then implementation".
-  - `Yes, tests after implementation` — `TDD_MODE = "tests-after"`. Worker briefings require tests for behavioral changes but allow implementation-first.
-  - `No tests` — `TDD_MODE = "none"`. Worker briefings include no test-writing directive. Use this only when the user explicitly opts out of tests for this plan.
+  - `Yes, TDD (Recommended)`: `TDD_MODE = "tdd"`. Worker briefings will require "write failing test first, then implementation".
+  - `Yes, tests after implementation`: `TDD_MODE = "tests-after"`. Worker briefings require tests for behavioral changes but allow implementation-first.
+  - `No tests`: `TDD_MODE = "none"`. Worker briefings include no test-writing directive. Use this only when the user explicitly opts out of tests for this plan.
   )
 
 - If `TEST_INFRA_PRESENT = false`:
   `AskUserQuestion` (header `Tests?`, options:
-  - `Set up test infrastructure + TDD (Recommended)` — `TDD_MODE = "tdd"`. The plan includes a Wave 1 step to set up the chosen framework. The user answers a follow-up to pick the framework (Vitest / Bun test / Jest / pytest / Go test / Other).
-  - `Set up test infrastructure + tests after` — `TDD_MODE = "tests-after"`. Same as above but implementation-first per step.
-  - `Proceed without tests` — `TDD_MODE = "none"`. No test setup, no tests in plan. Surface this in the plan's `## Risks Accepted` because untested code is a real risk.
+  - `Set up test infrastructure + TDD (Recommended)`: `TDD_MODE = "tdd"`. The plan includes a Wave 1 step to set up the chosen framework. The user answers a follow-up to pick the framework (Vitest / Bun test / Jest / pytest / Go test / Other).
+  - `Set up test infrastructure + tests after`: `TDD_MODE = "tests-after"`. Same as above but implementation-first per step.
+  - `Proceed without tests`: `TDD_MODE = "none"`. No test setup, no tests in plan. Surface this in the plan's `## Risks Accepted` because untested code is a real risk.
   )
 
 Record the choice in the checkpoint as `tdd_mode` and surface it in the Stage 4 Synthesis Preview. The plan's `## Codebase Conventions` section gets a `TDD: <mode>` field at write time.
@@ -433,9 +430,9 @@ Universal rules applied to every turn of the interview:
 - Reuse-vs-build bias: when a decision pits an existing X (with file_path:line_number) against a new Y, make the existing X the recommended option unless research clearly contradicts. The bias is reuse.
 - Per-node checkpoint write: after each resolved decision, write `CHECKPOINT_PATH` with `last_stage: "3"`. Enables resume mid-interview after auto-compact.
 - Interview log: append every Q&A to `LOG_PATH` (decision, options presented, user selection, freeform notes). For the layout, read `${CLAUDE_SKILL_DIR}/references/interview-log-layout.md`.
-- Re-research after path-narrowing locks: when a locked decision narrows the option space (chosen framework version, chosen library, chosen test runner), invalidate any prior research that targeted the un-chosen options. Re-orient context to the chosen path by re-reading the relevant `research/*.md` files; the early-Stage-1 fan-out may have weighted both option arms equally and the un-chosen arm's findings no longer apply. If research depth on the chosen path is thin (single source, surface-level only), spawn ONE more targeted `ac:librarian` brief BEFORE the next decision node, using the canonical brief at `${CLAUDE_SKILL_DIR}/references/librarian-brief.md`. Example: user locks Vue 3 after Stage 3 surfaced both Vue 2 and Vue 3 candidates — discard the Vue 2 reasoning, deepen Vue 3 research if thin, then continue with Vue 3-specific decisions. Apply this trigger after every locked decision that narrows the option space, not just framework choices.
-- **Decision-tree pruning after path-narrowing locks (F23)**: after each locked Stage 3c decision, re-evaluate the REMAINING decision tree for pruning opportunities — the decision-side parallel to the research-side re-orient rule above. If a downstream decision's options ALL became moot due to the lock, drop that decision from the tree, note the pruning in the interview-log under `## Stage 3 Decision Tree Pruning`, and do NOT ask the user the dead question. Worked example: when the user locks `D4 Input modes: file only`, the downstream decisions `D5 URL handling rigor` and `D6 Path-traversal-via-URL guard` have nothing to decide (no URL surface exists) — collapse both into a single `D7 Sanitizer rigor` question covering the surface that remains, or drop entirely if no surface remains. Apply this after every locked decision, not just the first; pruning compounds across the walk-down.
-- **AskUserQuestion batching heuristic (F25)**: standalone single-question calls for GATEWAY questions whose answer changes the flow (3a Proceed?, 3b.1 Tests? when test-infra detection branches, conditional follow-ups that depend on a prior answer within the same stage). Batched calls (up to 4 questions per AskUserQuestion invocation; that is the spec hard cap, not a target) for INDEPENDENT decisions that share no conditional dependency. After each batched call's answers arrive, re-evaluate the remaining decision tree per the pruning rule above BEFORE issuing the next batch — answers from batch N can prune nodes that would otherwise have entered batch N+1. Smaller cohesive batches (3 location-class questions together; 2 security-rigor questions together) beat arbitrary batch-of-4 fills; cohesion matters more than fill rate.
+- Re-research after path-narrowing locks: when a locked decision narrows the option space (chosen framework version, chosen library, chosen test runner), invalidate any prior research that targeted the un-chosen options. Re-orient context to the chosen path by re-reading the relevant `research/*.md` files; the early-Stage-1 fan-out may have weighted both option arms equally and the un-chosen arm's findings no longer apply. If research depth on the chosen path is thin (single source, surface-level only), spawn ONE more targeted `ac:librarian` brief BEFORE the next decision node, using the canonical brief at `${CLAUDE_SKILL_DIR}/references/librarian-brief.md`. Example: user locks Vue 3 after Stage 3 surfaced both Vue 2 and Vue 3 candidates, discard the Vue 2 reasoning, deepen Vue 3 research if thin, then continue with Vue 3-specific decisions. Apply this trigger after every locked decision that narrows the option space, not just framework choices.
+- **Decision-tree pruning after path-narrowing locks (F23)**: after each locked Stage 3c decision, re-evaluate the REMAINING decision tree for pruning opportunities, the decision-side parallel to the research-side re-orient rule above. If a downstream decision's options ALL became moot due to the lock, drop that decision from the tree, note the pruning in the interview-log under `## Stage 3 Decision Tree Pruning`, and do NOT ask the user the dead question. Worked example: when the user locks `D4 Input modes: file only`, the downstream decisions `D5 URL handling rigor` and `D6 Path-traversal-via-URL guard` have nothing to decide (no URL surface exists): collapse both into a single `D7 Sanitizer rigor` question covering the surface that remains, or drop entirely if no surface remains. Apply this after every locked decision, not just the first; pruning compounds across the walk-down.
+- **AskUserQuestion batching heuristic (F25)**: standalone single-question calls for GATEWAY questions whose answer changes the flow (3a Proceed?, 3b.1 Tests? when test-infra detection branches, conditional follow-ups that depend on a prior answer within the same stage). Batched calls (up to 4 questions per AskUserQuestion invocation; that is the spec hard cap, not a target) for INDEPENDENT decisions that share no conditional dependency. After each batched call's answers arrive, re-evaluate the remaining decision tree per the pruning rule above BEFORE issuing the next batch, answers from batch N can prune nodes that would otherwise have entered batch N+1. Smaller cohesive batches (3 location-class questions together; 2 security-rigor questions together) beat arbitrary batch-of-4 fills; cohesion matters more than fill rate.
 
 ### 3d. Stall handling
 
@@ -457,7 +454,7 @@ Write a checkpoint with `last_stage: "3-complete"`. TaskUpdate Stage 3 to `compl
 
 Goal: a planning-time oracle pass that catches design bugs and idiomatic-pattern hallucinations before plan write. Run after Stage 3 interview concludes; evaluate the locked decisions against four trigger conditions. If any fires, spawn ONE `ac:oracle` in background with a focused brief; findings inline into the Stage 4 Synthesis Preview under a new `### Oracle Sanity-Check Findings` subsection. If no trigger fires, skip Stage 3.5 silently (no oracle spawn, no Stage 4 subsection).
 
-**Auto-mode handling**: when `AUTO_MODE = true`, Stage 3.5 still runs — auto mode does not skip substantive checks, only preference questions. Oracle findings tagged CRITICAL flip a BLOCKER per `<auto_mode>` (the user must judge revise / accept-as-risk / abandon). IMPORTANT findings inline into Stage 4 preview and auto mode rolls past at Stage 4 lock-all, but the report logs them.
+**Auto-mode handling**: when `AUTO_MODE = true`, Stage 3.5 still runs; auto mode does not skip substantive checks, only preference questions. Oracle findings tagged CRITICAL flip a BLOCKER per `<auto_mode>` (the user must judge revise / accept-as-risk / abandon). IMPORTANT findings inline into Stage 4 preview and auto mode rolls past at Stage 4 lock-all, but the report logs them.
 
 ### 3.5a. Trigger evaluation
 
@@ -471,7 +468,7 @@ Evaluate each trigger against the locked decisions, scope, and conventions from 
 
 4. **Migration with destructive operations**: schema rename, `DROP`, `TRUNCATE`, data-shape change with no rollback path. Production-safety review.
 
-Trigger evaluation is mechanical — match locked decisions and conventions against the surface lists above. If zero triggers fire: TaskUpdate Stage 3.5 to `completed`, Stage 4 to `in_progress`, proceed silently. If one or more triggers fire: assemble ONE oracle brief targeting the fired triggers and proceed to 3.5b.
+Trigger evaluation is mechanical, match locked decisions and conventions against the surface lists above. If zero triggers fire: TaskUpdate Stage 3.5 to `completed`, Stage 4 to `in_progress`, proceed silently. If one or more triggers fire: assemble ONE oracle brief targeting the fired triggers and proceed to 3.5b.
 
 ### 3.5b. Oracle brief shape
 
@@ -497,7 +494,7 @@ Wait for the oracle response. Parse findings into CRITICAL and IMPORTANT buckets
 
 - **At least one CRITICAL finding**: surface via `AskUserQuestion` BEFORE Stage 4, even when `AUTO_MODE = true` (BLOCKER class):
   - Header: `Oracle CRIT?`
-  - Options: `Revise plan (Recommended)` — loop back to Stage 3 targeting the affected decision / `Accept as Risk and continue` — lock the oracle's concern in `## Risks Accepted` with the oracle's recommended action as the recorded default / `Abandon` — write `.ac/plans/<slug>/abandoned.md` with synthesis + oracle finding, exit.
+  - Options: `Revise plan (Recommended)`: loop back to Stage 3 targeting the affected decision / `Accept as Risk and continue`: lock the oracle's concern in `## Risks Accepted` with the oracle's recommended action as the recorded default / `Abandon`: write `.ac/plans/<slug>/abandoned.md` with synthesis + oracle finding, exit.
   - Apply the user's choice.
 
 - **Zero CRITICAL, one or more IMPORTANT findings**: do NOT halt; inline the findings into Stage 4 preview under `### Oracle Sanity-Check Findings`. Auto mode rolls past at Stage 4 lock-all per its policy; the report logs them.
@@ -506,7 +503,7 @@ Wait for the oracle response. Parse findings into CRITICAL and IMPORTANT buckets
 
 Append the oracle outcome to `LOG_PATH` under `## Stage 3.5 Oracle Sanity Check` (triggers fired, findings count, user routing if BLOCKER fired). Write a checkpoint with `last_stage: "3.5"`.
 
-**Cross-project propagation (F22)**: scan oracle findings for explicit statements that the finding applies to a sibling project (e.g. "the same regex gap exists at `references/<sibling>/.../foo.ts:N`", "this pattern is shared with the kodizm proxy at `cli/ac/src/mcp.ts`"). When such a statement is present, record the finding in the plan's `## Cross-Project Observations` section at Stage 5 write time. The CURRENT plan absorbs the finding for its own scope; the sibling-fix is a separate follow-up plan the operator spins up later. Do not silently fix sibling code — sibling-fix scope belongs to its own plan with its own interview, oracle, and review cycle.
+**Cross-project propagation (F22)**: scan oracle findings for explicit statements that the finding applies to a sibling project (e.g. "the same regex gap exists at `references/<sibling>/.../foo.ts:N`", "this pattern is shared with the kodizm proxy at `cli/ac/src/mcp.ts`"). When such a statement is present, record the finding in the plan's `## Cross-Project Observations` section at Stage 5 write time. The CURRENT plan absorbs the finding for its own scope; the sibling-fix is a separate follow-up plan the operator spins up later. Do not silently fix sibling code, sibling-fix scope belongs to its own plan with its own interview, oracle, and review cycle.
 
 TaskUpdate Stage 3.5 to `completed`, Stage 4 to `in_progress`.
 
@@ -533,10 +530,10 @@ Render the locked synthesis as plain text in the chat:
 - Import convention: <pattern>
 
 ### Reuse Map (existing code to leverage)
-- file_path:line_number — what it provides — which decision uses it
+- file_path:line_number, what it provides, which decision uses it
 
 ### Locked Decisions
-- <decision>: <choice> — <rationale>
+- <decision>: <choice> (<rationale>)
 
 ### Oracle Sanity-Check Findings (only when Stage 3.5 surfaced findings)
 - [IMPORTANT] <trigger>: <concern>. Evidence: <docs URL or file:line>. Recommended action: <revise | accept-as-risk | no-action>.
@@ -550,18 +547,20 @@ Render the locked synthesis as plain text in the chat:
 - <decision and recommended default>: <why accepted>
 
 ### Canonical References
-- file_path:line_number — what it provides
+- file_path:line_number, what it provides
 ```
 
 Cap rendered length at roughly 8 KB. For longer content, summarize each section to two sentences and link the full content from `LOG_PATH`.
 
 When `AUTO_MODE = false`: call `AskUserQuestion` (header `Lock all?`, options in this order):
-1. `Lock all and run on auto mode (Recommended)` — flips `AUTO_MODE = true` from this point onward. The planner auto-resolves the remaining planning stages per the `<auto_mode>` policy (Stage 5, Stage 5.5), then at Stage 6 chains directly into `/ac:execute --auto` for the same slug. End-to-end autonomous from here until done. This is the default once decisions are locked: the Stage 3 interview + Stage 5.5 reviewer pair already carry the planning-quality gate, and step-by-step adds an inspect step that the operator can pick explicitly when they want it.
-2. `Lock all and proceed step-by-step` — the planner writes the plan, runs Stage 5.5 review, then ends with a "user, run /ac:execute next" message. The user reviews the plan and invokes execution on their own. Pick this when you want to inspect plan.md before running execute.
-3. `Revise a decision` — loop back to Stage 3 targeting one node.
-4. `Revise / expand scope` — change what is IN or OUT, or pull a deferred idea into v1; loops back to Stage 3 interview.
+1. `Lock all and run on auto mode (Recommended)`: flips `AUTO_MODE = true` from this point onward. The planner auto-resolves the remaining planning stages per the `<auto_mode>` policy (Stage 5, Stage 5.5), then at Stage 6 chains directly into `/ac:execute --auto` for the same slug. End-to-end autonomous from here until done. This is the default once decisions are locked: the Stage 3 interview + Stage 5.5 reviewer pair already carry the planning-quality gate, and step-by-step adds an inspect step that the operator can pick explicitly when they want it.
+2. `Lock all and proceed step-by-step`: the planner writes the plan, runs Stage 5.5 review, then ends with a "user, run /ac:execute next" message. The user reviews the plan and invokes execution on their own. Pick this when you want to inspect plan.md before running execute.
+3. `Revise a decision`: loop back to Stage 3 targeting one node.
+4. `Revise / expand scope`: change what is IN or OUT, or pull a deferred idea into v1; loops back to Stage 3 interview.
 
-When `AUTO_MODE = true` (set at Stage 0a via the `--auto` flag): skip this question entirely; the answer is implicitly `Lock all and run on auto mode`. Emit one line: `Auto mode: decisions locked, proceeding to Stage 5 plan write.`
+When `AUTO_MODE = true` (set at Stage 0a via the literal `--auto` flag, and only that): skip this question entirely; the answer is implicitly `Lock all and run on auto mode`. Emit one line: `Auto mode: decisions locked, proceeding to Stage 5 plan write.`
+
+This is the only gate where the user sees whether the rest of the run is autonomous or step-by-step, so it fires whenever the flag is absent. An auto-mode intention expressed in the topic prose does not suppress it; per `<auto_mode>` it only decides which option carries `(Recommended)`.
 
 On `Lock all and proceed step-by-step`: proceed to Stage 5 with `AUTO_MODE = false`.
 On `Lock all and run on auto mode`: set `AUTO_MODE = true`, emit `Auto mode engaged at Stage 4. Will chain into /ac:execute after planning completes.`, proceed to Stage 5.
@@ -575,9 +574,9 @@ Write the plan to `PLAN_PATH` using the markdown structure at `${CLAUDE_SKILL_DI
 
 Fill placeholders with concrete content; remove placeholder text inside angle brackets. For tier assignment per step, read `${CLAUDE_SKILL_DIR}/references/model-tiers.md` (capability summaries + decision heuristic). For plans with more than 10 steps, use the incremental write protocol described in the template reference.
 
-**Quality target: 0 reviewer iterations.** Write the plan as if no Stage 5.5 reviewer will look at it. The reviewer is a safety net for misses, not a draft-quality crutch. Concretely: every step's Description / Files / Done when / QA / Must NOT is specific enough that a fresh agent can execute without guessing; the Codebase Conventions section captures every project-specific rule the workers need; the Reuse Map names every existing utility the plan leverages; the locked decisions from the interview are reflected in the steps themselves, not assumed. The Stage 5.5 reviewer has a max-5 hard cap and stall detection — plans that converge in 0-1 iter are the goal.
+**Quality target: 0 reviewer iterations.** Write the plan as if no Stage 5.5 reviewer will look at it. The reviewer is a safety net for misses, not a draft-quality crutch. Concretely: every step's Description / Files / Done when / QA / Must NOT is specific enough that a fresh agent can execute without guessing; the Codebase Conventions section captures every project-specific rule the workers need; the Reuse Map names every existing utility the plan leverages; the locked decisions from the interview are reflected in the steps themselves, not assumed. The Stage 5.5 reviewer has a max-5 hard cap and stall detection, plans that converge in 0-1 iter are the goal.
 
-**Test-driven literal-pattern audit (Stage 5 quality discipline)**: when a step's Description names a literal regex pattern, literal config snippet (package.json fragment, tsconfig field, command-line invocation), or literal API chain (`.X().Y().Z()`), AND the same step's QA or Done when field lists concrete test inputs that exercise the pattern, mentally execute the pattern against each test input BEFORE plan write. If any listed test input would fail the literal pattern as-written, fix the literal in the plan OR flag the gap in the step's Description as `regex-needs-validation` / `snippet-needs-validation` / `chain-needs-validation`. The worker's TDD red phase is the safety net for missed cases; planning-time literal audit catches them cheaper. Worked example: a sanitizer regex `\]\(scheme:[^)]*\)` paired with the QA input `[x](javascript:alert(1))` produces `[x](#sanitized-link))` (the `[^)]*` halts at `alert(`'s inner `)`, leaving the outer `)` outside the match — trailing-paren bug). Audit-at-plan-time would catch this; absent the audit, the worker's TDD red phase catches it at execute-time + reports via F17 deviation. Either layer works; planning-time is cheaper.
+**Test-driven literal-pattern audit (Stage 5 quality discipline)**: when a step's Description names a literal regex pattern, a literal config snippet (package.json fragment, tsconfig field, command-line invocation), or a literal API chain (`.X().Y().Z()`), AND the same step's QA or Done when field lists concrete test inputs that exercise it, execute the pattern against each of those inputs in your head BEFORE plan write. If any listed input would fail the literal as written, either fix the literal in the plan or flag the gap in the step's Description as `regex-needs-validation`, `snippet-needs-validation`, or `chain-needs-validation`. The worker's TDD red phase is the safety net for what this misses; catching it at planning time is cheaper. The template reference carries a worked example of the class of bug this finds.
 
 TaskUpdate Stage 5 to `completed`, Stage 5.5 to `in_progress`.
 
@@ -587,7 +586,7 @@ TaskUpdate Stage 5 to `completed`, Stage 5.5 to `in_progress`.
 
 Goal: an independent second-eye review of the written plan file. The reviewer is a fresh-context subagent that reads only the plan file; it does not inherit your in-context state. This catches things the planner's own context bias misses (stale references after revision, executability from a fresh perspective, tier mismatches that drifted during writing).
 
-Stage 5.5 audit shape: subagent file-based audit after write — Reference Validity / Executability / Internal Consistency / Tier Fitness for standard plans via `ac:plan-reviewer`; plus seven adversarial dimensions (deep reference verification, executability stress-test, cross-task dependency, tier challenge, QA specificity, wave ordering, Reuse Map enforcement) for complex plans via `ac:plan-reviewer-deep`.
+Stage 5.5 audit shape: subagent file-based audit after write, Reference Validity / Executability / Internal Consistency / Tier Fitness for standard plans via `ac:plan-reviewer`; plus seven adversarial dimensions (deep reference verification, executability stress-test, cross-task dependency, tier challenge, QA specificity, wave ordering, Reuse Map enforcement) for complex plans via `ac:plan-reviewer-deep`.
 
 ### 5.5a. Read the plan's Complexity field and map to reviewer tier
 
@@ -618,39 +617,44 @@ Plan summary:
 
 - If `REVIEW_TIER == "skip"`:
   Header `Review?`, options:
-  - `Skip review (Recommended)` — simple plan; reviewer subagent is overkill for the scope.
-  - `Force standard review` — set `REVIEW_TIER = "standard"`, run `ac:plan-reviewer`.
-  - `Force deep review` — set `REVIEW_TIER = "complex"`, run `ac:plan-reviewer-deep`.
-  - `Cancel` — exit before Stage 6.
+  - `Skip review (Recommended)`: simple plan; reviewer subagent is overkill for the scope.
+  - `Force standard review`: set `REVIEW_TIER = "standard"`, run `ac:plan-reviewer`.
+  - `Force deep review`: set `REVIEW_TIER = "complex"`, run `ac:plan-reviewer-deep`.
+  - `Cancel`: exit before Stage 6.
 
 - If `REVIEW_TIER == "standard"`:
   Header `Review?`, options:
   - `Proceed with standard reviewer (Recommended)`.
-  - `Force deep review` — escalate to `ac:plan-reviewer-deep` for extra rigor.
-  - `Skip review` — note in summary that review was skipped by user request.
-  - `Cancel` — exit before Stage 6.
+  - `Force deep review`: escalate to `ac:plan-reviewer-deep` for extra rigor.
+  - `Skip review`: note in summary that review was skipped by user request.
+  - `Cancel`: exit before Stage 6.
 
 - If `REVIEW_TIER == "complex"`:
   Header `Review?`, options:
   - `Proceed with deep reviewer (Recommended)`.
-  - `Downgrade to standard reviewer` — set `REVIEW_TIER = "standard"`; the user accepts lighter review on a complex plan.
-  - `Skip review` — note in summary that review was skipped by user request.
-  - `Cancel` — exit before Stage 6.
+  - `Downgrade to standard reviewer`: set `REVIEW_TIER = "standard"`; the user accepts lighter review on a complex plan.
+  - `Skip review`: note in summary that review was skipped by user request.
+  - `Cancel`: exit before Stage 6.
 
 On `Skip review` or `REVIEW_TIER == "skip"` confirmed: jump to Stage 6 Deliver, mark the Review Verdict section as `skipped (simple plan)` or `skipped by user request`. On `Cancel`: stop the skill without writing Stage 6, leave the plan file in place, return to the user with a clear "review canceled; plan written but unreviewed" message.
 
-### 5.5c. Initialize loop state
+### 5.5c. Loop state lives in the log file
+
+There is no counter to initialize. Both loop variables are derived from `LOG_PATH` at the top of every pass per the `## Standing rules` block, because a variable held in working memory drifts once the run gets long enough to compact:
 
 ```
-PLAN_REVIEWER_ITER = 0
-PLAN_REVIEWER_PREV_ISSUES = Infinity
+Bash: grep -c '^## Stage 5.5 Iteration' <LOG_PATH> 2>/dev/null || echo 0
 ```
+
+That count is the number of completed passes. Step 8 below appends one heading per pass, which is what makes the next pass's count correct; skipping the append breaks both the cap and the stall check.
 
 ### 5.5d. Review loop
 
 Repeat:
 
-1. Increment `PLAN_REVIEWER_ITER`.
+1. **Derive the counters** (never increment a remembered value):
+   - `PLAN_REVIEWER_ITER` = the grep count above, plus 1 for the pass about to run.
+   - `PLAN_REVIEWER_PREV_ISSUES` = the `Issue count:` value recorded under the highest-numbered `## Stage 5.5 Iteration` heading in `LOG_PATH`, or `Infinity` when no heading exists.
 2. **Max-iter terminal check** runs FIRST. If `PLAN_REVIEWER_ITER > 5`, present escalation gate. (The target is 0 iter; the cap exists for plans that need a few cycles to converge. Past 5 iter, something structural is wrong and user judgment is needed.)
 
    ```
@@ -690,26 +694,32 @@ Repeat:
 
    First iteration cannot stall because `PLAN_REVIEWER_PREV_ISSUES` starts at `Infinity`.
 
-6. Update `PLAN_REVIEWER_PREV_ISSUES = issue_count`.
+   The comparison is on the counts alone. Whether this pass's findings look like new findings is not part of the test: a reviewer that keeps returning the same number of blockers is a reviewer that is not converging, whatever the blockers are about. The failure this rule catches, observed in a real run whose `interview-log.md` recorded issue counts of 5, 5, 5, 5, 4 across five passes: every pass after the first satisfied `5 >= 5`, the gate never fired, and the loop burned four reviewer spawns to reach the cap it should have questioned at pass 2.
 
-7. **Revise the plan** via `Edit` (do not re-`Write` the plan file; the second `Write` call erases the first). For each blocking issue:
+6. **Revise the plan** via `Edit` (do not re-`Write` the plan file; the second `Write` call erases the first). For each blocking issue:
    - Locate the affected section in the plan file (issue references file:line or step number).
    - Apply the smallest correct fix that addresses the issue.
    - The reviewer's `Fix:` line for each issue is your guidance.
    - **Coordinated-update check** (run after every Edit, not just the last one): a single step often restates the same rule across multiple fields (`Description`, `Why this tier`, `Done when`, `QA`, `Must NOT`, `References`). Editing one field can leave contradicting copies in the others. After applying the fix, grep the plan for any string or concept tied to the changed substance (the removed call name, the rewritten convention, the renamed field, the deprecated command) and patch every surviving instance with a follow-up Edit. The plan must read internally consistent before the next reviewer iteration, otherwise the next iteration will surface the same conceptual issue at a different line and counts as new findings instead of stall-detection signal.
 
-8. Append the iteration log to `LOG_PATH` under `## Stage 5.5 Iteration <N>`:
+7. Append the iteration log to `LOG_PATH` under `## Stage 5.5 Iteration <N>`. This append is what carries the loop state into the next pass, so it happens before the loop continues, not at the end of the stage:
 
    ```
+   ## Stage 5.5 Iteration <N>
+
    - Reviewer verdict: REJECT
    - Issue count: <N>
    - Issues addressed: <list of section/step references>
    - Notes: <freeform>
    ```
 
-9. Update checkpoint with `last_stage: "5.5"`, current iter, and prev_issues.
+   The `Issue count:` line is read back verbatim as the next pass's `PLAN_REVIEWER_PREV_ISSUES`. Record the number the reviewer actually returned, not the number you fixed.
 
-10. Continue loop.
+   Every pass appends a heading, including one that ended in a malformed verdict (record `Issue count: 0` and say so under Notes). A pass that skips the append leaves the count unchanged, and an unchanging count is a loop with no cap.
+
+8. Update checkpoint with `last_stage: "5.5"`.
+
+9. Continue loop.
 
 ### 5.5e. Convergence
 
@@ -740,6 +750,8 @@ When `AUTO_MODE = false`: do NOT invoke `/ac:execute` automatically. The user re
 - Research finds nothing useful → surface in Stage 3a: "Investigation found no similar patterns. Proceed with greenfield assumption or refine the topic?"
 - Audit gate produces more than 5 findings → present grouped by axis, ask the user to triage in batches via `multiSelect: true`.
 - Write fails twice → escalate via `AskUserQuestion` as in Stage 5; BLOCKER in auto mode.
+
+There is no error class for running low on context, on purpose. Compaction handles it and the run continues; see the `## Standing rules` block.
 </error_handling>
 
 <reminders>
@@ -750,6 +762,7 @@ Failure-mode anchors for plan quality:
 - Every load-bearing decision is locked, deferred, or risk-accepted. Zero open questions in the plan file.
 - Tier write-style: just enough detail for the assigned model to act. Line-by-line prescription is a sign the tier is wrong.
 - Stage 5.5 reviewer receives only the plan file path. Revise on REJECT via `Edit`, not re-`Write`.
+- Stage 5.5 loop bounds come from `LOG_PATH`, not from a remembered counter. The stall test compares issue counts only.
 - TaskUpdate as you enter and complete each stage. CC's native progress UI relies on it.
 - Do not invoke `/ac:execute` when `AUTO_MODE = false`. The user reviews the plan first.
 </reminders>

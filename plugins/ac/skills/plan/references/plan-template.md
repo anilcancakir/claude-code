@@ -29,7 +29,7 @@ Record the value in the plan frontmatter (`**Complexity**: <value>`). Stage 5.5a
 
 ## Research Summary
 
-- **Key Files**: file_path:line_number — one line per file
+- **Key Files**: file_path:line_number, one line per file
 - **Patterns Found**: <architecture, naming, style observed in scope>
 - **External References**: <official docs, OSS patterns from librarian, with URL>
 - **Tier Escalation**: <"None" or "All quick steps escalated to junior due to codebase state X">
@@ -43,10 +43,10 @@ Record the value in the plan frontmatter (`**Complexity**: <value>`). Stage 5.5a
 - **File organization**: <pattern>
 - **Import convention**: <pattern>
 - **Path aliases**: <explicit alias resolution rules for the framework and the project's path conventions. State the alias → directory mapping AND name any common mis-form to avoid. Example for Nuxt 4: `~/X` resolves to `<srcDir>/X`; NEVER write `~/app/X` because it doubles the prefix (build error: `Could not load app//app/...`). Test runners may resolve aliases more leniently than the production build; the build is authoritative. Configs at project root use the same rules. Apply to every import in every file; do not let workers re-derive per step.>
-- **TDD**: <tdd | tests-after | none> — set in Stage 3 TDD interview; the executor's worker briefings honor this.
+- **TDD**: <tdd | tests-after | none>. Set in the Stage 3 TDD interview; the executor's worker briefings honor this.
 - **LSP false-positive whitelist**: <Class 2 symbols + structural pattern hints the executor's Phase 2d Layer A skips without retry. Two sub-fields:
   - **Symbols** (Class 2 autoload-registered globals): `it, uses, expect, beforeEach, pest, test` (Pest under intelephense P1010); `defineProps, defineEmits, defineExpose` (Vue compiler macros); `useFetch, useState, useRouter, useRoute` (Nuxt auto-imports); `describe, expect, vi` (Vitest auto-globals); etc.
-  - **Patterns** (structural hints): `boundary` — declares the project is a sub-project under a larger repo (own `package.json` + `tsconfig.json`); outer-LSP module-resolution misses are Class 5 boundary noise, sub-project local tsc is authoritative. `matcher-chain` — declares the test files use `await expect(...).rejects.toX(...)` / `.resolves.toX(...)` patterns; TS infers chain as non-thenable and flags `'await' has no effect`; Class 6 false positive.
+  - **Patterns** (structural hints): `boundary`: declares the project is a sub-project under a larger repo (own `package.json` + `tsconfig.json`); outer-LSP module-resolution misses are Class 5 boundary noise, sub-project local tsc is authoritative. `matcher-chain`: declares the test files use `await expect(...).rejects.toX(...)` / `.resolves.toX(...)` patterns; TS infers chain as non-thenable and flags `'await' has no effect`; Class 6 false positive.
 
   Example value: `Symbols: it, uses, expect, beforeEach; Patterns: boundary, matcher-chain`.
 
@@ -59,8 +59,8 @@ Extracted from Stage 2 deep read of files at <list of paths>. Every step honors 
 
 Existing code the plan leverages instead of writing new:
 
-- file_path:line_number — <what it provides> — used by Step <N>
-- file_path:line_number — <what it provides> — used by Step <N>
+- file_path:line_number, <what it provides>: used by Step <N>
+- file_path:line_number, <what it provides>: used by Step <N>
 
 If a step proposes new code that overlaps with an entry here, the plan needs revision before write: rework the affected step to use the Reuse Map entry, or surface the overlap as a Risk Accepted with explicit rationale.
 
@@ -109,15 +109,15 @@ Nyquist rule (per-step `Verify` sub-field): each non-verification step SHOULD ca
 
 Anti-patterns per tier (each example is a bad step; the rewrite shows the correct shape):
 
-- quick — bad: `"Open foo.ts at line 42, change let x = 1 to let x = 2."` Haiku does this without you describing it. Write `"Update the timeout default to 30s in foo.ts."` and stop.
-- junior — bad: `"Wrap every call site with try { ... } catch (e) { logger.error(e); throw new ApiError(e); }"`. Sonnet 5 infers handlers from existing code. Write `"Add error handling on the user-input boundary in handlers/users.ts; follow the pattern at handlers/auth.ts:88."`.
-- senior — bad: `"First create A, then B imports A, then C imports B, then D imports C."` Opus 5 designs the order. Write `"Implement event-driven dispatch matching the pattern at dispatcher/core.ts:142; preserve the at-least-once delivery invariant."`.
+- quick, bad: `"Open foo.ts at line 42, change let x = 1 to let x = 2."` Haiku does this without you describing it. Write `"Update the timeout default to 30s in foo.ts."` and stop.
+- junior, bad: `"Wrap every call site with try { ... } catch (e) { logger.error(e); throw new ApiError(e); }"`. Sonnet 5 infers handlers from existing code. Write `"Add error handling on the user-input boundary in handlers/users.ts; follow the pattern at handlers/auth.ts:88."`.
+- senior, bad: `"First create A, then B imports A, then C imports B, then D imports C."` Opus 5 designs the order. Write `"Implement event-driven dispatch matching the pattern at dispatcher/core.ts:142; preserve the at-least-once delivery invariant."`.
 
 ## Execution Strategy
 
 ### Parallel Execution Waves
 
-Each wave completes before the next begins. Sensible parallelism within a wave: steps share NO files, NO in-flight type contracts, NO behavioral coupling — AND each step is a meaningful unit of work. Do not split a conceptually-tight unit (a model + its tests, a config + its sole consumer in the same file) into multiple steps just to inflate wave size; coherence beats arbitrary parallelism. A 1-step wave is correct when the step is genuinely the only thing at its depth (e.g., a foundation Step 1 that downstream depends on). A 6+ step wave is correct when N truly independent tracks exist (e.g., N independent UI components). Target efficient parallelism, not maximum parallelism.
+Each wave completes before the next begins. Sensible parallelism within a wave: steps share NO files, NO in-flight type contracts, NO behavioral coupling, AND each step is a meaningful unit of work. Do not split a conceptually-tight unit (a model + its tests, a config + its sole consumer in the same file) into multiple steps just to inflate wave size; coherence beats arbitrary parallelism. A 1-step wave is correct when the step is genuinely the only thing at its depth (e.g., a foundation Step 1 that downstream depends on). A 6+ step wave is correct when N truly independent tracks exist (e.g., N independent UI components). Target efficient parallelism, not maximum parallelism.
 
 - Wave 0 (optional, ahead of Wave 1): scaffold steps created solely to satisfy the Nyquist rule (see `## Tier Calibration`) when a later step's `Verify` sub-field would otherwise be `MISSING`, e.g. creating an empty test file with the harness wired so a downstream step has a real command to run.
 - Wave 1: foundation and scaffolding (types, schemas, shared utilities, configs). Often a small wave of 1-3 foundational steps that downstream depends on; install/dependency steps belong here AND downstream Wave 1 step QAs must not depend on their output (run independent checks instead, or move install to a dedicated Wave 0).
@@ -139,9 +139,9 @@ Each wave completes before the next begins. Sensible parallelism within a wave: 
 ## Steps
 
 Step types (the `Type:` field per step):
-- `code` — source code edits in the project. Requires Tier + worker spawn.
-- `infra` — server ops, SSH, deployment, multi-host orchestration. Requires Tier + worker spawn.
-- `verification` — runs commands and captures output as evidence; no source edits. Orchestrator-direct execution (no worker spawn), so Tier and Why-this-tier are omitted. Use for build-output smoke, dev-server checks, browser-driven UI confirmation, end-to-end test runs. Layer A blends with the orchestrator's direct Bash execution; Layer C is the captured evidence; Layer D applies.
+- `code`: source code edits in the project. Requires Tier + worker spawn.
+- `infra`: server ops, SSH, deployment, multi-host orchestration. Requires Tier + worker spawn.
+- `verification`: runs commands and captures output as evidence; no source edits. Orchestrator-direct execution (no worker spawn), so Tier and Why-this-tier are omitted. Use for build-output smoke, dev-server checks, browser-driven UI confirmation, end-to-end test runs. Layer A blends with the orchestrator's direct Bash execution; Layer C is the captured evidence; Layer D applies.
 
 - [ ] **Step 1**: <imperative title>
     - **Type**: code | infra | verification
@@ -150,8 +150,8 @@ Step types (the `Type:` field per step):
     - **Files**: <absolute paths, one per line; for verification: "(no source edits; runs commands)">
     - **Description**: <what to do and why, grounded in research>
     - **References**:
-        - file_path:line_number — <pattern to follow>
-        - <Reuse Map entry> — <how this step uses it>
+        - file_path:line_number, <pattern to follow>
+        - <Reuse Map entry>: <how this step uses it>
     - **Commands**: <verification steps only: explicit command list to run, one per line>
     - **Done when**:
         - <executable criterion: greppable, testable, or LSP-checkable>
@@ -191,6 +191,14 @@ Captured during the interview as out of scope for this plan. The backlog.
 
 - <idea>: <reason deferred>
 ```
+
+## Literal-pattern audit: worked example
+
+The Stage 5 rule is in the skill body. This is the class of bug it finds, so you know what to look for.
+
+A step's Description names the sanitizer regex `\]\(scheme:[^)]*\)`. The same step's QA lists the input `[x](javascript:alert(1))`. Run one against the other: `[^)]*` is greedy up to the first `)`, which is the inner paren closing `alert(1`, so the match ends there and the outer `)` falls outside it. The replacement produces `[x](#sanitized-link))` with a trailing paren, and the sanitizer looks like it worked.
+
+Nothing about the regex reads as wrong, and nothing about the test input reads as tricky. Only running the one against the other surfaces it. That is the whole audit: for every literal paired with a concrete input, do the substitution by hand before the plan is written.
 
 ## After writing the plan file
 
