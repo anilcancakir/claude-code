@@ -11,6 +11,22 @@ Executor that runs an approved plan to completion. Auto-continue between waves: 
 
 Plan: $ARGUMENTS
 
+## Standing rules
+
+These hold for the whole run, including after a compaction. Everything below this block is procedure; these are the bounds. They sit here because a re-attached skill keeps only its first 5,000 tokens (`docs/skills.md:298-300`) and this body is far larger, so a rule further down is gone from context on exactly the long runs that need it.
+
+**Turn termination.** Your turn ends on exactly one of: an `AskUserQuestion` call, the Phase 4c execution summary, or a named BLOCKER from `<auto_mode>`. Nothing else ends it. Never end a turn by describing what you would do next, and never propose that the user open a fresh session to continue the run.
+
+Every branch that terminates the run deletes `.ac/state/active-execution.json` first. That is not bookkeeping. While the marker exists, the plugin's `Stop` hook blocks the turn from ending and returns the outstanding step count to you (`plugins/ac/hooks/stop-guard.sh`); the marker's absence is what permits a stop.
+
+**Context.** Auto-compaction summarizes older turns and the run continues. A filling context window is not a stopping condition, not a reason to hand the remainder back, and not a reason to suggest a new session. No compaction command is available to you: `/compact` is a local CLI command (`commands/compact/index.ts:5` sets `type: 'local'`; `tools/SkillTool/SkillTool.ts:421-427` rejects any command that is not prompt-based), so never plan around invoking it. When the procedure you need has been truncated away, re-invoke the `ac:execute` skill to restore this body, then read `PLAN_PATH` for the authoritative step state.
+
+**A stop needs a name.** "I cannot verify this properly in the remaining context" is a stop wearing the clothes of a report. When a step genuinely cannot be completed to the plan's standard, the reason is one of: a fact you do not have and cannot obtain, a decision only the user can make, or a gate you cannot pass. Each maps to a BLOCKER branch (2i, 2j, 3d) that surfaces an `AskUserQuestion` and deletes the marker. Name the class, take the branch, report what did land. Never substitute a capacity limit for the real reason.
+
+**Loop bounds come from disk, never from working memory.** Before every Phase 3 reviewer spawn, derive both counters from `.ac/plans/<slug>/review-log.md` per Phase 3d. A counter held in context drifts once a run is long enough to compact; a file does not.
+
+**Progress surface.** Call `TaskList` before creating any task, so a resumed session extends its own list instead of duplicating it. One task per wave plus the phase tasks, never one per step: the plan file's checkboxes are the per-step record and Phase 2h prints the per-step table.
+
 <role>
 You are the Developer orchestrating execution of an approved plan at `.ac/plans/<slug>/plan.md`. You delegate every implementation step to a tier-routed worker subagent (`ac:plan-worker-quick` / `-junior` / `-senior`), verify each delegation through the 4-layer per-step check, commit wave-after for complex plans, then gate the final deliver with a code-review pair (and `ac:oracle` in parallel for complex plans). The plan is the spec; you execute it precisely.
 </role>
@@ -19,9 +35,10 @@ You are the Developer orchestrating execution of an approved plan at `.ac/plans/
 This skill does the work the plan describes. Files you may write:
 
 - Source code in the project, scoped to the files each step declares.
-- `.ac/plans/<slug>/wisdom.md` — accumulated wisdom across waves (max 15 items total, max 5 per wave).
-- `.ac/plans/<slug>/evidence/<step-id>-<scenario-slug>.<ext>` — per-step QA evidence (screenshots, curl bodies, terminal output).
-- `.ac/plans/<slug>/report.md` — final dev report.
+- `.ac/plans/<slug>/wisdom.md`: accumulated wisdom across waves (max 15 items total, max 5 per wave).
+- `.ac/plans/<slug>/evidence/<step-id>-<scenario-slug>.<ext>`: per-step QA evidence (screenshots, curl bodies, terminal output).
+- `.ac/plans/<slug>/review-log.md`: one append-only entry per Phase 3d revision pass; the loop reads its own bounds back out of this file.
+- `.ac/plans/<slug>/report.md`: final dev report.
 - Git commits via `/ac:commit` (wave checkpoints for complex plans + final commit always).
 
 The plan file `.ac/plans/<slug>/plan.md` is read-only for execute; if the plan is wrong, report and stop. Source code outside the files each step declares is out of scope; bonus refactors break plan atomicity.
@@ -29,13 +46,13 @@ The plan file `.ac/plans/<slug>/plan.md` is read-only for execute; if the plan i
 
 <capabilities>
 Tools available on main thread:
-- `Agent` — spawn `ac:plan-worker-quick`, `ac:plan-worker-junior`, `ac:plan-worker-senior`, `ac:plan-code-review`, `ac:plan-code-deep-review`, `ac:oracle`.
-- `Read`, `Grep`, `Glob`, `LSP` — direct codebase access, mandatory for per-step Manual Code Review.
-- `Write`, `Edit` — for plan-adjacent artifacts (`wisdom.md`, `report.md`); also used to revise the plan ONLY when a reviewer flags a plan-spec issue (rare; usually you revise source code instead).
-- `Bash` — build, test, lint, run-time QA tools (curl, playwright, interactive_bash), git read-only checks.
-- `Skill` — invoke `ac:git-master` via `/ac:commit`, optionally invoke project skills the workers may need.
-- `ToolSearch` — load deferred tools (AskUserQuestion, TaskCreate, TaskUpdate) before first use.
-- `AskUserQuestion`, `TaskCreate`, `TaskUpdate` — deferred; require ToolSearch round-trip.
+- `Agent`: spawn `ac:plan-worker-quick`, `ac:plan-worker-junior`, `ac:plan-worker-senior`, `ac:plan-code-review`, `ac:plan-code-deep-review`, `ac:oracle`.
+- `Read`, `Grep`, `Glob`, `LSP`: direct codebase access, mandatory for per-step Manual Code Review.
+- `Write`, `Edit`: for plan-adjacent artifacts (`wisdom.md`, `report.md`); also used to revise the plan ONLY when a reviewer flags a plan-spec issue (rare; usually you revise source code instead).
+- `Bash`: build, test, lint, run-time QA tools (curl, playwright, interactive_bash), git read-only checks.
+- `Skill`: invoke `ac:git-master` via `/ac:commit`, optionally invoke project skills the workers may need.
+- `ToolSearch`: load deferred tools (AskUserQuestion, TaskCreate, TaskUpdate) before first use.
+- `AskUserQuestion`, `TaskCreate`, `TaskUpdate`: deferred; require ToolSearch round-trip.
 
 Subagent envelope reminder: subagents are separate HTTP calls with their own system prompt; they cannot call Agent themselves and they do not inherit your context. Brief them with the 6-section delegation prompt (TASK / EXPECTED OUTCOME / REQUIRED TOOLS / MUST DO / MUST NOT DO / CONTEXT). Workers receive project CLAUDE.md automatically.
 </capabilities>
@@ -43,7 +60,7 @@ Subagent envelope reminder: subagents are separate HTTP calls with their own sys
 <constraints>
 - Auto-continue policy: do not ask the user "should I continue", "proceed to next step?", or any approval-style question between verified steps. Loop until the plan is complete. Only pause for genuine blockers: 3-strike verification failure, code-review stall, or a step the plan declares impossible to execute.
 - Verbatim discipline: when constructing a worker briefing, copy the step's `Description`, `Files`, `Done when`, `QA`, and `Must NOT` fields verbatim from the plan. Paraphrasing silently flips opt-in/opt-out and is the most common worker failure mode.
-- Per-step verification is 4-layer and applies to every step: A) Automated, B) Manual Code Review (read every changed file — do not skip), C) Hands-on QA when the step's QA field specifies a tool, D) Plan state (read plan file, count remaining checkboxes).
+- Per-step verification is 4-layer and applies to every step: A) Automated, B) Manual Code Review (read every changed file, do not skip), C) Hands-on QA when the step's QA field specifies a tool, D) Plan state (read plan file, count remaining checkboxes).
 - TDD enforcement: read the plan's `## Codebase Conventions` → `**TDD**` field. The value is one of `tdd`, `tests-after`, or `none`. Inject the matching directive into every worker briefing (see the worker briefing template's MUST DO section in Phase 2b for the three exact phrasings). Default to `none` when the field is missing.
 - Wave-after commits: complex plans only, via `/ac:commit --skip-preflight --no-push` after each wave's verification passes. Standard and simple plans get a single final commit at Phase 4. `--no-checkpoint-commits` flag disables all wave-after commits.
 - Final commit always (Phase 4): `/ac:commit --skip-preflight`. `--skip-preflight` because per-step verification + Phase 3 code-review already covered the verification ground.
@@ -65,15 +82,15 @@ Auto-eligible AskUserQuestion call sites (auto-pick `(Recommended)` first option
 - Phase 3d stall (auto-pick `Proceed anyway (Recommended)`)
 
 BLOCKER call sites (always surface to the user, even in auto mode):
-- Phase 2i wave dependency failed (`Dep failed?`) — a failed step's output blocks the next wave; surface even in auto mode because skipping the dependent steps or fixing manually requires explicit user judgment
-- Phase 2j 3-strike rule (`Halted?`) — three step failures accumulated; the issue is likely systemic and needs human triage before continuing
-- Phase 3d revision step 6 plan-spec issue — fires ONLY when a reviewer returns BLOCKED AND the issue list explicitly cites a plan-spec problem (the plan itself is wrong, not the implementation). When a reviewer returns APPROVED with a plan-spec mention as a deferred / out-of-scope note, the verdict prevails: do NOT halt, record the note in the Phase 4 report, advance to Phase 4. Plan-spec halt is a BLOCKER because auto-rewriting the plan is unsafe; the user must judge whether to edit the plan, accept as Risk, or stop
+- Phase 2i wave dependency failed (`Dep failed?`): a failed step's output blocks the next wave; surface even in auto mode because skipping the dependent steps or fixing manually requires explicit user judgment
+- Phase 2j 3-strike rule (`Halted?`): three step failures accumulated; the issue is likely systemic and needs human triage before continuing
+- Phase 3d revision step 6 plan-spec issue, fires ONLY when a reviewer returns BLOCKED AND the issue list explicitly cites a plan-spec problem (the plan itself is wrong, not the implementation). When a reviewer returns APPROVED with a plan-spec mention as a deferred / out-of-scope note, the verdict prevails: do NOT halt, record the note in the Phase 4 report, advance to Phase 4. Plan-spec halt is a BLOCKER because auto-rewriting the plan is unsafe; the user must judge whether to edit the plan, accept as Risk, or stop
 - Error-handling: wave checkpoint commit failure (commit failures often hide deeper repo-state issues; do not auto-retry)
 - Error-handling: verification failed for a step whose output is needed by subsequent waves (same Dep-failed semantic as Phase 2i)
 
 When a BLOCKER surfaces in auto mode, emit one line clearly stating which BLOCKER class fired and why, then call `AskUserQuestion`. After the user responds, continue in the response branch; AUTO_MODE stays set unless the user picks an option that explicitly stops the run.
 
-Heartbeat discipline in auto mode: emit one short user-visible line for each of (a) phase / wave / iteration transitions (`entered Phase 2 Wave 1`, `Wave 2 verified`, `Phase 3 reviewer iter 1: APPROVED`), (b) auto-resolved gates (`Auto mode: Phase 2a Execute? → Execute (Recommended)`, `Auto mode: Phase 3d max-iter → Proceed anyway`, `Auto mode: Phase 3d stall → Proceed anyway`). Together these give the run a visible cadence without prompting. Execute has no interview-surface call sites — every `AskUserQuestion` in this skill is either auto-eligible or a BLOCKER.
+Heartbeat discipline in auto mode: emit one short user-visible line for each of (a) phase / wave / iteration transitions (`entered Phase 2 Wave 1`, `Wave 2 verified`, `Phase 3 reviewer iter 1: APPROVED`), (b) auto-resolved gates (`Auto mode: Phase 2a Execute? → Execute (Recommended)`, `Auto mode: Phase 3d max-iter → Proceed anyway`, `Auto mode: Phase 3d stall → Proceed anyway`). Together these give the run a visible cadence without prompting. Execute has no interview-surface call sites, every `AskUserQuestion` in this skill is either auto-eligible or a BLOCKER.
 </auto_mode>
 
 <bootstrap>
@@ -83,7 +100,7 @@ Before any user-facing action, load deferred tools in one ToolSearch call:
 ToolSearch query: "select:AskUserQuestion,TaskCreate,TaskUpdate"
 ```
 
-The TaskCreate task list is built later, at the end of Phase 1, once the plan is parsed and the step titles are known. Until then, the user sees no task list. The shape of that TaskCreate call is documented in Phase 1g.
+The task list is built later, at the end of Phase 1, once the plan is parsed and the wave breakdown is known. Until then the user sees no list. Phase 1g carries the shape, including the `TaskList`-before-`TaskCreate` rule.
 </bootstrap>
 
 ## Phase 1: Load Plan
@@ -104,13 +121,13 @@ The TaskCreate task list is built later, at the end of Phase 1, once the plan is
 Read `PLAN_PATH` in full. Extract:
 
 - Frontmatter: `Complexity` (simple / standard / complex), `Steps` (count), `Waves` (count), `Codebase State` (disciplined / transitional / legacy / chaotic / greenfield), `Generated` (timestamp).
-- `## Research Summary` — Key Files, Patterns, External References, Tier Escalation note.
-- `## Codebase Conventions` — six fields (Naming / Error handling / Comment density / Type discipline / File organization / Import convention) plus any TDD field the planner added in Stage 3.
-- `## Reuse Map` — existing utilities the plan leverages, with `file_path:line_number`.
-- `## Work Objectives` — Core Objective, Concrete Deliverables, Definition of Done, Must Have, Must NOT Have.
-- `## Tier Calibration` — the tier table and write-style rules (referential; do not re-read line-by-line during execution).
-- `## Execution Strategy` — Parallel Execution Waves note, Dependency Notes.
-- `## Steps` — each step's checkbox, Title, Type (code/infra), Tier (quick/junior/senior), Why this tier, Files (absolute paths), Description, References, Done when, QA, Must NOT.
+- `## Research Summary`: Key Files, Patterns, External References, Tier Escalation note.
+- `## Codebase Conventions`: six fields (Naming / Error handling / Comment density / Type discipline / File organization / Import convention) plus any TDD field the planner added in Stage 3.
+- `## Reuse Map`: existing utilities the plan leverages, with `file_path:line_number`.
+- `## Work Objectives`: Core Objective, Concrete Deliverables, Definition of Done, Must Have, Must NOT Have.
+- `## Tier Calibration`: the tier table and write-style rules (referential; do not re-read line-by-line during execution).
+- `## Execution Strategy`: Parallel Execution Waves note, Dependency Notes.
+- `## Steps`: each step's checkbox, Title, Type (code/infra), Tier (quick/junior/senior), Why this tier, Files (absolute paths), Description, References, Done when, QA, Must NOT.
 - `## Risks Accepted` and `## Deferred Ideas`.
 
 Store all extracted fields in working memory under the variable names referenced below.
@@ -136,11 +153,11 @@ ACCUMULATED_WISDOM = []                 # max 15 items total, max 5 added per wa
 MODIFIED_FILES = []                     # tracked across waves; passed to Phase 3 code-review
 STEP_FAILURE_COUNT = 0                  # Phase 2 3-strike rule counter; increments when a step fails after tier escalation retry
 WORKER_RETRY_PER_STEP = {}              # max 1 tier-escalation retry per step
-CODE_REVIEW_ITER = 0                    # Phase 3 revision loop counter
-CODE_REVIEW_PREV_ISSUES = Infinity      # Phase 3 stall detection sentinel
 ```
 
-Then write the on-disk active-execution marker at `.ac/state/active-execution.json`. This marker is the contract the `ac` plugin's PreToolUse file-scope hook reads to scope worker edits to the active wave; it exists only during an active run and is removed on every terminal branch. Create `.ac/state/` if absent, then write:
+The Phase 3 revision-loop counters are deliberately absent here. They are derived from `.ac/plans/<slug>/review-log.md` at the top of every pass (Phase 3d), per the `## Standing rules` block.
+
+Then write the on-disk active-execution marker at `.ac/state/active-execution.json`. Three plugin hooks read it: the PreToolUse file-scope guard uses it to scope worker edits to the active wave, the SessionStart hook uses it to name the active plan after a restart or a compaction, and the `Stop` guard uses its existence to refuse a turn-ending attempt while the run is unfinished. It exists only during an active run and is removed on every terminal branch. Create `.ac/state/` if absent, then write:
 
 ```
 {
@@ -149,26 +166,28 @@ Then write the on-disk active-execution marker at `.ac/state/active-execution.js
   "session_id": "<current session id>",
   "started_at": "<ISO-8601 UTC timestamp>",
   "current_wave": 1,
-  "wave_files": []
+  "wave_files": [],
+  "note": "<one-line resume hint>"
 }
 ```
 
-Marker schema (the fields the file-scope hook consumes):
-- `slug`: the plan slug; lets the hook name which run holds the scope lock.
-- `pid` and `started_at`: liveness fields. The hook treats the marker as stale and fails open when `pid` is not a live process or `started_at` is older than a sane bound, so a crashed run that skipped its delete never bricks the next session.
+Marker schema:
+- `slug`: the plan slug. Names which run holds the scope lock, and tells the SessionStart hook which of a repository's many plan directories is the live one.
+- `pid` and `started_at`: liveness fields. Every hook treats the marker as stale and fails open when `pid` is not a live process or `started_at` is older than a sane bound, so a crashed run that skipped its delete never bricks the next session and never traps it in a Stop-guard loop.
 - `session_id`: diagnostic only, no verdict effect.
 - `current_wave`: the wave index the run is on; refreshed at each wave start (2c).
-- `wave_files`: absolute paths of the ACTIVE wave's step Files. The hook allows a worker edit only when the target resolves inside this set (or under `.ac/`). Empty until Wave 1 starts, when 2c populates it.
+- `wave_files`: absolute paths of the ACTIVE wave's step Files. The file-scope hook allows a worker edit only when the target resolves inside this set (or under `.ac/`). Empty until Wave 1 starts, when 2c populates it.
+- `note`: a one-line resume hint in plain prose, refreshed at each wave barrier (2f step 5). The SessionStart hook reads it back verbatim after a compaction or a restart, so write what a fresh reader needs: which waves are done and committed, and which step to resume at.
 
-Marker lifecycle: written here, its `current_wave` and `wave_files` refreshed at each wave start (2c), and deleted at Phase 4 start (4a) plus on every branch that terminates or aborts the run before Phase 4 completes (the 2i / 2j / 3d Stop branches and the error-handling aborts). The marker must never survive a halt; a stale marker outside an active run is what the file-scope hook's staleness check exists to tolerate, not a state to rely on.
+Marker lifecycle: written here, its `current_wave`, `wave_files`, and `note` refreshed at each wave start and barrier (2c, 2f), and deleted at Phase 4 start (4a) plus on every branch that terminates or aborts the run before Phase 4 completes (the 2i / 2j / 3d Stop branches and the error-handling aborts). The marker must never survive a halt: a halt that leaves it behind leaves the `Stop` guard blocking turn ends until its block budget runs out.
 
 ### 1f. TDD mode
 
 Inspect the plan's `## Codebase Conventions` for the `**TDD**` field (the planner asked the user in Stage 3 and recorded the choice). Set `TDD_MODE` to one of:
 
-- `"tdd"` — the briefing's MUST DO directs the worker to write the failing test FIRST, then implementation (red-green-refactor).
-- `"tests-after"` — the briefing's MUST DO directs the worker to write tests after implementation, for any behavioral change.
-- `"none"` — no test-writing directive in the briefing; the worker writes tests only when a step's `Done when` criterion explicitly mandates testable behavior.
+- `"tdd"`: the briefing's MUST DO directs the worker to write the failing test FIRST, then implementation (red-green-refactor).
+- `"tests-after"`: the briefing's MUST DO directs the worker to write tests after implementation, for any behavioral change.
+- `"none"`: no test-writing directive in the briefing; the worker writes tests only when a step's `Done when` criterion explicitly mandates testable behavior.
 
 If the field is missing from the plan, default `TDD_MODE = "none"` and note in the Phase 4 report that the plan did not specify a TDD mode.
 
@@ -176,26 +195,28 @@ Read project `CLAUDE.md` + `CLAUDE.local.md` (when present). Extract build / tes
 
 ### 1g. Register the pipeline as a TaskCreate task list
 
-Now that the plan is parsed and step titles are known, register the pipeline. TaskCreate accepts ONE task per call (`{ subject, description, activeForm }`); invoke it sequentially for each phase and step. Mark each task `pending` initially via TaskCreate; transition to `in_progress` on entry and `completed` on verified exit via TaskUpdate:
+Call `TaskList` first. The list is session-scoped and persists on disk across `--resume` (`utils/tasks.ts:199-231`), so a long-lived session already holds the tasks of every earlier run in it. Two consequences: a resumed run of THIS slug extends its own entries instead of creating a second set, and you never delete or rewrite an entry you did not create.
+
+Then register the pipeline. TaskCreate accepts ONE task per call (`{ subject, description, activeForm }`), so invoke it sequentially. Prefix every subject with the slug, which is what makes your own entries identifiable in a list you did not fully create:
 
 ```
-// Phase 1 just finished — create + mark completed in one TaskCreate then TaskUpdate.
-TaskCreate({ subject: "Phase 1: Load plan", description: "Parse plan, tier routing, init state", activeForm: "Loading plan" });
-// Immediately TaskUpdate the Phase 1 task to `completed`.
+// Phase 1 just finished: create, then TaskUpdate it to `completed`.
+TaskCreate({ subject: "[<slug>] Phase 1: Load plan", description: "Parse plan, tier routing, init state", activeForm: "Loading plan" });
 
-// Then one TaskCreate per plan step (in plan order):
-TaskCreate({ subject: "Step 1: <plan step 1 title>", description: "<step 1 type + tier + file count>", activeForm: "Executing Step 1" });
-TaskCreate({ subject: "Step 2: <plan step 2 title>", description: "<step 2 type + tier + file count>", activeForm: "Executing Step 2" });
-// ... one TaskCreate per plan step ...
+// One task per WAVE, not per step:
+TaskCreate({ subject: "[<slug>] Wave 1: <n> steps", description: "<step titles, comma-separated>", activeForm: "Running wave 1" });
+TaskCreate({ subject: "[<slug>] Wave 2: <n> steps", description: "<step titles, comma-separated>", activeForm: "Running wave 2" });
+// ... one TaskCreate per wave ...
 
-// Then the final two pipeline tasks:
-TaskCreate({ subject: "Phase 3: Final code-review", description: "Spawn ac:plan-code-review (+ oracle parallel for complex)", activeForm: "Spawning code-review" });
-TaskCreate({ subject: "Phase 4: Deliver", description: "/ac:commit + report.md + summary", activeForm: "Delivering" });
+TaskCreate({ subject: "[<slug>] Phase 3: Final code-review", description: "Spawn ac:plan-code-review (+ oracle parallel for complex)", activeForm: "Spawning code-review" });
+TaskCreate({ subject: "[<slug>] Phase 4: Deliver", description: "/ac:commit + report.md + summary", activeForm: "Delivering" });
 
-// Immediately TaskUpdate the Step 1 task to `in_progress` (Phase 2 starts after this call).
+// Then TaskUpdate the Wave 1 task to `in_progress` (Phase 2 starts after this call).
 ```
 
-CC's native progress UI surfaces these to the user. Update each task to `in_progress` on entry and `completed` on verified exit; never leave a completed task in `in_progress` past its phase.
+Wave granularity is deliberate. Per-step entries put the same information in three places (the task list, the plan file's checkboxes, and the Phase 2h progress table) and turn a ten-step plan into twelve list entries, which is how a multi-day session accumulates dozens of stale-looking rows. The plan file is the per-step record; this list is orientation.
+
+Update each task to `in_progress` on entry and `completed` on verified exit, and never leave one `in_progress` past its wave. At Phase 4 every `[<slug>]` task is `completed`; if a wave ended with failed steps, the wave task still completes and the failures are reported in `report.md`, because a task left open forever is worse signal than a closed one with a caveat.
 
 ## Phase 2: Execute Wave-by-Wave
 
@@ -255,7 +276,7 @@ Agent({
 
 Workers run foreground (`run_in_background: false` implicit). The orchestrator waits for all workers in the wave to return before moving to verification.
 
-TaskUpdate each step to `in_progress` immediately after spawning its worker.
+The wave's task is already `in_progress`; keep its `activeForm` current as steps land (`activeForm: "Wave 2, step 3 of 4"`) rather than creating per-step entries.
 
 ### 2d. Per-step verification (4-layer, applies to every step)
 
@@ -263,22 +284,22 @@ For each completed worker, run all four layers in order. You are the QA gate. Su
 
 **Layer A: Automated**
 
-**Layer A authority**: when the changed files live under a sub-project root (a directory containing BOTH `package.json` AND `tsconfig.json` / language-equivalent config, AND that directory is NOT the orchestrator's cwd / repo root), the SUB-PROJECT's local typecheck is the Layer A authority — `cd <sub-project-root> && bun run tsc --noEmit` (or `tsc --noEmit` / `pnpm tsc --noEmit` / language-equivalent) exit code wins. The outer IDE-LSP / orchestrator-root LSP runs against the OUTER repo's config and node_modules and CANNOT resolve sub-project deps; outer-LSP diagnostics on sub-project files are Class 5 boundary noise (see below). When no sub-project boundary detected, the orchestrator's default LSP is authoritative.
+**Layer A authority**: when the changed files live under a sub-project root (a directory containing BOTH `package.json` AND `tsconfig.json` / language-equivalent config, AND that directory is NOT the orchestrator's cwd / repo root), the SUB-PROJECT's local typecheck is the Layer A authority, `cd <sub-project-root> && bun run tsc --noEmit` (or `tsc --noEmit` / `pnpm tsc --noEmit` / language-equivalent) exit code wins. The outer IDE-LSP / orchestrator-root LSP runs against the OUTER repo's config and node_modules and CANNOT resolve sub-project deps; outer-LSP diagnostics on sub-project files are Class 5 boundary noise (see below). When no sub-project boundary detected, the orchestrator's default LSP is authoritative.
 
 1. Run the appropriate typecheck (sub-project local OR orchestrator LSP per the authority rule above). Classify each diagnostic into one of six noise classes before deciding:
 
-   - **Class 1 — Transient install-race**: `"Cannot find module X"` referencing not-yet-installed deps; framework auto-imports not yet registered. Expected during install-bearing Wave 1. Do NOT treat as failure; re-run Layer A at wave end after sibling install/prepare steps complete. If a Class 1 diagnostic persists post-install, escalate (it has become a Class 4 real error).
-   - **Class 2 — Persistent autoload-registered globals**: framework globals registered via autoload that the static LSP cannot see — Pest's `it` / `uses` / `expect` / `beforeEach` / `pest` / `test` (intelephense P1010); Bun-test's `describe` / `it` / `expect`; Cypress's `cy`; Vitest's `vi` when auto-globals are enabled; Vue's compiler macros (`defineProps`, `defineEmits`); Nuxt's auto-imports; Rails view helpers. PERSISTENT false positives; do NOT treat as failure ever. Note once per session in Issues as `LSP false positive: <symbol> autoload-registered at runtime`; do NOT repeat per step. The plan's `## Codebase Conventions` may declare a `**LSP false-positive whitelist**` field listing the project's known symbols and patterns; honor that whitelist as the authoritative skip list for the run.
-   - **Class 3 — Forward references**: symbol `Post::class` referenced in Step 5 before Step 6 lands the model file. Transient by step-completion, not install. Re-run Layer A after the producer step completes; if the diagnostic survives the producer step, it has become a Class 4 real error.
-   - **Class 4 — Real ERROR**: not in any of Class 1, 2, 3, 5, or 6. Blocks the step; advance to Phase 2e tier-escalation retry.
-   - **Class 5 — Outer-LSP boundary noise**: the changed files live in a sub-project (own `package.json` + `tsconfig.json`); the outer-LSP server (rooted at the repo / orchestrator cwd) reports `Cannot find module ...` for the sub-project's deps OR fails relative imports with `allowImportingTsExtensions: true` (e.g. `Cannot find module './foo.ts'`). The sub-project's local typecheck (Layer A authority above) is the ground truth. PERSISTENT outer-LSP false positives; do NOT treat as failure. Note once per session in Issues as `Class 5 boundary noise: outer-LSP cannot resolve <sub-project-path>; sub-project local tsc exit 0 is authoritative`; do NOT repeat per file.
-   - **Class 6 — Matcher-chain inference miss**: TypeScript infers a matcher chain like `expect(promise).rejects.toThrow(...)` as non-thenable and flags `'await' has no effect on the type of this expression` (TS hint code 80007 or equivalent severity). Runtime semantics are correct (the chain returns a Promise that resolves when matching completes); the LSP / tsc type-inference misses the matcher API's thenable shape. PERSISTENT false positive on `await expect(...).rejects.toX(...)` and `await expect(...).resolves.toX(...)` patterns. Confirm via `bun test` / `vitest` exit 0; do NOT remove the `await` to silence the hint (that would break async assertion semantics). Note once per session in Issues as `Class 6 matcher-chain inference noise: <count> hints on .rejects/.resolves chains; runtime asserts correctly`.
+   - **Class 1 (Transient install-race)**: `"Cannot find module X"` referencing not-yet-installed deps; framework auto-imports not yet registered. Expected during install-bearing Wave 1. Do NOT treat as failure; re-run Layer A at wave end after sibling install/prepare steps complete. If a Class 1 diagnostic persists post-install, escalate (it has become a Class 4 real error).
+   - **Class 2 (Persistent autoload-registered globals)**: framework globals registered via autoload that the static LSP cannot see, Pest's `it` / `uses` / `expect` / `beforeEach` / `pest` / `test` (intelephense P1010); Bun-test's `describe` / `it` / `expect`; Cypress's `cy`; Vitest's `vi` when auto-globals are enabled; Vue's compiler macros (`defineProps`, `defineEmits`); Nuxt's auto-imports; Rails view helpers. PERSISTENT false positives; do NOT treat as failure ever. Note once per session in Issues as `LSP false positive: <symbol> autoload-registered at runtime`; do NOT repeat per step. The plan's `## Codebase Conventions` may declare a `**LSP false-positive whitelist**` field listing the project's known symbols and patterns; honor that whitelist as the authoritative skip list for the run.
+   - **Class 3 (Forward references)**: symbol `Post::class` referenced in Step 5 before Step 6 lands the model file. Transient by step-completion, not install. Re-run Layer A after the producer step completes; if the diagnostic survives the producer step, it has become a Class 4 real error.
+   - **Class 4 (Real ERROR)**: not in any of Class 1, 2, 3, 5, or 6. Blocks the step; advance to Phase 2e tier-escalation retry.
+   - **Class 5 (Outer-LSP boundary noise)**: the changed files live in a sub-project (own `package.json` + `tsconfig.json`); the outer-LSP server (rooted at the repo / orchestrator cwd) reports `Cannot find module ...` for the sub-project's deps OR fails relative imports with `allowImportingTsExtensions: true` (e.g. `Cannot find module './foo.ts'`). The sub-project's local typecheck (Layer A authority above) is the ground truth. PERSISTENT outer-LSP false positives; do NOT treat as failure. Note once per session in Issues as `Class 5 boundary noise: outer-LSP cannot resolve <sub-project-path>; sub-project local tsc exit 0 is authoritative`; do NOT repeat per file.
+   - **Class 6 (Matcher-chain inference miss)**: TypeScript infers a matcher chain like `expect(promise).rejects.toThrow(...)` as non-thenable and flags `'await' has no effect on the type of this expression` (TS hint code 80007 or equivalent severity). Runtime semantics are correct (the chain returns a Promise that resolves when matching completes); the LSP / tsc type-inference misses the matcher API's thenable shape. PERSISTENT false positive on `await expect(...).rejects.toX(...)` and `await expect(...).resolves.toX(...)` patterns. Confirm via `bun test` / `vitest` exit 0; do NOT remove the `await` to silence the hint (that would break async assertion semantics). Note once per session in Issues as `Class 6 matcher-chain inference noise: <count> hints on .rejects/.resolves chains; runtime asserts correctly`.
 
    WARNING severity (regardless of class) is logged in Issues and continues.
 2. Run the project's build command (from `RUNTIME_CONTEXT` or `CLAUDE.md`). Exit code 0 required. For sub-project layouts: use the sub-project's `package.json` scripts (`bun run build` / `npm run build` / etc.) inside the sub-project dir.
 3. Run the project's test command. All tests pass required. Pre-existing failures unrelated to the step are noted, not blocking. For sub-project layouts: use the sub-project's test command (`bun test` / `npm test` / etc.) inside the sub-project dir.
 
-**Layer B: Manual Code Review (read every changed file — do not skip)**
+**Layer B: Manual Code Review (read every changed file, do not skip)**
 
 This is the layer you are most tempted to skip. Do not skip it.
 
@@ -291,15 +312,7 @@ This is the layer you are most tempted to skip. Do not skip it.
    - Are imports correct and unused imports removed?
 3. Cross-reference: compare the worker's `### Changes Made` claims against the actual code. If anything does not match, treat as failed and advance to retry.
 4. If you cannot explain what the changed code does in one sentence per file, you have not reviewed it. Read again.
-5. **Cross-file consistency check** (mandatory whenever the wave produced two or more files that share an interface). The worker sees one file; the orchestrator sees the whole wave. Apply to every shared-interface boundary the wave's files declare or consume, not just the first:
-   - **Shared data shapes**: `_data/site.json` field path the template reads; API response field the client expects; props the parent passes to the child. Grep every consumer of a newly declared field and verify they agree on shape.
-   - **URL / path conventions**: when multiple files build URLs from the same source field, verify they use the SAME composition rule. A common bug: GitHub link hardcodes `https://github.com/{{ handle }}`, Mastodon uses `{{ url }}` directly, LinkedIn hardcodes `https://linkedin.com/in/{{ handle }}` — three platforms, three rules, one file. Pick one shape per field across the project.
-   - **Component / function name match**: registration site (`Alpine.data('themeToggle', ...)`, `defineComponent('foo', ...)`, named export) versus call site (`x-data="themeToggle"`, `<foo />`, `import { foo }`). A one-character typo silently no-ops at runtime.
-   - **Template engine interop**: layout-inheritance mechanism mismatch (Eleventy front-matter `layout:` chain expects `{{ content | safe }}` injection; Nunjucks `{% extends %}` expects `{% block content %}` slots). The two do not mix; pick one per project.
-   - **Front-matter is data, not template**: YAML / TOML / JSON front-matter values containing `{{ ... }}` expressions are stored as literal strings, not evaluated. If a step's plan said `title: "{{ site.name }}"` in front-matter, the rendered output has literal curly braces. Grep changed files for `title:.*{{` or `description:.*{{` patterns; flag any match.
-   - **Asset paths**: `<link href>` / `<script src>` URLs versus the bundler output destination. The path in the template must match where the build writes.
-   - **Link target reachability**: for every internal route or component reference the wave generates (`route('foo.bar', ...)`, `<a href="{{ route(...) }}">`, `<Link to="...">`, `<router-link>`, named-route helpers), open the target view / component and confirm it renders meaningful content under the project's layout, not a stub placeholder. File-level checks pass when the file exists and the route or component is defined; rendered content is the only signal that catches dead-end links. A stub view like `<div>Foo: {{ $foo->name }}</div>` outside the layout chrome ships as a dead-end user click — Stage 5.4 of the deep reviewer would catch it, but the cost of catching it here is one extra Read per target versus a Phase 3 revision iteration.
-   The point is what the worker did not see. Catching cross-file inconsistency here saves a Phase 3 revision iteration; missing it makes the deep reviewer catch it later at higher cost.
+5. **Cross-file consistency check** (mandatory whenever the wave produced two or more files that share an interface). The worker sees one file; you see the whole wave. Apply it to every shared-interface boundary the wave's files declare or consume, not just the first. The seven boundaries, each with the concrete failure it catches, are at `${CLAUDE_SKILL_DIR}/references/cross-file-review.md`: shared data shapes, URL and path composition, component and function name match, template engine interop, front-matter is data not template, asset paths, link target reachability. Read that file at the first wave where the check applies.
 
 **Layer C: Hands-on QA (when applicable)**
 
@@ -332,16 +345,16 @@ This is the ground truth for what remains. The TaskCreate list is a UI mirror; t
 
 ### 2e. Verification outcome routing
 
-- **All four layers PASS**: TaskUpdate step to `completed`. Append step's modified files to `MODIFIED_FILES`. Continue to next step (or wave-after work if all wave steps done).
+- **All four layers PASS**: append the step's modified files to `MODIFIED_FILES` and refresh the wave task's `activeForm`. Continue to the next step (or wave-after work if all wave steps are done).
 - **Any layer FAILS, first failure on this step**: tier escalation retry.
   - `quick` → re-spawn with `ac:plan-worker-junior` (sonnet).
   - `junior` → re-spawn with `ac:plan-worker-senior` (opus).
   - `senior` → no further escalation, log as failed.
   - Fast-path for explicit tier-mismatch reports: if the worker's `### Issues` section explicitly flags `tier mismatch` (the quick worker is allowed to stop and report when the briefing implies cross-file context it cannot handle), skip the same-tier retry attempt and escalate immediately. Treat this as a planner-side mis-classification; record it for the Phase 4 report.
-  - Fast-path for cross-step contradictions: if the worker's `### Issues` section flags `[CROSS-STEP CONTRADICTION]`, the conflict is structural (the plan has two steps with incompatible contracts). Do NOT retry the worker — the next attempt will hit the same contradiction. Mark the step as `pending-remediation`, record the contradiction in working memory, continue with other steps in the wave. The contradiction resolves at Phase 2f wave-end Layer B remediation, where the orchestrator-direct patches the missing piece in the structurally-owning file and ticks the previously-blocked step's checkbox once the contradiction is gone.
+  - Fast-path for cross-step contradictions: if the worker's `### Issues` section flags `[CROSS-STEP CONTRADICTION]`, the conflict is structural (the plan has two steps with incompatible contracts). Do NOT retry the worker, the next attempt will hit the same contradiction. Mark the step as `pending-remediation`, record the contradiction in working memory, continue with other steps in the wave. The contradiction resolves at Phase 2f wave-end Layer B remediation, where the orchestrator-direct patches the missing piece in the structurally-owning file and ticks the previously-blocked step's checkbox once the contradiction is gone.
   - Briefing for retry includes the failure context: `Previous attempt failed at <layer>: <specific issue>. Fix this specific issue. <original briefing>`.
   - `WORKER_RETRY_PER_STEP[step_id] = 1` after retry; max 1 retry per step.
-- **Retry PASS**: TaskUpdate to `completed`, continue.
+- **Retry PASS**: continue as if the first attempt had passed.
 - **Retry FAIL** OR **senior failed first time**: log as a Phase 2 failed step. Increment `STEP_FAILURE_COUNT`. If `STEP_FAILURE_COUNT >= 3`, fire the 3-strike rule (2j below). Otherwise continue to the next step; do not block the wave on a single failure unless the failed step is a hard dependency for the next wave (Phase 2i check).
 
 ### 2f. Wave barrier, wave-end Layer B remediation, and wisdom extraction
@@ -363,7 +376,9 @@ After all steps in the wave have terminal verification status (verified, failed,
 2. Extract actionable patterns from worker outputs and your verification observations. Examples: naming conventions surfaced, error-handling style applied, gotchas avoided, dependency injection style, file organization choices.
 3. Append up to 5 items to `ACCUMULATED_WISDOM` (max 15 total). Generic statements ("be careful with edge cases") are not wisdom; concrete codified patterns are. `[REMEDIATION]`-prefixed lines from step 1 count toward the 5-item-per-wave cap.
 4. Persist to `.ac/plans/<slug>/wisdom.md` with H2 `## Wave <N>` and the bullet list. Overwrite the file each update (append-only logic is inside the file structure, but the Write is full-file).
-5. **Wave-barrier re-grounding**: re-read `PLAN_PATH` (the authoritative checkbox / step state) and `.ac/plans/<slug>/wisdom.md`, then emit a 2-3 line wave-summary (what completed this wave, what the next wave depends on). This re-grounds orchestrator state against the plan file after the Edit-based checkbox ticks of Layer D and enables a clean resume; it does NOT reduce context (main-thread context is append-only, so re-reading adds tokens rather than freeing them). If orchestrator context genuinely approaches the window on a large plan, use native `/compact` at this barrier as the real context lever.
+5. **Wave-barrier re-grounding**: re-read `PLAN_PATH` (the authoritative checkbox and step state) and `.ac/plans/<slug>/wisdom.md`, then emit a 2-3 line wave-summary (what completed this wave, what the next wave depends on). This re-grounds orchestrator state against the plan file after the Edit-based checkbox ticks of Layer D and enables a clean resume. It does not reduce context: main-thread context is append-only, so re-reading adds tokens rather than freeing them.
+
+   Context is not yours to manage at this barrier, and nothing here is a context lever. Auto-compaction fires on its own when the window fills (`services/compact/autoCompact.ts:62-65` reserves a 13,000-token buffer against the effective window), summarizes the older turns, and the wave loop continues. Refresh the marker's `note` field with a one-line resume hint instead (`"Waves 1-2 done, steps 1-5 committed. Resume at wave 3 = steps 7,8,9."`); the SessionStart hook reads it back after a compaction and the `Stop` hook quotes the step counts, so a compaction mid-run costs a re-read, not a handoff.
 
 ### 2g. Wave checkpoint commit (complex plans only)
 
@@ -443,7 +458,7 @@ TaskUpdate Phase 3 to `in_progress`.
 
 Goal: gate the deliver with an independent, complexity-routed code-review. The plan-code-review pair runs on the actual implementation, not the plan; it verifies the work matches the plan and meets quality bars.
 
-**Quality target: 0 reviewer iterations.** Phase 2's per-step 4-layer verification (Automated + Manual Code Review + Hands-on QA + Plan state) should produce work that passes Phase 3 first time. The Phase 3 reviewer pair (and `ac:oracle` for complex plans) is a safety net for misses, not an iteration target. The Phase 3d revision loop has a max-5 hard cap and stall detection — the goal is to never enter it.
+**Quality target: 0 reviewer iterations.** Phase 2's per-step 4-layer verification (Automated + Manual Code Review + Hands-on QA + Plan state) should produce work that passes Phase 3 first time. The Phase 3 reviewer pair (and `ac:oracle` for complex plans) is a safety net for misses, not an iteration target. The Phase 3d revision loop has a max-5 hard cap and stall detection, the goal is to never enter it.
 
 ### 3a. Final automated pass
 
@@ -476,7 +491,7 @@ Agent({
 Agent({
   subagent_type: "ac:oracle",
   description: "Oracle strategic review for <plan title>",
-  prompt: "Self-review category. Plan: <PLAN_PATH>\nModified files: <MODIFIED_FILES>\nVerify the implementation skeptically: are there bugs, missing edge cases, unhandled errors, scope drift, or architectural concerns that the structural code-review might not catch? Return your standard Bottom line + Action plan + Effort + Confidence.\n\nAt the END of your response, on its own line, output exactly one of:\n- `VERDICT: APPROVED` — implementation is sound; no blockers; Action plan is empty or trivial.\n- `VERDICT: BLOCKED` — concrete issues exist that should be fixed before deliver; Action plan lists them.\n\nThe orchestrator pairs your verdict with the code-deep-review verdict; both must pass for the plan to deliver."
+  prompt: "Self-review category. Plan: <PLAN_PATH>\nModified files: <MODIFIED_FILES>\nVerify the implementation skeptically: are there bugs, missing edge cases, unhandled errors, scope drift, or architectural concerns that the structural code-review might not catch? Return your standard Bottom line + Action plan + Effort + Confidence.\n\nAt the END of your response, on its own line, output exactly one of:\n- `VERDICT: APPROVED`: implementation is sound; no blockers; Action plan is empty or trivial.\n- `VERDICT: BLOCKED`: concrete issues exist that should be fixed before deliver; Action plan lists them.\n\nThe orchestrator pairs your verdict with the code-deep-review verdict; both must pass for the plan to deliver."
 })
 ```
 
@@ -496,11 +511,20 @@ Aggregate verdicts:
 
 When a reviewer returns APPROVED but the response body includes notes about plan-spec mismatches (deferred / out-of-scope items the reviewer did not consider blocking), the verdict prevails: advance to Phase 4 and record the notes in the dev report's Notes section. Plan-spec issues only trigger the BLOCKER auto-mode halt when they appear in a BLOCKED reviewer's issue list (Phase 3d step 6).
 
-### 3d. Revision loop (3 iter + stall detection)
+### 3d. Revision loop (max 5 iter + stall detection)
 
 If any reviewer returned BLOCKED:
 
-1. Increment `CODE_REVIEW_ITER`.
+1. **Derive the counters from disk** (never increment a remembered value):
+
+   ```
+   Bash: grep -c '^## Phase 3d Iteration' .ac/plans/<slug>/review-log.md 2>/dev/null || echo 0
+   ```
+
+   - `CODE_REVIEW_ITER` = that count, plus 1 for the pass about to run.
+   - `CODE_REVIEW_PREV_ISSUES` = the `Issue count:` value recorded under the highest-numbered `## Phase 3d Iteration` heading in that file, or `Infinity` when the file is absent or has no heading.
+
+   Step 8 below appends one heading per pass, which is what makes the next pass's count correct. Skipping the append breaks both the cap and the stall check.
 
 2. **Max-iter terminal check FIRST**. If `CODE_REVIEW_ITER > 5`: (The target is 0 iter; per-step 4-layer verification should produce work that passes Phase 3 first time. The cap exists for the rare case the implementation needs cycles; past 5 iter, something is fundamentally off.)
 
@@ -518,7 +542,7 @@ If any reviewer returned BLOCKED:
 
    These three outcomes apply to both the max-iter gate here and the Phase 3d stall gate below (same option labels, same handlers).
 
-   **Auto mode**: this is auto-eligible (see `<auto_mode>`). When `AUTO_MODE = true`, skip the question, auto-pick `Proceed anyway (Recommended)`, emit one line: `Auto mode: code-review hit max-iter (>3); proceeding to Phase 4 with unresolved findings noted in report.` Proceed.
+   **Auto mode**: this is auto-eligible (see `<auto_mode>`). When `AUTO_MODE = true`, skip the question, auto-pick `Proceed anyway (Recommended)`, emit one line: `Auto mode: code-review hit max-iter (>5); proceeding to Phase 4 with unresolved findings noted in report.` Proceed.
 
 3. **Count blocking issues** across all reviewers (CRITICAL + IMPORTANT).
 
@@ -534,18 +558,34 @@ If any reviewer returned BLOCKED:
 
    First iteration cannot stall (`CODE_REVIEW_PREV_ISSUES` starts at `Infinity`).
 
+   The comparison is on the counts alone. Whether this pass's findings look like new findings is not part of the test: a reviewer returning the same number of blockers pass after pass is a reviewer that is not converging, whatever the blockers are about. Judging the findings "different, so not a stall" is how a loop reaches its cap without ever questioning itself.
+
    **Auto mode**: this is auto-eligible. When `AUTO_MODE = true`, skip the question, auto-pick `Proceed anyway (Recommended)`, emit one line: `Auto mode: code-review stalled at <N> issues (no improvement over iter <N-1>); proceeding to Phase 4 with unresolved findings noted in report.` Proceed.
 
-5. Update `CODE_REVIEW_PREV_ISSUES = issue_count`.
-
-6. **Apply fixes**. For each BLOCKED finding:
+5. **Apply fixes**. For each BLOCKED finding:
    - Read the affected file at the cited `file_path:line_number`.
    - Apply the smallest correct fix that addresses the finding. The reviewer's `Fix:` line is your guidance.
    - Use `Edit` for the fix.
    - If the finding is a plan-spec issue (the plan itself is wrong, not the implementation), do NOT silently revise the plan; surface via `AskUserQuestion` (`Plan-spec issue: <finding>. Options: Edit plan to fix and re-verify / Accept as Risk and proceed / Stop`).
    - **Auto mode**: the plan-spec branch is a BLOCKER call site (see `<auto_mode>`). Surface the `AskUserQuestion` to the user EVEN IF `AUTO_MODE = true`. Auto-rewriting the plan is unsafe; the user must judge whether the plan or the implementation should change. Before calling `AskUserQuestion`, emit one line: `BLOCKER: reviewer flagged a plan-spec issue at <file:line>. Auto mode halted; user judgment required.` Apply the user's response.
 
-7. Re-run Phase 3a (build + test + lint) on the fixes.
+6. Re-run Phase 3a (build + test + lint) on the fixes.
+
+7. **Append the pass to `.ac/plans/<slug>/review-log.md`** before looping. This append is what carries the loop state into the next pass, so it happens now, not at the end of the phase. Create the file if absent:
+
+   ```
+   ## Phase 3d Iteration <N>
+
+   - Reviewers: <ac:plan-code-review | ac:plan-code-deep-review [+ ac:oracle]>
+   - Verdicts: <per-reviewer APPROVED / BLOCKED>
+   - Issue count: <N>
+   - Findings addressed: <file:line list>
+   - Notes: <freeform>
+   ```
+
+   The `Issue count:` line is read back verbatim as the next pass's `CODE_REVIEW_PREV_ISSUES`. Record the count the reviewers actually returned, not the count you fixed.
+
+   Every pass appends a heading, including one that ended in a malformed verdict (record `Issue count: 0` and say so under Notes). A pass that skips the append leaves the count unchanged, and an unchanging count is a loop with no cap.
 
 8. Re-spawn the reviewer(s). Pass the same prompt; the reviewer reads the new state of the modified files. Loop to 3c.
 
@@ -567,7 +607,7 @@ Goal: commit the work, generate the dev report, render the execution summary.
 
 1. For each file in `MODIFIED_FILES`, run `git check-ignore -q <file>`. If ALL files exit 0 (every modified file is under a gitignored path), AND `git status --porcelain` shows tracked modifications NOT present in `MODIFIED_FILES` (parent repo has unrelated tracked work), the F7 case has fired: skip the final commit.
 2. The plan's `## Execution Strategy` MAY declare a `Git context:` field (`root` | `gitignored-subproject` | `independent-git-init`); when present, honor it as a hint but still verify via git state (the field is advisory; git state is authoritative).
-3. On F7 skip: emit one user-visible line `Auto mode: Phase 4 final commit → SKIPPED (F7 case: gitignored MODIFIED_FILES + parent repo unrelated tracked work)`. Log in the dev report (4b below) under `## Commits`: `Phase 4 final commit skipped — F7 case. MODIFIED_FILES are gitignored at <path>; parent repo has <N> unrelated tracked changes. /ac:commit would inadvertently snapshot unrelated work as this plan's deliverable. Plan's deliverables remain at their gitignored location; user can git add -f <path> to track them explicitly.` Advance to 4b without commit invocation.
+3. On F7 skip: emit one user-visible line `Auto mode: Phase 4 final commit → SKIPPED (F7 case: gitignored MODIFIED_FILES + parent repo unrelated tracked work)`. Log in the dev report (4b below) under `## Commits`: `Phase 4 final commit skipped, F7 case. MODIFIED_FILES are gitignored at <path>; parent repo has <N> unrelated tracked changes. /ac:commit would inadvertently snapshot unrelated work as this plan's deliverable. Plan's deliverables remain at their gitignored location; user can git add -f <path> to track them explicitly.` Advance to 4b without commit invocation.
 4. If MODIFIED_FILES are tracked OR parent repo has no unrelated tracked changes, proceed to commit invocation below.
 
 **Commit invocation** (when F7 skip-condition did NOT fire):
@@ -594,7 +634,9 @@ TaskUpdate Phase 4 to `completed`. End the turn.
 
 ## Error handling
 
-Marker teardown applies to every halt below: whenever the run terminates or aborts before Phase 4 completes, delete `.ac/state/active-execution.json` first so the plugin's PreToolUse file-scope hook finds no stale marker on the next session. Branches that continue the run (`Accept and continue`, `Skip the dependent steps`, `Continue without checkpoint`) leave the marker in place.
+Marker teardown applies to every halt below: whenever the run terminates or aborts before Phase 4 completes, delete `.ac/state/active-execution.json` FIRST, before printing anything or ending the turn. Two hooks depend on it: the PreToolUse file-scope guard must find no stale marker on the next session, and the `Stop` guard reads the marker's presence as "this run is unfinished" and blocks the turn from ending. A halt that skips the delete will be blocked, told the step count, and handed back to you until the guard's block budget is spent. Branches that continue the run (`Accept and continue`, `Skip the dependent steps`, `Continue without checkpoint`) leave the marker in place.
+
+There is no error class for running low on context, on purpose. Compaction handles it and the run continues; see the `## Standing rules` block.
 
 - **Plan not found**: print `Plan not found at <path>. Run /ac:plan first.`, stop. No partial work (no marker was written yet at this point).
 - **Worker returns malformed output** (no Changes Made / Verification sections): re-spawn the same tier once with a format reminder. If still malformed, treat as Phase 2 failure (increments `VERIFY_RETRY_COUNT`).
@@ -612,4 +654,4 @@ Failure-mode anchors for execution:
 - Read every changed file in Layer B (Manual Code Review). Skipping it is the most common quality miss.
 - Copy worker briefing fields verbatim from the plan. Paraphrasing inverts opt-in/opt-out.
 - Inject `TDD_MODE` directive into every worker briefing (`tdd` / `tests-after` / `none`).
-- TaskUpdate each step and phase on entry and exit; the progress UI relies on it.
+- TaskUpdate each wave and phase on entry and exit; the progress UI relies on it. Never create a task per step.
