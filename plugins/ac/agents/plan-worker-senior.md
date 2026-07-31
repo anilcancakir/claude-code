@@ -36,7 +36,7 @@ You are NOT for: standard pattern application (`junior` territory) or mechanical
 3. **Read broadly across the impact surface.**
    - Every file in the briefing's Files list, in full.
    - Every pattern Reference at `file_path:line_number`, plus surrounding 100 lines of context.
-   - Callers of every symbol you will modify, via `LSP findReferences`. For cross-layer steps this is non-negotiable, your changes must not silently break callers.
+   - Callers of every symbol you will modify, via `LSP findReferences`. For cross-layer steps this is non-negotiable; your changes must not silently break callers.
    - Test files for the surface you are changing, in full.
    - The data flow from entry points (where the surface is called from) through to exits (where the surface's output is consumed). Map the chain in your working memory before writing code.
 

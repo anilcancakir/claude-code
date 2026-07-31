@@ -23,7 +23,7 @@ Every branch that terminates the run deletes `.ac/state/active-execution.json` f
 
 **A stop needs a name.** "I cannot verify this properly in the remaining context" is a stop wearing the clothes of a report. When a step genuinely cannot be completed to the plan's standard, the reason is one of: a fact you do not have and cannot obtain, a decision only the user can make, or a gate you cannot pass. Each maps to a BLOCKER branch (2i, 2j, 3d) that surfaces an `AskUserQuestion` and deletes the marker. Name the class, take the branch, report what did land. Never substitute a capacity limit for the real reason.
 
-**Loop bounds come from disk, never from working memory.** Before every Phase 3 reviewer spawn, derive both counters from `.ac/plans/<slug>/review-log.md` per Phase 3d. A counter held in context drifts once a run is long enough to compact; a file does not.
+**Loop bounds come from disk, never from working memory.** A counter held in context drifts once a run is long enough to compact; a file does not, and neither does a shell command's answer. Phase 3 reads its iteration number, its previous issue count, and both its gate verdicts out of `.ac/plans/<slug>/review-log.md` via the `Bash` one-liners given in Phase 3a and 3d. Run them and read the result; do not carry the numbers forward in your head and do not evaluate the comparisons yourself.
 
 **Progress surface.** Call `TaskList` before creating any task, so a resumed session extends its own list instead of duplicating it. One task per wave plus the phase tasks, never one per step: the plan file's checkboxes are the per-step record and Phase 2h prints the per-step table.
 
@@ -51,8 +51,8 @@ Tools available on main thread:
 - `Write`, `Edit`: for plan-adjacent artifacts (`wisdom.md`, `report.md`); also used to revise the plan ONLY when a reviewer flags a plan-spec issue (rare; usually you revise source code instead).
 - `Bash`: build, test, lint, run-time QA tools (curl, playwright, interactive_bash), git read-only checks.
 - `Skill`: invoke `ac:git-master` via `/ac:commit`, optionally invoke project skills the workers may need.
-- `ToolSearch`: load deferred tools (AskUserQuestion, TaskCreate, TaskUpdate) before first use.
-- `AskUserQuestion`, `TaskCreate`, `TaskUpdate`: deferred; require ToolSearch round-trip.
+- `ToolSearch`: load deferred tools (AskUserQuestion, TaskCreate, TaskUpdate, TaskList) before first use.
+- `AskUserQuestion`, `TaskCreate`, `TaskUpdate`, `TaskList`: deferred; require ToolSearch round-trip. `TaskList` is easy to forget here and the Standing rules block requires it before the first `TaskCreate`.
 
 Subagent envelope reminder: subagents are separate HTTP calls with their own system prompt; they cannot call Agent themselves and they do not inherit your context. Brief them with the 6-section delegation prompt (TASK / EXPECTED OUTCOME / REQUIRED TOOLS / MUST DO / MUST NOT DO / CONTEXT). Workers receive project CLAUDE.md automatically.
 </capabilities>
@@ -97,7 +97,7 @@ Heartbeat discipline in auto mode: emit one short user-visible line for each of 
 Before any user-facing action, load deferred tools in one ToolSearch call:
 
 ```
-ToolSearch query: "select:AskUserQuestion,TaskCreate,TaskUpdate"
+ToolSearch query: "select:AskUserQuestion,TaskCreate,TaskUpdate,TaskList"
 ```
 
 The task list is built later, at the end of Phase 1, once the plan is parsed and the wave breakdown is known. Until then the user sees no list. Phase 1g carries the shape, including the `TaskList`-before-`TaskCreate` rule.
@@ -465,6 +465,14 @@ Goal: gate the deliver with an independent, complexity-routed code-review. The p
 
 Run build + test + lint one more time on the entire project. All must pass before spawning the reviewer subagent(s). If any fail at this gate, treat as a Phase 3 retry (counts against the revision loop limit below).
 
+Then open this run's section of the review log, once, before the first reviewer spawn:
+
+```
+Bash: mkdir -p .ac/plans/<slug> && printf '\n## Run %s\n' "<marker started_at>" >> .ac/plans/<slug>/review-log.md
+```
+
+The log is append-only across runs, and the `## Run` header is what scopes the loop counters below to THIS run. Without it a second `/ac:execute <slug>` counts the previous run's passes, computes an iteration number past the cap on its very first pass, and in auto mode rolls straight to Phase 4 having spawned no reviewer at all.
+
 ### 3b. Spawn the code-review pair
 
 Read the plan's `**Complexity**:` field. Route accordingly:
@@ -516,18 +524,17 @@ When a reviewer returns APPROVED but the response body includes notes about plan
 
 If any reviewer returned BLOCKED:
 
-1. **Derive the counters from disk** (never increment a remembered value):
+1. **Read the counters off disk** (never increment a remembered value). One command returns all three, scoped to the current `## Run` section:
 
    ```
-   Bash: grep -c '^## Phase 3d Iteration' .ac/plans/<slug>/review-log.md 2>/dev/null || echo 0
+   Bash: { test -f .ac/plans/<slug>/review-log.md && awk -v cap=5 '/^## Run /{iter=0;prev="";next} /^## Phase 3d Iteration/{iter++;next} /^- Issue count:/{prev=$4} END{n=iter+1; printf "ITER=%d PREV=%s GATE=%s\n", n, (prev==""?"none":prev), (n>cap?"MAX_ITER":"OK")}' .ac/plans/<slug>/review-log.md || echo "ITER=1 PREV=none GATE=OK"; } | tail -1
    ```
 
-   - `CODE_REVIEW_ITER` = that count, plus 1 for the pass about to run.
-   - `CODE_REVIEW_PREV_ISSUES` = the `Issue count:` value recorded under the highest-numbered `## Phase 3d Iteration` heading in that file, or `Infinity` when the file is absent or has no heading.
+   `ITER` is the pass about to run, `PREV` is the previous pass's issue count within this run (`none` on the first pass), and `GATE` is the max-iter verdict. Read the verdict; do not recompute it. The `tail -1` matters because `grep -c` and a failed `awk` both emit a line and then the fallback emits another.
 
-   Step 8 below appends one heading per pass, which is what makes the next pass's count correct. Skipping the append breaks both the cap and the stall check.
+   Step 8 below appends one heading per pass, which is what makes the next pass's numbers correct. Skipping the append breaks both the cap and the stall check.
 
-2. **Max-iter terminal check FIRST**. If `CODE_REVIEW_ITER > 5`: (The target is 0 iter; per-step 4-layer verification should produce work that passes Phase 3 first time. The cap exists for the rare case the implementation needs cycles; past 5 iter, something is fundamentally off.)
+2. **Max-iter terminal check FIRST**. If step 1 returned `GATE=MAX_ITER`: (The target is 0 iter; per-step 4-layer verification should produce work that passes Phase 3 first time. The cap exists for the rare case the implementation needs cycles; past 5 iter, something is fundamentally off.)
 
    ```
    AskUserQuestion (header `Max iter?`, options
@@ -547,7 +554,13 @@ If any reviewer returned BLOCKED:
 
 3. **Count blocking issues** across all reviewers (CRITICAL + IMPORTANT).
 
-4. **Stall detection**. If `issue_count >= CODE_REVIEW_PREV_ISSUES` AND `CODE_REVIEW_ITER >= 2`:
+4. **Stall detection**. Do not evaluate the inequality yourself; ask for the verdict, using `issue_count` from step 3 and `PREV` / `ITER` from step 1:
+
+   ```
+   Bash: awk -v n=<issue_count> -v prev=<PREV> -v iter=<ITER> 'BEGIN{print (prev!="none" && n+0>=prev+0 && iter+0>=2) ? "STALL" : "CONTINUE"}'
+   ```
+
+   On `STALL`:
 
    ```
    AskUserQuestion (header `Stalled?`, options
@@ -557,9 +570,9 @@ If any reviewer returned BLOCKED:
    )
    ```
 
-   First iteration cannot stall (`CODE_REVIEW_PREV_ISSUES` starts at `Infinity`).
+   The first pass cannot stall, because `PREV` is `none` until a pass has been logged.
 
-   The comparison is on the counts alone. Whether this pass's findings look like new findings is not part of the test: a reviewer returning the same number of blockers pass after pass is a reviewer that is not converging, whatever the blockers are about. Judging the findings "different, so not a stall" is how a loop reaches its cap without ever questioning itself.
+   The verdict is a shell command rather than a rule you apply because a rule here has already been ignored once with its full text in context: a real run logged issue counts of 5, 5, 5, 5, 4 across five passes, every pass after the first satisfied the condition, and the gate never fired. The comparison is on the counts alone, and whether this pass's findings look like new findings is not an input. A reviewer returning the same number of blockers pass after pass is a reviewer that is not converging, whatever the blockers are about.
 
    **Auto mode**: this is auto-eligible. When `AUTO_MODE = true`, skip the question, auto-pick `Proceed anyway (Recommended)`, emit one line: `Auto mode: code-review stalled at <N> issues (no improvement over iter <N-1>); proceeding to Phase 4 with unresolved findings noted in report.` Proceed.
 

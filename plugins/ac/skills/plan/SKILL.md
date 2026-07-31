@@ -19,12 +19,7 @@ These hold for the whole run, including after a compaction. Everything below thi
 
 **Context.** Auto-compaction summarizes older turns and the run continues. A filling context window is not a stopping condition and not a reason to defer work to a new session. When the procedure you need has been truncated away, re-invoke the `ac:plan` skill to restore this body and read `.ac/plans/<slug>/checkpoint.json` for where the run was.
 
-**Loop bounds come from disk, never from working memory.** A counter you hold in context drifts across a long run; a file does not. Before every Stage 5.5 reviewer spawn, derive both counters from `LOG_PATH`:
-
-```
-PLAN_REVIEWER_ITER        = (count of `^## Stage 5.5 Iteration` headings in LOG_PATH) + 1
-PLAN_REVIEWER_PREV_ISSUES = the `Issue count:` value under the highest-numbered heading, or Infinity when none exists
-```
+**Loop bounds come from disk, never from working memory.** A counter you hold in context drifts across a long run; a file does not, and neither does a shell command's answer. Stage 5.5 reads its iteration number, its previous issue count, and both its gate verdicts out of `LOG_PATH` via the `Bash` one-liners given in 5.5c and 5.5d. Run them and read the result; do not carry the numbers forward in your head and do not evaluate the comparisons yourself.
 
 **Progress surface.** Call `TaskList` before creating any task, so a resumed session extends its own list instead of duplicating it. One task per stage, never one per decision.
 
@@ -53,7 +48,7 @@ Tools available on main thread (10 base + deferred via ToolSearch):
 - `Bash`: read-only checks (`git`, `find`, `ls`) and one-shot `.gitignore` append.
 - `Skill`: invoke local skills when relevant (e.g., `ac:execute` for the auto-mode chain at Stage 6a, `ac:git-master` via `/ac:commit` for repo-state surfacing).
 - `ToolSearch`: load deferred tools before first use.
-- `AskUserQuestion`, `TaskCreate`, `TaskUpdate`: deferred; require ToolSearch round-trip.
+- `AskUserQuestion`, `TaskCreate`, `TaskUpdate`, `TaskList`: deferred; require ToolSearch round-trip. `TaskList` is easy to forget here and the Standing rules block requires it before the first `TaskCreate`.
 
 Subagent envelope reminder: subagents are separate HTTP calls with their own system prompt; they cannot call Agent themselves and they do not inherit your context. Brief them with CONTEXT + GOAL + DOWNSTREAM + REQUEST.
 </capabilities>
@@ -112,7 +107,7 @@ Heartbeat discipline in auto mode: emit one short user-visible line for each of 
 Before any user-facing action, load deferred tools in one ToolSearch call:
 
 ```
-ToolSearch query: "select:AskUserQuestion,TaskCreate,TaskUpdate"
+ToolSearch query: "select:AskUserQuestion,TaskCreate,TaskUpdate,TaskList"
 ```
 
 Then register the pipeline as a TaskCreate task list so the user sees progress in CC's native UI. The TaskCreate API accepts ONE task per call (`{ subject, description, activeForm }`); call it sequentially for each stage in the pipeline:
@@ -640,22 +635,27 @@ On `Skip review` or `REVIEW_TIER == "skip"` confirmed: jump to Stage 6 Deliver, 
 
 ### 5.5c. Loop state lives in the log file
 
-There is no counter to initialize. Both loop variables are derived from `LOG_PATH` at the top of every pass per the `## Standing rules` block, because a variable held in working memory drifts once the run gets long enough to compact:
+There is no counter to initialize. Open this run's section of the log once, before the first reviewer spawn:
 
 ```
-Bash: grep -c '^## Stage 5.5 Iteration' <LOG_PATH> 2>/dev/null || echo 0
+Bash: printf '\n## Stage 5.5 Run %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> <LOG_PATH>
 ```
 
-That count is the number of completed passes. Step 8 below appends one heading per pass, which is what makes the next pass's count correct; skipping the append breaks both the cap and the stall check.
+`LOG_PATH` is append-only across runs, and the `## Stage 5.5 Run` header is what scopes the counters to THIS run. Without it, a re-plan on the same slug (the Stage 0f `Overwrite` branch keeps the slug and leaves the log in place) counts the previous run's passes, lands past the cap on its first pass, and skips the review entirely.
 
 ### 5.5d. Review loop
 
 Repeat:
 
-1. **Derive the counters** (never increment a remembered value):
-   - `PLAN_REVIEWER_ITER` = the grep count above, plus 1 for the pass about to run.
-   - `PLAN_REVIEWER_PREV_ISSUES` = the `Issue count:` value recorded under the highest-numbered `## Stage 5.5 Iteration` heading in `LOG_PATH`, or `Infinity` when no heading exists.
-2. **Max-iter terminal check** runs FIRST. If `PLAN_REVIEWER_ITER > 5`, present escalation gate. (The target is 0 iter; the cap exists for plans that need a few cycles to converge. Past 5 iter, something structural is wrong and user judgment is needed.)
+1. **Read the counters off disk** (never increment a remembered value). One command returns all three, scoped to the current run section:
+
+   ```
+   Bash: { test -f <LOG_PATH> && awk -v cap=5 '/^## Stage 5.5 Run /{iter=0;prev="";next} /^## Stage 5.5 Iteration/{iter++;next} /^- Issue count:/{prev=$4} END{n=iter+1; printf "ITER=%d PREV=%s GATE=%s\n", n, (prev==""?"none":prev), (n>cap?"MAX_ITER":"OK")}' <LOG_PATH> || echo "ITER=1 PREV=none GATE=OK"; } | tail -1
+   ```
+
+   `ITER` is the pass about to run, `PREV` is the previous pass's issue count within this run (`none` on the first pass), and `GATE` is the max-iter verdict. Read the verdict; do not recompute it.
+
+2. **Max-iter terminal check** runs FIRST. If step 1 returned `GATE=MAX_ITER`, present escalation gate. (The target is 0 iter; the cap exists for plans that need a few cycles to converge. Past 5 iter, something structural is wrong and user judgment is needed.)
 
    ```
    AskUserQuestion (header `Max iter?`, options
@@ -682,7 +682,13 @@ Repeat:
    - Leading non-empty line `**[REJECT]**` → continue.
    - Anything else → re-spawn the reviewer once with the same path prompt (reviewer input contract is path-only; do not append extra context). If the second attempt is also malformed, treat the iteration as REJECT with zero parseable issues, which forces stall detection or max-iter escalation on the next loop pass.
 
-5. **Stall detection** runs AFTER max-iter check, BEFORE revision. Count blocking issues in the REJECT output. If `issue_count >= PLAN_REVIEWER_PREV_ISSUES` AND `PLAN_REVIEWER_ITER >= 2`:
+5. **Stall detection** runs AFTER max-iter check, BEFORE revision. Count blocking issues in the REJECT output, then ask for the verdict rather than evaluating the inequality yourself:
+
+   ```
+   Bash: awk -v n=<issue_count> -v prev=<PREV> -v iter=<ITER> 'BEGIN{print (prev!="none" && n+0>=prev+0 && iter+0>=2) ? "STALL" : "CONTINUE"}'
+   ```
+
+   On `STALL`:
 
    ```
    AskUserQuestion (header `Stalled?`, options
@@ -692,9 +698,9 @@ Repeat:
    )
    ```
 
-   First iteration cannot stall because `PLAN_REVIEWER_PREV_ISSUES` starts at `Infinity`.
+   The first pass cannot stall, because `PREV` is `none` until a pass has been logged.
 
-   The comparison is on the counts alone. Whether this pass's findings look like new findings is not part of the test: a reviewer that keeps returning the same number of blockers is a reviewer that is not converging, whatever the blockers are about. The failure this rule catches, observed in a real run whose `interview-log.md` recorded issue counts of 5, 5, 5, 5, 4 across five passes: every pass after the first satisfied `5 >= 5`, the gate never fired, and the loop burned four reviewer spawns to reach the cap it should have questioned at pass 2.
+   The verdict is a shell command rather than a rule you apply because this exact rule was already ignored once with its full text in context. A real run's `interview-log.md` recorded issue counts of 5, 5, 5, 5, 4 across five passes: every pass after the first satisfied `5 >= 5`, the gate never fired, and the loop burned four reviewer spawns to reach the cap it should have questioned at pass 2. The comparison is on the counts alone, and whether this pass's findings look like new findings is not an input.
 
 6. **Revise the plan** via `Edit` (do not re-`Write` the plan file; the second `Write` call erases the first). For each blocking issue:
    - Locate the affected section in the plan file (issue references file:line or step number).
