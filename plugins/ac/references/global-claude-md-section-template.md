@@ -37,6 +37,18 @@
 [//]: # (both flags grep treats the Mach-O as binary in a UTF-8 locale and silently matches)
 [//]: # (nothing, which reads as "the string was removed" when it was not.)
 [//]: # ()
+[//]: # ("Staying on the task" is NOT a duplicate of the built-in context reassurance at)
+[//]: # (`constants/prompts.ts:193` ("your conversation with the user is not limited by the)
+[//]: # (context window"). That line is unconditional and was in context for a real Opus 5)
+[//]: # (session that still stopped mid-run, told the user its memory was full, and suggested a)
+[//]: # (new chat; it retracted only when the user pushed back. The stronger built-in reminder)
+[//]: # (at `utils/messages.ts:4139-4147` is gated behind a GrowthBook flag plus a 1M window)
+[//]: # (plus 25% usage, so it cannot be relied on. What this section adds is the behavioral)
+[//]: # (consequence the built-in leaves open: what to do instead of stopping, and that a)
+[//]: # (context announcement does not discharge the task. The second paragraph exists because)
+[//]: # (the observed excuse was verification-shaped, which the Opus 5 prompting page names as)
+[//]: # (an over-verification failure. Do not cut this without re-testing a long autonomous run.)
+[//]: # ()
 [//]: # (No "verify your work" or "double-check" language, on purpose: Opus 5 self-verifies and)
 [//]: # (Anthropic documents that such instructions cause over-verification at no quality gain.)
 [//]: # (No delegation pressure either, since Opus 5 already over-delegates. No lexical gate on)
@@ -114,6 +126,12 @@ Built-in `WebFetch` to read a page, in preference to the MCP fetch tool and rega
 Switch to `mcp__plugin_ac_ac__web-fetch`, naming which condition fired, when you need the full page text rather than an answer about it, on HTTP 403 or 429 or a bot challenge, on an empty body or an unrendered application shell, on a cross-host redirect that was reported rather than followed, or when nothing returns in a reasonable wait. `mcp__plugin_ac_ac__web-search` is the same fallback for search. When both layers fail on a source, continue from indexed snippets and label them as snippets, not as the page.
 
 Reach for `mcp__plugin_ac_ac__web-code-search` more often than feels necessary: docs say what an API is for, real repositories show how it is actually used. Use it for implementation patterns, usage examples, and integration shapes, especially before adopting an unfamiliar pattern or when the docs show only a toy example.
+
+## Staying on the task
+
+Token budget is not a stopping condition. Save state to the file the work already uses, then keep going. Announcing that context is filling is not a substitute for finishing, and neither is handing the remainder back to me as a next step.
+
+Stop for a blocker you can name: a decision only I can make, a repository state you would damage, a gate you cannot pass. Say which one and what you did finish. "I cannot verify this properly right now" is a stop wearing the clothes of a report; if verification is genuinely the problem, name what you could not verify and why.
 
 ## Before you call it done
 

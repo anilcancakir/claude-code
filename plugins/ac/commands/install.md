@@ -254,7 +254,7 @@ The ac wiring is not security-sensitive, so it merges without a prompt. All ADD-
    - Remove any `hooks.PreToolUse` entry whose matcher equals `WebSearch|WebFetch`.
    - Remove the `hooks.PreToolUse` entry a prior install wrote for plan mode: matcher `EnterPlanMode` whose command echoes the `use /ac:plan` steer and exits 2. The plan-mode block now ships in the plugin's `hooks.json`, so this command writes NO settings hook.
 
-This command writes no `hooks.*` entry of its own. The plan-mode PreToolUse block is delivered by the plugin (`plugins/ac/hooks/hooks.json`, matcher `EnterPlanMode|ExitPlanMode`); `permissions.deny` above is the load-bearing guard either way.
+This command writes no `hooks.*` entry of its own. Every ac hook is delivered by the plugin through `plugins/ac/hooks/hooks.json` and needs no settings entry: the plan-mode PreToolUse block (matcher `EnterPlanMode|ExitPlanMode`), the worker file-scope PreToolUse guard (matcher `Edit|Write|MultiEdit`), the SessionStart plan-state hook (matcher `startup|resume|compact`), and the `Stop` guard that keeps an `/ac:execute` run from ending its turn mid-plan. For plan mode, `permissions.deny` above is the load-bearing guard either way.
 
 When `MCP_REACHABLE` is false, the CLAUDE.md fallback steering section (Phase 3) simply omits the mention of the ac web-fetch and web-search tools; the built-in WebSearch and WebFetch remain primary either way.
 
@@ -376,4 +376,4 @@ Anchors this command body relies on. Cross-check before editing.
 - `${CLAUDE_PLUGIN_ROOT}/references/coding-style-template.md` (Phase 1 my-coding seed template).
 - `${CLAUDE_PLUGIN_ROOT}/references/language-style-template.md` (Phase 2 my-language seed template).
 - `${CLAUDE_PLUGIN_ROOT}/references/global-claude-md-section-template.md` (Phase 3 full workflow-discipline section, wrapped in the `<!-- ac:delegation:start -->` / `<!-- ac:delegation:end -->` fence markers used for the deterministic merge; carries three angle-bracket placeholders the 3a interview fills).
-- `plugins/ac/hooks/hooks.json` (ships the plan-mode PreToolUse block, matcher `EnterPlanMode|ExitPlanMode`; Phase 4 writes no settings hook).
+- `plugins/ac/hooks/hooks.json` (ships all four ac hooks: plan-mode PreToolUse block, worker file-scope PreToolUse guard, SessionStart plan state, and the `Stop` guard for in-flight execute runs; Phase 4 writes no settings hook).
