@@ -2,7 +2,7 @@
 
 How the Claude Code runtime treats skills: where they load from, when they activate, what gets injected, how compaction handles them, what the trigger decision looks like. Read this when a skill misbehaves and you need to understand the runtime, or when deciding between structural options and the loader's actual reward matters.
 
-Source of truth: [Anthropic docs](https://docs.claude.com/en/docs/claude-code/skills.md) plus Claude Code's loader (`loadSkillsDir.ts`) and `SkillTool.ts`. When docs conflict with observed CLI behavior, trust the binary.
+Source of truth: [Anthropic docs](https://code.claude.com/docs/en/skills.md) plus Claude Code's loader (`loadSkillsDir.ts`) and `SkillTool.ts`. When docs conflict with observed CLI behavior, trust the binary.
 
 ## Contents
 
@@ -272,4 +272,4 @@ The matching syntax is gitignore-style. The loader drops `/**` suffixes (the ign
 - **No type-checking of frontmatter.** Invalid fields are silently ignored or trigger a debug log; they do not stop the skill from loading.
 - **No magic when triggering.** The model decides; the runtime delivers. If the description is weak, the skill stays cold.
 - **No `${CLAUDE_SKILL_DIR}` substitution for MCP skills.** MCP-loaded skills are remote; the substitution is meaningless and shell injection is skipped entirely.
-- **No silent generalization of rules across sections.** Opus 4.8 takes instructions literally, the body must state scope explicitly.
+- **No silent generalization of rules across sections.** The body must state scope explicitly, in both directions: where a rule spans, and where the skill's work stops (Opus 5 widens scope on its own).

@@ -1,6 +1,6 @@
 # Frontmatter Reference
 
-Every field a Claude Code skill recognizes, what it does, when to set it, valid values, parsing pitfalls. Source of truth: [Anthropic docs](https://docs.claude.com/en/docs/claude-code/skills.md) and Claude Code's loader (`loadSkillsDir.ts:parseSkillFrontmatterFields`). When docs conflict with observed CLI behavior, trust the binary.
+Every field a Claude Code skill recognizes, what it does, when to set it, valid values, parsing pitfalls. Source of truth: [Anthropic docs](https://code.claude.com/docs/en/skills.md) and Claude Code's loader (`loadSkillsDir.ts:parseSkillFrontmatterFields`). When docs conflict with observed CLI behavior, trust the binary.
 
 ## Contents
 
@@ -174,7 +174,7 @@ Pattern syntax mirrors `/permissions`:
 Override the active model while the skill runs. Same values as `/model`, plus `inherit` (no override).
 
 ```yaml
-model: claude-opus-4-8
+model: claude-opus-5
 # or
 model: claude-sonnet-5
 # or
@@ -191,7 +191,7 @@ Override the active effort level while the skill runs. Options depend on the mod
 effort: high
 ```
 
-Use when the skill needs a different reasoning budget than the session default, a complex audit skill at `high`, a quick formatter skill at `low`. Most skills inherit fine. Detail on effort tuning: `${CLAUDE_SKILL_DIR}/references/opus-4-8-tuning.md`.
+Use when the skill needs a different reasoning budget than the session default, a complex audit skill at `high`, a quick formatter skill at `low`. Most skills inherit fine. Haiku 4.5 does not support the parameter at all, so omit it on any skill targeted at that model. Detail on effort tuning: `${CLAUDE_SKILL_DIR}/references/opus-5-tuning.md`.
 
 ## `context`
 

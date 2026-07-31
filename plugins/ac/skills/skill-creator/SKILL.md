@@ -1,22 +1,21 @@
 ---
 name: skill-creator
-description: Authors Claude Code skills (`.claude/skills/<name>/SKILL.md`, project/user/plugin/managed scope). Use whenever a new skill is being written, an existing skill is being edited, a recurring workflow is being captured as a playbook, scope and invocation are being decided (inline vs forked, model-invocable vs user-only), `allowed-tools` patterns are being chosen, bundled `references/` or `scripts/` are being added, `paths:` is being scoped, or a skill that fails to trigger is being debugged. Triggers on "create a skill", "write a SKILL.md", "turn this into a skill", "make a slash command", "package this workflow", "playbook", "fix this skill", "skill not triggering", "skillify". Use even when the user does not say the word "skill" but is asking to capture a procedure they keep retyping. Pair with `ac:prompt-writer` for the body content, with `command-creator` for command-shaped skills (`/name [args]`), with `agent-creator` for context-isolated workers, with `ac:claude-md-rules-creator` for facts that belong in CLAUDE.md instead. Target is Opus 4.8; Sonnet 5 follows the same shape at lower effort. Undertriggering is the failure mode, lean in when the request is plausibly about authoring or fixing a skill.
+description: Authors and audits Claude Code skills, covering `SKILL.md` frontmatter, directory layout, scope (project, user, plugin, managed), invocation control, and bundled `references/` or `scripts/`. Use when a skill is being written or edited, when a recurring playbook is being captured, when `allowed-tools` or `paths:` need choosing, or when a skill fails to fire. Triggers on "create a skill", "write a SKILL.md", "turn this into a skill", "package this workflow", "skill not triggering", "skillify". Use even when the user never says "skill" but is capturing a procedure they keep retyping. Pair with `ac:prompt-writer` for the body text.
 when_to_use: Creating, editing, auditing, or debugging any Claude Code skill at any scope.
-disable-model-invocation: true
 ---
 
 # Skill Creator
 
 You are about to write or edit a skill another Claude will load. A skill is a directory with a `SKILL.md`. Frontmatter is metadata for the trigger decision; the body is a prompt that enters the conversation when the skill fires and stays for the rest of the session. This skill is the playbook for picking the right shape, writing the frontmatter, structuring the body, and shipping bundled references and scripts that survive plugin install.
 
-Target is Opus 4.8. Same rules work for Sonnet 5 and Haiku 4.5 with lower effort levels. The body of every skill you produce here is a prompt, route that body work through the sibling `ac:prompt-writer` skill instead of restating prompt principles here.
+Target is Opus 5. Same rules work for Sonnet 5 at lower cost and for Haiku 4.5, which supports no effort parameter at all. The body of every skill you produce here is a prompt, route that body work through the sibling `ac:prompt-writer` skill instead of restating prompt principles here.
 
 ## Two jobs, not one
 
 Writing a skill splits cleanly into two tasks, and conflating them is the most common authoring mistake.
 
 1. **Skill shape.** Frontmatter, file layout, scope, invocation control, bundling. This file teaches that.
-2. **Body content.** The markdown the model reads when the skill triggers. This is a prompt. Route through `ac:prompt-writer` (architecture, snippets, anti-patterns, Opus 4.8 tuning).
+2. **Body content.** The markdown the model reads when the skill triggers. This is a prompt. Route through `ac:prompt-writer` (architecture, snippets, anti-patterns, Opus 5 tuning).
 
 The shape decisions front-load most of the leverage. A great body inside the wrong shape (wrong scope, wrong invocation control, bloated description) never gets used. A modest body inside the right shape gets used every day.
 
@@ -59,7 +58,7 @@ Eight rules that change outcomes the most. Detail in the references.
 
 5. **Standing instructions, not turn-scoped phrasing.** The body enters the conversation as a single message and stays for the rest of the session. Claude does not re-read SKILL.md. "Always use the bundled script" lasts; "for this turn, use the bundled script" rots by turn three.
 
-6. **State scope explicitly.** Opus 4.8 takes instructions literally and will not silently generalize a rule across sections. Write "apply to every step, not just the first" when the rule must hold throughout.
+6. **State scope explicitly, in both directions.** Write "apply to every step, not just the first" when a rule must hold throughout. Also name the upper bound: Opus 5 can widen a task's scope on its own and re-verify finished work, so a body that declares what the skill does NOT touch holds its shape better than one that only declares what it does.
 
 7. **No aggressive caps.** "CRITICAL", "you MUST", "ALWAYS" in modern Claude produce weird compliance behaviors and overtriggering. Plain instructions work; if a rule needs weight, explain the why.
 
@@ -74,7 +73,7 @@ Eight rules that change outcomes the most. Detail in the references.
 | Project | `.claude/skills/<name>/SKILL.md` (walks up from cwd) | This repo only. Commit to share. | Repo-specific workflows |
 | Plugin | `<plugin>/skills/<name>/SKILL.md` | Wherever the plugin is installed. Auto-namespaced as `plugin:skill`. | Distributing to others |
 
-Precedence is managed > user > project; plugin skills live in their own namespace and never collide. Plugin skills must reference bundled files via the skill-directory token, never via repo-relative paths, because the install destination is unknown at author time. The token resolves to the skill's subdirectory inside the plugin, not the plugin root. See [Anthropic docs](https://docs.claude.com/en/docs/claude-code/skills.md) for the full substitution table.
+Precedence is managed > user > project; plugin skills live in their own namespace and never collide. Plugin skills must reference bundled files via the skill-directory token, never via repo-relative paths, because the install destination is unknown at author time. The token resolves to the skill's subdirectory inside the plugin, not the plugin root. See [Anthropic docs](https://code.claude.com/docs/en/skills.md) for the full substitution table.
 
 ## Frontmatter is minimal by default
 
@@ -232,7 +231,7 @@ Add other fields only when a specific condition holds (see the "Frontmatter is m
 - `paths:` when the skill is path-conditional.
 - `model:` / `effort:` / `hooks:` only when the skill genuinely needs them.
 
-`description` + `when_to_use` is the trigger surface, the only thing the model sees before deciding to load the skill. Claude Code truncates the combined entry at 1,536 characters in the skill listing (see [Anthropic docs](https://docs.claude.com/en/docs/claude-code/skills.md)); anything past that is invisible to the trigger decision. Front-load the use case.
+`description` + `when_to_use` is the trigger surface, the only thing the model sees before deciding to load the skill. Claude Code truncates the combined entry at 1,536 characters in the skill listing (see [Anthropic docs](https://code.claude.com/docs/en/skills.md)); anything past that is invisible to the trigger decision. Front-load the use case.
 
 Triggering rules for the description text:
 
@@ -258,7 +257,7 @@ The body is a prompt. Hand it off to the principles in the `ac:prompt-writer` sk
 Skill-specific body conventions worth honoring:
 
 - Lead with a one-paragraph **Overview** so the model knows the shape before reading steps.
-- Keep SKILL.md under 500 lines (per [Anthropic guidance](https://docs.claude.com/en/docs/claude-code/skills.md)). Push detail into `references/` and anchor each from the body.
+- Keep SKILL.md under 500 lines (per [Anthropic guidance](https://code.claude.com/docs/en/skills.md)). Push detail into `references/` and anchor each from the body.
 - For workflows: name the **Goal** (what done looks like), then **Steps**, each with a **Success criterion**.
 - For reference content: name the **Scope** (what the rules apply to), then the rules.
 - Include "ultrathink" anywhere in the body if the skill should enable extended thinking on invoke.
@@ -314,17 +313,16 @@ This skill stays focused on the skill shape itself. The work around the skill ro
 
 When the user request implies any of the rows above, do both: invoke the matching creator for shape, then keep this skill loaded for what is still skill-shaped.
 
-## Opus 4.8 and Sonnet 5 tuning
+## Opus 5 and Sonnet 5 tuning
 
-Default target is `claude-opus-4-8`. Sonnet 5 (`claude-sonnet-5`) and Haiku 4.5 (`claude-haiku-4-5-20251001`) follow the same shape at lower effort levels. Full per-knob detail: `${CLAUDE_SKILL_DIR}/references/opus-4-8-tuning.md`.
+Default target is `claude-opus-5`. Sonnet 5 (`claude-sonnet-5`) follows the same shape at lower cost; Haiku 4.5 (`claude-haiku-4-5-20251001`) supports no effort parameter at all. Full per-knob detail: `${CLAUDE_SKILL_DIR}/references/opus-5-tuning.md`.
 
 Quick deltas to keep in mind while authoring:
 
-- **Literal interpretation.** Opus 4.8 will not generalize a rule across sections. State scope where a rule must span.
-- **Verbosity self-calibrates.** Remove old "be concise" hedges; if you need length, ask positively.
-- **Tool use is more conservative.** To increase tool calls, raise effort or describe when and how explicitly. Avoid "CRITICAL: ALWAYS use this tool" wording.
-- **Subagent spawning is lower by default.** For fan-out, write: "Spawn multiple subagents in the same turn when fanning out across items. Do not spawn for work you can complete in a single response."
-- **Effort overrides.** Use `effort:` frontmatter to set a higher level only for skills that need it (deep audits, multi-step migrations). Most skills inherit fine.
+- **Two 4.8 defaults inverted.** Verbosity is higher by default and effort will not shorten it, so a body that relied on self-calibration needs an explicit length target. Subagent spawning is higher by default, so a body carrying 4.8-era fan-out encouragement now overtriggers delegation.
+- **State scope in both directions.** Say where a rule spans, and also name the upper bound: Opus 5 can widen scope and re-verify finished work on its own.
+- **Tool use.** The 4.8 conservatism claim has no Opus 5 counterpart in the docs; treat it as undocumented. Describe when and how to reach for a tool explicitly either way, and avoid "CRITICAL: ALWAYS use this tool" wording.
+- **Effort overrides.** Opus 5 converts extra effort into better results more reliably than any earlier Opus, so `effort:` is a stronger lever than it was. Set it only for skills that need it (deep audits, multi-step migrations); most skills inherit fine. Never set it on a skill targeted at Haiku 4.5.
 
 ## Quick template
 
@@ -366,7 +364,7 @@ when_to_use: <as above>
 # context: fork                     # subagent execution; body must be an actionable task
 # agent: Explore                    # subagent type when forked
 # paths: ["lib/**/*.dart", "pubspec.yaml"]   # auto-activate only when matching files are touched
-# model: claude-opus-4-8            # override the active model for this skill's run
+# model: claude-opus-5              # override the active model for this skill's run
 # effort: high                      # override the active effort level
 # hooks: ...                        # skill-scoped hook enforcement
 ---
@@ -438,7 +436,7 @@ Check only the items that apply to your skill's specific needs:
 | `${CLAUDE_SKILL_DIR}/references/claude-code-mechanics.md` | Understanding runtime lifecycle (load, invocation, auto-compact, char budget), substitutions, shell injection, location precedence. |
 | `${CLAUDE_SKILL_DIR}/references/examples.md` | Copying from a worked example: reference, manual-action, forked, scripted, path-conditional, plugin-distributed. |
 | `${CLAUDE_SKILL_DIR}/references/anti-patterns.md` | Diagnosing a misbehaving skill or auditing one before shipping. |
-| `${CLAUDE_SKILL_DIR}/references/opus-4-8-tuning.md` | Tuning effort, verbosity, tool use, subagent spawning, thinking, model overrides; Sonnet 5 and Haiku 4.5 deltas. |
+| `${CLAUDE_SKILL_DIR}/references/opus-5-tuning.md` | Tuning effort, verbosity, scope, subagent spawning, thinking, model overrides; the 4.8-to-5 inversions; Sonnet 5 and Haiku 4.5 deltas. |
 | `${CLAUDE_SKILL_DIR}/assets/SKILL.template.md` | Starting a new skill from a blank annotated template. |
 
 For the prompt body itself, invoke `/ac:prompt-writer` and follow the references it lists from its own body:
@@ -446,17 +444,17 @@ For the prompt body itself, invoke `/ac:prompt-writer` and follow the references
 - The high-level shape and the 7-component message architecture.
 - Snippets for copy-paste building blocks (verbosity, parallel tool use, hallucination control, output format).
 - Anti-patterns for what not to do.
-- Opus 4.8 tuning for effort, thinking, and tool-use deltas.
+- Opus 5 tuning for effort, thinking, verbosity, and scope deltas.
 
 Sibling-skill files cannot be read by path from here, since the install layout is unknown at author time. Invocation is the portable form.
 
 Canonical Anthropic documentation, served as raw markdown by appending `.md` to the URL:
 
-- Skills feature and frontmatter reference: `https://docs.claude.com/en/docs/claude-code/skills.md`
-- Subagents and `skills:` preload: `https://docs.claude.com/en/docs/claude-code/sub-agents.md`
-- Slash commands: `https://docs.claude.com/en/docs/claude-code/slash-commands.md`
-- Hooks: `https://docs.claude.com/en/docs/claude-code/hooks.md`
-- Plugins: `https://docs.claude.com/en/docs/claude-code/plugins.md`
+- Skills feature and frontmatter reference: `https://code.claude.com/docs/en/skills.md`
+- Subagents and `skills:` preload: `https://code.claude.com/docs/en/sub-agents.md`
+- Slash commands: `https://code.claude.com/docs/en/slash-commands.md`
+- Hooks: `https://code.claude.com/docs/en/hooks.md`
+- Plugins: `https://code.claude.com/docs/en/plugins.md`
 - Agent Skills open standard: `https://agentskills.io/specification`
 
 When canonical docs conflict with observed CLI behavior, trust the live binary.
