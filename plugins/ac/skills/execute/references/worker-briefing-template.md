@@ -64,6 +64,13 @@ Read in Phase 2c every time you spawn a worker. The fields marked VERBATIM are c
 ### Dependencies (DERIVED)
 <list of step IDs this step depends on (extracted from the plan's `## Execution Strategy` → `### Dependency Notes` section, or "None" when the step is wave-independent), and one line on what each produced. Omit this section entirely when there are no dependencies.>
 
+### Depth and negative results (VERBATIM guidance)
+
+State how deep the step needs the worker to go, and say what a negative result looks like. A subagent ships with its
+own retrieval budget and a rigid report template, so a briefing that does not raise them explicitly gets back a thin
+single-pass answer. "I read X, Y, Z and the pattern is not there" is a usable result and belongs under `### Issues`;
+silence on a question the briefing asked is not.
+
 ### Plan-read fields (NOT duplicated in this briefing)
 - Pattern References, at the plan's Step <N> `References:` field.
 - Codebase Conventions, at the plan's `## Codebase Conventions` section.

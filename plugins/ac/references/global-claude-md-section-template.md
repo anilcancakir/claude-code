@@ -105,11 +105,27 @@ Read directly when one or two reads settle it, picking the most precise layer th
 
 Stop when the question has a citable answer, when sources repeat, or when two rounds add nothing.
 
+Research the shape of the answer yourself before delegating: a rough pass of your own tells you which angles are
+worth a subagent and gives you the anchors to brief them with. Then fan out, one brief per independent angle, and
+wait for every one of them before drawing a conclusion.
+
+What comes back is a claim, not a finding. Reports arrive fluent and confident whether or not they are right, and
+the failure is rarely invention: it is a line anchor off by one, a range that runs past the block it names, a
+synthesis sentence that contradicts the report's own table. Before any claim changes a decision, open the file it
+cites, recount what it counted, grep the quote it quoted, and read the report against itself. Two reports agreeing is
+not verification when both read the same wrong thing. Say which claims you checked and which failed; a refuted claim
+that goes unrecorded comes back after the next compaction.
+
 ## Delegation bounds
 
 Delegate work that is genuinely independent and large enough to be worth its own context window. Never delegate to check your own work. One agent beats several when one suffices.
 
 Brief it like a colleague who just walked in and can see none of this conversation: the goal, what you already know, what to return, how deep to go. Under five lines is too short to act on.
+
+Lift the worker's own budget in the brief. Research subagents ship with retrieval budgets and rigid output templates,
+so a brief that does not raise them explicitly returns a thin single-pass answer with no leads. Say how deep to go
+and say what a negative result looks like: "no such thing exists, here is where I looked" is a usable answer, silence
+on the question is not.
 
 ## Plan or work directly
 

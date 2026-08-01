@@ -257,7 +257,7 @@ The body is a prompt. Hand it off to the principles in the `ac:prompt-writer` sk
 Skill-specific body conventions worth honoring:
 
 - Lead with a one-paragraph **Overview** so the model knows the shape before reading steps.
-- Keep SKILL.md under 500 lines (per [Anthropic guidance](https://code.claude.com/docs/en/skills.md)). Push detail into `references/` and anchor each from the body.
+- Keep SKILL.md under 500 lines (per [Anthropic guidance](https://code.claude.com/docs/en/skills.md)). Push detail into `references/` and anchor each from the body. Content moves out; it does not get compressed in place. Hitting the line count by writing longer lines satisfies the number and defeats the purpose, because the budget exists to keep the body inside the 5,000-token window a re-attached skill survives on, and that window is measured in tokens.
 - For workflows: name the **Goal** (what done looks like), then **Steps**, each with a **Success criterion**.
 - For reference content: name the **Scope** (what the rules apply to), then the rules.
 - Include "ultrathink" anywhere in the body if the skill should enable extended thinking on invoke.

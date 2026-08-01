@@ -57,7 +57,7 @@ Six further skills are internal authoring tools the plan chain calls on its own:
 
 ## Agents
 
-Ten subagents back the workflow. Advisory agents answer questions; plan-chain workers execute steps; reviewers gate the plan and the implementation.
+Eleven subagents back the workflow. Advisory agents answer questions; plan-chain workers execute steps; reviewers gate the plan and the implementation.
 
 | Agent | Model | Role |
 |-------|-------|------|
@@ -66,8 +66,9 @@ Ten subagents back the workflow. Advisory agents answer questions; plan-chain wo
 | `ac:oracle` | opus | Strategic advisor for architecture, debugging stalls, and reuse-vs-build trade-offs; advises, never executes. |
 | `ac:plan-worker-quick` | haiku | Mechanical single-file step executor: config edits, renames, scaffolds, doc-block additions. |
 | `ac:plan-worker-junior` | sonnet | Standard step executor: 1-3 file changes, business logic, pattern and framework-idiom application. |
+| `ac:plan-worker-junior-high` | sonnet | Junior's model at high effort, for work at the borderline of coupling or context depth. Never the target of a criticality escalation. |
 | `ac:plan-worker-senior` | opus | Senior step executor: cross-layer changes, migrations, and complex edges with caller-impact checks. |
-| `ac:plan-reviewer` | sonnet | Independent second-eye reviewer for `standard` plans; returns OKAY or REJECT with up to 3 blockers. |
+| `ac:plan-reviewer` | sonnet | Independent second-eye reviewer for `standard` plans; returns OKAY or REJECT with a step-scaled blocker cap. |
 | `ac:plan-reviewer-deep` | opus | Adversarial two-pass reviewer for `complex` plans; stress-tests across seven dimensions. |
 | `ac:plan-code-review` | sonnet | 4-stage post-implementation reviewer for `standard` plans; returns APPROVED or BLOCKED. |
 | `ac:plan-code-deep-review` | opus | 6-stage post-implementation reviewer for `complex` plans, including cross-layer integration and Reuse Map enforcement. |
@@ -79,7 +80,7 @@ plugins/ac/
   .claude-plugin/
     plugin.json          Plugin manifest.
   .mcp.json              MCP entrypoint (node cli/ac.js mcp).
-  agents/                10 subagents (advisory, workers, reviewers).
+  agents/                11 subagents (advisory, workers, reviewers).
   commands/              /ac:install, /ac:init-project, /ac:commit.
   skills/                8 skills (ac:plan, ac:execute + 6 creators).
   cli/                   Bundled MCP runtime (ac.js, built from cli/ac/).
