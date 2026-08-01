@@ -1,5 +1,6 @@
 import { Command } from "commander";
 import { runMcpProxy } from "./mcp.ts";
+import { runReviewCounters } from "./review-counters.ts";
 
 const program = new Command();
 
@@ -28,5 +29,38 @@ program
             },
         );
     });
+
+program
+    .command("review-counters <log>")
+    .description(
+        "Print the review-loop counters derived from an append-only log: "
+            + "ITER=<n> PREV=<v> GATE=<OK|MAX_ITER> NEW=<count>.",
+    )
+    .option(
+        "--run-prefix <value>",
+        "Heading that scopes counters to one run (for example '## Run ').",
+        "## Run ",
+    )
+    .option(
+        "--iter-prefix <value>",
+        "Heading that marks one logged pass (for example '## Phase 3d Iteration').",
+        "## Phase 3d Iteration",
+    )
+    .option("--cap <value>", "Iteration cap; GATE reads MAX_ITER once ITER exceeds it.", "3")
+    .action(
+        (
+            log: string,
+            opts: { cap: string; iterPrefix: string; runPrefix: string },
+        ): void => {
+            const cap = Number.parseInt(opts.cap, 10);
+            process.stdout.write(
+                runReviewCounters(log, {
+                    cap: Number.isNaN(cap) ? 3 : cap,
+                    iterPrefix: opts.iterPrefix,
+                    runPrefix: opts.runPrefix,
+                }) + "\n",
+            );
+        },
+    );
 
 await program.parseAsync(process.argv);
