@@ -10,7 +10,7 @@ Read in Stage 5 (Plan Write). Stage 5 opens by running `plan-scaffold`, which wr
 
 Before writing the plan, pick a value for the `Complexity` field in the plan's frontmatter. Stage 5.5 uses this value to route the review tier; the planner is the authoritative source.
 
-- `complex` when ANY hold: 7 or more steps, 3 or more modules crossed, codebase state is `legacy` or `chaotic`, or the plan carries a destructive migration.
+- `complex` when ANY hold: 7 or more steps, 3 or more modules crossed, codebase state is `legacy` or `chaotic`, the plan carries a destructive migration, or any step touches one of the six closed criticality surfaces. That last predicate matters because review tier routes off complexity alone: without it a two-step auth change classifies `standard` and gets a single approval-biased reviewer for the whole cycle.
 - `standard` otherwise. This is the default.
 
 There is no `simple` value. It was retired because it was dead by construction: it required ALL of five narrow conditions while `complex` needed ANY of five broad ones, and across 13 historical plans it was never once produced. The `complex` predicates above are the narrowed set; the old ones ("cross-cutting concerns", "architecture impact") fired on nearly every plan worth planning, which routed both reviewers to their Opus variants by default rather than by need.

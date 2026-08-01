@@ -116,7 +116,6 @@ Read `PLAN_PATH` in full and hold: the frontmatter (`Complexity` standard or com
 Must NOT Have), `## Execution Strategy` with its Dependency Notes, every step in `## Steps` with all its fields,
 and `## Risks Accepted`. `## Tier Calibration` is referential; read it once, do not re-read per step.
 
-
 ### 1c. Tier routing and escalation
 
 | Tier | Subagent | Model | Effort |
@@ -133,7 +132,6 @@ When the plan's `Codebase State` is `legacy` or `chaotic`, route every `quick` s
 whatever its declared tier: mechanical work in an inconsistent codebase is not mechanical, and Haiku has no effort
 lever to compensate. The plan file is not modified; this is an in-memory routing decision. Record the count for the
 Phase 4 report.
-
 
 ### 1e. Initialize execution state
 
@@ -155,7 +153,6 @@ per-field reasoning at `${CLAUDE_SKILL_DIR}/references/execution-state.md`.
 Lifecycle: written here, refreshed at 2c and 2f, deleted at 4a and on every branch that ends the run early. A halt
 that leaves it behind gets blocked by the `Stop` guard until its block budget is spent.
 
-
 ### 1f. TDD mode
 
 Read the plan's `## Codebase Conventions` for `**TDD**` and set `TDD_MODE`: `"tdd"` directs each worker to write the
@@ -165,7 +162,6 @@ in the Phase 4 report. The value is injected into every worker briefing.
 
 Read project `CLAUDE.md` and `CLAUDE.local.md` for build, test, and lint commands as `RUNTIME_CONTEXT`. Workers
 receive `CLAUDE.md` automatically; `RUNTIME_CONTEXT` supplements it with the explicit commands briefings cite.
-
 
 ### 1g. Register the pipeline as a TaskCreate task list
 
@@ -190,7 +186,6 @@ Then `AskUserQuestion` (header `Execute?`, options `Execute (Recommended)` / `Ad
 `Adjust wave grouping` takes a freeform follow-up, re-renders, and asks again. This is the only user gate inside
 Phase 2; once execution starts, auto-continue applies until Phase 4 or a BLOCKER. Auto mode skips it and proceeds.
 
-
 ### 2b. Worker briefing template (the 6-section prompt)
 
 Every worker invocation receives the 6-section briefing. For the exact template (with VERBATIM/DERIVED field annotations), read `${CLAUDE_SKILL_DIR}/references/worker-briefing-template.md`.
@@ -209,7 +204,6 @@ Layer B is largely n/a, Layer C IS the evidence file, and Layer D still applies.
 
 Spawn every `code` and `infra` step of the wave in ONE message, one `Agent` block each. Workers run foreground; wait
 for all before verifying any. Keep the wave task's `activeForm` current rather than creating per-step entries.
-
 
 ### 2d. Per-step verification (4-layer, applies to every step)
 
@@ -270,22 +264,20 @@ curl body, terminal output for a CLI or test run. Steps with no `QA` field, or `
 Read `PLAN_PATH`, tick this step's checkbox from `- [ ]` to `- [x]` with `Edit`, then re-read and confirm the
 unchecked count fell by exactly one. The plan file is the ground truth for what remains; the task list is a mirror.
 
-
 ### 2e. Verification outcome routing
 
 **All four layers pass**: append the step's files to `MODIFIED_FILES`, refresh the wave task's `activeForm`, continue.
 
 **First failure**: retry once at the next tier up (`quick` to `junior`, `junior` to `senior`; senior does not
-escalate). The one exception is a malformed report with no `### Changes Made` or `### Verification`, which re-spawns
-at the SAME tier with a format reminder, because the tier is not what failed. The retry briefing leads with the
-failure context, then repeats the original. One retry per step, ever.
+escalate), except a malformed report with no `### Changes Made` or `### Verification`, which re-spawns at the
+SAME tier with a format reminder because the tier is not what failed. The retry briefing leads with the failure
+context, then repeats the original. One retry per step, ever.
 Two fast paths skip the same-tier attempt: a worker flagging `tier mismatch` escalates immediately and the
 mis-classification goes in the report, and a worker flagging `[CROSS-STEP CONTRADICTION]` does not retry at all,
 because the next attempt hits the same structural conflict; mark it `pending-remediation` for the 2f barrier.
 
 **Retry fails, or senior failed first**: log the step, increment `STEP_FAILURE_COUNT`, fire 2j at 3. Do not block the
 wave on one failure unless 2i says a later wave depends on it.
-
 
 ### 2f. Wave barrier, remediation, wisdom
 
@@ -301,7 +293,6 @@ Once every step has a terminal status (verified, failed, or `pending-remediation
 3. **Re-ground**: re-read `PLAN_PATH` and `wisdom.md`, emit a 2-3 line wave summary, and refresh the marker's `note`
    with a resume hint. The SessionStart hook reads it back after a compaction, so a compaction costs a re-read.
 
-
 ### 2g. Wave checkpoint commit (complex plans only)
 
 When `PLAN_COMPLEXITY` is `complex` and `NO_CHECKPOINT_COMMITS` is not set, invoke `/ac:commit --skip-preflight
@@ -313,13 +304,11 @@ A commit failure here is a BLOCKER: print the git error and take the branch in
 `${CLAUDE_SKILL_DIR}/references/execution-state.md`. Never auto-retry, because a failed commit usually means the
 tree is in a state you did not expect.
 
-
 ### 2h. Progress table
 
 After each wave, render the per-step table using the shape at
 `${CLAUDE_SKILL_DIR}/references/wave-orchestration.md` under `## Phase 2h progress table`: step number, title,
 wave, tier, result including any escalation, and files changed.
-
 
 ### 2i. Wave dependency check (before launching the next wave)
 
@@ -343,12 +332,10 @@ investigate`).
 in the Phase 4 report. The other two delete the marker first, then pause or halt. This is a BLOCKER even under auto
 mode: three accumulated failures is systemic enough that the `(Recommended)` qualifier stops being safe to assume.
 
-
 ### 2k. Loop until all waves complete
 
 Run 2b through 2j for each wave in sequence, auto-continuing between them; only 2i and 2j pause the loop. When the
 final implementation wave completes, TaskUpdate Phase 3 to `in_progress` and advance.
-
 
 ## Phase 3: Final code-review
 
@@ -374,7 +361,6 @@ The log is append-only across runs and this header is what scopes the counters t
 under auto mode rolls straight to Phase 4 having spawned no reviewer at all. The `grep -qx` guard keeps the revision
 loop from opening a second header when it re-enters.
 
-
 ### 3b. Spawn the code-review pair
 
 Read the plan's `**Complexity**` and route. `standard` gets one reviewer. `complex` gets two in parallel, in one
@@ -396,7 +382,6 @@ Verify skeptically:
                  one line, `VERDICT: APPROVED` or `VERDICT: BLOCKED`. Both verdicts must pass to deliver." })
 ```
 
-
 ### 3c. Parse verdicts
 
 The code reviewers close with `**APPROVED**` or `**BLOCKED**` under their final `## Verdict`. The oracle closes with
@@ -408,7 +393,6 @@ All APPROVED advances to Phase 4. Any BLOCKED enters 3d.
 A reviewer that returns APPROVED while mentioning plan-spec mismatches has not blocked: the verdict prevails, and
 the note goes into the report. Plan-spec issues only trigger the auto-mode BLOCKER when they appear in a BLOCKED
 reviewer's issue list.
-
 
 ### 3d. Revision loop (cap 3 + stall detection)
 
@@ -459,14 +443,15 @@ If any reviewer returned BLOCKED:
    (`Issue count: 0`, said so under Notes). A skipped append leaves the counters unchanged, and unchanging counters
    are a loop with no bound.
 
-7. Re-spawn the reviewers with the same prompt and loop to 3c.
-
+7. Re-read the counters, then re-spawn only when the gate allows. The append in step 6 has changed them, and 3b
+   already spent pass 1, so re-spawning unconditionally here runs a fourth pass under a cap of three. On
+   `GATE=MAX_ITER` take the step-2 branch instead; otherwise re-spawn with the same prompt and loop to 3c. Both
+   orchestrators bound themselves the same way: the cap counts reviewer spawns, and 3b's spawn is the first one.
 
 ### 3e. Convergence
 
 All reviewers APPROVED, or the user proceeded through an escalation gate, ends the loop. TaskUpdate Phase 3 to
 `completed`, Phase 4 to `in_progress`.
-
 
 ## Phase 4: Deliver
 
@@ -483,7 +468,6 @@ commit would snapshot it as this plan's deliverable. Skip it, say so in one line
 
 Otherwise invoke `/ac:commit --skip-preflight`. No `--no-push`: this is the final commit. Phase 2d and Phase 3
 already covered the verification `--skip-preflight` refers to. A clean tree exits silently, which is fine.
-
 
 ### 4b. Report and summary
 

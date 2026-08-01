@@ -25,7 +25,10 @@ function parseFingerprints(line: string): Set<string> {
     const parts = payload.split(",");
     const out = new Set<string>();
     for (const part of parts) {
-        const trimmed = part.trim();
+        // Producers render fingerprints inside markdown tables, where the pipe must be escaped and
+        // the value is usually wrapped in backticks. Without normalizing both, the same finding
+        // logged from a table and from a bullet reads as two different findings and NEW never settles.
+        const trimmed = part.trim().replace(/[`\\]/g, "");
         if (trimmed !== "") {
             out.add(trimmed);
         }
@@ -72,13 +75,18 @@ export function computeCounters(text: string, opts: CounterOptions): Counters {
 
 // Fewer than two logged sets means there is nothing to diff against, which is not the same as
 // a pass that introduced nothing. The two cases stay distinguishable: "none" versus "0".
+//
+// An EMPTY latest set is the same kind of unknown. A pass that logged no fingerprints (a malformed
+// verdict, an inconclusive pass, a producer that skipped the line) has not told us it introduced
+// nothing; it has told us nothing. Reporting 0 there fires the stall gate while that pass's real
+// findings sit unaddressed, and under auto mode that ships.
 function countNewFingerprints(sets: Set<string>[]): string {
     if (sets.length < 2) {
         return "none";
     }
     const latest = sets[sets.length - 1];
     const previous = sets[sets.length - 2];
-    if (latest === undefined || previous === undefined) {
+    if (latest === undefined || previous === undefined || latest.size === 0) {
         return "none";
     }
     let added = 0;

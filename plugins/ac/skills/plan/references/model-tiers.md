@@ -49,7 +49,7 @@ Apply to every step, not just the first.
    - File upload / deserialization (RCE surface).
    - Migration with destructive operations (DROP, TRUNCATE, schema rename with data loss).
 
-   If the step touches one of these, escalate the tier by one level: `quick` to `junior`, `junior` to `senior`.
+   If the step touches one of these, escalate the tier by one level: `quick` to `junior`, `junior` to `senior`, and `junior-high` to `senior` as well. Every criticality escalation lands on `senior`; none lands on `junior-high`.
 
    A step whose failure would merely be expensive to detect does not qualify. Authoring or restructuring prompt, instruction, agent-body, or documentation text is not a criticality surface, however load-bearing that text is. The rule protects surfaces where a defect ships silently and is exploited or loses money, not surfaces where a defect is merely annoying to find.
 

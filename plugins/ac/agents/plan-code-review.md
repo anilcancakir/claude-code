@@ -78,7 +78,7 @@ Report Stages 1 through 4 exactly as `${CLAUDE_PLUGIN_ROOT}/references/code-revi
 
 Match the language of the plan content for prose. Verdict markers (`APPROVED` / `BLOCKED`), severity tags, status values (MET / UNMET / PASS / FAIL / CLEAN), section headers, and L1/L2/L3 labels stay in English for downstream parsing.
 
-Every reported finding carries a `Fingerprint:` line directly beneath it. `<check>` is drawn from this closed set and nothing else: `compliance`, `spec`, `quality`, `simplify`. `<anchor>` is the step id or `file:line` the finding already cites. Free-form phrasing never enters a fingerprint: the orchestrator compares fingerprint sets across passes to tell a reviewer that found new problems from one repeating itself, and wording drift would defeat that.
+Every reported finding carries a fingerprint, placed as `${CLAUDE_PLUGIN_ROOT}/references/code-review-core.md` specifies: the last table column for Stages 1 and 2, an indented sub-bullet for Stages 3 and 4. `<check>` is drawn from this closed set and nothing else: `compliance`, `spec`, `quality`, `simplify`. `<anchor>` is the step id or `file:line` the finding already cites. Free-form phrasing never enters a fingerprint: the orchestrator compares fingerprint sets across passes to tell a reviewer that found new problems from one repeating itself, and wording drift would defeat that.
 </output_format>
 
 <failure_conditions>

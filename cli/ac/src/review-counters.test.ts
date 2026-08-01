@@ -141,3 +141,44 @@ test("a run prefix that shares a stem with the iteration prefix does not swallow
     const planOpts = { cap: 3, iterPrefix: "## Stage 5.5 Iteration", runPrefix: "## Stage 5.5 Run " };
     expect(formatCounters(computeCounters(log, planOpts))).toBe("ITER=3 PREV=3 GATE=OK NEW=none");
 });
+
+// An empty `- Fingerprints:` line means the pass logged no fingerprints, not that it introduced
+// nothing. Treating it as zero fires the stall gate while real findings sit unaddressed, which is
+// how a run with a malformed or inconclusive pass silently stops revising.
+
+test("an empty latest set is not the same as introducing nothing", () => {
+    const log = [
+        "## Run 2026-08-01T00:00:00Z",
+        "## Phase 3d Iteration 1",
+        "- Fingerprints: a|1,b|2",
+        "## Phase 3d Iteration 2",
+        "- Fingerprints:",
+    ].join("\n");
+    expect(computeCounters(log, OPTS).newCount).toBe("none");
+});
+
+test("an empty earlier set does not make the next pass look unchanged", () => {
+    const log = [
+        "## Run 2026-08-01T00:00:00Z",
+        "## Phase 3d Iteration 1",
+        "- Fingerprints:",
+        "## Phase 3d Iteration 2",
+        "- Fingerprints: c|3,d|4",
+    ].join("\n");
+    expect(computeCounters(log, OPTS).newCount).toBe("2");
+});
+
+// Producers render the fingerprint inside markdown tables, where the pipe has to be escaped and the
+// value is usually wrapped in backticks. The consumer has to see through both, or the same finding
+// logged from a table and from a bullet reads as two different findings.
+
+test("table-rendered and bare fingerprints collapse to one key", () => {
+    const log = [
+        "## Run 2026-08-01T00:00:00Z",
+        "## Phase 3d Iteration 1",
+        "- Fingerprints: `compliance\\|S2`, `quality\\|foo.ts:12`",
+        "## Phase 3d Iteration 2",
+        "- Fingerprints: compliance|S2, quality|foo.ts:12",
+    ].join("\n");
+    expect(computeCounters(log, OPTS).newCount).toBe("0");
+});

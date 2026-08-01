@@ -36725,7 +36725,7 @@ function parseFingerprints(line) {
   const parts = payload.split(",");
   const out = new Set;
   for (const part of parts) {
-    const trimmed = part.trim();
+    const trimmed = part.trim().replace(/[`\\]/g, "");
     if (trimmed !== "") {
       out.add(trimmed);
     }
@@ -36766,7 +36766,7 @@ function countNewFingerprints(sets) {
   }
   const latest = sets[sets.length - 1];
   const previous = sets[sets.length - 2];
-  if (latest === undefined || previous === undefined) {
+  if (latest === undefined || previous === undefined || latest.size === 0) {
     return "none";
   }
   let added = 0;
@@ -36816,4 +36816,4 @@ program2.command("plan-scaffold <slug>").description("Create .ac/plans/<slug>/ w
 });
 await program2.parseAsync(process.argv);
 
-//# debugId=91EB79EBA05B322A64756E2164756E21
+//# debugId=4CCE1B9CD899F00064756E2164756E21

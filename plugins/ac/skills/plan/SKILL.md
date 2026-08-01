@@ -441,7 +441,8 @@ Repeat:
    ```
 
 4. **Parse the verdict.** Leading `**[OKAY]**` exits the loop. Leading `**[REJECT]**` continues. Anything else
-   re-spawns once with the same path; a second malformed reply counts as REJECT with zero parseable issues.
+   re-spawns once with the same path; a second malformed reply is the `Agent fail?` BLOCKER from Stage 1e, not a
+   silent REJECT, because a reviewer that cannot produce a verdict twice is a broken gate rather than a rejection.
 
 5. **Stall check.** On `NEW=0` this pass surfaced nothing new: `AskUserQuestion` (header `Stalled?`, same three
    options as step 2). A single `NEW=0` is the signal. `NEW` first becomes computable on the third pass, so a
@@ -492,8 +493,7 @@ When `AUTO_MODE = false`, end the turn after the summary. The user reviews the p
 
 <reminders>
 - Read referenced files yourself, and verify subagent claims before they move a decision (Stage 2a.1).
-- Route every question through the three-way test before it reaches the user.
-- Every load-bearing decision ends locked, deferred, or risk-accepted; the plan carries zero open questions.
+- Route every question through the three-way test; every load-bearing decision ends locked, deferred, or risk-accepted.
 - The reviewer receives a path and nothing else. Revise on REJECT with `Edit`, never `Write`.
 - Do not invoke `/ac:execute` when `AUTO_MODE = false`. The user reviews the plan first.
 </reminders>
