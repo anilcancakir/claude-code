@@ -36671,6 +36671,125 @@ function buildRemoteHandle(url2, token) {
   };
 }
 
+// src/plan-scaffold.ts
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+var PLAN_SECTIONS = [
+  "Research Summary",
+  "Codebase Conventions",
+  "Reuse Map",
+  "Work Objectives",
+  "Tier Calibration",
+  "Execution Strategy",
+  "Steps",
+  "Risks Accepted",
+  "Cross-Project Observations",
+  "Deferred Ideas"
+];
+function buildSkeleton(slug) {
+  const lines = [
+    `# Plan: ${slug}`,
+    "",
+    "**Complexity**: <standard | complex>",
+    "**Steps**: <N>",
+    "**Waves**: <N>",
+    "**Codebase State**: <disciplined | transitional | legacy | chaotic | greenfield>",
+    "**Generated**: <ISO timestamp>",
+    ""
+  ];
+  for (const section of PLAN_SECTIONS) {
+    lines.push(`## ${section}`, "", "<fill>", "");
+  }
+  return lines.join(`
+`);
+}
+function scaffoldPlan(slug, opts) {
+  const planDir = join(opts.dir, ".ac", "plans", slug);
+  mkdirSync(join(planDir, "research"), { recursive: true });
+  mkdirSync(join(planDir, "evidence"), { recursive: true });
+  const planPath = join(planDir, "plan.md");
+  if (existsSync(planPath)) {
+    return { created: false, planPath };
+  }
+  writeFileSync(planPath, buildSkeleton(slug), "utf8");
+  return { created: true, planPath };
+}
+
+// src/review-counters.ts
+import { readFileSync } from "node:fs";
+var MISSING_LOG_LINE = "ITER=1 PREV=none GATE=OK NEW=none";
+var ISSUE_COUNT_PREFIX = "- Issue count:";
+var FINGERPRINTS_PREFIX = "- Fingerprints:";
+function parseFingerprints(line) {
+  const payload = line.slice(FINGERPRINTS_PREFIX.length);
+  const parts = payload.split(",");
+  const out = new Set;
+  for (const part of parts) {
+    const trimmed = part.trim();
+    if (trimmed !== "") {
+      out.add(trimmed);
+    }
+  }
+  return out;
+}
+function computeCounters(text, opts) {
+  let iter = 0;
+  let prev = "";
+  let fingerprintSets = [];
+  for (const rawLine of text.split(`
+`)) {
+    const line = rawLine.trimStart();
+    if (line.startsWith(opts.runPrefix)) {
+      iter = 0;
+      prev = "";
+      fingerprintSets = [];
+    } else if (line.startsWith(opts.iterPrefix)) {
+      iter += 1;
+    } else if (line.startsWith(ISSUE_COUNT_PREFIX)) {
+      const field = line.split(/\s+/)[3];
+      prev = field ?? "";
+    } else if (line.startsWith(FINGERPRINTS_PREFIX)) {
+      fingerprintSets.push(parseFingerprints(line));
+    }
+  }
+  const next = iter + 1;
+  return {
+    gate: next > opts.cap ? "MAX_ITER" : "OK",
+    iter: next,
+    newCount: countNewFingerprints(fingerprintSets),
+    prev: prev === "" ? "none" : prev
+  };
+}
+function countNewFingerprints(sets) {
+  if (sets.length < 2) {
+    return "none";
+  }
+  const latest = sets[sets.length - 1];
+  const previous = sets[sets.length - 2];
+  if (latest === undefined || previous === undefined) {
+    return "none";
+  }
+  let added = 0;
+  for (const item of latest) {
+    if (!previous.has(item)) {
+      added += 1;
+    }
+  }
+  return String(added);
+}
+function formatCounters(counters) {
+  return `ITER=${counters.iter} PREV=${counters.prev} GATE=${counters.gate} NEW=${counters.newCount}`;
+}
+function runReviewCounters(logPath, opts) {
+  let text;
+  try {
+    text = readFileSync(logPath, "utf8");
+  } catch {
+    return MISSING_LOG_LINE;
+  }
+  return formatCounters(computeCounters(text, opts));
+}
+
 // src/index.ts
 var program2 = new Command;
 program2.name("ac").description("ac CLI. Companion runtime for the ac Claude Code plugin.").version("0.8.0");
@@ -36680,6 +36799,21 @@ program2.command("mcp").description("Run the ac stdio MCP server (proxies tools 
     url: opts.url
   });
 });
+program2.command("review-counters <log>").description("Print the review-loop counters derived from an append-only log: " + "ITER=<n> PREV=<v> GATE=<OK|MAX_ITER> NEW=<count>.").option("--run-prefix <value>", "Heading that scopes counters to one run (for example '## Run ').", "## Run ").option("--iter-prefix <value>", "Heading that marks one logged pass (for example '## Phase 3d Iteration').", "## Phase 3d Iteration").option("--cap <value>", "Iteration cap; GATE reads MAX_ITER once ITER exceeds it.", "3").action((log, opts) => {
+  const cap = Number.parseInt(opts.cap, 10);
+  process.stdout.write(runReviewCounters(log, {
+    cap: Number.isNaN(cap) ? 3 : cap,
+    iterPrefix: opts.iterPrefix,
+    runPrefix: opts.runPrefix
+  }) + `
+`);
+});
+program2.command("plan-scaffold <slug>").description("Create .ac/plans/<slug>/ with research/ and evidence/, and write a plan.md skeleton " + "carrying the template's sections in order. Leaves an existing plan.md untouched.").option("--dir <value>", "Project root to scaffold under.", process.cwd()).action((slug, opts) => {
+  const result = scaffoldPlan(slug, { dir: opts.dir });
+  const state = result.created ? "created" : "exists, left untouched";
+  process.stdout.write(`${result.planPath} (${state})
+`);
+});
 await program2.parseAsync(process.argv);
 
-//# debugId=17CEFE8274867B7264756E2164756E21
+//# debugId=91EB79EBA05B322A64756E2164756E21
