@@ -4,24 +4,31 @@ Copy-paste-ready markdown structure the planner writes to `.ac/plans/<slug>/plan
 
 ## When to read this
 
-Read in Stage 5 (Plan Write) before calling `Write` on `PLAN_PATH`. Fill placeholders with concrete content. Remove placeholder text inside angle brackets when you write. For plans with more than 10 steps, use the incremental write protocol: one `Write` for the skeleton (every section except per-step bodies), then `Edit` calls inserting step batches of 2 to 4 before the `## Final Verification Wave` placeholder section. Calling `Write` twice on the same path erases the first call; use `Edit` for incremental appends.
+Read in Stage 5 (Plan Write). Stage 5 opens by running `plan-scaffold`, which writes the skeleton below with every section heading already in order, so the planner fills it in with `Edit` rather than `Write`. A `Write` on `PLAN_PATH` would erase the scaffolded skeleton, and a second `Write` erases the first call's output as well; `Edit` is the only safe verb here. Fill placeholders with concrete content and remove the placeholder text inside angle brackets. For plans with more than 10 steps, insert step bodies in batches of 2 to 4 rather than one enormous edit.
 
 ## Complexity classification (sets the plan's `Complexity` field)
 
 Before writing the plan, pick a value for the `Complexity` field in the plan's frontmatter. Stage 5.5 uses this value to route the review tier; the planner is the authoritative source.
 
-- `simple` when ALL hold: 1-2 steps, single module, single-file or near-single-file change, no cross-cutting concerns, no architecture impact.
-- `standard` when typical: 3-6 steps, 1-2 modules, contained scope, conventional implementation work. This is the default for most plans.
-- `complex` when ANY hold: 7+ steps, 3+ modules crossed, cross-cutting concerns (auth, logging, error-handling boundaries, migrations), architecture impact (new patterns, new infrastructure, new dependency), or codebase state is `legacy` / `chaotic`.
+- `complex` when ANY hold: 7 or more steps, 3 or more modules crossed, codebase state is `legacy` or `chaotic`, or the plan carries a destructive migration.
+- `standard` otherwise. This is the default.
+
+There is no `simple` value. It was retired because it was dead by construction: it required ALL of five narrow conditions while `complex` needed ANY of five broad ones, and across 13 historical plans it was never once produced. The `complex` predicates above are the narrowed set; the old ones ("cross-cutting concerns", "architecture impact") fired on nearly every plan worth planning, which routed both reviewers to their Opus variants by default rather than by need.
 
 Record the value in the plan frontmatter (`**Complexity**: <value>`). Stage 5.5a reads this field directly.
+
+## When a plan is too large to be one plan
+
+The plan FILE has no size budget and does not need one. Token cost and worker context are both non-binding: every worker reads the plan into its own separate context, and the largest plan written to date is about 15,700 tokens, which is 7.5% of the smallest worker's window. Do not add a line or byte limit to a plan file.
+
+The binding constraint is review coverage, because the reviewer's blocking-issue cap is finite. So: when a plan would exceed 20 steps or 6 waves, split it into a sequence of independently executable plans rather than writing one oversized plan. Each plan in the sequence carries its own Definition of Done, its own verification wave, and its own review cycle, and the sequence order is recorded in each plan's Dependency Notes so the operator knows what runs next. Splitting is about reviewability and run length, never about file size.
 
 ## Template
 
 ```markdown
 # Plan: <Title>
 
-**Complexity**: <simple | standard | complex>
+**Complexity**: <standard | complex>
 **Steps**: <N>
 **Waves**: <N>
 **Codebase State**: <disciplined | transitional | legacy | chaotic | greenfield>
@@ -97,13 +104,18 @@ Rule of detail: write each step with enough context for the assigned model to ac
 |---------|--------------------------------|--------------------|---------------|--------------------|----------------|-------------|
 | quick   | claude-haiku-4-5-20251001      | 73.3%              | not reported  | not reported       | 1 isolated file, mechanical: config edit, rename, scaffold, single-file fix. No effort parameter exists on this model, so scope the work through the briefing. | File path + 1-2 sentence outcome + optional pattern reference. No detail past "what to produce". |
 | junior  | claude-sonnet-5                | 85.2%              | 63.2%         | 17%                | Standard implementation, business logic, pattern application, multi-file pattern work. The default tier on speed and cost, but NOT a near-peer on the hardest cases; see the gap note below. | Outcome + pattern reference (file:line) + Must NOT scope guardrails. Sonnet 5 reads broad context and avoids duplicating shared logic. |
+| junior-high | claude-sonnet-5           | 85.2%              | 63.2%         | 17%                | Junior-shaped work at the borderline of coupling or context depth, or lifted there by codebase state. Same model as junior at high effort, so a borderline step has somewhere to go that is not Opus. Sourced from rules 1-3 only; the criticality rule never routes here. | Same as junior. The extra effort buys thoroughness, not a different write style. |
 | senior  | claude-opus-5                  | 96.0%              | 79.2%         | 44.4% (xhigh)      | Genuinely cross-layer changes, architecture, migration, long-horizon or critical work, complex edges, self-verification | High-level intent + architectural constraint + cross-cutting concerns + acceptance criterion. Opus 5 designs the solution; do not prescribe low-level code. State the Files list as a hard boundary, because this tier widens scope more readily. |
 
 Gap note: Opus 5 leads Sonnet 5 by about 16 points on SWE-bench Pro and 27 points on FrontierBench v0.1, both measured on the same harness in Opus 5's system card. An earlier revision of this template treated Sonnet as near-Opus, which was true against Opus 4.8 (a ~6-point Pro gap) and is no longer true. Terminal-Bench is absent from this table on purpose: the harness changed twice in one generation, so cross-model Terminal-Bench comparisons are invalid. Full provenance in `model-tiers.md`.
 
 Codebase state escalation: when `Codebase State` is `legacy` or `chaotic`, escalate every `quick` step to `junior` and record the escalation in `## Research Summary`. Mechanical work in a chaotic codebase is not mechanical; context is required.
 
-Criticality escalation: when a step touches a security-critical or correctness-critical surface (authentication / authorization: login, password reset, session, token, RBAC, RLS, Policy / Gate, OAuth; payment / billing / financial calculation: currency math, charge, refund, ledger; cryptographic operations: hash, sign, verify, encrypt, JWT, HMAC, password hashing; user-input to SQL / shell / file path: injection or traversal surface; file upload / deserialization: RCE surface; migration with destructive operations: DROP, TRUNCATE, schema rename with data loss), escalate the tier by one level (quick to junior, junior to senior). Opus 5 leads Sonnet 5 by about 16 points on SWE-bench Pro and 27 points on FrontierBench v0.1, the two closest available proxies for hardest-case capability, and both gaps widened this generation. No published benchmark isolates self-verification on security-critical code, so treat the escalation as a cost-asymmetry judgment rather than a measured one: a silent auth bypass or financial drift ships and is expensive to find post-deploy, while the senior premium is 1.67x input cost scoped to the 1-3 critical steps a typical plan carries. Codebase-state escalation and criticality escalation stack independently. Record any criticality escalation in `## Research Summary` alongside any codebase-state escalation.
+Criticality escalation: when a step touches a security-critical surface, escalate the tier by one level (quick to junior, junior to senior). The list is closed, and it is exactly six surfaces: authentication / authorization (login, password reset, session, token, RBAC, RLS, Policy / Gate, OAuth); payment / billing / financial calculation (currency math, charge, refund, ledger); cryptographic operations (hash, sign, verify, encrypt, JWT, HMAC, password hashing); user-input to SQL / shell / file path (injection or traversal surface); file upload / deserialization (RCE surface); migration with destructive operations (DROP, TRUNCATE, schema rename with data loss).
+
+A step whose failure would merely be expensive to detect does not qualify. Authoring or restructuring prompt, instruction, agent-body, or documentation text is not a criticality surface, however load-bearing that text is. The rule protects surfaces where a defect ships silently and is exploited or loses money.
+
+The escalation target is `senior`, never `junior-high`: effort is a within-model lever worth about 5 points on FrontierBench v0.1, while the Opus-to-Sonnet gap on that same harness is 27 points. No published benchmark isolates self-verification on security-critical code, so treat the escalation as a cost-asymmetry judgment rather than a measured one. Codebase-state escalation and criticality escalation stack independently. Record any criticality escalation in `## Research Summary` alongside any codebase-state escalation. Full provenance in `model-tiers.md`.
 
 Nyquist rule (per-step `Verify` sub-field): each non-verification step SHOULD carry a runnable verify command under 60 seconds, so a worker or reviewer can confirm the step's done-ness by executing one command instead of reading prose. When no such command exists (no test file, no build target, no lint rule covering the surface), set `Verify: MISSING` and add a Wave-0 scaffold step that creates the missing harness (test file, fixture, build target) before this step's wave runs. This is advisory, not a hard block: a reviewer flags a missing `Verify` as IMPORTANT, it does not alone trigger REJECT.
 

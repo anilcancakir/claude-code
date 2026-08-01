@@ -45,86 +45,11 @@ Summary: Input did not contain a plan path. Cannot proceed.
 </input_contract>
 
 <execution>
-1. Read the plan file. Identify each step's `Done when:` criterion, the `## Must NOT Have` section, the acceptance criteria in `## Work Objectives`, the `## Codebase Conventions`, and the `## Reuse Map`.
-2. Read every modified file from the input list.
-3. Run Stage 1 (compliance), then Stage 2 (spec), then Stage 3 (quality), then Stage 4 (simplify). Stages are sequential; do not interleave findings.
-4. Apply every check to every step and every modified file, not a sample.
-5. Decide via the verdict rule below.
+1. Read `${CLAUDE_PLUGIN_ROOT}/references/code-review-core.md` in full. It carries the execution logic for Stage 1 Compliance, Stage 2 Spec Compliance, Stage 3 Code Quality, and Stage 4 Simplify, the severity and confidence rule that governs Stages 3 and 4, and the report shape for those four stages. It is shared with the other code reviewer, so both run the same text rather than two drifting copies.
+2. Read the plan file and every modified file from the input list.
+3. Run Stages 1 through 4 exactly as that file specifies, in order, without interleaving findings.
+4. Decide via the verdict rule below.
 </execution>
-
-<stage_1_compliance>
-For each step's `Done when:` criterion, verify the claim against the codebase using L1 / L2 / L3 depth.
-
-| Level | Name | Check | Skip when |
-|-------|------|-------|-----------|
-| L1 | Exists | File exists, non-empty, expected identifiers present (Glob + Read) | Never |
-| L2 | Substantive | No stubs: grep for `TODO`, `FIXME`, `not implemented`, empty bodies, `pass`, `raise NotImplementedError`, `throw new Error('TODO')` | Never |
-| L3 | Wired | At least one import/require/use of the file or its exports (LSP `findReferences` or Grep) | Config files, test files, scripts, entry points |
-
-Depth stops at first failure: L1 fail → UNMET. L2 fail → UNMET (stub). L3 fail → UNMET (unwired). All three pass → MET.
-
-**Must NOT Have**: For each forbidden pattern in the plan's `## Must NOT Have` section, search the modified files. Report any match with `file_path:line_number`. Each violation is a separate finding.
-
-**Scope Fidelity**: For each file the plan declared to modify, verify it was actually modified. Flag files NOT in the plan that appear in the modified files list; that is scope creep.
-
-Stage 1 failure is always CRITICAL.
-</stage_1_compliance>
-
-<stage_2_spec_compliance>
-For each acceptance criterion in the plan's `## Work Objectives` (Definition of Done bullets, Concrete Deliverables):
-
-1. Grep / Read the relevant files to verify the implementation provides the claimed behavior.
-2. Report PASS with brief `file_path:line_number` evidence, or FAIL with what is missing and where.
-
-Stage 2 failures are always CRITICAL. Stop once all acceptance criteria are checked; do not expand scope to criteria the plan did not list.
-</stage_2_spec_compliance>
-
-<stage_3_code_quality>
-Check the modified files for:
-
-- **Logic errors**: wrong conditions, off-by-one, unreachable branches, swapped argument order.
-- **Null / undefined handling**: missing guards given the actual data flow in the file.
-- **Anti-patterns**: duplicated logic, misleading names, hidden early returns, stringly-typed code where a type/enum exists.
-- **my-coding rule violations** (your context has `my-coding` preloaded): scan each modified file against my-coding's rules. Cite the specific rule for every violation.
-- **Missing error handling**: for operations that genuinely fail in production (I/O, network, parsing). Boundary code without error handling is a finding; pure internal pure-function code without error handling is not.
-
-Rate each issue: severity (CRITICAL / IMPORTANT / MINOR), confidence (0-100). Only report CRITICAL and IMPORTANT with confidence >= 50. Tag confidence < 80 with `[confidence: N]`.
-
-MINOR-severity issues are not reported. Confidence < 50 is not reported. The point is to surface real issues, not pad the report.
-</stage_3_code_quality>
-
-<stage_4_simplify>
-The simplify pass is plan-time `simplify` skill semantics applied post-implementation. Three axes against the actual code.
-
-### 4.1 Code Reuse
-
-For each new function, type, or abstraction created during execution:
-
-- Cross-check against the plan's `## Reuse Map`. If a Reuse Map entry solves the same problem, flag as `REUSE OPPORTUNITY MISSED: <new thing at file:line> → <Reuse Map entry at file:line>`.
-- For new functions: grep the codebase (outside the modified files) for similar shapes the worker should have reused. Flag missed reuse with the existing utility's `file:line`.
-
-### 4.2 Quality patterns
-
-Scan modified files for these patterns:
-
-- Redundant state (two fields holding derivable info).
-- Parameter sprawl (functions with 5+ unrelated parameters).
-- Copy-paste with slight variation (two nearly-identical blocks differing in 1-2 lines).
-- Leaky abstractions (internal types exposed in public API).
-- Stringly-typed code where the codebase has a type or enum.
-- Unnecessary comments (comments restating what the code says, no WHY).
-
-### 4.3 Efficiency
-
-Scan modified files for:
-
-- Unnecessary work (computing a value never read, redundant traversal).
-- Missed concurrency (sequential awaits that could be `Promise.all`).
-- Hot-path bloat (heavy operation inside a tight loop when it could be hoisted).
-- No-op updates (writing the same value, calling a setter without state change).
-
-Rate each Stage 4 finding: severity (CRITICAL / IMPORTANT / MINOR), confidence (0-100). Same threshold as Stage 3: only CRITICAL and IMPORTANT with confidence >= 50 are reported.
-</stage_4_simplify>
 
 <verdict>
 Decide as follows:
@@ -142,44 +67,7 @@ IMPORTANT findings (any stage) do not gate; they appear in the report for the or
 Respond with exactly this shape. No preamble.
 
 ```markdown
-## Stage 1: Compliance
-
-| # | Step | Criterion | L1 | L2 | L3 | Status | Evidence |
-|---|------|-----------|----|----|----|--------|----------|
-| 1 | <step> | <criterion> | OK | OK | OK | MET | `file:line` |
-| 2 | <step> | <criterion> | OK | NO | -- | UNMET (stub) | `file:line` |
-
-**Must NOT Have**: <CLEAN | N violations with file:line list>
-**Scope Fidelity**: <CLEAN | N unplanned files changed>
-**Compliance**: <M/N met>
-
-## Stage 2: Spec Compliance
-
-| Criterion | Status | Evidence |
-|-----------|--------|----------|
-| <criterion> | PASS | `file:line` |
-| <criterion> | FAIL | <what is missing> |
-
-**Spec**: <N/M criteria pass>
-
-## Stage 3: Code Quality
-
-### CRITICAL
-- `file:line`: <issue>. <Why it matters.> Fix: <concrete change>. <my-coding rule cite if applicable.> [confidence: N if < 80]
-
-### IMPORTANT
-- `file:line`: <issue>. <Why it matters.> Fix: <concrete change>. [confidence: N if < 80]
-
-## Stage 4: Simplify
-
-### Code Reuse (CRITICAL / IMPORTANT)
-- REUSE OPPORTUNITY MISSED: <new thing at file:line> → <Reuse Map entry or sibling utility at file:line>. Fix: <replace with the existing utility>.
-
-### Quality Patterns (CRITICAL / IMPORTANT)
-- `file:line`: <pattern, e.g., parameter sprawl>. Fix: <concrete change>.
-
-### Efficiency (CRITICAL / IMPORTANT)
-- `file:line`: <issue>. Fix: <concrete change>.
+Report Stages 1 through 4 exactly as `${CLAUDE_PLUGIN_ROOT}/references/code-review-core.md` specifies under its Output format section, then continue with the sections below.
 
 ## Verdict
 
@@ -189,6 +77,8 @@ Respond with exactly this shape. No preamble.
 ```
 
 Match the language of the plan content for prose. Verdict markers (`APPROVED` / `BLOCKED`), severity tags, status values (MET / UNMET / PASS / FAIL / CLEAN), section headers, and L1/L2/L3 labels stay in English for downstream parsing.
+
+Every reported finding carries a `Fingerprint:` line directly beneath it. `<check>` is drawn from this closed set and nothing else: `compliance`, `spec`, `quality`, `simplify`. `<anchor>` is the step id or `file:line` the finding already cites. Free-form phrasing never enters a fingerprint: the orchestrator compares fingerprint sets across passes to tell a reviewer that found new problems from one repeating itself, and wording drift would defeat that.
 </output_format>
 
 <failure_conditions>

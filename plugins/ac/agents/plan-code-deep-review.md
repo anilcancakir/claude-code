@@ -45,66 +45,11 @@ Summary: Input did not contain a plan path. Cannot proceed.
 </input_contract>
 
 <execution>
-1. Read the plan file. Identify each step's `Done when:`, `## Must NOT Have`, `## Work Objectives` (acceptance criteria), `## Codebase Conventions`, `## Reuse Map`, and any `## Risks Accepted`.
-2. Read every modified file from the input list in full where under 1000 lines; for longer files read the changed regions plus 100 lines of surrounding context.
-3. Run Stages 1-6 in sequence. Do not interleave findings across stages.
-4. Apply every check to every step, every modified file, every modified export. Sampling defeats deep review.
-5. Decide via the verdict rule.
-
-Stages 1-4 are identical to `ac:plan-code-review` (the standard reviewer). Stages 5-6 are the deep-tier additions.
+1. Read `${CLAUDE_PLUGIN_ROOT}/references/code-review-core.md` in full. It carries the execution logic for Stage 1 Compliance, Stage 2 Spec Compliance, Stage 3 Code Quality, and Stage 4 Simplify, the severity and confidence rule that governs Stages 3 and 4, and the report shape for those four stages. It is shared with the other code reviewer, so both run the same text rather than two drifting copies.
+2. Read the plan file and every modified file from the input list.
+3. Run Stages 1 through 4 exactly as that file specifies, in order, without interleaving findings.
+4. Run Stage 5 and Stage 6 below, then decide via the verdict rule.
 </execution>
-
-<stage_1_compliance>
-For each step's `Done when:` criterion, verify the claim using L1 / L2 / L3 depth.
-
-| Level | Name | Check | Skip when |
-|-------|------|-------|-----------|
-| L1 | Exists | File exists, non-empty, expected identifiers present | Never |
-| L2 | Substantive | No stubs: grep for `TODO`, `FIXME`, `not implemented`, empty bodies, `pass`, `raise NotImplementedError`, `throw new Error('TODO')` | Never |
-| L3 | Wired | At least one import/use via LSP `findReferences` or Grep | Config files, tests, scripts, entry points |
-
-Depth stops at first failure: L1 fail → UNMET. L2 fail → UNMET (stub). L3 fail → UNMET (unwired). All three pass → MET.
-
-**Must NOT Have**: For each forbidden pattern, search modified files. Report each match with `file:line`.
-
-**Scope Fidelity**: For each plan-declared file, verify it was modified. Flag unplanned modifications as scope creep.
-
-Stage 1 failure is always CRITICAL.
-</stage_1_compliance>
-
-<stage_2_spec_compliance>
-For each acceptance criterion in `## Work Objectives`: Grep / Read to verify the implementation provides the claimed behavior. Report PASS with `file:line` evidence or FAIL with what is missing. Stage 2 failures are always CRITICAL.
-</stage_2_spec_compliance>
-
-<stage_3_code_quality>
-Check modified files for:
-
-- Logic errors: wrong conditions, off-by-one, unreachable branches, swapped argument order.
-- Null / undefined handling: missing guards given actual data flow.
-- Anti-patterns: duplicated logic, misleading names, hidden early returns, stringly-typed where a type exists.
-- **my-coding rule violations** (your context has `my-coding` preloaded): cite specific rules for every violation.
-- Missing error handling on operations that genuinely fail in production (I/O, network, parsing) at boundary code.
-
-Rate severity (CRITICAL / IMPORTANT / MINOR), confidence (0-100). Only CRITICAL and IMPORTANT with confidence >= 50 reported. Tag confidence < 80 with `[confidence: N]`.
-</stage_3_code_quality>
-
-<stage_4_simplify>
-Three axes:
-
-### 4.1 Code Reuse
-
-For each new function, type, or abstraction: cross-check against the plan's `## Reuse Map`. If a Reuse Map entry solves the same problem, flag `REUSE OPPORTUNITY MISSED`. Also grep the codebase (outside modified files) for similar shapes that should have been reused.
-
-### 4.2 Quality patterns
-
-Redundant state, parameter sprawl (5+ unrelated params), copy-paste with slight variation, leaky abstractions, stringly-typed code, unnecessary comments.
-
-### 4.3 Efficiency
-
-Unnecessary work, missed concurrency (sequential awaits → `Promise.all`), hot-path bloat, no-op updates.
-
-Rate severity + confidence. Only CRITICAL and IMPORTANT with confidence >= 50 reported.
-</stage_4_simplify>
 
 <stage_5_cross_layer_integration>
 The deep review's unique value. Stages 1-4 looked at modified files in isolation; Stage 5 traces the impact across the codebase.
@@ -225,42 +170,7 @@ Decide as follows:
 Respond with exactly this shape. No preamble.
 
 ```markdown
-## Stage 1: Compliance
-
-| # | Step | Criterion | L1 | L2 | L3 | Status | Evidence |
-|---|------|-----------|----|----|----|--------|----------|
-| 1 | <step> | <criterion> | OK | OK | OK | MET | `file:line` |
-
-**Must NOT Have**: <CLEAN | N violations>
-**Scope Fidelity**: <CLEAN | N unplanned files>
-**Compliance**: <M/N met>
-
-## Stage 2: Spec Compliance
-
-| Criterion | Status | Evidence |
-|-----------|--------|----------|
-| <criterion> | PASS / FAIL | `file:line` |
-
-**Spec**: <N/M criteria pass>
-
-## Stage 3: Code Quality
-
-### CRITICAL
-- `file:line`: <issue>. <Why.> Fix: <change>. <my-coding rule cite.> [confidence: N if < 80]
-
-### IMPORTANT
-- `file:line`: <issue>. <Why.> Fix: <change>. [confidence: N if < 80]
-
-## Stage 4: Simplify
-
-### Code Reuse
-- REUSE OPPORTUNITY MISSED: <new code at file:line> → <Reuse Map or sibling utility at file:line>.
-
-### Quality Patterns
-- `file:line`: <pattern>. Fix: <change>.
-
-### Efficiency
-- `file:line`: <issue>. Fix: <change>.
+Report Stages 1 through 4 exactly as `${CLAUDE_PLUGIN_ROOT}/references/code-review-core.md` specifies under its Output format section, then continue with the sections below.
 
 ## Stage 5: Cross-Layer Integration
 
@@ -296,6 +206,8 @@ Respond with exactly this shape. No preamble.
 ```
 
 Match the language of plan content for prose. Verdict markers, stage labels, severity tags, status values, table headers stay in English for downstream parsing.
+
+Every reported finding carries a `Fingerprint:` line directly beneath it. `<check>` is drawn from this closed set and nothing else: `compliance`, `spec`, `quality`, `simplify`, `dim-5.1`, `dim-5.2`, `dim-5.3`, `dim-5.4`, `stage-6`. `<anchor>` is the step id or `file:line` the finding already cites. Free-form phrasing never enters a fingerprint: the orchestrator compares fingerprint sets across passes to tell a reviewer that found new problems from one repeating itself, and wording drift would defeat that.
 </output_format>
 
 <failure_conditions>

@@ -12,7 +12,7 @@ Read in Stage 6 after deleting `CHECKPOINT_PATH`. Render the summary inline to t
 ## Plan Generated: <title>
 
 **Path**: .ac/plans/<slug>/plan.md
-**Complexity**: <simple | standard | complex>
+**Complexity**: <standard | complex>
 **Steps**: <N> | **Waves**: <N>
 **Tiers**: <N quick / N junior / N senior>
 **Codebase State**: <classification>
@@ -30,7 +30,7 @@ Read in Stage 6 after deleting `CHECKPOINT_PATH`. Render the summary inline to t
 ### Review Verdict (Stage 5.5)
 - Tier: <standard | complex | skipped>
 - Iterations: <N, or "N/A" if skipped>
-- Final verdict: <OKAY | proceed-with-noted-issues | skipped (simple plan) | skipped by user request>
+- Final verdict: <OKAY | proceed-with-noted-issues>
 - Issues addressed: <count, or "None">
 - Issues noted in Risks Accepted: <count, or "None">
 

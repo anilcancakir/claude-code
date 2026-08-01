@@ -12,7 +12,7 @@ Read in Phase 4b before calling `Write` on `.ac/plans/<slug>/report.md`. After W
 # Execution Report: <plan title>
 
 **Plan**: .ac/plans/<slug>/plan.md
-**Complexity**: <simple | standard | complex>
+**Complexity**: <standard | complex>
 **Generated**: <ISO timestamp>
 
 ## Summary

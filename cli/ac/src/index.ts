@@ -1,5 +1,6 @@
 import { Command } from "commander";
 import { runMcpProxy } from "./mcp.ts";
+import { scaffoldPlan } from "./plan-scaffold.ts";
 import { runReviewCounters } from "./review-counters.ts";
 
 const program = new Command();
@@ -62,5 +63,18 @@ program
             );
         },
     );
+
+program
+    .command("plan-scaffold <slug>")
+    .description(
+        "Create .ac/plans/<slug>/ with research/ and evidence/, and write a plan.md skeleton "
+            + "carrying the template's sections in order. Leaves an existing plan.md untouched.",
+    )
+    .option("--dir <value>", "Project root to scaffold under.", process.cwd())
+    .action((slug: string, opts: { dir: string }): void => {
+        const result = scaffoldPlan(slug, { dir: opts.dir });
+        const state = result.created ? "created" : "exists, left untouched";
+        process.stdout.write(`${result.planPath} (${state})\n`);
+    });
 
 await program.parseAsync(process.argv);
