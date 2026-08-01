@@ -88,10 +88,10 @@ Report Stages 1 through 4 in exactly this shape, with no preamble. The reading a
 ```markdown
 ## Stage 1: Compliance
 
-| # | Step | Criterion | L1 | L2 | L3 | Status | Evidence |
-|---|------|-----------|----|----|----|--------|----------|
-| 1 | <step> | <criterion> | OK | OK | OK | MET | `file:line` |
-| 2 | <step> | <criterion> | OK | NO | -- | UNMET (stub) | `file:line` |
+| # | Step | Criterion | L1 | L2 | L3 | Status | Evidence | Fingerprint |
+|---|------|-----------|----|----|----|--------|----------|-------------|
+| 1 | <step> | <criterion> | OK | OK | OK | MET | `file:line` | |
+| 2 | <step> | <criterion> | OK | NO | -- | UNMET (stub) | `file:line` | `compliance\|S2` |
 
 **Must NOT Have**: <CLEAN | N violations with file:line list>
 **Scope Fidelity**: <CLEAN | N unplanned files changed>
@@ -99,10 +99,10 @@ Report Stages 1 through 4 in exactly this shape, with no preamble. The reading a
 
 ## Stage 2: Spec Compliance
 
-| Criterion | Status | Evidence |
-|-----------|--------|----------|
-| <criterion> | PASS | `file:line` |
-| <criterion> | FAIL | <what is missing> |
+| Criterion | Status | Evidence | Fingerprint |
+|-----------|--------|----------|-------------|
+| <criterion> | PASS | `file:line` | |
+| <criterion> | FAIL | <what is missing> | `spec\|<criterion-id>` |
 
 **Spec**: <N/M criteria pass>
 
@@ -110,14 +110,17 @@ Report Stages 1 through 4 in exactly this shape, with no preamble. The reading a
 
 ### CRITICAL
 - `file:line`: <issue>. <Why it matters.> Fix: <concrete change>. <my-coding rule cite if applicable.> [confidence: N if < 80]
+  Fingerprint: `quality|<file:line>`
 
 ### IMPORTANT
 - `file:line`: <issue>. <Why it matters.> Fix: <concrete change>. [confidence: N if < 80]
+  Fingerprint: `quality|<file:line>`
 
 ## Stage 4: Simplify
 
 ### Code Reuse (CRITICAL / IMPORTANT)
 - REUSE OPPORTUNITY MISSED: <new thing at file:line> -> <Reuse Map entry or sibling utility at file:line>. Fix: <replace with the existing utility>.
+  Fingerprint: `simplify|<file:line>`
 
 ### Quality Patterns (CRITICAL / IMPORTANT)
 - `file:line`: <pattern, for example parameter sprawl>. Fix: <concrete change>.
@@ -127,3 +130,15 @@ Report Stages 1 through 4 in exactly this shape, with no preamble. The reading a
 ```
 
 Match the language of the plan content for prose. Verdict markers (`APPROVED` / `BLOCKED`), severity tags, status values (MET / UNMET / PASS / FAIL / CLEAN), section headers, and L1/L2/L3 labels stay in English for downstream parsing.
+
+## Fingerprint
+
+Every reported finding carries a fingerprint, so the orchestrator can tell a pass that found new problems from one
+repeating itself. The form is `<check>|<anchor>`, always that separator and nothing else: a pass emitting
+`compliance|S6` followed by one emitting `compliance - S6` reads as a brand-new finding, the new-finding count never
+reaches zero, and the stall test never fires.
+
+`<check>` comes from a closed set that always includes `compliance`, `spec`, `quality`, and `simplify`; the reading
+agent lists any values it adds. `<anchor>` is the step id or `file:line` the finding already cites. In the Stage 1
+and Stage 2 tables the fingerprint is the last column, filled only on a failing row. Under Stage 3 and Stage 4 it is
+an indented sub-bullet directly beneath the finding.

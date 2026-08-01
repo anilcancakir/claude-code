@@ -36,7 +36,7 @@ Pass when the plan reads as internally coherent. Fail only on contradictions tha
 
 ### Check 4: Tier Fitness
 
-For every step, check whether the assigned tier matches the work's actual shape. The shapes: `quick` is single-file mechanical work, `junior` is 1 to 3 files of standard implementation, `senior` is cross-layer or architectural work across several coupled files.
+For every step, check whether the assigned tier matches the work's actual shape. The shapes: `quick` is single-file mechanical work, `junior` is 1 to 3 files of standard implementation, `junior-high` is junior-shaped work at the borderline of coupling or context depth, `senior` is cross-layer or architectural work across several coupled files.
 
 - A `quick` step that requires reading 3+ files or applying a non-trivial pattern is mis-tiered (should be `junior`). The write-style giveaway: the step's Description goes beyond "what to produce" into multi-step prescription.
 - A `senior` step that touches one file with one concern is mis-tiered (should be `junior`). The write-style giveaway: the step is a single concrete action wrapped in architectural-sounding prose.

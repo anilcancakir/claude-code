@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync, existsSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, existsSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildSkeleton, PLAN_SECTIONS, scaffoldPlan } from "./plan-scaffold.ts";
@@ -43,7 +43,9 @@ test("a second invocation is a no-op and leaves the file byte-identical", () => 
     const root = freshRoot();
     const first = scaffoldPlan("demo-slug", { dir: root });
     const filled = "# Plan: already written by the planner\n";
-    Bun.write(first.planPath, filled);
+    // Sync write on purpose: an un-awaited async write can land between the two reads below, which
+    // makes the assertion race, or never land at all, which makes it pass against the skeleton.
+    writeFileSync(first.planPath, filled, "utf8");
     const before = readFileSync(first.planPath, "utf8");
     const second = scaffoldPlan("demo-slug", { dir: root });
     expect(second.created).toBe(false);

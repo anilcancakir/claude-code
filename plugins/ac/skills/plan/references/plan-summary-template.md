@@ -14,7 +14,7 @@ Read in Stage 6 after deleting `CHECKPOINT_PATH`. Render the summary inline to t
 **Path**: .ac/plans/<slug>/plan.md
 **Complexity**: <standard | complex>
 **Steps**: <N> | **Waves**: <N>
-**Tiers**: <N quick / N junior / N senior>
+**Tiers**: <N quick / N junior / N junior-high / N senior>
 **Codebase State**: <classification>
 
 ### Key Decisions

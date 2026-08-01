@@ -19,7 +19,7 @@ These hold for the whole run, including after a compaction. Everything below thi
 
 **Context.** Auto-compaction summarizes older turns and the run continues. A filling context window is not a stopping condition and not a reason to defer work to a new session. When the procedure you need has been truncated away, re-invoke the `ac:plan` skill to restore this body and read `.ac/plans/<slug>/checkpoint.json` for where the run was.
 
-**Loop bounds come from disk, never from working memory.** A counter you hold in context drifts across a long run; a file does not, and neither does a shell command's answer. Stage 5.5 reads its iteration number, its previous issue count, and both its gate verdicts out of `LOG_PATH` via the `Bash` one-liners given in 5.5c and 5.5d. Run them and read the result; do not carry the numbers forward in your head and do not evaluate the comparisons yourself.
+**Loop bounds come from disk, never from working memory.** A counter you hold in context drifts across a long run; a file does not, and neither does a shell command's answer. Stage 5.5 reads its iteration number, its previous issue count, and both its gate verdicts out of `LOG_PATH` via the `review-counters` call in 5.5c. Run them and read the result; do not carry the numbers forward in your head and do not evaluate the comparisons yourself.
 
 **Progress surface.** Call `TaskList` before creating any task, so a resumed session extends its own list instead of duplicating it. One task per stage, never one per decision.
 
@@ -192,6 +192,10 @@ Every brief carries the reuse-bias clause, and every brief lifts the worker's ow
 returns a thin single-pass answer. Issue all spawns in ONE assistant message with `run_in_background: true`.
 ### 1e. Wait, archive, checkpoint
 
+A subagent returning empty or malformed output gets one re-spawn with a format reminder; a second failure is a
+BLOCKER, `AskUserQuestion` (header `Agent fail?`, options `Retry (Recommended)` / `Skip this angle` / `Abandon`),
+surfaced even under auto mode, because dropping a research angle silently leaves the plan thinner than it claims.
+
 Wait for all spawned agents (collect BackgroundTask outputs or wait for foreground returns). Write each agent's output to `RESEARCH_DIR/<agent-type>-<short-slug>.md`. The directory survey at `RESEARCH_DIR/00-directory-survey.md` is already on disk from 1a. Write a checkpoint with `last_stage: "1"` and the gathered research summary.
 
 TaskUpdate Stage 1 to `completed`, Stage 2 to `in_progress`.
@@ -344,8 +348,7 @@ Render the locked synthesis as plain text in the chat, using the shape at
 Scope IN and OUT, Codebase Conventions, Reuse Map, Locked Decisions, Oracle findings when Stage 3.5 surfaced any,
 Deferred Ideas, Risks Accepted, and Canonical References.
 
-Then call `AskUserQuestion` (header `Lock all?`), naming the review tier that will run so the user sees it before
-committing:
+Then call `AskUserQuestion` (header `Lock all?`), naming the review tier that will run:
 
 1. `Lock all and run on auto mode (Recommended)`: sets `AUTO_MODE = true`, auto-resolves the remaining flow gates,
    and chains into `/ac:execute --auto` at Stage 6. The default once decisions are locked, because the interview and
@@ -355,7 +358,7 @@ committing:
 4. `Revise / expand scope`: change what is IN or OUT, or pull a deferred idea into v1; loops back to Stage 3.
 
 This is the only gate where the user sees whether the rest of the run is autonomous, so it fires whenever `--auto`
-was absent. Auto mode skips it and proceeds as if option 1 were picked.
+was absent; auto mode skips it and proceeds as if option 1 were picked.
 
 TaskUpdate Stage 4 to `completed`, Stage 5 to `in_progress`.
 
@@ -490,9 +493,7 @@ When `AUTO_MODE = false`, end the turn after the summary. The user reviews the p
 <reminders>
 - Read referenced files yourself, and verify subagent claims before they move a decision (Stage 2a.1).
 - Route every question through the three-way test before it reaches the user.
-- Every load-bearing decision ends locked, deferred, or risk-accepted. The plan file carries zero open questions.
-- Loop bounds come from `review-counters` against `LOG_PATH`, never from a remembered number.
+- Every load-bearing decision ends locked, deferred, or risk-accepted; the plan carries zero open questions.
 - The reviewer receives a path and nothing else. Revise on REJECT with `Edit`, never `Write`.
-- A subagent that returns empty or malformed output gets one re-spawn; a second failure surfaces as a BLOCKER.
 - Do not invoke `/ac:execute` when `AUTO_MODE = false`. The user reviews the plan first.
 </reminders>

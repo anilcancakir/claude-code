@@ -138,7 +138,7 @@ Summary: Step 3 references a file that does not exist; the plan cannot execute a
 
 Coverage note: 80% (4/5 deliverables mapped); no step covers the audit-log deliverable.
 
-Blocking issues (max 3):
+Blocking issues (up to the cap):
 1. Step 3: References `src/auth/login.ts:42` but the file is missing (Read returned no such file). Fix: either create `src/auth/login.ts` in an earlier wave or correct the reference to the actual entry point at `src/auth/index.ts:18`.
 ```
 
@@ -151,7 +151,7 @@ Summary: One step is tier-mismatched and two Wave 2 steps share a file, breaking
 
 Coverage note: 100% (5/5 deliverables mapped).
 
-Blocking issues (max 3):
+Blocking issues (up to the cap):
 1. Step 5: Tier is `quick` but the step touches four files across two modules with cross-layer concerns. Fix: re-tier to `senior` and split into two senior steps if the work decomposes.
 2. Wave 2 Steps 6 and 7: Both list `src/api/handlers.ts` under Files. Fix: move Step 7 to Wave 3 (it depends on Step 6's output anyway) or merge the two steps if they target the same change.
 ```

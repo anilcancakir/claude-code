@@ -68,7 +68,7 @@ Apply to every step, not just the first.
 
 The criticality rule (rule 5) does not route here. It escalates `junior` to `senior`, never to `junior-high`. Effort moves Opus from 39% to 44.4% on FrontierBench v0.1, about 5 points, while the Opus-to-Sonnet gap on that same harness is 27 points. Effort is a within-model lever and cannot substitute for a cross-model gap on the surfaces rule 5 protects.
 
-`/ac:execute` Phase 1d applies codebase-state escalation: when the plan's `Codebase State` is `legacy` or `chaotic`, every `quick` step is routed to `ac:plan-worker-junior` regardless of the step's declared tier. The plan file is NOT modified by this escalation; it is an in-memory routing decision.
+`/ac:execute` Phase 1c applies codebase-state escalation: when the plan's `Codebase State` is `legacy` or `chaotic`, every `quick` step is routed to `ac:plan-worker-junior` regardless of the step's declared tier. The plan file is NOT modified by this escalation; it is an in-memory routing decision.
 
 Steps with `Type: verification` skip worker spawn entirely. The orchestrator runs the step's `Commands` directly via Bash and captures output to the `Evidence` paths. Tier and Why-this-tier are omitted on verification steps; this table does not apply to them.
 

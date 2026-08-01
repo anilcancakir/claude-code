@@ -15,7 +15,7 @@ Plan: $ARGUMENTS
 
 These hold for the whole run, including after a compaction. Everything below this block is procedure; these are the bounds. They sit here because a re-attached skill keeps only its first 5,000 tokens (`docs/skills.md:298-300`) and this body is far larger, so a rule further down is gone from context on exactly the long runs that need it.
 
-**Turn termination.** Your turn ends on exactly one of: an `AskUserQuestion` call, the Phase 4c execution summary, or a named BLOCKER from `<auto_mode>`. Nothing else ends it. Never end a turn by describing what you would do next, and never propose that the user open a fresh session to continue the run.
+**Turn termination.** Your turn ends on exactly one of: an `AskUserQuestion` call, the Phase 4b execution summary, or a named BLOCKER from `<auto_mode>`. Nothing else ends it. Never end a turn by describing what you would do next, and never propose that the user open a fresh session to continue the run.
 
 Every branch that terminates the run deletes `.ac/state/active-execution.json` first. That is not bookkeeping. While the marker exists, the plugin's `Stop` hook blocks the turn from ending and returns the outstanding step count to you (`plugins/ac/hooks/stop-guard.sh`); the marker's absence is what permits a stop.
 
@@ -23,7 +23,7 @@ Every branch that terminates the run deletes `.ac/state/active-execution.json` f
 
 **A stop needs a name.** "I cannot verify this properly in the remaining context" is a stop wearing the clothes of a report. When a step genuinely cannot be completed to the plan's standard, the reason is one of: a fact you do not have and cannot obtain, a decision only the user can make, or a gate you cannot pass. Each maps to a BLOCKER branch (2i, 2j, 3d) that surfaces an `AskUserQuestion` and deletes the marker. Name the class, take the branch, report what did land. Never substitute a capacity limit for the real reason.
 
-**Loop bounds come from disk, never from working memory.** A counter held in context drifts once a run is long enough to compact; a file does not, and neither does a shell command's answer. Phase 3 reads its iteration number, its previous issue count, and both its gate verdicts out of `.ac/plans/<slug>/review-log.md` via the `Bash` one-liners given in Phase 3a and 3d. Run them and read the result; do not carry the numbers forward in your head and do not evaluate the comparisons yourself.
+**Loop bounds come from disk, never from working memory.** A counter held in context drifts once a run is long enough to compact; a file does not, and neither does a shell command's answer. Phase 3 reads its iteration number, its previous issue count, its cap verdict, and its new-fingerprint count out of `.ac/plans/<slug>/review-log.md` via the `review-counters` call in Phase 3d. Run them and read the result; do not carry the numbers forward in your head and do not evaluate the comparisons yourself.
 
 **Progress surface.** Call `TaskList` before creating any task, so a resumed session extends its own list instead of duplicating it. One task per wave plus the phase tasks, never one per step: the plan file's checkboxes are the per-step record and Phase 2h prints the per-step table.
 
@@ -276,7 +276,9 @@ unchecked count fell by exactly one. The plan file is the ground truth for what 
 **All four layers pass**: append the step's files to `MODIFIED_FILES`, refresh the wave task's `activeForm`, continue.
 
 **First failure**: retry once at the next tier up (`quick` to `junior`, `junior` to `senior`; senior does not
-escalate). The retry briefing leads with the failure context, then repeats the original. One retry per step, ever.
+escalate). The one exception is a malformed report with no `### Changes Made` or `### Verification`, which re-spawns
+at the SAME tier with a format reminder, because the tier is not what failed. The retry briefing leads with the
+failure context, then repeats the original. One retry per step, ever.
 Two fast paths skip the same-tier attempt: a worker flagging `tier mismatch` escalates immediately and the
 mis-classification goes in the report, and a worker flagging `[CROSS-STEP CONTRADICTION]` does not retry at all,
 because the next attempt hits the same structural conflict; mark it `pending-remediation` for the 2f barrier.
@@ -306,6 +308,10 @@ When `PLAN_COMPLEXITY` is `complex` and `NO_CHECKPOINT_COMMITS` is not set, invo
 --no-push` after 2f, before the next wave. `--skip-preflight` because 2d already verified; `--no-push` because the
 push happens once at Phase 4. Skip on a `standard` plan (per-wave commits add history noise and the Phase 4 commit
 covers the substance) and skip when the wave changed no tracked files.
+
+A commit failure here is a BLOCKER: print the git error and take the branch in
+`${CLAUDE_SKILL_DIR}/references/execution-state.md`. Never auto-retry, because a failed commit usually means the
+tree is in a state you did not expect.
 
 
 ### 2h. Progress table
