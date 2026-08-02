@@ -171,7 +171,7 @@ export async function runMcpProxy(options: { token?: string; url?: string }): Pr
     let cachedTools: Tool[] | undefined;
 
     const server = new Server(
-        { name: "ac", version: "0.8.0" },
+        { name: "ac", version: "0.9.0" },
         { capabilities: { tools: {} }, instructions: SERVER_INSTRUCTIONS },
     );
 
@@ -307,7 +307,7 @@ export async function runMcpProxy(options: { token?: string; url?: string }): Pr
  */
 function buildRemoteHandle(url: string, token: string): RemoteHandle {
     const client = new Client(
-        { name: "ac", version: "0.8.0" },
+        { name: "ac", version: "0.9.0" },
         { capabilities: {} },
     );
     const transport = new StreamableHTTPClientTransport(

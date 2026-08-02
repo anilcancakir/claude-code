@@ -4,7 +4,7 @@ Plan-first development partner for Claude Code: interview-driven plans, tier-rou
 
 [![License](https://img.shields.io/github/license/anilcancakir/claude-code)](LICENSE)
 [![CI](https://img.shields.io/github/actions/workflow/status/anilcancakir/claude-code/ci.yml?branch=main&label=CI)](https://github.com/anilcancakir/claude-code/actions/workflows/ci.yml)
-[![Version](https://img.shields.io/badge/version-0.8.0-blue)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.9.0-blue)](CHANGELOG.md)
 [![Claude Code](https://img.shields.io/badge/Claude%20Code-plugin-orange)](https://code.claude.com)
 
 ## Overview

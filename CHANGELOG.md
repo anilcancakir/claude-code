@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-08-02
+
+Rebuilds the planning and execution system around a question the previous release could not answer: the two orchestrator bodies had grown to 776 and 673 lines against the project's own 500-line rule, and only 31% of each was landing inside the 5,000-token window a re-attached skill keeps after a compaction. Measured against the closest comparator, oh-my-opencode v4.19.3, which does the same job in a 99-line planning body and a 195-line execution body.
+
+The survey that drove it also settled what to keep. Across eleven comparable systems (spec-kit, Kiro, BMAD, Task Master, Cline, Roo Code, SuperClaude, ruflo, Codex, Cursor, humanlayer), none has a mandatory pre-implementation reviewer with binding reject authority over a plan. That is this plugin's one genuinely differentiating property, and it is lighter than the comparator's five-reviewer gate, so the weight was never in the verification layer.
+
+### Added
+
+- `ac review-counters`, replacing an awk one-liner that was duplicated verbatim in both skill bodies. Prints `ITER PREV GATE NEW` off an append-only log. The `NEW` field counts fingerprints a review pass introduced that the previous pass did not, which is what lets a stall test ask whether a reviewer is converging rather than comparing bare issue counts.
+- `ac plan-scaffold`, which writes the plan skeleton with every section heading in template order, so the order cannot drift and a resumed run cannot clobber a filled-in plan.
+- A closed-enum `Fingerprint` line in all four reviewer output contracts, with the matching `Fingerprints:` producer in both skill bodies. Free-form phrasing never enters the key, because wording drift would make every pass read as new.
+- `ac:plan-worker-junior-high`: Sonnet at high effort, for junior-shaped work at the borderline of coupling or context depth. It is what makes Anthropic's "tuning effort is often a better lever than switching models" actionable, since the routing table previously hard-coded one effort per tier and left the planner no knob but the tier.
+- A research verification rule in the global CLAUDE.md template and in the plan skill: a subagent report is a claim, not a finding, and load-bearing claims get checked against the source before they move a decision. Refuted claims are recorded. This release found three of its own reports wrong by applying it.
+- A plan-splitting rule in `plan-template.md`, with an explicit statement that the plan file itself carries no size budget. Above 20 steps or 6 waves a plan becomes a sequence, because the binding constraint is review coverage rather than tokens.
+
+### Changed
+
+- `plan/SKILL.md` 776 to 499 lines, `execute/SKILL.md` 673 to 482. Content moved into six references that load on demand; nothing that gates a decision left either body, and `## Standing rules` stays inside the compaction window.
+- Both reviewer pairs read one shared reference each instead of carrying their own copy. The duplication was self-admitted ("Identical to `ac:plan-reviewer`", "Stages 1-4 are identical"); the four bodies shed 246 lines between them and identity still selects depth, with no body branching on it.
+- The criticality rule closed its predicate. It escalated on "security-critical or correctness-critical" while enumerating only six security surfaces, so the adjective was unbounded and had been lifting two-file edits and markdown restructures to Opus. The list is now declared closed, with a counter-example excluding prompt and documentation authoring.
+- The complexity classifier retired `simple` and narrowed `complex`. `simple` was dead by construction, requiring all of five narrow conditions against any of five broad ones, and was never once produced across 13 historical plans. Criticality is now a `complex` predicate, so a two-step auth change no longer gets a single approval-biased reviewer.
+- Blocking-issue caps scale with plan size (`3 + steps/10` standard, `5 + 2*steps/10` deep). A fixed cap meant review coverage per step fell as plans grew.
+- Review iteration cap 5 to 3, with the stall test firing on a pass that introduces no new fingerprints. No source justifies five; the literature puts most of the gain in the first two passes.
+- Both skills drop `effort: max` to `xhigh`. The published Opus 5 curve puts `max` within noise of `xhigh` at higher token cost.
+
+### Fixed
+
+- An empty `Fingerprints:` line made the next pass report zero new findings, firing the stall gate while that pass's findings sat unaddressed. A pass that logged nothing has not said it introduced nothing.
+- Fingerprints rendered inside markdown tables carry an escaped pipe and backticks, so the same finding logged from a table and from a bullet were different keys and the new-finding count could never settle.
+- `references/` are independent local clones, not git submodules. `CLAUDE.md` had said otherwise, which mattered because it changes what updating one costs.
+
+
 ## [0.8.0] - 2026-08-01
 
 Hardens the plan and execute pipeline against a real failure: mid-run, after a genuine auto-compaction and three further waves of completed work, the orchestrator declared that its memory had filled up and told the user to resume in a new chat. No context-limit event or warning preceded it, and it retracted the reason and kept working as soon as the user pushed back. Transcript forensics also showed the reviewer stall gate never firing across five passes that returned 5, 5, 5, 5, 4 blocking issues, with the rule's full text in context at the time.
@@ -320,6 +352,7 @@ The lesson driving this release: a limit written in prose is not a limit. The ca
 - `subagent-monitor` plugin removed from the marketplace; functionality superseded by
   the plan-chain agent reviewers.
 
+[0.9.0]: https://github.com/anilcancakir/claude-code/compare/v0.8.0...v0.9.0
 [0.4.2]: https://github.com/anilcancakir/claude-code/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/anilcancakir/claude-code/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/anilcancakir/claude-code/compare/v0.3.0...v0.4.0
