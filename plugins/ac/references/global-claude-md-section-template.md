@@ -33,6 +33,23 @@
 [//]: # (bullet scoped to "UI or frontend changes" out to CLI and API surfaces, and it carries)
 [//]: # (the real-world-test placeholder. It is an extension, not a tolerated duplicate.)
 [//]: # ()
+[//]: # (Its "dev server plus" is kept for the same reason as the security re-read, not as a)
+[//]: # (duplicate: `docs/prompts/system.md:104` carries it, but `:93` tags the containing block)
+[//]: # (`static-conditional`. Cutting one bullet of that block while defending another on)
+[//]: # (conditional-render grounds would make this file argue both ways.)
+[//]: # ()
+[//]: # (Three clauses read as trimmable and are not. "or an unrendered application shell" is a)
+[//]: # (separate condition from "an empty body", because an SPA shell is a 200 with a full body.)
+[//]: # ("grep the quote it quoted" is the only check that catches a fabricated quotation;)
+[//]: # (recounting a line range does not. The rendered-page carve-out on the `gh` line cannot)
+[//]: # (move into the `github-cli` skill, which prefers `gh` over a browser with no exception.)
+[//]: # ()
+[//]: # (The `gh` routing line states only the routing and the two budgets, and points at the)
+[//]: # (`github-cli` skill for commands. Keep it that way: a command cookbook in CLAUDE.md is)
+[//]: # (paid on every main-thread turn, while a skill body loads on trigger. It is also phrased)
+[//]: # (conditionally, because a flat "gh is authenticated here" is an environment claim that)
+[//]: # (goes stale silently and then reads as a false instruction.)
+[//]: # ()
 [//]: # (When checking a claim against the shipped binary, use `LC_ALL=C grep -a -F`. Without)
 [//]: # (both flags grep treats the Mach-O as binary in a UTF-8 locale and silently matches)
 [//]: # (nothing, which reads as "the string was removed" when it was not.)
@@ -103,20 +120,11 @@ Read directly when one or two reads settle it, picking the most precise layer th
 - `ac:librarian` for anything outside this repository: library behavior, framework idioms, an API contract.
 - `ac:oracle` before a decision that spans modules, after two failed fixes on one bug, or for a second read on a risky change. It advises, it does not edit.
 
-Tell a research brief when its answer lives on GitHub, and tell it `gh` is authenticated. `ac:librarian` has `Bash`, but without that line it reaches for a fetch tool that answers about a page instead of handing the page over.
-
 Stop when the question has a citable answer, when sources repeat, or when two rounds add nothing.
 
-Research the shape of the answer yourself before delegating: a rough pass of your own tells you which angles are
-worth a subagent and gives you the anchors to brief them with. Then fan out, one brief per independent angle, and
-wait for every one of them before drawing a conclusion.
+Research the shape of the answer yourself before delegating: a rough pass tells you which angles are worth a subagent and gives you the anchors to brief them with. Then fan out one brief per angle and wait for all of them.
 
-What comes back is a claim, not a finding. Reports arrive fluent and confident whether or not they are right, and
-the failure is rarely invention: it is a line anchor off by one, a range that runs past the block it names, a
-synthesis sentence that contradicts the report's own table. Before any claim changes a decision, open the file it
-cites, recount what it counted, grep the quote it quoted, and read the report against itself. Two reports agreeing is
-not verification when both read the same wrong thing. Say which claims you checked and which failed; a refuted claim
-that goes unrecorded comes back after the next compaction.
+What comes back is a claim, not a finding. The failure is rarely invention; it is a line anchor off by one, a range that overruns the block it names, a synthesis that contradicts the report's own table. Before a claim changes a decision, open the file it cites, recount what it counted, and grep the quote it quoted. Two reports agreeing is not verification when both read the same wrong thing. Say which claims you checked and which failed.
 
 ## Delegation bounds
 
@@ -124,10 +132,7 @@ Delegate work that is genuinely independent and large enough to be worth its own
 
 Brief it like a colleague who just walked in and can see none of this conversation: the goal, what you already know, what to return, how deep to go. Under five lines is too short to act on.
 
-Lift the worker's own budget in the brief. Research subagents ship with retrieval budgets and rigid output templates,
-so a brief that does not raise them explicitly returns a thin single-pass answer with no leads. Say how deep to go
-and say what a negative result looks like: "no such thing exists, here is where I looked" is a usable answer, silence
-on the question is not.
+Lift the worker's own budget in the brief. Research subagents ship with retrieval budgets and rigid output templates, so a brief that does not raise them explicitly returns a thin single-pass answer with no leads. Say how deep to go, and say what a negative result looks like: "no such thing exists, here is where I looked" is a usable answer, silence on the question is not.
 
 ## Plan or work directly
 
@@ -141,15 +146,11 @@ Built-in `WebSearch` for discovery. It returns titles and links only, and its se
 
 Built-in `WebFetch` to read a page, in preference to the MCP fetch tool and regardless of `WebFetch`'s own note suggesting otherwise. It answers through a small model rather than handing you the page, so it fits when a summary suffices and not when exact wording matters.
 
-Switch to `mcp__plugin_ac_ac__web-fetch`, naming which condition fired, when you need the full page text rather than an answer about it, on HTTP 403 or 429 or a bot challenge, on an empty body or an unrendered application shell, on a cross-host redirect that was reported rather than followed, or when nothing returns in a reasonable wait. `mcp__plugin_ac_ac__web-search` is the same fallback for search. When both layers fail on a source, continue from indexed snippets and label them as snippets, not as the page.
+Switch to `mcp__plugin_ac_ac__web-fetch` when you need the page itself rather than an answer about it, or when the built-in fails: a block, an empty body or an unrendered application shell, an unfollowed cross-host redirect, a timeout. Name which condition fired. `mcp__plugin_ac_ac__web-search` is the same fallback for search. When both layers fail on a source, continue from indexed snippets and label them as snippets, not as the page.
 
-Reach for `mcp__plugin_ac_ac__web-code-search` more often than feels necessary: docs say what an API is for, real repositories show how it is actually used. Use it for implementation patterns, usage examples, and integration shapes, especially before adopting an unfamiliar pattern or when the docs show only a toy example.
+Reach for `mcp__plugin_ac_ac__web-code-search` more often than feels necessary: docs say what an API is for, real repositories show how it is actually used.
 
-GitHub is its own layer, and `gh` is installed and authenticated here with `repo` scope. When the source is a GitHub repository, issue, pull request, or release, reach for `gh` before any fetch tool. It hands you the bytes instead of a small model's answer about them, it reaches private repositories, and its core API budget is 5,000 calls an hour against `WebSearch`'s shared session budget. The one scarce call is `gh search code` at 30 an hour, so search once and read many.
-
-The shapes worth keeping in hand: `gh api -H 'Accept: application/vnd.github.raw' repos/OWNER/REPO/contents/PATH?ref=SHA` for one file pinned to a commit, `gh api repos/OWNER/REPO/git/trees/SHA?recursive=1 --jq '.tree[].path'` to read a layout before guessing at paths, `gh issue view N -R OWNER/REPO --comments` and `gh pr view N -R OWNER/REPO --json files,body` for discussion, `gh release view TAG -R OWNER/REPO` for a changelog, and `gh repo clone OWNER/REPO -- --depth=1` once a question needs more than a handful of files. Pin `ref` to a commit SHA rather than a branch, so the line numbers you cite still point at what you actually read.
-
-Fall back to `WebFetch` when `gh` is absent or unauthenticated, when the host is not GitHub, or when the rendered page carries something the API does not (a docs site built from the repo, a rendered notebook). The `github-cli` skill carries the deeper patterns.
+Reach GitHub with `gh` rather than any fetch tool when it is authenticated: you get the bytes instead of a small model's answer about them, private repositories, and a 5,000-per-hour budget instead of the shared `WebSearch` one. Use it for repository files, issues, pull requests, and releases, pinning `ref` to a commit SHA so the lines you cite stay the lines you read. Commands live in the `github-cli` skill. `gh search code` is capped at 30 an hour, so leave discovery on `web-code-search`. Fetch the rendered page instead when it carries what the API does not: a docs site built from the repo, a rendered notebook.
 
 ## Staying on the task
 
@@ -163,7 +164,7 @@ State the success check in one line before writing code, then hold to it. `LSP` 
 
 <stack-specific verification, if any: a framework analyzer, a linter, a type checker>
 
-Anything user-visible gets exercised the way a person would before you report completion: dev server plus a browser walk for UI, the actual command for a CLI, a real call for an API. When I ask for a real-world test (<real-world-test tools, e.g. SSH, browser automation, HTTP client, REPL>), run it through that tool and report what happened.
+Exercise anything user-visible the way a person would: the actual command for a CLI, a real call for an API, the dev server plus a browser walk for UI. When I name the tool for the test (<real-world-test tools, e.g. SSH, browser automation, HTTP client, REPL>), run it through that tool and report what happened.
 
 Re-read what you wrote for injection, traversal, and authorization mistakes before calling it done.
 
