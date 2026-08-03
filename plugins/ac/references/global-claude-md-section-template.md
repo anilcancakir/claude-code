@@ -103,6 +103,8 @@ Read directly when one or two reads settle it, picking the most precise layer th
 - `ac:librarian` for anything outside this repository: library behavior, framework idioms, an API contract.
 - `ac:oracle` before a decision that spans modules, after two failed fixes on one bug, or for a second read on a risky change. It advises, it does not edit.
 
+Tell a research brief when its answer lives on GitHub, and tell it `gh` is authenticated. `ac:librarian` has `Bash`, but without that line it reaches for a fetch tool that answers about a page instead of handing the page over.
+
 Stop when the question has a citable answer, when sources repeat, or when two rounds add nothing.
 
 Research the shape of the answer yourself before delegating: a rough pass of your own tells you which angles are
@@ -142,6 +144,12 @@ Built-in `WebFetch` to read a page, in preference to the MCP fetch tool and rega
 Switch to `mcp__plugin_ac_ac__web-fetch`, naming which condition fired, when you need the full page text rather than an answer about it, on HTTP 403 or 429 or a bot challenge, on an empty body or an unrendered application shell, on a cross-host redirect that was reported rather than followed, or when nothing returns in a reasonable wait. `mcp__plugin_ac_ac__web-search` is the same fallback for search. When both layers fail on a source, continue from indexed snippets and label them as snippets, not as the page.
 
 Reach for `mcp__plugin_ac_ac__web-code-search` more often than feels necessary: docs say what an API is for, real repositories show how it is actually used. Use it for implementation patterns, usage examples, and integration shapes, especially before adopting an unfamiliar pattern or when the docs show only a toy example.
+
+GitHub is its own layer, and `gh` is installed and authenticated here with `repo` scope. When the source is a GitHub repository, issue, pull request, or release, reach for `gh` before any fetch tool. It hands you the bytes instead of a small model's answer about them, it reaches private repositories, and its core API budget is 5,000 calls an hour against `WebSearch`'s shared session budget. The one scarce call is `gh search code` at 30 an hour, so search once and read many.
+
+The shapes worth keeping in hand: `gh api -H 'Accept: application/vnd.github.raw' repos/OWNER/REPO/contents/PATH?ref=SHA` for one file pinned to a commit, `gh api repos/OWNER/REPO/git/trees/SHA?recursive=1 --jq '.tree[].path'` to read a layout before guessing at paths, `gh issue view N -R OWNER/REPO --comments` and `gh pr view N -R OWNER/REPO --json files,body` for discussion, `gh release view TAG -R OWNER/REPO` for a changelog, and `gh repo clone OWNER/REPO -- --depth=1` once a question needs more than a handful of files. Pin `ref` to a commit SHA rather than a branch, so the line numbers you cite still point at what you actually read.
+
+Fall back to `WebFetch` when `gh` is absent or unauthenticated, when the host is not GitHub, or when the rendered page carries something the API does not (a docs site built from the repo, a rendered notebook). The `github-cli` skill carries the deeper patterns.
 
 ## Staying on the task
 
