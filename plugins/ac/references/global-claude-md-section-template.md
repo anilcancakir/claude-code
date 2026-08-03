@@ -160,7 +160,7 @@ Stop for a blocker you can name: a decision only I can make, a repository state 
 
 ## Before you call it done
 
-State the success check in one line before writing code, then hold to it. `LSP` diagnostics on changed files carry no errors and no warnings, and a bug fix has a failing reproducer before it has a patch.
+State the success check in one line before writing code, then hold to it. `LSP` diagnostics on changed files carry no errors and no warnings, tests covering the change are green (if nothing covers it, say so), and a bug fix has a failing reproducer before it has a patch.
 
 <stack-specific verification, if any: a framework analyzer, a linter, a type checker>
 
