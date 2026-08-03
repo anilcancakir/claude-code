@@ -36577,7 +36577,7 @@ async function runMcpProxy(options) {
   const url2 = (options.url ?? process.env["KODIZM_MCP_URL"] ?? DEFAULT_REMOTE_URL).trim();
   const remote = token === "" ? null : buildRemoteHandle(url2, token);
   let cachedTools;
-  const server = new Server({ name: "ac", version: "0.9.0" }, { capabilities: { tools: {} }, instructions: SERVER_INSTRUCTIONS });
+  const server = new Server({ name: "ac", version: "0.9.1" }, { capabilities: { tools: {} }, instructions: SERVER_INSTRUCTIONS });
   server.setRequestHandler(ListToolsRequestSchema, async () => {
     if (cachedTools !== undefined) {
       return { tools: cachedTools };
@@ -36654,7 +36654,7 @@ async function runMcpProxy(options) {
   process.on("SIGTERM", shutdown);
 }
 function buildRemoteHandle(url2, token) {
-  const client = new Client({ name: "ac", version: "0.9.0" }, { capabilities: {} });
+  const client = new Client({ name: "ac", version: "0.9.1" }, { capabilities: {} });
   const transport = new StreamableHTTPClientTransport(new URL(url2), {
     requestInit: { headers: { Authorization: `Bearer ${token}` } }
   });
@@ -36792,7 +36792,7 @@ function runReviewCounters(logPath, opts) {
 
 // src/index.ts
 var program2 = new Command;
-program2.name("ac").description("ac CLI. Companion runtime for the ac Claude Code plugin.").version("0.9.0");
+program2.name("ac").description("ac CLI. Companion runtime for the ac Claude Code plugin.").version("0.9.1");
 program2.command("mcp").description("Run the ac stdio MCP server (proxies tools to kodizm).").option("--url <value>", "Override the kodizm MCP endpoint (defaults to https://mcp.kodizm.com; " + "use http://127.0.0.1:<port>/mcp/kodizm for local dev).").option("--token <value>", "Override the kdz- bearer token (also reads KODIZM_MCP_TOKEN).").action(async (opts) => {
   await runMcpProxy({
     token: opts.token,
@@ -36816,4 +36816,4 @@ program2.command("plan-scaffold <slug>").description("Create .ac/plans/<slug>/ w
 });
 await program2.parseAsync(process.argv);
 
-//# debugId=26A250DC71D3931164756E2164756E21
+//# debugId=9ED1C643B9E0884164756E2164756E21

@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.1] - 2026-08-02
+
+Routes GitHub research through `gh` instead of a fetch tool.
+
+### Changed
+
+- The research guidance had four layers (cached docs, live docs, code search, page fetch) and GitHub fell into the last one, so a repository file, an issue thread, or a release note came back as a small model's answer about the page rather than the page itself. `gh` is a better layer for that source: it returns the bytes, it reaches private repositories, and its core API budget is 5,000 calls an hour against `WebSearch`'s shared session budget. The one scarce call is `gh search code` at 30 an hour, so discovery stays on `web-code-search` and `gh` is spent on reading.
+- `ac:librarian` gains the same layer in its own body, since a subagent inherits nothing from the main thread. It probes availability once with `command -v gh && gh auth status` and drops to the fetch layers on a miss, saying so in Notes. Its `TYPE B` fan-out no longer sends `WebFetch` at GitHub permalinks.
+- The guidance pins `ref` to a commit SHA rather than a branch, because the librarian is already required to cite permalinks with a SHA and that is the only way the lines it cites stay the lines it read.
+
+
 ## [0.9.0] - 2026-08-02
 
 Rebuilds the planning and execution system around a question the previous release could not answer: the two orchestrator bodies had grown to 776 and 673 lines against the project's own 500-line rule, and only 31% of each was landing inside the 5,000-token window a re-attached skill keeps after a compaction. Measured against the closest comparator, oh-my-opencode v4.19.3, which does the same job in a 99-line planning body and a 195-line execution body.
@@ -352,6 +363,7 @@ The lesson driving this release: a limit written in prose is not a limit. The ca
 - `subagent-monitor` plugin removed from the marketplace; functionality superseded by
   the plan-chain agent reviewers.
 
+[0.9.1]: https://github.com/anilcancakir/claude-code/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/anilcancakir/claude-code/compare/v0.8.0...v0.9.0
 [0.4.2]: https://github.com/anilcancakir/claude-code/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/anilcancakir/claude-code/compare/v0.4.0...v0.4.1
