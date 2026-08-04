@@ -15,6 +15,20 @@ Teaches the CLAUDE.md template what to do when `Grep` and `Glob` are missing fro
 
 - The research routing ladder named `Grep` and `Glob` as though they were always registered, but Claude Code drops both from the default tool set on every non-Windows host: `searchToolsOptIn` defaults to false, and the opt-in is a CLI flag (`--allowedTools Grep,Glob`), not a settings key. Measured on 2.1.221, a session goes from 35 tools to 37 once the flag is passed. So for anyone who never passed it the instruction pointed at nothing, and the visible failure was an agent stopping to ask for the tools instead of searching. The sentence now covers both cases: when the two are absent, reach for `Bash` with `rg` and `find` rather than asking first.
 
+## [0.9.2] - 2026-08-04
+
+Shrinks the global CLAUDE.md section that `/ac:install` merges, and restores the test gate it had lost.
+
+### Changed
+
+- The shipped section is paid on every main-thread turn, because the merged file reaches the model as a `system-reminder` each turn. `## Web research` and `## Research routing` were 39% of it, so the body went from 10,092 to 8,643 characters (-14%). The GitHub command cookbook moved out to the `github-cli` skill, which costs nothing until it is invoked, and the paragraphs that restated `docs/prompts/system.md` were reduced to what they add on top of it.
+- Four clauses were kept or restored after review, each recorded in the template's maintainer notes so a later reduction round does not re-cut them: `dev server plus` in the verification line, `or an unrendered application shell` in the fetch-fallback list, `grep the quote it quoted` in report verification, and the rendered-page carve-out on the `gh` line.
+- The `gh` routing reads conditionally now. A flat claim that `gh` is authenticated is an environment fact that goes stale silently and then reads as a false instruction.
+
+### Fixed
+
+- An earlier reduction had left the success check naming no gate beyond `LSP` diagnostics, so a repository whose own CLAUDE.md is silent on tests had no layer asking for them at all. The check names test greenness again, and says to speak up when nothing covers the change.
+
 ## [0.9.1] - 2026-08-02
 
 Routes GitHub research through `gh` instead of a fetch tool.
