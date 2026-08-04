@@ -7,10 +7,12 @@
 # a marker past its age bound, an unreadable plan, a latched or unwritable counter, and any
 # parse uncertainty.
 #
-# Why a hook and not a skill rule: docs/skills.md:298-300 keeps only the first 5,000 tokens
-# of a re-attached skill after compaction, so the execute body's terminal-branch and
-# error-handling sections are gone from context on exactly the long runs where a premature
-# stop happens. docs/skills.md:301 names hooks as the deterministic layer. The shape follows
+# Why a hook and not a skill rule: after compaction Claude Code re-attaches the most recent
+# invocation of each skill and keeps only the first 5,000 tokens of each, so the execute
+# body's terminal-branch and error-handling sections are gone from context on exactly the long
+# runs where a premature stop happens. The same docs name hooks as the deterministic layer
+# when a skill stops influencing behavior:
+# https://code.claude.com/docs/en/skills.md. The shape follows
 # anthropics/claude-code plugins/ralph-wiggum/hooks/stop-hook.sh: the loop counter lives in
 # a file the hook increments, never in the model's working memory.
 #
@@ -182,8 +184,8 @@ write_counter "$blocks" false || exit 0
 
 # 7. Confirmed: a live /ac:execute run owned by this session, with work outstanding, tried to
 #    end the turn. `reason` is the documented channel for telling Claude why it should
-#    continue (docs/hooks.md:1791-1805), so it carries the directive; the factual-phrasing
-#    rule at docs/hooks.md:692 applies to additionalContext, not here.
+#    continue (https://code.claude.com/docs/en/hooks.md), so it carries the directive; the
+#    factual-phrasing rule from the same page applies to additionalContext, not here.
 progress_note=""
 if [ "$no_progress" = "true" ]; then
     progress_note="

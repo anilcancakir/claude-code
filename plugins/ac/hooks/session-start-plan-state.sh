@@ -3,13 +3,13 @@
 #
 # Emits an additionalContext block describing the active plan: which plan it is, how many
 # steps remain, the next unchecked step, and recent commits. On the `compact` source it also
-# states what compaction did to the workflow skill bodies, because `docs/skills.md:298-300`
-# keeps only the first 5,000 tokens of a re-attached skill and both ac workflow bodies are
-# far larger than that.
+# states what compaction did to the workflow skill bodies, because a re-attached skill keeps
+# only its first 5,000 tokens and both ac workflow bodies are far larger than that
+# (https://code.claude.com/docs/en/skills.md).
 #
 # Everything here is phrased as factual statements about the repository, never as imperative
-# instructions: docs/hooks.md:692 warns that out-of-band command phrasing in
-# additionalContext can trip prompt-injection defenses and get surfaced to the user instead
+# instructions: https://code.claude.com/docs/en/hooks.md warns that out-of-band command phrasing
+# in additionalContext can trip prompt-injection defenses and get surfaced to the user instead
 # of read as context. Directives live in the skill bodies and in stop-guard.sh's `reason`
 # field, which is the documented channel for them.
 #
