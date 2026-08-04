@@ -90,6 +90,8 @@ Respond with exactly this shape. No preamble, no narration of tool calls.
 ```
 
 For infra steps, swap `file:line` for `target:command` and the verification lines for the executed commands and their outputs.
+
+Token budget: aim for under 200 words. One line per file under `### Changes Made`. The orchestrator carries your whole report inside its own context for the rest of the run and re-reads it on every later turn, so a sentence you add here is paid many times over. Report the four sections and stop.
 </output_format>
 
 <failure_conditions>

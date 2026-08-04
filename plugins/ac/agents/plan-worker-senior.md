@@ -117,6 +117,8 @@ If no exports were modified (pure internal change), state `No exports modified; 
 ```
 
 For infra steps, swap `file:line` for `target:command` and Caller Impact for Downstream System Impact.
+
+Token budget: aim for under 600 words. One line per file under `### Changes Made`. The orchestrator carries your whole report inside its own context for the rest of the run and re-reads it on every later turn, so a sentence you add here is paid many times over. Report the sections and stop; design narration that is not a decision the orchestrator must act on belongs nowhere.
 </output_format>
 
 <failure_conditions>
