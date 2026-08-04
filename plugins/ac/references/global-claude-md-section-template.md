@@ -114,7 +114,7 @@ Put the concrete artifact in each option: the snippet, the path, the value, the 
 
 ## Research routing
 
-Read directly when one or two reads settle it, picking the most precise layer that can reach the answer: `LSP` (`findReferences`, `goToDefinition`, `workspaceSymbol`) for symbol-level work, since it separates `User.getName` from `Admin.getName`; `ast-grep` for structural shapes across files; `Grep` and `Glob` for text, config keys, and filenames; git history for when and why something changed.
+Read directly when one or two reads settle it, picking the most precise layer that can reach the answer: `LSP` (`findReferences`, `goToDefinition`, `workspaceSymbol`) for symbol-level work, since it separates `User.getName` from `Admin.getName`; `ast-grep` for structural shapes across files; `Grep` and `Glob` for text, config keys, and filenames, and when those two are absent from your tool list, `Bash` with `rg` and `find` instead of asking me to enable them; git history for when and why something changed.
 
 - `ac:explore` when the search needs more than about three queries or spans several naming conventions. Internal code only.
 - `ac:librarian` for anything outside this repository: library behavior, framework idioms, an API contract.

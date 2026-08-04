@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.3] - 2026-08-04
+
+Teaches the CLAUDE.md template what to do when `Grep` and `Glob` are missing from the tool list.
+
+### Changed
+
+- The research routing ladder named `Grep` and `Glob` as though they were always registered, but Claude Code drops both from the default tool set on every non-Windows host: `searchToolsOptIn` defaults to false, and the opt-in is a CLI flag (`--allowedTools Grep,Glob`), not a settings key. Measured on 2.1.221, a session goes from 35 tools to 37 once the flag is passed. So for anyone who never passed it the instruction pointed at nothing, and the visible failure was an agent stopping to ask for the tools instead of searching. The sentence now covers both cases: when the two are absent, reach for `Bash` with `rg` and `find` rather than asking first.
+
 ## [0.9.1] - 2026-08-02
 
 Routes GitHub research through `gh` instead of a fetch tool.
