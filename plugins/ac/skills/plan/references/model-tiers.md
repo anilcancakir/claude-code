@@ -57,12 +57,18 @@ Apply to every step, not just the first.
 
 ## Tier-to-worker routing (used by /ac:execute)
 
-| Tier | Worker subagent | Model | Effort |
-|---|---|---|---|
-| `quick` | `ac:plan-worker-quick` | `claude-haiku-4-5-20251001` | not supported (Haiku 4.5 has no effort parameter) |
-| `junior` | `ac:plan-worker-junior` | `claude-sonnet-5` | medium |
-| `junior-high` | `ac:plan-worker-junior-high` | `claude-sonnet-5` | high |
-| `senior` | `ac:plan-worker-senior` | `claude-opus-5` | high |
+| Tier | Worker subagent | Model | Effort | Measured per step |
+|---|---|---|---|---|
+| `quick` | `ac:plan-worker-quick` | `claude-haiku-4-5-20251001` | not supported (Haiku 4.5 has no effort parameter) | 16 turns, 0.9M cache read, ctx 59k |
+| `junior` | `ac:plan-worker-junior` | `claude-sonnet-5` | medium | 26 turns, 2.1M cache read, ctx 83k |
+| `junior-high` | `ac:plan-worker-junior-high` | `claude-sonnet-5` | high | 61 turns, 10.1M cache read, ctx 167k |
+| `senior` | `ac:plan-worker-senior` | `claude-opus-5` | high | 54 turns, 8.3M cache read, ctx 155k |
+
+The `Measured per step` column comes from one 14-step complex plan run on 2026-08-04 (1 quick, 4 junior, 5 junior-high, 4 senior worker spawns), averaged per spawn. Read it with its confound: junior-high drew the harder steps in that plan, so the column mixes tier effect with work difficulty and is not a controlled comparison. Two things in it are still worth planning around.
+
+First, `junior-high` cost MORE per step than `senior` on both turns and cache read. Effort at `high` on Sonnet 5 bought a longer loop, not a shorter one, so treat `junior-high` as a real cost step up rather than as "junior with a bit more care".
+
+Second, the cheapest lever is not the tier at all. Before assigning `junior-high`, try `junior` with a tighter briefing: name the exact pattern reference at `file:line` and the exact test paths for the step's `Verify`. Reach for the effort knob when the briefing genuinely cannot narrow the work, not when the work merely looks heavier than the last step.
 
 `junior-high` is sourced from rules 1 through 3 only: borderline coupling, borderline contextual work, and codebase-state escalation. It is where "this is heavier than junior but not cross-layer" goes, and it is what makes the effort-before-model guidance actionable, because without it the only knob a planner has is the tier.
 
