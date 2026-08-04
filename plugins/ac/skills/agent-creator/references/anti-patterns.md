@@ -92,7 +92,7 @@ Common agent-authoring mistakes specific to agents (above and beyond the general
 
 **Mistake**: Subagent's frontmatter has `tools: Agent, Read, Bash`.
 
-**Symptom**: No effect. Subagents cannot spawn other subagents (the Agent tool is unavailable in subagent contexts).
+**Symptom**: It works, and that is the problem when you did not budget for it. A subagent whose `tools:` allowlist includes `Agent`, or which declares only a `disallowedTools` denylist, does spawn children (measured on Claude Code 2.1.221). The cost lands inside the parent's runtime where the orchestrator cannot see it.
 
 **Fix**: Remove `Agent` from `tools`. The field is only meaningful for agents that run as the main thread via `claude --agent <name>`.
 
@@ -230,7 +230,7 @@ Common agent-authoring mistakes specific to agents (above and beyond the general
 
 **Symptom**: Agent tool unavailable in subagent context. The call fails.
 
-**Fix**: Subagents cannot spawn. Restructure: parent orchestrates, agents return their results to the parent, parent decides next delegation.
+**Fix**: Deny it explicitly. Omit `Agent` from the agent's `tools:` allowlist, or add `Agent` to its `disallowedTools` when it uses a denylist. Then restructure the chain the way you wanted it read: parent orchestrates, agents return their results to the parent, parent decides the next delegation, and every spawn is visible on the main thread.
 
 ### Agent runs forever, no `maxTurns`
 

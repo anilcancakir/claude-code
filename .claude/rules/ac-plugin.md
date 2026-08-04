@@ -39,4 +39,4 @@ These rules apply when editing the markdown bodies inside `plugins/ac/`. The `ac
 
 ## Sub-agent constraints
 
-`ac:explore`, `ac:librarian`, `ac:oracle`, and every plan-chain agent run in a SEPARATE HTTP call. The Agent tool is stripped from their pool, so subagents cannot spawn other subagents. Multi-agent chains are orchestrator-driven: the agent returns a report that names the next agent, and the parent slash command body invokes it.
+`ac:explore`, `ac:librarian`, `ac:oracle`, and every plan-chain agent run in a SEPARATE HTTP call. They CAN spawn subagents: measured on Claude Code 2.1.221 with `USER_TYPE` unset, `ac:oracle` spawned `ac:explore`, `ac:librarian` spawned `ac:librarian`, and `ac:plan-code-deep-review` spawned two `general-purpose` agents. What stops an agent is its own `tools:` allowlist omitting `Agent`, or `Agent` listed in its `disallowedTools`; the six read-only agents now carry the latter. Keep multi-agent chains orchestrator-driven anyway: the agent returns a report that names the next agent, and the parent slash command body invokes it, so the cost and the ordering stay visible on the main thread.

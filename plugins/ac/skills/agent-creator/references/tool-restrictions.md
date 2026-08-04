@@ -48,7 +48,7 @@ Pick based on what reads cleanest. For most agents, one or the other suffices.
 
 ## The `Agent(x, y)` spawn restriction
 
-The Agent tool is itself a tool, so listing or omitting it in `tools` controls subagent spawning. This matters only for agents that run as the main thread via `claude --agent <name>`; subagents themselves cannot spawn other subagents (the Agent tool is unavailable in subagent contexts).
+The Agent tool is itself a tool, so listing or omitting it in `tools` controls subagent spawning, and it controls it for subagents too. Measured on Claude Code 2.1.221 with `USER_TYPE` unset: an agent declaring only a `disallowedTools` denylist inherits `Agent` and does spawn children (`ac:oracle` spawned `ac:explore`; `ac:plan-code-deep-review` spawned two `general-purpose` agents). An agent whose `tools:` allowlist omits `Agent` spawned nothing across every observed run. The pinned source's `constants/tools.ts:41` gate suggests otherwise; it no longer matches the shipped binary, so decide nesting per agent rather than assuming the host decides it for you.
 
 | Frontmatter | Behavior |
 |-------------|----------|
@@ -196,7 +196,7 @@ For plugin agents, the parent's permission context still applies, but `permissio
 | `tools: *` (unsupported) | Loader may treat as literal "*" or fall back; unclear semantics | Either omit `tools` (inherit all) or enumerate |
 | `tools` listed but body uses unlisted tool | Tool call fails fast at runtime | Read the body, list every tool the steps actually use |
 | `disallowedTools: Write` but body says "edit the file" | Body and frontmatter contradict; agent confused | Pick one: either allow Edit/Write (and update frontmatter), or change body to "report what should change" |
-| `Agent` in subagent's `tools` | Has no effect (subagents cannot spawn) | Remove it; it is meaningful only for main-thread agents |
+| `Agent` in subagent's `tools` | The subagent CAN spawn children, and Opus-tier ones will | Keep it only when you want nesting and have budgeted it; otherwise omit it, or add `Agent` to `disallowedTools` when the agent uses a denylist |
 | `mcpServers` in plugin agent | Silently ignored | Move agent to `.claude/agents/`, or accept that MCP servers must come via the user's session config |
 | `hooks` in plugin agent | Silently ignored | Same as above |
 | `permissionMode: bypassPermissions` but `tools: Read` | `bypassPermissions` does not unlock unlisted tools | Both layers compose. Adjust whichever layer is wrong. |

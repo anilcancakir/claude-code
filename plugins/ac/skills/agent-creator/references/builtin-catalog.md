@@ -81,7 +81,7 @@ omitClaudeMd: true
 
 3. **Same read-only enforcement pattern as Explore.** Bashing the rule home for code-modification-adjacent agents.
 
-4. **Designed for nesting prevention.** The body says nothing about spawning subagents; subagents cannot spawn other subagents anyway. The Plan agent exists specifically so plan-mode does not nest infinitely.
+4. **Designed for nesting prevention.** The body says nothing about spawning subagents, and its tool set omits `Agent`, which is what actually prevents the nesting. The Plan agent exists specifically so plan-mode does not nest infinitely.
 
 **Lesson**: when an agent has a strict deliverable shape, lock the Output Format section verbatim.
 

@@ -87,7 +87,7 @@ Non-plugin agents:
 - No substitution at all; tokens stay literal.
 
 Subagents in any scope:
-- Cannot spawn other subagents (the Agent tool is unavailable).
+- Cannot spawn other subagents; `Agent` is absent from this agent's tool set on purpose, so any search is yours to run.
 - Inherit CLAUDE.md by default.
 - Do NOT inherit skills from the parent; list them in `skills:` explicitly.
 - Inherit the parent's working directory; cd does not persist between Bash calls within the subagent.

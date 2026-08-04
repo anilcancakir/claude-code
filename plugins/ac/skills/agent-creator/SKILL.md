@@ -31,7 +31,7 @@ The lifecycle:
 3. **Listing.** Built-in plus active custom agents are summarized in the orchestrator's `Agent` tool description: `- {agentType}: {whenToUse} (Tools: {toolsDescription})`. The orchestrator decides delegation based on these lines.
 4. **Spawn.** Orchestrator calls `Agent({subagent_type, prompt, ...})`. Claude Code creates a fresh isolated context, applies the agent's tool restrictions, model, effort, permission mode, hooks, and any preloaded skills.
 5. **Substitution (plugin agents only).** `&#36;{CLAUDE_PLUGIN_ROOT}` and `&#36;{user_config.X}` are substituted in the system prompt for plugin agents. Non-plugin agents get no substitution; the body is injected verbatim.
-6. **Execution.** The agent runs as its own LLM loop. It receives the agent's body as system, the parent's `prompt` as the first user turn. CLAUDE.md is auto-loaded into its context unless the agent definition sets the internal `omitClaudeMd` flag (built-in only; saves token cost on read-only built-ins like Explore and Plan that do not need commit/PR/lint guidelines; kill-switch GrowthBook flag `tengu_slim_subagent_claudemd`). Subagents cannot spawn other subagents (the Agent tool is unavailable in subagent contexts).
+6. **Execution.** The agent runs as its own LLM loop. It receives the agent's body as system, the parent's `prompt` as the first user turn. CLAUDE.md is auto-loaded into its context unless the agent definition sets the internal `omitClaudeMd` flag (built-in only; saves token cost on read-only built-ins like Explore and Plan that do not need commit/PR/lint guidelines; kill-switch GrowthBook flag `tengu_slim_subagent_claudemd`). A subagent CAN spawn other subagents when `Agent` is in its tool set, which it is whenever the definition uses a `disallowedTools` denylist rather than a `tools:` allowlist. Decide that per agent; `references/tool-restrictions.md` carries the measurement and the two ways to deny it.
 7. **Return.** The agent's final assistant message returns to the parent as the `Agent` tool result. Intermediate tool calls and reasoning stay in the agent's context, not the parent's.
 
 The parent never sees the agent's tool calls or scratch work; only the final summary. This is the central value: context isolation.
@@ -119,7 +119,7 @@ When both are set, `disallowedTools` is applied first to the inherited pool, the
 
 ### Restricting subagent spawning
 
-The Agent tool is itself a tool. Subagents cannot spawn other subagents (the Agent tool is unavailable in subagent contexts), so this matters only for agents that run as the main thread via `claude --agent <name>`:
+The Agent tool is itself a tool, and it reaches subagents too: an agent declaring only a `disallowedTools` denylist inherits `Agent` and will spawn children on an Opus-tier model. So this matters for main-thread agents run via `claude --agent <name>` AND for every subagent you write. See `references/tool-restrictions.md` for the measurement:
 
 ```yaml
 tools: Agent(worker, researcher), Read, Bash
@@ -323,7 +323,7 @@ Worked examples that pass all gates: `${CLAUDE_SKILL_DIR}/references/examples.md
 | Agent forgets context across runs | Add `memory: project` (or user/local) and instruct the body to update it |
 | Agent re-discovers known patterns every time | Preload domain skills via `skills:` field |
 | Agent prompts user repeatedly during run | Adjust `permissionMode` to `acceptEdits` or `dontAsk` (non-plugin only) |
-| Spawning agents from within an agent fails | Subagents cannot spawn subagents. Restructure: parent orchestrates, agents return |
+| Spawning agents from within an agent fails | The agent's `tools:` allowlist omits `Agent`, or its `disallowedTools` denies it. Add `Agent` to the allowlist if nesting is wanted and budgeted; otherwise keep it out and have the parent orchestrate |
 
 Deeper symptom-to-fix mapping: `${CLAUDE_SKILL_DIR}/references/anti-patterns.md`.
 
