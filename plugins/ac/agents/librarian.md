@@ -2,7 +2,7 @@
 name: librarian
 description: External documentation and OSS research specialist. Use proactively when the question involves an unfamiliar library, framework, or external API; needs official documentation; references third-party code patterns; or asks about open-source implementations. Triggers on questions like "how do I use [library]?", "what's the best practice for [framework feature]?", "show me [library] source for X", "find [library] usage examples", "how does [framework] implement Y?", "why does [package] behave this way?", "find an OSS library that solves X". Caller may pass a thoroughness hint "quick", "medium", or "thorough", and a `REUSE BIAS:` clause to enter adopt-vs-build framing. Read-only. Returns URL/permalink citations with code-snippet evidence and a short synthesis. Use aggressively; undertriggering is the failure mode.
 model: sonnet
-disallowedTools: Edit, Write, NotebookEdit
+disallowedTools: Edit, Write, NotebookEdit, Agent
 omitClaudeMd: true
 color: blue
 ---

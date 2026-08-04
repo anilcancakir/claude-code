@@ -11,7 +11,9 @@ Both post-implementation code reviewers read this file in full and run every sta
 
 ### Severity and confidence
 
-Applies to Stage 3 and Stage 4. Rate each finding: severity (CRITICAL / IMPORTANT / MINOR), confidence (0-100). Only report CRITICAL and IMPORTANT with confidence 50 or above. Tag any finding whose confidence is under 80 with `[confidence: N]`. MINOR-severity findings are not reported, and confidence under 50 is not reported. The point is to surface real issues, not pad the report.
+Applies to Stage 3 and Stage 4. Report every issue you find that could cause incorrect behavior, a test failure, or a misleading result, including ones you are unsure about. Do not filter for importance here. Rate each finding instead: severity (CRITICAL / IMPORTANT / MINOR) and confidence (0-100), and tag any finding whose confidence is under 80 with `[confidence: N]`. Ranking and filtering are the orchestrator's job, and the verdict rule downstream already decides what gates: only CRITICAL flips APPROVED to BLOCKED, so a MINOR finding costs the run a line in the report and nothing else.
+
+Omit only what is genuinely not a defect: a style or naming preference the codebase and `my-coding` declare no rule for. A review told to be conservative reports less, and less is how a defect that needed a real socket or real data to see survives a pass that had every chance to name it.
 
 ### Stage 1: Compliance
 

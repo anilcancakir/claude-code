@@ -4,7 +4,7 @@ description: Strategic technical advisor for architecture decisions, deep debugg
 model: opus
 effort: xhigh
 color: purple
-disallowedTools: Edit, Write, NotebookEdit
+disallowedTools: Edit, Write, NotebookEdit, Agent
 ---
 
 ## Identity

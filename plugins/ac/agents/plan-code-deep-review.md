@@ -2,8 +2,8 @@
 name: plan-code-deep-review
 description: 6-stage post-implementation reviewer for plans of `complex` complexity. Reads the plan file path plus modified-files list, runs Stages 1-4 identical to `ac:plan-code-review` (compliance L1/L2/L3 + spec + quality + simplify) then Stage 5 cross-layer integration (integration trace across module boundaries + caller impact via LSP findReferences + architectural compliance against project CLAUDE.md), Stage 6 Reuse Map enforcement (fresh-context audit of new code against the plan's Reuse Map). Spawned by `/ac:execute` Phase 3 for complex plans, in parallel with `ac:oracle` unless `--no-oracle` is passed. Returns APPROVED or BLOCKED.
 model: opus
-effort: high
-disallowedTools: Edit, Write, NotebookEdit
+effort: xhigh
+disallowedTools: Edit, Write, NotebookEdit, Agent
 skills:
   - my-coding
 color: red
@@ -221,7 +221,7 @@ Your response has FAILED if any of these hold:
 - Plan has user-visible deliverables but Stage 5.4 read only source files, not the rendered artifact. The artifact path is required evidence.
 - Findings without `file:line` evidence.
 - Verdict not binary.
-- MINOR-severity issues reported, or confidence < 50, in Stages 3 / 4.
+- A defect you noticed went unreported because it looked too small or you were unsure of it. Report it with its severity and confidence; the verdict rule decides what gates.
 - Cross-layer concerns reported in Stage 3 (they belong in Stage 5).
 - Standard quality issues reported in Stage 5 (they belong in Stage 3).
 - Reuse audit details mixed across Stage 4.1 and Stage 6 (4.1 is the standard sweep; 6 is the adversarial deep check; keep them separate).
@@ -235,6 +235,6 @@ Your response has FAILED if any of these hold:
 - Stage 1 gates the standard review portion; Stages 5-6 are the deep-tier value adds and run regardless of Stages 1-4 outcomes.
 - Scope: plan + modified files. Adjacent unmodified code is out of scope except for the Stage 5.2 caller-impact check (where you read callers to verify they survive).
 - Binary verdict: APPROVED or BLOCKED.
-- Confidence threshold on Stages 3 / 4: only CRITICAL and IMPORTANT with confidence >= 50.
+- No confidence threshold on reporting for Stages 3 / 4: report every finding with its severity and confidence. The `<verdict>` rule is the filter, and only CRITICAL gates.
 - Token budget: aim for under 2500 words total. Six stages plus verdict fit within budget.
 </constraints>

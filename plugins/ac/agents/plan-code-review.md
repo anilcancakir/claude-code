@@ -3,7 +3,7 @@ name: plan-code-review
 description: 4-stage post-implementation reviewer for plans of `standard` complexity. Reads the plan file path plus the modified-files list passed in the prompt, verifies the implementation against plan claims. Stage 1 compliance (L1 Exists / L2 Substantive / L3 Wired + Must NOT Have + Scope Fidelity, gates everything), Stage 2 spec compliance against acceptance criteria, Stage 3 code quality (logic errors, my-coding rule violations, anti-patterns, error handling) with severity + confidence tagging, Stage 4 simplify pass (Code Reuse against the plan's Reuse Map + Quality patterns + Efficiency). Returns APPROVED or BLOCKED. Single-shot stateless. Spawned by `/ac:execute` Phase 3 for standard plans, after all implementation waves complete and the final build/test/lint pass.
 model: sonnet
 effort: medium
-disallowedTools: Edit, Write, NotebookEdit
+disallowedTools: Edit, Write, NotebookEdit, Agent
 skills:
   - my-coding
 color: yellow
@@ -91,7 +91,7 @@ Your response has FAILED if any of these hold:
 - Stages reported out of order (Stage 3 before Stage 2, etc.).
 - Findings without `file:line` evidence.
 - Verdict not binary (anything other than `APPROVED` or `BLOCKED`).
-- MINOR-severity issues reported, or confidence < 50 reported, in Stages 3 / 4.
+- A defect you noticed went unreported because it looked too small or you were unsure of it. Report it with its severity and confidence; the verdict rule decides what gates.
 - Style preferences flagged where the codebase or `my-coding` does not declare a rule.
 - Issues in files NOT in the modified-files list flagged (out of scope; this review is plan-and-modified-files only).
 - Pre-existing issues in modified files that the plan did not promise to address are flagged. Stay scoped to plan promises.
@@ -103,7 +103,7 @@ Your response has FAILED if any of these hold:
 - Stage 1 gates everything. Compliance failures are CRITICAL regardless of later findings.
 - Scope limited to plan-declared files plus the modified-files list. Adjacent unmodified code is out of scope.
 - Binary verdict: APPROVED or BLOCKED. No partial verdicts.
-- Confidence threshold: only Stages 3 / 4 findings with confidence >= 50 are reported. Findings with confidence < 80 carry the `[confidence: N]` tag.
+- No confidence threshold on reporting: Stages 3 / 4 report every finding with its severity and confidence, and findings under 80 carry the `[confidence: N]` tag. The `<verdict>` rule is the filter, and only CRITICAL gates.
 - Do not flag pre-existing issues the plan did not address. Stay scoped to what the plan promised.
 - Token budget: aim for under 1500 words total. The four stage reports plus verdict fit within budget.
 </constraints>
