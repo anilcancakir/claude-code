@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.1] - 2026-08-04
+
+Repairs nine citations in shipped files that pointed at paths no installed copy of the plugin can reach.
+
+### Fixed
+
+- Both orchestrator bodies, `slug-derivation.md`, and both hooks cited `docs/skills.md:298-300` and `docs/hooks.md:692` for the compaction budget and the additionalContext phrasing rule. Neither file has ever existed in this repository: the anchors were meant for the pinned CLI clone under `references/`, which is gitignored and local, so the citation was dead for every install and not only after a cleanup. They now point at `https://code.claude.com/docs/en/skills.md` and `https://code.claude.com/docs/en/hooks.md`, matching the convention the creator skills already use, and each site states the fact inline so the URL is provenance rather than a dependency. The 5,000-token claim was re-verified against the live page before the swap.
+- `global-claude-md-section-template.md` justified keeping its dev-server bullet by citing a line in a local slot map. The maintainer note now states the reason (the built-in's twin sits in a block that renders conditionally on the output style keeping coding instructions) without an anchor only this machine could resolve.
+
+### Removed
+
+- The repository's local `docs/` directory, 14 files of May-era design notes and mitmproxy captures. It was gitignored and untracked, so nothing about this reaches a clone. Eleven of the files had no inbound reference at all; the four that did were consumed only by the two personal CLAUDE files, whose facts are now inlined: the wire-envelope block ordering, the three `system[]` shapes and which scenario lands on each, and the conditional-block warning that a memory file depends on. The ordering is recorded as durable and the tool inventories as indicative, because the captures were three months and eighty-plus CLI versions old and their deferred-tool list no longer matches a real session.
+
 ## [0.10.0] - 2026-08-04
 
 Cuts what a plan run costs without cutting a verification layer, after measuring one 14-step complex plan from `/ac:plan` to its final review: 310 minutes, 371M cache-read tokens across 1,570 model turns, and a main-thread context that climbed from 258k to 991k before auto-compaction caught it.
@@ -408,6 +421,7 @@ The lesson driving this release: a limit written in prose is not a limit. The ca
 - `subagent-monitor` plugin removed from the marketplace; functionality superseded by
   the plan-chain agent reviewers.
 
+[0.10.1]: https://github.com/anilcancakir/claude-code/compare/v0.10.0...v0.10.1
 [0.10.0]: https://github.com/anilcancakir/claude-code/compare/v0.9.3...v0.10.0
 [0.9.3]: https://github.com/anilcancakir/claude-code/compare/v0.9.2...v0.9.3
 [0.9.2]: https://github.com/anilcancakir/claude-code/compare/v0.9.1...v0.9.2

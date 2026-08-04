@@ -36792,7 +36792,7 @@ function runReviewCounters(logPath, opts) {
 
 // src/index.ts
 var program2 = new Command;
-program2.name("ac").description("ac CLI. Companion runtime for the ac Claude Code plugin.").version("0.10.0");
+program2.name("ac").description("ac CLI. Companion runtime for the ac Claude Code plugin.").version("0.10.1");
 program2.command("mcp").description("Run the ac stdio MCP server (proxies tools to kodizm).").option("--url <value>", "Override the kodizm MCP endpoint (defaults to https://mcp.kodizm.com; " + "use http://127.0.0.1:<port>/mcp/kodizm for local dev).").option("--token <value>", "Override the kdz- bearer token (also reads KODIZM_MCP_TOKEN).").action(async (opts) => {
   await runMcpProxy({
     token: opts.token,
@@ -36816,4 +36816,4 @@ program2.command("plan-scaffold <slug>").description("Create .ac/plans/<slug>/ w
 });
 await program2.parseAsync(process.argv);
 
-//# debugId=6387680899ACAF6664756E2164756E21
+//# debugId=96DEE184AF55FE3664756E2164756E21
