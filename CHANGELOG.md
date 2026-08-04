@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-08-04
+
+Cuts what a plan run costs without cutting a verification layer, after measuring one 14-step complex plan from `/ac:plan` to its final review: 310 minutes, 371M cache-read tokens across 1,570 model turns, and a main-thread context that climbed from 258k to 991k before auto-compaction caught it.
+
+### Changed
+
+- Layer A ran the project's whole test suite once per step. Measured on a 1,507-test Laravel suite that is 25 full runs and 29.8 minutes, at 71.5 s each, while the same step's own test paths finish in 1.3 to 2.0 s. The workers were already doing the right thing (zero full runs, 80 scoped runs across 14 spawns); only the orchestrator was not. Layer A now runs the step's scope, the full suite runs once per wave at the 2f barrier and once at Phase 3a, and the skill says outright not to re-run a check that already passed.
+- Neither orchestrator had an output-length target while all four reviewers had one. Opus 5 runs longer by default and effort is not the lever for it, which `prompt-writer/references/opus-5-tuning.md:23` already said. One run wrote 441k output tokens over 364 turns, and every one of them stays in context to be re-read as cache on each later turn. Both skills now carry a per-turn target in their standing-rules block, where a compaction cannot truncate it away, and the four worker bodies carry a token budget of 200 to 600 words by tier.
+- The six read-only agents now deny the `Agent` tool. They had it, and they used it: `ac:oracle` spawned an `ac:explore`, `ac:librarian` spawned another `ac:librarian` for 13 minutes, and `ac:plan-code-deep-review` spawned two `general-purpose` agents that ran 5 and 7 minutes inside a 16-minute review. Nobody budgeted any of it, because the docs said it could not happen.
+- The code reviewers were told not to report MINOR findings or anything under confidence 50. That is the exact anti-pattern `opus-5-tuning.md:139` warns about, and the run showed its cost: `ac:plan-reviewer-deep` needed three passes, and its third pass found three CRITICALs on the plan's centre of gravity that the first two had every chance to name. Reviewers now report every defect with a severity and a confidence, and the orchestrator ranks and filters at Phase 3c. No verdict rule changed, so opening the reporting channel cannot make BLOCKED more likely.
+- `ac:plan-reviewer` gains a `Non-blocking observations` channel, because its verdict rule rejects on any blocking issue and telling it to report everything through one channel would have meant it never returns OKAY. The channel is uncapped, does not affect the verdict, and deliberately carries no `Fingerprint:` line: the orchestrator compares fingerprint sets across passes to detect a stalled review, and a nit reappearing as a new fingerprint would mask the stall the test exists to catch.
+- `ac:plan-reviewer-deep` and `ac:plan-code-deep-review` move from effort `high` to `xhigh`. Both are gates whose miss costs a whole execution, `opus-5-tuning.md:38` names `xhigh` the best setting for agentic work, and `model-tiers.md:32` prices the difference at about 19% more output tokens. `ac:plan-worker-senior` stays at `high`, because it runs many times inside a loop whose output the orchestrator verifies four ways.
+- Wave spawns are explicit about running in the background. The old wording paired "in ONE message" with "workers run foreground", and a real run read that as permission to serialize: Wave 1 spawned two independent steps five minutes apart while Waves 2, 3 and 5 ran theirs concurrently and finished faster.
+- `plan.md` is revised with `Edit` and never through `Bash`. One run rewrote it 34 times with Python heredocs of 7,000 to 11,000 characters, which spends the old text, the new text, and the script wrapper as output tokens, and skips the one guarantee `Edit` gives you while patching a file you are also reading: it fails loudly when its anchor is not unique.
+- The plan template gains a single-file chain rule. Three or more consecutive steps writing the same file, each depending on the previous, is one unit somebody split, and the split pays a spawn, a cold re-read, and a full 4-layer verification per link while the dependency order forbids any parallelism in return. On the measured plan that was 72 minutes, 32% of execution, for three senior steps on one class. `ac:plan-reviewer-deep` Dimension 2.6 now flags it, which the file-exclusive check could not, because the plan declared the chain honestly as an ordered track.
+- The plan template also requires a real-seam harness step when the plan's core mechanism crosses a network, IO, subprocess, or multi-row data boundary, and Dimension 2.5 checks for one. Four CRITICAL defects survived 14 steps of per-step verification on the measured plan and surfaced only at the final review, and every one needed a real socket or a multi-row seeded fixture to see. The worst would have published "we reached it normally" for every HTTPS check while sending the target zero bytes.
+- `model-tiers.md` carries measured per-step cost for each worker tier. The number worth planning around is that `junior-high` cost more per step than `senior` on both turns and cache read, so effort at `high` on Sonnet 5 bought a longer loop rather than a shorter one. The guidance now says to try `junior` with a tighter briefing before reaching for the tier.
+- The wave barrier checks `git status` against the modified-files list before committing. Workers prove a test really fails by patching a source file and restoring it, which is a technique worth keeping; what must not survive is the patch, and the file-scope hook cannot catch it because that hook gates `Edit` and `Write` while a mutation arrives through `Bash`.
+
+### Fixed
+
+- "Subagents cannot spawn other subagents" was wrong, and it was asserted as fact in nine places across the plugin, the project CLAUDE.md, and the rules file. Measured on Claude Code 2.1.221 with `USER_TYPE` unset, three agents spawned children and the session metadata records each with `spawnDepth: 2` and a `parentAgentId`. The pinned reverse-engineered source gates this at `constants/tools.ts:41` and no longer describes the shipped binary, which is exactly the caveat the project CLAUDE.md already gives about that reference. What actually prevents an agent from spawning is its own `tools:` allowlist omitting `Agent`, which is why the four plan-workers and all eight `ac:explore` runs spawned nothing.
+
 ## [0.9.3] - 2026-08-04
 
 Teaches the CLAUDE.md template what to do when `Grep` and `Glob` are missing from the tool list.
@@ -385,6 +408,9 @@ The lesson driving this release: a limit written in prose is not a limit. The ca
 - `subagent-monitor` plugin removed from the marketplace; functionality superseded by
   the plan-chain agent reviewers.
 
+[0.10.0]: https://github.com/anilcancakir/claude-code/compare/v0.9.3...v0.10.0
+[0.9.3]: https://github.com/anilcancakir/claude-code/compare/v0.9.2...v0.9.3
+[0.9.2]: https://github.com/anilcancakir/claude-code/compare/v0.9.1...v0.9.2
 [0.9.1]: https://github.com/anilcancakir/claude-code/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/anilcancakir/claude-code/compare/v0.8.0...v0.9.0
 [0.4.2]: https://github.com/anilcancakir/claude-code/compare/v0.4.1...v0.4.2
