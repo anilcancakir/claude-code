@@ -13,7 +13,7 @@ Plan: $ARGUMENTS
 
 ## Standing rules
 
-These hold for the whole run, including after a compaction. Everything below this block is procedure; these are the bounds. They sit here because a re-attached skill keeps only its first 5,000 tokens (`docs/skills.md:298-300`) and this body is far larger, so a rule further down is gone from context on exactly the long runs that need it.
+These hold for the whole run, including after a compaction. Everything below this block is procedure; these are the bounds. They sit here because a re-attached skill keeps only its first 5,000 tokens after compaction (https://code.claude.com/docs/en/skills.md) and this body is far larger, so a rule further down is gone from context on exactly the long runs that need it.
 
 **Turn termination.** Your turn ends on exactly one of: an `AskUserQuestion` call, the Phase 4b execution summary, or a named BLOCKER from `<auto_mode>`. Nothing else ends it. Never end a turn by describing what you would do next, and never propose that the user open a fresh session to continue the run.
 

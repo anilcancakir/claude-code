@@ -2,7 +2,7 @@
 
 The full algorithm behind Stage 0b, plus worked examples. Read this at Stage 0b; the skill body carries only the summary and the outputs.
 
-It lives here rather than in the body because it is needed exactly once, at the start of a run, and a re-attached skill keeps only its first 5,000 tokens (`docs/skills.md:298-300`). Procedure used once early belongs in a reference; the rules that must hold all run belong in the body.
+It lives here rather than in the body because it is needed exactly once, at the start of a run, and a re-attached skill keeps only its first 5,000 tokens after compaction (https://code.claude.com/docs/en/skills.md). Procedure used once early belongs in a reference; the rules that must hold all run belong in the body.
 
 ## The seven steps, in order
 
