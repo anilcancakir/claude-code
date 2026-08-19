@@ -366,3 +366,32 @@ test("projects mode applies the same metadata filters the other modes take", asy
     assert.match(filtered, /No matches/, filtered);
     assert.match(filtered, /Applied filters:/, filtered);
 });
+
+test("projects paging keeps the header total stable and counts withheld net of the offset", async () => {
+    const { deps } = await setup();
+
+    // The two fixture projects, one per page. The header states the TRUE total on both, which is
+    // the regression: passing `totalProjects` already net of `offset` made page two of a real
+    // 23-project answer announce "20 project(s) matched".
+    const page1 = await runSearch(
+        { pattern: PROJECT_MARKER, output_mode: "projects", head_limit: 1 },
+        deps,
+    );
+    const page2 = await runSearch(
+        { pattern: PROJECT_MARKER, output_mode: "projects", head_limit: 1, offset: 1 },
+        deps,
+    );
+
+    assert.match(page1, /^2 project\(s\) matched/, page1);
+    assert.match(page2, /^2 project\(s\) matched/, page2);
+
+    // One unseen after page one, none after page two.
+    assert.match(page1, /1 project\(s\) withheld/, page1);
+    assert.ok(!page2.includes("withheld"), `the last page withholds nothing: ${page2}`);
+
+    // And the pages are genuinely different rows, not the same one twice.
+    const first = /\n\n(\/\S+) \|/.exec(page1)?.[1];
+    const second = /\n\n(\/\S+) \|/.exec(page2)?.[1];
+    assert.ok(first !== undefined && second !== undefined, `${page1}\n---\n${page2}`);
+    assert.notEqual(first, second);
+});

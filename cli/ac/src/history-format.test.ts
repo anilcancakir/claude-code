@@ -412,7 +412,7 @@ function makeProjectRow(overrides: Partial<ProjectHitRow> = {}): ProjectHitRow {
 test("renderProjects leads with the total, then one line per project", () => {
     const rendered = renderProjects(
         [makeProjectRow(), makeProjectRow({ project_path: "/Users/anilcan/Code/claude-code", hits: 2, sessions: 1 })],
-        { headLimit: 20, totalProjects: 2, now: NOW },
+        { headLimit: 20, totalProjects: 2, offset: 0, now: NOW },
     );
 
     const lines = rendered.split("\n\n");
@@ -421,7 +421,7 @@ test("renderProjects leads with the total, then one line per project", () => {
 });
 
 test("renderProjects shows the full path, not the basename", () => {
-    const rendered = renderProjects([makeProjectRow()], { headLimit: 20, totalProjects: 1, now: NOW });
+    const rendered = renderProjects([makeProjectRow()], { headLimit: 20, totalProjects: 1, offset: 0, now: NOW });
 
     // Two sibling projects share a basename prefix on this machine, so a basename cannot answer
     // "which project" and the full path is the point of the mode.
@@ -429,20 +429,52 @@ test("renderProjects shows the full path, not the basename", () => {
 });
 
 test("renderProjects reports hits, sessions and the date range per project", () => {
-    const rendered = renderProjects([makeProjectRow()], { headLimit: 20, totalProjects: 1, now: NOW });
+    const rendered = renderProjects([makeProjectRow()], { headLimit: 20, totalProjects: 1, offset: 0, now: NOW });
 
     expect(rendered).toContain("25 hit(s)");
     expect(rendered).toContain("3 session(s)");
 });
 
 test("renderProjects counts withheld projects, not hits", () => {
-    const rendered = renderProjects([makeProjectRow()], { headLimit: 1, totalProjects: 6, now: NOW });
+    const rendered = renderProjects([makeProjectRow()], { headLimit: 1, totalProjects: 6, offset: 0, now: NOW });
 
     expect(rendered).toContain("5 project(s) withheld");
 });
 
 test("renderProjects emits no withheld notice when the page is the whole answer", () => {
-    const rendered = renderProjects([makeProjectRow()], { headLimit: 20, totalProjects: 1, now: NOW });
+    const rendered = renderProjects([makeProjectRow()], { headLimit: 20, totalProjects: 1, offset: 0, now: NOW });
 
     expect(rendered).not.toContain("withheld");
+});
+
+test("renderProjects states the true total on every page, not the remainder", () => {
+    // The regression: `totalProjects` used to arrive already net of `offset`, so page two of a
+    // 23-project answer announced "20 project(s) matched", which is not a total, not a page size,
+    // and not true. The header has to read the same wherever the caller is.
+    const page2 = renderProjects(
+        [makeProjectRow(), makeProjectRow({ project_path: "/b" }), makeProjectRow({ project_path: "/c" })],
+        { headLimit: 3, totalProjects: 23, offset: 3, now: NOW },
+    );
+
+    expect(page2.split("\n\n")[0]).toBe("23 project(s) matched");
+});
+
+test("renderProjects counts withheld net of the offset, so a page never re-offers what it showed", () => {
+    // 23 total, 3 already read, 3 on this page, so 17 remain.
+    const page2 = renderProjects(
+        [makeProjectRow(), makeProjectRow({ project_path: "/b" }), makeProjectRow({ project_path: "/c" })],
+        { headLimit: 3, totalProjects: 23, offset: 3, now: NOW },
+    );
+
+    expect(page2).toContain("17 project(s) withheld");
+});
+
+test("renderProjects on the last page reports nothing withheld", () => {
+    const lastPage = renderProjects(
+        [makeProjectRow()],
+        { headLimit: 3, totalProjects: 4, offset: 3, now: NOW },
+    );
+
+    expect(lastPage).toContain("4 project(s) matched");
+    expect(lastPage).not.toContain("withheld");
 });

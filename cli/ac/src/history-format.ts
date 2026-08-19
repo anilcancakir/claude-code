@@ -3,9 +3,8 @@ import { basename } from "node:path";
 /**
  * Renders already-fetched rows from the local history archive into the plain text an MCP caller
  * reads. One function per output mode (`content`, `sessions`, `projects`, `count`, `read`), each
- * taking rows
- * whose shape mirrors exactly the columns `history-query.ts`'s builders select, plus the paging
- * facts (`head_limit`, `offset`, totals) the caller already knows from its own query.
+ * taking rows whose shape mirrors exactly the columns `history-query.ts`'s builders select, plus
+ * the paging facts (`head_limit`, `offset`, totals) the caller already knows from its own query.
  *
  * Nothing in this module opens a database or reads a filesystem: every renderer is a pure
  * transform over data handed to it, which is what lets the whole surface be asserted under
@@ -96,7 +95,10 @@ export interface RenderSessionsOptions {
 /** Paging facts `renderProjects` needs. */
 export interface RenderProjectsOptions {
     readonly headLimit: number;
+    /** TRUE total across every page, never net of `offset`; the header states this number. */
     readonly totalProjects: number;
+    /** How many projects earlier pages already showed, so the withheld count excludes them. */
+    readonly offset: number;
     readonly now?: number;
 }
 
@@ -248,11 +250,15 @@ export function renderProjects(rows: readonly ProjectHitRow[], opts: RenderProje
     const now = opts.now ?? Date.now();
     const page = rows.slice(0, opts.headLimit);
 
-    // The total leads, so a caller reading only the first line still learns the size of the answer
-    // rather than mistaking one page for all of it.
+    // The header states the TRUE total, so it reads the same on page one and page three. Passing it
+    // already net of `offset` made page two of a 23-project answer announce "20 project(s) matched",
+    // which is not a total, not a page size, and not true.
     const header = `${opts.totalProjects} project(s) matched`;
     const lines = page.map((row) => renderProjectLine(row, now));
-    const withheld = Math.max(0, opts.totalProjects - page.length);
+
+    // Withheld, in contrast, IS net of `offset`: what is still unseen after this page, so a caller
+    // paging forward is never told to page for rows it has already read.
+    const withheld = Math.max(0, opts.totalProjects - opts.offset - page.length);
 
     const body = [header, ...lines].join("\n\n");
     return withheld > 0

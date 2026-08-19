@@ -377,9 +377,11 @@ function executeProjects(request: SearchRequest, deps: HistorySearchDeps): strin
 
     return renderProjects(rows.map(toProjectHitRow), {
         headLimit: request.headLimit,
-        // Net of the caller's own paging, so the notice counts what is still unseen rather than
-        // re-counting the pages already read.
-        totalProjects: Math.max(0, totalProjects - request.offset),
+        // The TRUE total and the offset go separately: the renderer states the former in its header
+        // and subtracts the latter when counting what is still unseen. Folding them together here
+        // is what made page two report a smaller total than page one.
+        totalProjects,
+        offset: request.offset,
         ...(deps.now === undefined ? {} : { now: deps.now }),
     });
 }
