@@ -28792,8 +28792,15 @@ async function syncBeforeSearch(deps) {
     store: observed.store,
     ...deps.fs === undefined ? {} : { fs: deps.fs }
   };
-  await sync(options);
-  return observed.wasBusy() ? [BUSY_NOTICE] : [];
+  const report = await sync(options);
+  const notices = [];
+  if (observed.wasBusy()) {
+    notices.push(BUSY_NOTICE);
+  }
+  if (report.filesFailed > 0) {
+    notices.push(`Note: ${report.filesFailed} transcript(s) could not be read this pass, so results may be ` + "incomplete. Run `ac history index` to see the error.");
+  }
+  return notices;
 }
 function observeBusyWrites(store) {
   let busy = false;
@@ -29225,8 +29232,12 @@ import { join as join3 } from "node:path";
 
 // src/history-redact.ts
 var SECRET_CHAR = `(?:(?!\\[REDACTED:)[^\\s"'\\\\])`;
-function prefixAnchored(anchor, minLength) {
-  return new RegExp(`\\b${anchor}${SECRET_CHAR}{${minLength},}`, "g");
+function prefixAnchored(anchor, minLength, maxLength) {
+  return new RegExp(`\\b${anchor}${SECRET_CHAR}{${minLength},${maxLength}}`, "g");
+}
+var STRUCTURAL_CHARACTERS = /[[\]{}]/;
+function holdsStructuralCharacter(match) {
+  return STRUCTURAL_CHARACTERS.test(match);
 }
 var PRIVATE_KEY_BODY_LIMIT = 8000;
 var PRIVATE_KEY_BEGIN = "-----BEGIN(?: [A-Z0-9]+)* PRIVATE KEY-----";
@@ -29234,15 +29245,15 @@ var PRIVATE_KEY_END = "-----END(?: [A-Z0-9]+)* PRIVATE KEY-----";
 var RULES = [
   {
     kind: "github-pat",
-    pattern: new RegExp(`\\b(?:ghp_${SECRET_CHAR}{36,}|github_pat_${SECRET_CHAR}{22,})`, "g")
+    pattern: new RegExp(`\\b(?:ghp_${SECRET_CHAR}{36,512}|github_pat_${SECRET_CHAR}{22,512})`, "g")
   },
   {
     kind: "anthropic-key",
-    pattern: prefixAnchored("sk-ant-", 20)
+    pattern: prefixAnchored("sk-ant-", 20, 512)
   },
   {
     kind: "openai-key",
-    pattern: new RegExp(`\\bsk-(?!ant-)${SECRET_CHAR}{40,}`, "g"),
+    pattern: new RegExp(`\\bsk-(?!ant-)${SECRET_CHAR}{40,512}`, "g"),
     isValid: (match) => /\d/.test(match)
   },
   {
@@ -29251,27 +29262,27 @@ var RULES = [
   },
   {
     kind: "kodizm-token",
-    pattern: prefixAnchored("kdz-", 20)
+    pattern: prefixAnchored("kdz-", 20, 512)
   },
   {
     kind: "gitlab-pat",
-    pattern: prefixAnchored("glpat-", 20)
+    pattern: prefixAnchored("glpat-", 20, 512)
   },
   {
     kind: "slack-token",
-    pattern: prefixAnchored("xox[bpsar]-", 10)
+    pattern: prefixAnchored("xox[bpsar]-", 10, 512)
   },
   {
     kind: "google-key",
-    pattern: prefixAnchored("AIza", 35)
+    pattern: /\bAIza[A-Za-z0-9_-]{35}/g
   },
   {
     kind: "jwt",
-    pattern: new RegExp(`\\beyJ${SECRET_CHAR}{10,}\\.${SECRET_CHAR}{4,}\\.${SECRET_CHAR}{4,}`, "g")
+    pattern: new RegExp(`\\beyJ${SECRET_CHAR}{10,2048}\\.${SECRET_CHAR}{4,2048}\\.${SECRET_CHAR}{4,2048}`, "g")
   },
   {
     kind: "bearer",
-    pattern: new RegExp(`\\bBearer\\s+${SECRET_CHAR}{20,}`, "g")
+    pattern: new RegExp(`\\bBearer\\s+${SECRET_CHAR}{20,512}`, "g")
   },
   {
     kind: "private-key",
@@ -29284,6 +29295,9 @@ function increment(counts, kind) {
 }
 function applyRule(text, rule, counts) {
   return text.replace(rule.pattern, (match) => {
+    if (holdsStructuralCharacter(match)) {
+      return match;
+    }
     if (rule.isValid && !rule.isValid(match)) {
       return match;
     }
@@ -29514,8 +29528,8 @@ function createStore(db, databasePath, schemaVersion, writable) {
     if (!inTransaction) {
       return;
     }
-    inTransaction = false;
     rollbackQuietly(db);
+    inTransaction = false;
   }
   function readManifest(transcriptKey) {
     const row = db.prepare(SELECT_MANIFEST_SQL).get(transcriptKey);
@@ -38904,9 +38918,9 @@ function formatSyncReport(report) {
   return [
     `Files scanned: ${report.filesScanned}`,
     `Files vanished mid-walk: ${report.filesVanished}`,
-    `Files failed to read: ${report.filesFailed ?? 0}`,
+    `Files failed to read: ${report.filesFailed}`,
     `Rows added: ${report.rowsAdded}`,
-    `Lines skipped (nothing indexable): ${report.skipped ?? 0}`,
+    `Lines skipped (nothing indexable): ${report.skipped}`,
     `Lines quarantined: ${report.quarantined}`,
     `Redactions applied: ${report.redactions}`,
     `Elapsed: ${report.elapsedMillis} ms`,
@@ -38916,4 +38930,4 @@ function formatSyncReport(report) {
 }
 await program2.parseAsync(process.argv);
 
-//# debugId=27BD631553C44F7D64756E2164756E21
+//# debugId=9FC5ADE8E0E70A5F64756E2164756E21
