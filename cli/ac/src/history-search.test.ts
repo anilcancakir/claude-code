@@ -609,3 +609,44 @@ test("resolveProjectsRoot follows CLAUDE_CONFIG_DIR before the home directory", 
     expect(resolveProjectsRoot({ env: { CLAUDE_CONFIG_DIR: "/elsewhere/cc" }, home: "/home/anilcan" }))
         .toBe("/elsewhere/cc/projects");
 });
+
+// (11) A degraded pattern explains itself beside the result. The tool description already warns
+// about punctuation, but a caller reading an answer is past the point of reading a schema, and
+// `C++` returns 168,241 of 189,644 turns, which reads as an answer and carries no information.
+
+test("runSearch prepends a notice naming what a symbol-heavy token actually searched", async () => {
+    const { store } = createFakeStore({ countRow: { matches: 168_241, sessions: 127, projects: 53 } });
+    const spy = createSyncSpy();
+
+    const text = await runSearch(
+        { pattern: "C++", output_mode: "count" },
+        depsFor(store, { sync: spy.sync }),
+    );
+
+    expect(text).toContain("\"C++\" searched as \"C\"");
+    expect(text).toContain("168241");
+});
+
+test("runSearch adds no notice to an ordinary pattern", async () => {
+    const { store } = createFakeStore({ countRow: { matches: 3, sessions: 1, projects: 1 } });
+    const spy = createSyncSpy();
+
+    const text = await runSearch(
+        { pattern: "laravel migration", output_mode: "count" },
+        depsFor(store, { sync: spy.sync }),
+    );
+
+    expect(text).not.toContain("punctuation is dropped");
+});
+
+test("read mode takes no pattern and so can never carry the degradation notice", async () => {
+    const { store } = createFakeStore({ readRows: [readRow()] });
+    const spy = createSyncSpy();
+
+    const text = await runSearch(
+        { output_mode: "read", session_id: "sess-1" },
+        depsFor(store, { sync: spy.sync }),
+    );
+
+    expect(text).not.toContain("punctuation is dropped");
+});

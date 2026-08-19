@@ -247,7 +247,7 @@ test("read mode holds its output ceiling against a real archive of oversized tur
 
     // The withheld notice accounts for both causes: the turn past the window and the ones the
     // budget dropped.
-    const notice = /\[(\d+) hit\(s\) withheld/.exec(text);
+    const notice = /\[(\d+) turn\(s\) withheld/.exec(text);
     assert.ok(notice !== null, `no withheld notice: ${text.slice(-300)}`);
     assert.equal(Number(notice[1]), total - rendered);
 

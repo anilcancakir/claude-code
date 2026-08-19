@@ -7,6 +7,7 @@ import {
     buildReadQuery,
     buildSessionRowCountQuery,
     buildSessionsQuery,
+    degradedTokens,
     toMatchExpression,
 } from "./history-query.ts";
 import type { HistoryQueryFilters, SqlStatement } from "./history-query.ts";
@@ -173,6 +174,13 @@ export async function runSearch(args: HistorySearchArgs, deps: HistorySearchDeps
     // 2. Sync before querying, so results are never stale. Both skips below are degradations that
     //    announce themselves in the output rather than silent shortcuts.
     const notices = await syncBeforeSearch(deps);
+
+    // 2b. Say so when the tokenizer will strip a token down to a near-match-all prefix, rather than
+    //     returning 168,101 hits for `C++` and letting the caller read that as an answer.
+    const degradedNotice = degradationNotice(args.pattern);
+    if (degradedNotice !== undefined) {
+        notices.push(degradedNotice);
+    }
 
     // 3. Query and render. The store is handed statements built by `history-query.ts`; this module
     //    never assembles SQL from a caller value.
@@ -857,4 +865,28 @@ function toReadHitRow(row: HistoryResultRow): ReadHitRow {
         agent_type: asNullableText(row["agent_type"]),
         body: asText(row["body"]),
     };
+}
+
+/**
+ * One line naming every token the tokenizer will reduce to a near-match-all prefix, or `undefined`
+ * when the pattern holds none.
+ *
+ * Placed beside the result rather than only in the tool description, because a caller reading an
+ * answer is past the point of reading a schema. The notice states what was actually searched, so a
+ * huge useless result set is legible instead of misleading.
+ */
+function degradationNotice(pattern: string | undefined): string | undefined {
+    if (pattern === undefined) {
+        return undefined;
+    }
+
+    const degraded = degradedTokens(pattern);
+    if (degraded.length === 0) {
+        return undefined;
+    }
+
+    const described = degraded.map(([token, surviving]) => `"${token}" searched as "${surviving}"`);
+
+    return `Note: punctuation is dropped rather than searched, so ${described.join(", ")}. `
+        + "That prefix matches most of the archive; write plain search words for a useful result.";
 }
