@@ -7,9 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-08-20
+
+Gives the plugin a memory of its own machine. `search-history` searches every Claude Code transcript this computer has ever written, across all projects, and `call-external-agent` leaves in the same release, so the local surface is now the two tools that read this machine's own state rather than one that drives other CLIs.
+
+Most of what this entry records was found by using the tool rather than by testing it. The suites were green while an ordinary two-token query was an FTS5 syntax error, while a Turkish speaker typing ASCII was losing most of their own history, while the archive was quietly indexing its own searches, and while paging the project rollup announced a total that shrank as you read.
+
 ### Added
 
-- `search-history`, an MCP tool that searches every Claude Code transcript on the machine, across all projects. One tool rather than a family: the mode, the project path, the date bounds, the role and kind filters, subagent inclusion and paging are all parameters inside it, and it borrows Grep's parameter vocabulary so there is no second vocabulary to learn. Backed by a permanent sqlite + FTS5 archive at `~/.claude/ac/history-index/`, built through Node's builtin `node:sqlite` behind a lazy import so the rest of the suite still runs under bun. Measured over the author's own 2,003 transcripts: 189,644 rows, 320 MB, a cold build of 25 to 50 s, and a warm no-change freshness pass of 0.45 s, which is what makes the per-call auto-sync affordable instead of needing a daemon. Five output modes: `content` for excerpts, `sessions` and `projects` for rollups (`projects` answers "which projects on this machine did I work on X in", which no other mode could without manual deduping), `count` for totals, and `read` to open one conversation. Secrets are redacted at ingest across 12 credential shapes, and `ac history forget` deletes by session, project or date. Turkish matching is diacritic-insensitive in both directions: `unicode61` folds every Turkish letter except `ı` (U+0131), which is a distinct letter rather than a diacritic-bearing `i`, so every query token is additionally expanded over the dotted/dotless axis. Before that expansion `calisiyor` found 138 of the 1,896 hits `çalışıyor` found; both now return 2,013. The archive also declines to index the search tool's own calls, so searching does not pollute the corpus being searched.
+- `search-history`, an MCP tool that searches every Claude Code transcript on the machine, across all projects. One tool rather than a family: the mode, the project path, the date bounds, the role and kind filters, subagent inclusion and paging are all parameters inside it, and it borrows Grep's parameter vocabulary so there is no second vocabulary to learn. Backed by a permanent sqlite + FTS5 archive at `~/.claude/ac/history-index/`, built through Node's builtin `node:sqlite` behind a lazy import so the rest of the suite still runs under bun. Measured over the author's own 2,003 transcripts: 189,644 rows, 320 MB, a cold build of 25 to 50 s, and a warm no-change freshness pass of 0.45 s, which is what makes the per-call auto-sync affordable instead of needing a daemon. Five output modes: `content` for excerpts, `sessions` and `projects` for rollups (`projects` answers "which projects on this machine did I work on X in", which no other mode could without manual deduping), `count` for totals, and `read` to open one conversation. Secrets are redacted at ingest across 12 credential shapes, and `ac history forget` deletes by session, project or date. Turkish matching is diacritic-insensitive in both directions: `unicode61` folds every Turkish letter except `ı` (U+0131), which is a distinct letter rather than a diacritic-bearing `i`, so every query token is additionally expanded over the dotted/dotless axis. Before that expansion `calisiyor` found 138 of the 1,896 hits `çalışıyor` found; the two spellings now return an identical count. The archive also declines to index the search tool's own calls, so searching does not pollute the corpus being searched.
 - `ac history index`, `ac history search` and `ac history forget`, the same engine behind a terminal front end for warming, debugging and deletion.
 
 ### Removed
@@ -430,6 +436,7 @@ The lesson driving this release: a limit written in prose is not a limit. The ca
 - `subagent-monitor` plugin removed from the marketplace; functionality superseded by
   the plan-chain agent reviewers.
 
+[0.11.0]: https://github.com/anilcancakir/claude-code/compare/v0.10.1...v0.11.0
 [0.10.1]: https://github.com/anilcancakir/claude-code/compare/v0.10.0...v0.10.1
 [0.10.0]: https://github.com/anilcancakir/claude-code/compare/v0.9.3...v0.10.0
 [0.9.3]: https://github.com/anilcancakir/claude-code/compare/v0.9.2...v0.9.3
