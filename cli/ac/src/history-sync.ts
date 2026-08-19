@@ -79,7 +79,7 @@ export interface HistorySyncReport {
      * same reason as {@link HistorySyncReport.skipped}: a report literal written before this field
      * existed, in another module's test, still type-checks. `syncArchive` always sets it.
      */
-    readonly filesFailed?: number;
+    readonly filesFailed: number;
     readonly rowsAdded: number;
     readonly quarantined: number;
     /**
@@ -90,7 +90,7 @@ export interface HistorySyncReport {
      * (a fake `syncArchive` stub in another step's test) still type-checks; `syncArchive` itself
      * always sets it.
      */
-    readonly skipped?: number;
+    readonly skipped: number;
     readonly redactions: number;
     readonly elapsedMillis: number;
     readonly changed: boolean;

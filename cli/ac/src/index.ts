@@ -240,9 +240,9 @@ function formatSyncReport(report: HistorySyncReport): string {
         // read at all, and `skipped` counts conversational lines that carried nothing indexable;
         // misclassifying the latter is what once produced a 1.53 GB quarantine table, so the
         // diagnostic surface for it must not hide either number.
-        `Files failed to read: ${report.filesFailed ?? 0}`,
+        `Files failed to read: ${report.filesFailed}`,
         `Rows added: ${report.rowsAdded}`,
-        `Lines skipped (nothing indexable): ${report.skipped ?? 0}`,
+        `Lines skipped (nothing indexable): ${report.skipped}`,
         `Lines quarantined: ${report.quarantined}`,
         `Redactions applied: ${report.redactions}`,
         `Elapsed: ${report.elapsedMillis} ms`,

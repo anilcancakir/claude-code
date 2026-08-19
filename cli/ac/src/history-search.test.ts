@@ -187,8 +187,10 @@ function emptyReport(): HistorySyncReport {
     return {
         filesScanned: 0,
         filesVanished: 0,
+        filesFailed: 0,
         rowsAdded: 0,
         quarantined: 0,
+        skipped: 0,
         redactions: 0,
         elapsedMillis: 0,
         changed: false,

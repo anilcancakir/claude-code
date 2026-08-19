@@ -581,8 +581,15 @@ function createStore(
         if (!inTransaction) {
             return;
         }
-        inTransaction = false;
+        // The flag clears AFTER the statement, for the same reason `commit()` does it that way: if
+        // ROLLBACK itself throws with anything other than "no transaction is active", sqlite is
+        // still inside a transaction, and a flag already set to false would let the next `begin()`
+        // issue a nested BEGIN and poison the connection for the process lifetime with a non-busy
+        // error. Reaching that needs an open cursor, which nothing does today because every read
+        // goes through `.all()` rather than `.iterate()`, so this is unreachable rather than safe;
+        // it is two lines and the consequence is a dead store, so the ordering is fixed anyway.
         rollbackQuietly(db);
+        inTransaction = false;
     }
 
     function readManifest(transcriptKey: string): HistoryManifestEntry | undefined {

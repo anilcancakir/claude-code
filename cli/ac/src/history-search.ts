@@ -203,9 +203,27 @@ async function syncBeforeSearch(deps: HistorySearchDeps): Promise<string[]> {
         store: observed.store,
         ...(deps.fs === undefined ? {} : { fs: deps.fs }),
     };
-    await sync(options);
+    const report = await sync(options);
 
-    return observed.wasBusy() ? [BUSY_NOTICE] : [];
+    const notices: string[] = [];
+    if (observed.wasBusy()) {
+        notices.push(BUSY_NOTICE);
+    }
+
+    // A regression the per-file error isolation introduced, caught in review: before it, a read
+    // failure threw and the search failed loudly. After it, the walk counts the file and carries on,
+    // which is right, but the count died here because the report was discarded. That left a search
+    // reporting success against an archive that had silently stopped growing, on a design whose whole
+    // premise is that the archive becomes the only copy once `cleanupPeriodDays` takes the
+    // transcript. Counting without surfacing is worse than throwing.
+    if (report.filesFailed > 0) {
+        notices.push(
+            `Note: ${report.filesFailed} transcript(s) could not be read this pass, so results may be `
+            + "incomplete. Run `ac history index` to see the error.",
+        );
+    }
+
+    return notices;
 }
 
 /**
