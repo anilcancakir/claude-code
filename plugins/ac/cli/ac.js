@@ -27718,6 +27718,58 @@ function buildCountQuery(query) {
     ]
   };
 }
+function buildProjectsQuery(query) {
+  assertNonEmptyMatch(query.match, "projects");
+  const filters = buildFilterFragments(query.filters);
+  const columns = [
+    "t.project_path AS project_path",
+    "COUNT(*) AS hits",
+    "COUNT(DISTINCT t.session_id) AS sessions",
+    "MIN(t.ts) AS first_ts",
+    "MAX(t.ts) AS last_ts"
+  ];
+  const sql = [
+    `SELECT ${columns.join(", ")}`,
+    "FROM turns t",
+    whereClause([
+      "t.rowid IN (SELECT rowid FROM turns_fts WHERE turns_fts MATCH ?)",
+      ...filters.clauses
+    ], { withMatch: false }),
+    "GROUP BY t.project_path",
+    "ORDER BY hits DESC, last_ts DESC",
+    "LIMIT ? OFFSET ?"
+  ].join(`
+`);
+  return {
+    sql,
+    params: [
+      query.match,
+      ...filters.params,
+      query.limit,
+      query.offset
+    ]
+  };
+}
+function buildProjectCountQuery(query) {
+  assertNonEmptyMatch(query.match, "projects");
+  const filters = buildFilterFragments(query.filters);
+  const sql = [
+    "SELECT COUNT(DISTINCT t.project_path) AS total_projects",
+    "FROM turns t",
+    whereClause([
+      "t.rowid IN (SELECT rowid FROM turns_fts WHERE turns_fts MATCH ?)",
+      ...filters.clauses
+    ], { withMatch: false })
+  ].join(`
+`);
+  return {
+    sql,
+    params: [
+      query.match,
+      ...filters.params
+    ]
+  };
+}
 function buildReadQuery(query) {
   const filters = buildFilterFragments(query.filters ?? {});
   const columns = [
@@ -27896,6 +27948,28 @@ function renderSessionLine(row, now) {
 }
 function renderCount(row) {
   return `${row.matches} match(es) across ${row.sessions} session(s) in ${row.projects} project(s)`;
+}
+function renderProjects(rows, opts) {
+  const now = opts.now ?? Date.now();
+  const page = rows.slice(0, opts.headLimit);
+  const header = `${opts.totalProjects} project(s) matched`;
+  const lines = page.map((row) => renderProjectLine(row, now));
+  const withheld = Math.max(0, opts.totalProjects - page.length);
+  const body = [header, ...lines].join(`
+
+`);
+  return withheld > 0 ? `${body}
+
+${truncationNotice(withheld, { noun: "project(s)", narrowable: true })}` : body;
+}
+function renderProjectLine(row, now) {
+  const range = `${formatRelativeAge(row.first_ts, now)} .. ${formatRelativeAge(row.last_ts, now)}`;
+  return [
+    row.project_path,
+    `${row.hits} hit(s)`,
+    `${row.sessions} session(s)`,
+    range
+  ].join(" | ");
 }
 function renderRead(rows, opts) {
   const window2 = rows.slice(0, opts.limit);
@@ -28615,6 +28689,8 @@ function executeMode(request, deps) {
       return executeContent(request, deps);
     case "sessions":
       return executeSessions(request, deps);
+    case "projects":
+      return executeProjects(request, deps);
     case "count":
       return executeCount(request, deps);
     case "read":
@@ -28657,6 +28733,30 @@ function executeSessions(request, deps) {
     totalSessions: Math.max(0, totals.sessions - request.offset),
     ...deps.now === undefined ? {} : { now: deps.now }
   });
+}
+function executeProjects(request, deps) {
+  const rows = deps.store.select(buildProjectsQuery({
+    match: request.match,
+    filters: request.filters,
+    limit: request.headLimit,
+    offset: request.offset
+  }));
+  if (rows.length === 0) {
+    return emptyResultText(request);
+  }
+  const totalProjects = selectProjectTotal(request, deps);
+  return renderProjects(rows.map(toProjectHitRow), {
+    headLimit: request.headLimit,
+    totalProjects: Math.max(0, totalProjects - request.offset),
+    ...deps.now === undefined ? {} : { now: deps.now }
+  });
+}
+function selectProjectTotal(request, deps) {
+  const rows = deps.store.select(buildProjectCountQuery({
+    match: request.match,
+    filters: request.filters
+  }));
+  return asNumber(rows[0]?.["total_projects"]);
 }
 function executeCount(request, deps) {
   const totals = selectCounts(request, deps);
@@ -28788,10 +28888,10 @@ function validateMode(value) {
   if (value === undefined) {
     return "content";
   }
-  if (value === "content" || value === "sessions" || value === "count" || value === "read") {
+  if (value === "content" || value === "sessions" || value === "projects" || value === "count" || value === "read") {
     return value;
   }
-  throw invalidParams("output_mode must be one of content|sessions|count|read");
+  throw invalidParams("output_mode must be one of content|sessions|projects|count|read");
 }
 function validatePattern(value, applied) {
   if (typeof value !== "string") {
@@ -28991,6 +29091,15 @@ function toSessionHitRow(row) {
     first_ts: asNullableNumber(row["first_ts"]),
     last_ts: asNullableNumber(row["last_ts"]),
     score: asNumber(row["score"])
+  };
+}
+function toProjectHitRow(row) {
+  return {
+    project_path: asText(row["project_path"]),
+    hits: asNumber(row["hits"]),
+    sessions: asNumber(row["sessions"]),
+    first_ts: asNullableNumber(row["first_ts"]),
+    last_ts: asNullableNumber(row["last_ts"])
   };
 }
 function toReadHitRow(row) {
@@ -29556,7 +29665,7 @@ function primaryResultCode(error2) {
 var HISTORY_TOOL_NAME = "search-history";
 var HISTORY_TOOL_DEFINITION = {
   name: HISTORY_TOOL_NAME,
-  description: "Search the user's own local Claude Code conversation history across every local project, " + "backed by a permanent SQLite full-text archive. `pattern` is TOKENIZED FULL-TEXT search " + "with prefix matching, NOT a regular expression: it splits on whitespace, matches each " + "token as a prefix, and ANDs the tokens together. Punctuation is DROPPED by the tokenizer " + "rather than searched, so regex-shaped input degrades silently instead of erroring: `C++` " + "searches the bare prefix `c` and matches almost every turn, and `node.*sqlite` searches " + "for `node` immediately followed by `sqlite`; write plain search words instead. Matching " + "is case-insensitive and fully diacritic-insensitive for Turkish, in both directions: " + "`gozden` finds `gözden`, and `calisiyor` finds `çalışıyor` because every token is " + "expanded over the dotted/dotless i axis the tokenizer does not fold on its own. Type a " + "Turkish word either way. `pattern` is required for " + "`output_mode` " + "`content`, `sessions` and `count`; it is not used for `read`, which instead opens a " + "chronological window on one `session_id` (required in that mode). Only prose and tool " + "arguments are indexed: successful tool output is never indexed, while failed tool " + "output (errors) is, so this tool cannot surface a large file dump but can surface why " + "something broke.",
+  description: "Search the user's own local Claude Code conversation history across every local project, " + "backed by a permanent SQLite full-text archive. `pattern` is TOKENIZED FULL-TEXT search " + "with prefix matching, NOT a regular expression: it splits on whitespace, matches each " + "token as a prefix, and ANDs the tokens together. Punctuation is DROPPED by the tokenizer " + "rather than searched, so regex-shaped input degrades silently instead of erroring: `C++` " + "searches the bare prefix `c` and matches almost every turn, and `node.*sqlite` searches " + "for `node` immediately followed by `sqlite`; write plain search words instead. Matching " + "is case-insensitive and fully diacritic-insensitive for Turkish, in both directions: " + "`gozden` finds `gözden`, and `calisiyor` finds `çalışıyor` because every token is " + "expanded over the dotted/dotless i axis the tokenizer does not fold on its own. Type a " + "Turkish word either way. `pattern` is required for " + "`output_mode` " + "`content`, `sessions`, `projects` and `count`; it is not used for `read`, which opens a " + "chronological window on one `session_id` (required in that mode). Only prose and tool " + "arguments are indexed: successful tool output is never indexed, while failed tool " + "output (errors) is, so this tool cannot surface a large file dump but can surface why " + "something broke.",
   inputSchema: {
     type: "object",
     properties: {
@@ -29570,9 +29679,9 @@ var HISTORY_TOOL_DEFINITION = {
       },
       output_mode: {
         type: "string",
-        enum: ["content", "sessions", "count", "read"],
+        enum: ["content", "sessions", "projects", "count", "read"],
         default: "content",
-        description: "content: one excerpt per matching turn. sessions: one entry per " + "matching session. count: match/session/project totals only. read: a " + "chronological window on one session_id, no search performed."
+        description: "content: one excerpt per matching turn. sessions: one entry per " + "matching session. projects: one entry per project, busiest first, which is " + 'how to answer "which projects on this machine did I work on X in". ' + "count: match/session/project totals only. read: a " + "chronological window on one session_id, no search performed."
       },
       head_limit: {
         type: "number",
@@ -38646,7 +38755,7 @@ history.command("index").description("Build or refresh the history archive from 
     store.close();
   }
 });
-history.command("search <pattern>").description("Search the history archive. pattern is tokenized full-text with prefix matching, not a " + "regex, and punctuation is dropped rather than matched, so 'C++' searches for 'c'. " + "Turkish folding works in both directions: 'gozden' finds 'gözden' and 'calisiyor' " + "finds 'çalışıyor', so type a Turkish word either way.").option("--path <value>", "Filter to project paths containing this substring.").option("--output-mode <value>", "content|sessions|count|read", "content").option("--head-limit <value>", `Max hits per page (1-${HISTORY_HEAD_LIMIT_MAX}).`, String(HISTORY_HEAD_LIMIT_DEFAULT)).option("--offset <value>", "Page offset.", "0").option("--since <value>", "ISO date/time lower bound.").option("--until <value>", "ISO date/time upper bound.").option("--role <value>", "user|assistant|any", "any").option("--kind <value>", "prose|tool_use|tool_error|any", "any").option("--no-include-subagents", "Exclude subagent turns (included by default).").option("--agent-type <value>", "Filter to one subagent agent type, e.g. ac:librarian.").option("--session-id <value>", "Session to open a window on; required (and pattern is ignored) when --output-mode is read.").action(async (pattern, opts) => {
+history.command("search <pattern>").description("Search the history archive. pattern is tokenized full-text with prefix matching, not a " + "regex, and punctuation is dropped rather than matched, so 'C++' searches for 'c'. " + "Turkish folding works in both directions: 'gozden' finds 'gözden' and 'calisiyor' " + "finds 'çalışıyor', so type a Turkish word either way.").option("--path <value>", "Filter to project paths containing this substring.").option("--output-mode <value>", "content|sessions|projects|count|read. projects rolls the hits up per project, busiest first.", "content").option("--head-limit <value>", `Max hits per page (1-${HISTORY_HEAD_LIMIT_MAX}).`, String(HISTORY_HEAD_LIMIT_DEFAULT)).option("--offset <value>", "Page offset.", "0").option("--since <value>", "ISO date/time lower bound.").option("--until <value>", "ISO date/time upper bound.").option("--role <value>", "user|assistant|any", "any").option("--kind <value>", "prose|tool_use|tool_error|any", "any").option("--no-include-subagents", "Exclude subagent turns (included by default).").option("--agent-type <value>", "Filter to one subagent agent type, e.g. ac:librarian.").option("--session-id <value>", "Session to open a window on; required (and pattern is ignored) when --output-mode is read.").action(async (pattern, opts) => {
   const store = await openHistoryStore();
   try {
     const headLimit = Number.parseInt(opts.headLimit, 10);
@@ -38719,4 +38828,4 @@ function formatSyncReport(report) {
 }
 await program2.parseAsync(process.argv);
 
-//# debugId=870ADA639655418264756E2164756E21
+//# debugId=99BC6EF37A4F0C4364756E2164756E21
