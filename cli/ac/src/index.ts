@@ -134,7 +134,11 @@ history
             + "finds 'çalışıyor', so type a Turkish word either way.",
     )
     .option("--path <value>", "Filter to project paths containing this substring.")
-    .option("--output-mode <value>", "content|sessions|count|read", "content")
+    .option(
+        "--output-mode <value>",
+        "content|sessions|projects|count|read. projects rolls the hits up per project, busiest first.",
+        "content",
+    )
     .option(
         "--head-limit <value>",
         `Max hits per page (1-${HISTORY_HEAD_LIMIT_MAX}).`,

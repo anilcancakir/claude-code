@@ -27,7 +27,8 @@ export const HISTORY_TOOL_NAME = "search-history" as const;
  * Schema mirrors Claude Code's own `Grep` vocabulary (`pattern`, `-i`, `head_limit`) so the model
  * needs no new names, plus the domain-specific filters this archive supports. `pattern` and
  * `session_id` are each required in exactly one mode and not the other (`pattern` for
- * `content`/`sessions`/`count`, `session_id` for `read`), which JSON Schema's flat `required`
+ * `content`/`sessions`/`projects`/`count`, `session_id` for `read`), which JSON Schema's flat
+ * `required`
  * array cannot express as a conditional; `runSearch` enforces both per-mode instead.
  */
 export const HISTORY_TOOL_DEFINITION: Tool = {
@@ -45,7 +46,7 @@ export const HISTORY_TOOL_DEFINITION: Tool = {
         + "expanded over the dotted/dotless i axis the tokenizer does not fold on its own. Type a "
         + "Turkish word either way. `pattern` is required for "
         + "`output_mode` "
-        + "`content`, `sessions` and `count`; it is not used for `read`, which instead opens a "
+        + "`content`, `sessions`, `projects` and `count`; it is not used for `read`, which opens a "
         + "chronological window on one `session_id` (required in that mode). Only prose and tool "
         + "arguments are indexed: successful tool output is never indexed, while failed tool "
         + "output (errors) is, so this tool cannot surface a large file dump but can surface why "
@@ -64,10 +65,12 @@ export const HISTORY_TOOL_DEFINITION: Tool = {
             },
             output_mode: {
                 type: "string",
-                enum: ["content", "sessions", "count", "read"],
+                enum: ["content", "sessions", "projects", "count", "read"],
                 default: "content",
                 description: "content: one excerpt per matching turn. sessions: one entry per "
-                    + "matching session. count: match/session/project totals only. read: a "
+                    + "matching session. projects: one entry per project, busiest first, which is "
+                    + "how to answer \"which projects on this machine did I work on X in\". "
+                    + "count: match/session/project totals only. read: a "
                     + "chronological window on one session_id, no search performed.",
             },
             head_limit: {
