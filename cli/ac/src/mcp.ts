@@ -15,6 +15,7 @@ import {
     LOCAL_TOOL_NAME,
     runExternalAgent,
 } from "./external-agent.ts";
+import { HISTORY_TOOL_DEFINITION, HISTORY_TOOL_NAME, runHistoryTool } from "./history-tool.ts";
 import { LOCAL_WEB_FETCH_TOOL_DEFINITION, runLocalFetch } from "./local-fetch.ts";
 import { raceWebFetch } from "./web-fetch-race.ts";
 
@@ -84,20 +85,32 @@ function applyFallbackDirective(tool: Tool): Tool {
 }
 
 /**
- * Primary docs/OSS-research tools that Claude Code should keep resident rather
- * than defer behind tool-search.
+ * Primary docs/OSS-research tools, plus the local history search tool, that Claude Code should
+ * keep resident rather than defer behind tool-search.
  *
- * These three have no built-in equivalent, so marking them `alwaysLoad` loads
- * them at session start (CC reads the connected server's tools/list with no
- * provenance tracking, so the per-tool `_meta` flag is honored on proxied
- * tools). web-fetch and web-search are deliberately excluded: they stay
- * fallback-only, and marking them alwaysLoad would force them resident against
- * the built-in web tools.
+ * None of these four has a built-in equivalent, so marking them `alwaysLoad` loads them at
+ * session start (CC reads the connected server's tools/list with no provenance tracking, so the
+ * per-tool `_meta` flag is honored on proxied AND local tools). web-fetch and web-search are
+ * deliberately excluded: they stay fallback-only, and marking them alwaysLoad would force them
+ * resident against the built-in web tools.
+ *
+ * The fourth entry is written as the literal `"search-history"` rather than the imported
+ * `HISTORY_TOOL_NAME`, deliberately: this Set is built at module-evaluation time, and mcp.ts and
+ * history-tool.ts import from each other (this file for `toIsErrorResult`, that one for its tool
+ * definition and handler). Dereferencing an imported `const` at the top level of either side of a
+ * cycle can hit the binding before the other module has finished initializing it, depending on
+ * which module a given entry point loads first; measured with plain Node (not just bun test,
+ * which tolerated it) via `node --experimental-strip-types`, entering through history-tool.ts
+ * threw `ReferenceError: Cannot access 'HISTORY_TOOL_NAME' before initialization` right here.
+ * Every OTHER reference to `HISTORY_TOOL_NAME` in this file lives inside a request-handler
+ * callback, which only runs once both modules have long finished evaluating, so only this one
+ * eager top-level read needed the literal.
  */
 const ALWAYS_LOAD_TOOLS: ReadonlySet<string> = new Set([
     "search-docs",
     "resolve-library",
     "web-code-search",
+    "search-history",
 ]);
 
 /**
@@ -147,7 +160,9 @@ export const SERVER_INSTRUCTIONS =
     + "web-fetch and web-search only as a fallback, when the built-in WebFetch/WebSearch "
     + "and the docs tools above cannot answer (broken or auth-walled pages, non-library "
     + "sources, live pages absent from the cache). call-external-agent dispatches a prompt "
-    + "to a local coding CLI (codex, gemini, opencode) in a chosen directory.";
+    + "to a local coding CLI (codex, gemini, opencode) in a chosen directory. For anything about "
+    + "the user's own past work or conversations, call search-history instead of guessing from "
+    + "memory: it searches the local Claude Code history archive across every project.";
 
 /**
  * Lazily-connected remote MCP handle.
@@ -184,7 +199,11 @@ export async function runMcpProxy(options: { token?: string; url?: string }): Pr
         //    LOCAL_WEB_FETCH_TOOL_DEFINITION. No bearer means no upstream surface,
         //    so this is the complete catalogue.
         if (remote === null) {
-            cachedTools = [LOCAL_WEB_FETCH_TOOL_DEFINITION, EXTERNAL_AGENT_TOOL_DEFINITION];
+            cachedTools = [
+                LOCAL_WEB_FETCH_TOOL_DEFINITION,
+                EXTERNAL_AGENT_TOOL_DEFINITION,
+                applyAlwaysLoad(HISTORY_TOOL_DEFINITION),
+            ];
             return { tools: cachedTools };
         }
 
@@ -200,7 +219,11 @@ export async function runMcpProxy(options: { token?: string; url?: string }): Pr
             }
         }
 
-        cachedTools = [...remoteTools, EXTERNAL_AGENT_TOOL_DEFINITION];
+        cachedTools = [
+            ...remoteTools,
+            EXTERNAL_AGENT_TOOL_DEFINITION,
+            applyAlwaysLoad(HISTORY_TOOL_DEFINITION),
+        ];
 
         return { tools: cachedTools };
     });
@@ -210,6 +233,10 @@ export async function runMcpProxy(options: { token?: string; url?: string }): Pr
 
         if (requestedName === LOCAL_TOOL_NAME) {
             return runExternalAgent(request.params.arguments);
+        }
+
+        if (requestedName === HISTORY_TOOL_NAME) {
+            return runHistoryTool(request.params.arguments);
         }
 
         if (requestedName === "web-fetch") {

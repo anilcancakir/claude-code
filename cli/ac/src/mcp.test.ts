@@ -27,8 +27,8 @@ function joinText(content: Array<{ type: string }>): string {
     return content.map((c) => (c as { text?: string }).text ?? "").join("");
 }
 
-test("applyAlwaysLoad merges anthropic/alwaysLoad for the three docs tools", () => {
-    for (const name of ["search-docs", "resolve-library", "web-code-search"]) {
+test("applyAlwaysLoad merges anthropic/alwaysLoad for the docs tools and search-history", () => {
+    for (const name of ["search-docs", "resolve-library", "web-code-search", "search-history"]) {
         const out = applyAlwaysLoad(makeTool(name));
         expect(out._meta?.["anthropic/alwaysLoad"]).toBe(true);
     }
@@ -82,6 +82,7 @@ const EXPECTED_TOOLS = new Set(
         "search-docs",
         "resolve-library",
         "web-code-search",
+        "search-history",
     ],
 );
 
@@ -258,7 +259,7 @@ test("mcp proxy rejects call-external-agent with invalid cli", async () => {
     }
 }, 30_000);
 
-test("mcp proxy serves web-fetch and call-external-agent without a bearer token", async () => {
+test("mcp proxy serves web-fetch, call-external-agent and search-history without a bearer token", async () => {
     const env = Object.fromEntries(
         Object.entries(process.env)
             .filter((e): e is [string, string] => e[1] !== undefined)
@@ -287,7 +288,16 @@ test("mcp proxy serves web-fetch and call-external-agent without a bearer token"
 
         expect(names).toContain("web-fetch");
         expect(names).toContain("call-external-agent");
-        expect(names).toHaveLength(2);
+        expect(names).toContain("search-history");
+        expect(names).toHaveLength(3);
+
+        // The trap this guards against: adding a name to ALWAYS_LOAD_TOOLS is not sufficient on its
+        // own, since applyAlwaysLoad's one call site loops over the REMOTE tool list. A local
+        // definition appended directly to cachedTools never passes through it unless the append
+        // site itself wraps it, so this checks the tool the server actually returned, not the
+        // constant this test file imports.
+        const historyTool = tools.find((t) => t.name === "search-history");
+        expect(historyTool?._meta?.["anthropic/alwaysLoad"]).toBe(true);
     } finally {
         await client.close();
     }
