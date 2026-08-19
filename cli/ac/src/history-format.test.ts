@@ -3,10 +3,11 @@ import { SNIPPET_CLOSE_MARKER, SNIPPET_OPEN_MARKER } from "./history-query.ts";
 import {
     renderContent,
     renderCount,
+    renderProjects,
     renderRead,
     renderSessions,
 } from "./history-format.ts";
-import type { ContentHitRow, ReadHitRow, SessionHitRow } from "./history-format.ts";
+import type { ContentHitRow, ProjectHitRow, ReadHitRow, SessionHitRow } from "./history-format.ts";
 
 const NOW = Date.parse("2026-08-19T00:00:00.000Z");
 const ONE_HOUR_MS = 60 * 60 * 1000;
@@ -392,4 +393,56 @@ test("renderRead advises paging but not narrowing, because read takes no pattern
     expect(rendered).toContain("turn(s) withheld");
     expect(rendered).toContain("page with offset");
     expect(rendered).not.toContain("narrow the query");
+});
+
+// (12) projects: the rollup line. Full path rather than basename, because the path IS the answer
+// here and this machine holds both `fluttersdk.com` and `fluttersdk-ai` under one parent.
+
+function makeProjectRow(overrides: Partial<ProjectHitRow> = {}): ProjectHitRow {
+    return {
+        project_path: "/Users/anilcan/Code/fluttersdk/fluttersdk.com",
+        hits: 25,
+        sessions: 3,
+        first_ts: NOW - 66 * 24 * ONE_HOUR_MS,
+        last_ts: NOW - 30 * 24 * ONE_HOUR_MS,
+        ...overrides,
+    };
+}
+
+test("renderProjects leads with the total, then one line per project", () => {
+    const rendered = renderProjects(
+        [makeProjectRow(), makeProjectRow({ project_path: "/Users/anilcan/Code/claude-code", hits: 2, sessions: 1 })],
+        { headLimit: 20, totalProjects: 2, now: NOW },
+    );
+
+    const lines = rendered.split("\n\n");
+    expect(lines[0]).toBe("2 project(s) matched");
+    expect(lines.length).toBe(3);
+});
+
+test("renderProjects shows the full path, not the basename", () => {
+    const rendered = renderProjects([makeProjectRow()], { headLimit: 20, totalProjects: 1, now: NOW });
+
+    // Two sibling projects share a basename prefix on this machine, so a basename cannot answer
+    // "which project" and the full path is the point of the mode.
+    expect(rendered).toContain("/Users/anilcan/Code/fluttersdk/fluttersdk.com");
+});
+
+test("renderProjects reports hits, sessions and the date range per project", () => {
+    const rendered = renderProjects([makeProjectRow()], { headLimit: 20, totalProjects: 1, now: NOW });
+
+    expect(rendered).toContain("25 hit(s)");
+    expect(rendered).toContain("3 session(s)");
+});
+
+test("renderProjects counts withheld projects, not hits", () => {
+    const rendered = renderProjects([makeProjectRow()], { headLimit: 1, totalProjects: 6, now: NOW });
+
+    expect(rendered).toContain("5 project(s) withheld");
+});
+
+test("renderProjects emits no withheld notice when the page is the whole answer", () => {
+    const rendered = renderProjects([makeProjectRow()], { headLimit: 20, totalProjects: 1, now: NOW });
+
+    expect(rendered).not.toContain("withheld");
 });

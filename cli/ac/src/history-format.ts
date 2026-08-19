@@ -2,7 +2,8 @@ import { basename } from "node:path";
 
 /**
  * Renders already-fetched rows from the local history archive into the plain text an MCP caller
- * reads. One function per output mode (`content`, `sessions`, `count`, `read`), each taking rows
+ * reads. One function per output mode (`content`, `sessions`, `projects`, `count`, `read`), each
+ * taking rows
  * whose shape mirrors exactly the columns `history-query.ts`'s builders select, plus the paging
  * facts (`head_limit`, `offset`, totals) the caller already knows from its own query.
  *
@@ -47,6 +48,15 @@ export interface SessionHitRow {
     readonly title?: string;
 }
 
+/** A row of `history-query.ts`'s `projects` mode. */
+export interface ProjectHitRow {
+    readonly project_path: string;
+    readonly hits: number;
+    readonly sessions: number;
+    readonly first_ts: number | null;
+    readonly last_ts: number | null;
+}
+
 /** The single row `history-query.ts`'s `count` mode returns. */
 export interface CountRow {
     readonly matches: number;
@@ -80,6 +90,13 @@ export interface RenderContentOptions {
 export interface RenderSessionsOptions {
     readonly headLimit: number;
     readonly totalSessions: number;
+    readonly now?: number;
+}
+
+/** Paging facts `renderProjects` needs. */
+export interface RenderProjectsOptions {
+    readonly headLimit: number;
+    readonly totalProjects: number;
     readonly now?: number;
 }
 
@@ -217,6 +234,42 @@ function renderSessionLine(row: SessionHitRow, now: number): string {
 /** Renders the `count` mode's single compact line. */
 export function renderCount(row: CountRow): string {
     return `${row.matches} match(es) across ${row.sessions} session(s) in ${row.projects} project(s)`;
+}
+
+/**
+ * Renders the `projects` mode: a leading total, then one line per project, busiest first.
+ *
+ * The full path rather than `basename`, which is what `content` and `sessions` show. Those two
+ * already name a session id the caller can chain on, so a short label is enough to tell hits apart;
+ * here the path IS the answer, and two of this machine's projects are called `fluttersdk.com` and
+ * `fluttersdk-ai` under one parent, which a basename cannot distinguish.
+ */
+export function renderProjects(rows: readonly ProjectHitRow[], opts: RenderProjectsOptions): string {
+    const now = opts.now ?? Date.now();
+    const page = rows.slice(0, opts.headLimit);
+
+    // The total leads, so a caller reading only the first line still learns the size of the answer
+    // rather than mistaking one page for all of it.
+    const header = `${opts.totalProjects} project(s) matched`;
+    const lines = page.map((row) => renderProjectLine(row, now));
+    const withheld = Math.max(0, opts.totalProjects - page.length);
+
+    const body = [header, ...lines].join("\n\n");
+    return withheld > 0
+        ? `${body}\n\n${truncationNotice(withheld, { noun: "project(s)", narrowable: true })}`
+        : body;
+}
+
+/** Renders one `projects` row. */
+function renderProjectLine(row: ProjectHitRow, now: number): string {
+    const range = `${formatRelativeAge(row.first_ts, now)} .. ${formatRelativeAge(row.last_ts, now)}`;
+
+    return [
+        row.project_path,
+        `${row.hits} hit(s)`,
+        `${row.sessions} session(s)`,
+        range,
+    ].join(" | ");
 }
 
 /**
