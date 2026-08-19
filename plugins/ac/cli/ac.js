@@ -27954,7 +27954,7 @@ function renderProjects(rows, opts) {
   const page = rows.slice(0, opts.headLimit);
   const header = `${opts.totalProjects} project(s) matched`;
   const lines = page.map((row) => renderProjectLine(row, now));
-  const withheld = Math.max(0, opts.totalProjects - page.length);
+  const withheld = Math.max(0, opts.totalProjects - opts.offset - page.length);
   const body = [header, ...lines].join(`
 
 `);
@@ -28747,7 +28747,8 @@ function executeProjects(request, deps) {
   const totalProjects = selectProjectTotal(request, deps);
   return renderProjects(rows.map(toProjectHitRow), {
     headLimit: request.headLimit,
-    totalProjects: Math.max(0, totalProjects - request.offset),
+    totalProjects,
+    offset: request.offset,
     ...deps.now === undefined ? {} : { now: deps.now }
   });
 }
@@ -38828,4 +38829,4 @@ function formatSyncReport(report) {
 }
 await program2.parseAsync(process.argv);
 
-//# debugId=99BC6EF37A4F0C4364756E2164756E21
+//# debugId=019E914D3186077B64756E2164756E21
