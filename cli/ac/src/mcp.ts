@@ -9,12 +9,6 @@ import {
     McpError,
 } from "@modelcontextprotocol/sdk/types.js";
 import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
-import {
-    EXTERNAL_AGENT_TOOL_DEFINITION,
-    killAllActiveChildren,
-    LOCAL_TOOL_NAME,
-    runExternalAgent,
-} from "./external-agent.ts";
 import { HISTORY_TOOL_DEFINITION, HISTORY_TOOL_NAME, runHistoryTool } from "./history-tool.ts";
 import { LOCAL_WEB_FETCH_TOOL_DEFINITION, runLocalFetch } from "./local-fetch.ts";
 import { raceWebFetch } from "./web-fetch-race.ts";
@@ -159,8 +153,7 @@ export const SERVER_INSTRUCTIONS =
     + "web access; they return curated, cached results with no live-fetch latency. Use "
     + "web-fetch and web-search only as a fallback, when the built-in WebFetch/WebSearch "
     + "and the docs tools above cannot answer (broken or auth-walled pages, non-library "
-    + "sources, live pages absent from the cache). call-external-agent dispatches a prompt "
-    + "to a local coding CLI (codex, gemini, opencode) in a chosen directory. For anything about "
+    + "sources, live pages absent from the cache). For anything about "
     + "the user's own past work or conversations, call search-history instead of guessing from "
     + "memory: it searches the local Claude Code history archive across every project.";
 
@@ -201,14 +194,13 @@ export async function runMcpProxy(options: { token?: string; url?: string }): Pr
         if (remote === null) {
             cachedTools = [
                 LOCAL_WEB_FETCH_TOOL_DEFINITION,
-                EXTERNAL_AGENT_TOOL_DEFINITION,
                 applyAlwaysLoad(HISTORY_TOOL_DEFINITION),
             ];
             return { tools: cachedTools };
         }
 
         // 2. Bearer configured: pull the upstream allowlisted surface (which carries
-        //    remote's own web-fetch definition) and append the local agent tool.
+        //    remote's own web-fetch definition) and append the local history tool.
         //    Never append the local web-fetch definition here, or web-fetch duplicates.
         const remoteTools: Tool[] = [];
         await remote.ensureConnected();
@@ -221,7 +213,6 @@ export async function runMcpProxy(options: { token?: string; url?: string }): Pr
 
         cachedTools = [
             ...remoteTools,
-            EXTERNAL_AGENT_TOOL_DEFINITION,
             applyAlwaysLoad(HISTORY_TOOL_DEFINITION),
         ];
 
@@ -230,10 +221,6 @@ export async function runMcpProxy(options: { token?: string; url?: string }): Pr
 
     server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const requestedName = request.params.name;
-
-        if (requestedName === LOCAL_TOOL_NAME) {
-            return runExternalAgent(request.params.arguments);
-        }
 
         if (requestedName === HISTORY_TOOL_NAME) {
             return runHistoryTool(request.params.arguments);
@@ -316,8 +303,7 @@ export async function runMcpProxy(options: { token?: string; url?: string }): Pr
     await server.connect(stdioTransport);
 
     const shutdown = (): void => {
-        void killAllActiveChildren(5000)
-            .then(() => server.close())
+        void server.close()
             .then(() => remote?.close())
             .then(() => process.exit(0));
     };
@@ -330,7 +316,7 @@ export async function runMcpProxy(options: { token?: string; url?: string }): Pr
  * Build a lazy remote handle so the upstream HTTP transport is opened
  * on first use, not at proxy startup. Keeps the stdio handshake snappy
  * and avoids a network round-trip when the orchestrator only ever
- * invokes the local call-external-agent tool.
+ * invokes a local tool such as search-history.
  */
 function buildRemoteHandle(url: string, token: string): RemoteHandle {
     const client = new Client(
