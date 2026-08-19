@@ -331,7 +331,7 @@ test("renderRead counts the turns its own budget cut in the withheld notice", ()
     });
 
     const renderedCount = Number(/turns 1-(\d+) of 20/.exec(rendered)?.[1]);
-    const notice = /\[(\d+) hit\(s\) withheld/.exec(rendered);
+    const notice = /\[(\d+) turn\(s\) withheld/.exec(rendered);
     expect(notice).not.toBeNull();
     expect(Number(notice?.[1])).toBe(20 - renderedCount);
 });
@@ -353,4 +353,43 @@ test("renderRead prefixes each row with its role in chronological order", () => 
     expect(rendered.indexOf("ZRQPHX-USER-TURN")).toBeLessThan(rendered.indexOf("ZRQPHX-ASSISTANT-TURN"));
     expect(rendered).toMatch(/user/i);
     expect(rendered).toMatch(/assistant/i);
+});
+
+// (10) The truncation notice names what it actually counted, and advises only what applies. One
+// shared wording was wrong in two modes at once: `sessions` counts sessions, not hits, and `read`
+// has no pattern, so telling its caller to narrow the query sends them after a parameter that does
+// not exist for that mode.
+
+test("renderSessions counts sessions in its notice, not hits", () => {
+    const row: SessionHitRow = {
+        session_id: "00000000-0000-4000-8000-00000000000c",
+        project_path: "/tmp/proj-a",
+        hits: 3,
+        first_ts: NOW,
+        last_ts: NOW,
+        score: -1,
+        title: "ZRQPHX",
+    };
+
+    const rendered = renderSessions([row], { headLimit: 1, totalSessions: 9, now: NOW });
+
+    expect(rendered).toContain("8 session(s) withheld");
+    expect(rendered).not.toContain("hit(s) withheld");
+});
+
+test("renderContent still counts hits in its notice", () => {
+    const rendered = renderContent(makeContentRows(1), { headLimit: 1, totalMatches: 4, now: NOW });
+
+    expect(rendered).toContain("3 hit(s) withheld");
+});
+
+test("renderRead advises paging but not narrowing, because read takes no pattern", () => {
+    const rendered = renderRead(
+        [makeReadRow({ body: "alpha" }), makeReadRow({ id: 2, body: "beta" })],
+        { sessionId: "00000000-0000-4000-8000-00000000000d", offset: 0, limit: 1, totalRows: 5 },
+    );
+
+    expect(rendered).toContain("turn(s) withheld");
+    expect(rendered).toContain("page with offset");
+    expect(rendered).not.toContain("narrow the query");
 });

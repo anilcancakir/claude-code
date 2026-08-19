@@ -162,7 +162,9 @@ export function renderContent(rows: readonly ContentHitRow[], opts: RenderConten
     const withheld = withheldByLimit + withheldByBudget;
 
     const body = blocks.join("\n\n");
-    return withheld > 0 ? `${body}\n\n${truncationNotice(withheld)}` : body;
+    return withheld > 0
+        ? `${body}\n\n${truncationNotice(withheld, { noun: "hit(s)", narrowable: true })}`
+        : body;
 }
 
 /** Renders one `content` hit's header line plus its truncated snippet. */
@@ -193,7 +195,9 @@ export function renderSessions(rows: readonly SessionHitRow[], opts: RenderSessi
     const withheld = Math.max(0, opts.totalSessions - page.length);
 
     const body = lines.join("\n\n");
-    return withheld > 0 ? `${body}\n\n${truncationNotice(withheld)}` : body;
+    return withheld > 0
+        ? `${body}\n\n${truncationNotice(withheld, { noun: "session(s)", narrowable: true })}`
+        : body;
 }
 
 /** Renders one `sessions` row. A missing `title` gets a plain fallback rather than "undefined". */
@@ -237,7 +241,7 @@ export function renderRead(rows: readonly ReadHitRow[], opts: RenderReadOptions)
     // 2. Reserve the framing before measuring any turn, at its longest possible length: the position
     //    line for the full window, and a notice whose count can never exceed `totalRows`.
     const framingBytes = Buffer.byteLength(positionLine(opts, window.length), "utf8")
-        + Buffer.byteLength(truncationNotice(opts.totalRows), "utf8")
+        + Buffer.byteLength(truncationNotice(opts.totalRows, READ_NOTICE_SHAPE), "utf8")
         + 4; // the two "\n\n" joins that attach them
     const turnBudget = Math.max(0, MAX_READ_OUTPUT_BYTES - framingBytes);
 
@@ -262,7 +266,7 @@ export function renderRead(rows: readonly ReadHitRow[], opts: RenderReadOptions)
     const withheld = withheldByWindow + withheldByBudget;
 
     const body = [positionLine(opts, blocks.length), ...blocks].join("\n\n");
-    return withheld > 0 ? `${body}\n\n${truncationNotice(withheld)}` : body;
+    return withheld > 0 ? `${body}\n\n${truncationNotice(withheld, READ_NOTICE_SHAPE)}` : body;
 }
 
 /** The leading line, stating the window `renderedCount` turns actually cover. */
@@ -285,9 +289,26 @@ function renderReadLine(row: ReadHitRow): string {
     return `${label}: ${truncateOnWordBoundary(row.body, MAX_READ_ROW_CHARS)}`;
 }
 
-/** The one truncation notice every renderer appends when its list was cut, by limit or by budget. */
-function truncationNotice(withheld: number): string {
-    return `[${withheld} hit(s) withheld: increase head_limit, narrow the query, or page with offset]`;
+/**
+ * `read` counts turns and has no pattern, so its notice must not advise narrowing one. Shared
+ * between the byte reservation and the emitted line, which have to agree or the reservation
+ * under-counts and the output can cross its ceiling.
+ */
+const READ_NOTICE_SHAPE = { noun: "turn(s)", narrowable: false } as const;
+
+/**
+ * The truncation notice every renderer appends when its list was cut, by limit or by budget.
+ *
+ * The noun and the advice both follow the caller, because one shared wording was wrong in two
+ * modes at once: `sessions` counts sessions rather than hits, and `read` has no query to narrow,
+ * so telling its caller to narrow one sends them looking for a parameter that does not apply.
+ */
+function truncationNotice(withheld: number, opts: { noun: string; narrowable: boolean }): string {
+    const remedies = opts.narrowable
+        ? "increase head_limit, narrow the query, or page with offset"
+        : "increase head_limit or page with offset";
+
+    return `[${withheld} ${opts.noun} withheld: ${remedies}]`;
 }
 
 /**
