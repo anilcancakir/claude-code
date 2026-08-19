@@ -32,69 +32,139 @@ interface RedactRule {
     readonly isValid?: (match: string) => boolean;
 }
 
+// One character of a secret's body, for every rule whose match is anchored on a known prefix.
+//
+// A secret's charset is not knowable, so the TERMINATOR defines the match rather than an alphabet.
+// The first version of the `bearer` rule allowlisted base64url; the second widened that class to add
+// `+/=` and was called fixed. Then a real token carrying `|` matched only up to the pipe, so the
+// marker landed and rows of the shipped archive kept 46 characters of live token immediately after
+// `[REDACTED:bearer]`, reading as sanitised while leaking: 13 rows across 3 sessions when the defect
+// was found, 18 across 4 by the time the archive was rebuilt to cure it. Widening an
+// allowlist cannot fix that in principle: the next token brings a character nobody enumerated. So
+// every prefix-anchored rule consumes up to a DELIMITER instead, meaning whitespace, either quote,
+// or a backslash, which is where a pasted token actually ends in surrounding text.
+//
+// The cost is symmetrical and deliberate: greed towards a delimiter is safer against a leak and
+// more dangerous against prose, so the prefix anchors and the per-rule length floors are what keep
+// it off ordinary text and neither may be weakened to let a pattern match.
+//
+// The `(?!\[REDACTED:)` temper is the one exception carved out of that greed. Rules run in order, so
+// a marker an earlier rule wrote is already sitting in the text: `Bearer [REDACTED:kodizm-token]` is
+// a real shape here, since the kodizm token travels as a bearer credential. Untempered, the bearer
+// rule would swallow that marker and collapse it into `[REDACTED:bearer]`, re-redacting a marker and
+// losing the more specific kind. The guard is marker-shaped rather than charset-shaped on purpose.
+const SECRET_CHAR = "(?:(?!\\[REDACTED:)[^\\s\"'\\\\])";
+
+/**
+ * Builds a prefix-anchored rule pattern, so no rule can be left behind on a change to
+ * {@link SECRET_CHAR}, which is how the `bearer` class came to differ from its siblings twice.
+ *
+ * @param anchor Regex fragment for the literal prefix, a character class included (`xox[bpsar]-`).
+ * @param minLength Floor on the body, in characters. What keeps the delimiter-terminated greed off
+ *        ordinary prose, so it may be raised but never lowered.
+ */
+function prefixAnchored(anchor: string, minLength: number): RegExp {
+    return new RegExp(`\\b${anchor}${SECRET_CHAR}{${minLength},}`, "g");
+}
+
+// A PEM body is bounded so that a `BEGIN` whose own `END` is missing cannot reach a later block's
+// footer and swallow every line between. 8 KB clears an 8192-bit RSA body (about 6.5 KB) with room.
+const PRIVATE_KEY_BODY_LIMIT = 8000;
+
+const PRIVATE_KEY_BEGIN = "-----BEGIN(?: [A-Z0-9]+)* PRIVATE KEY-----";
+
+const PRIVATE_KEY_END = "-----END(?: [A-Z0-9]+)* PRIVATE KEY-----";
+
 // Order matters: anthropic-key is tried before openai-key, or "sk-ant-..." would be captured
 // by the looser openai-key shape. The negative lookahead in openai-key's pattern also guards
 // this independently, but the ordering is kept explicit because the plan calls it out.
 const RULES: readonly RedactRule[] = [
     {
         kind: "github-pat",
-        pattern: /\b(?:ghp_[A-Za-z0-9]{36}|github_pat_[A-Za-z0-9_]{22,})\b/g,
+        pattern: new RegExp(
+            `\\b(?:ghp_${SECRET_CHAR}{36,}|github_pat_${SECRET_CHAR}{22,})`,
+            "g",
+        ),
     },
     {
         kind: "anthropic-key",
-        pattern: /\bsk-ant-[A-Za-z0-9_-]{20,}\b/g,
+        pattern: prefixAnchored("sk-ant-", 20),
     },
     {
         // Tightened past the prototype's "sk- plus 32 alphanumerics", which fired 154 times on
         // the real corpus: at least 40 characters after the prefix, and the match must contain
         // at least one digit, since a real API key is never all letters.
         kind: "openai-key",
-        pattern: /\bsk-(?!ant-)[A-Za-z0-9]{40,}\b/g,
+        pattern: new RegExp(`\\bsk-(?!ant-)${SECRET_CHAR}{40,}`, "g"),
         isValid: (match) => /\d/.test(match),
     },
     {
+        // Not delimiter-terminated, and correctly so: `AKIA` plus exactly 16 uppercase-or-digit
+        // characters is a fixed-width published format, not a charset guess, so there is no tail
+        // for a stray character to leave behind.
         kind: "aws-key",
         pattern: /\bAKIA[A-Z0-9]{16}\b/g,
     },
     {
         kind: "kodizm-token",
-        pattern: /\bkdz-[A-Za-z0-9_-]{20,}\b/g,
+        pattern: prefixAnchored("kdz-", 20),
     },
     {
         kind: "gitlab-pat",
-        pattern: /\bglpat-[A-Za-z0-9_-]{20,}\b/g,
+        pattern: prefixAnchored("glpat-", 20),
     },
     {
         kind: "slack-token",
-        pattern: /\bxox[bpsar]-[A-Za-z0-9-]{10,}\b/g,
+        pattern: prefixAnchored("xox[bpsar]-", 10),
     },
     {
         kind: "google-key",
-        pattern: /\bAIza[A-Za-z0-9_-]{35}\b/g,
+        pattern: prefixAnchored("AIza", 35),
     },
     {
+        // The two dots are the anchor here rather than a prefix alphabet: `eyJ` plus three
+        // dot-separated runs is the shape, and each run consumes to the delimiter.
+        //
+        // Each run carries its own floor because a dot is itself a legal secret character, so
+        // without one an ellipsis satisfies the shape: measured on the real corpus, the prose
+        // "`Bearer eyJhbGciOi...`)" matched and swallowed the closing backtick and paren with it.
+        // 10 clears the shortest possible encoded JWT header (`{"alg":"HS256"}` is 20 characters
+        // encoded), while 4 on the payload and the signature keeps a truncated paste in scope.
         kind: "jwt",
-        pattern: /\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/g,
+        pattern: new RegExp(
+            `\\beyJ${SECRET_CHAR}{10,}\\.${SECRET_CHAR}{4,}\\.${SECRET_CHAR}{4,}`,
+            "g",
+        ),
     },
     {
-        kind: "bearer",
         // Case-sensitive "Bearer" so ordinary prose using the lowercase word is left alone.
-        // The character class carries `+`, `/` and `=` alongside base64url's own alphabet: a
-        // standard-base64 token containing them would otherwise match only up to the first `+` or
-        // `/`, redacting the head and leaving the tail sitting in the archive in clear. The
-        // `Bearer ` prefix anchors the match, so widening the class cannot reach ordinary prose.
-        pattern: /\bBearer\s+[A-Za-z0-9._+/=-]{20,}/g,
+        kind: "bearer",
+        pattern: new RegExp(`\\bBearer\\s+${SECRET_CHAR}{20,}`, "g"),
     },
     {
+        // Header through footer as one match. Matching the header alone left the base64 body and
+        // the `-----END-----` line in the archive, so a pasted key read as sanitised while
+        // remaining whole and usable. The footer group stays OPTIONAL: a truncated paste that
+        // carries no footer must still lose its header rather than escape the rule entirely.
         kind: "private-key",
-        pattern: /-----BEGIN(?: [A-Z0-9]+)* PRIVATE KEY-----/g,
+        pattern: new RegExp(
+            PRIVATE_KEY_BEGIN
+            + `(?:[\\s\\S]{0,${PRIVATE_KEY_BODY_LIMIT}}?${PRIVATE_KEY_END})?`,
+            "g",
+        ),
     },
 ];
 
 // Connection-string schemes whose "user:pass@" span is the only part worth redacting; the
-// scheme and host stay in the output because they are not secrets and are useful context.
+// scheme and host stay in the output because they are not secrets and are useful context. The
+// terminator here is already delimiter-shaped, the `@`, so this rule needs no inversion.
+//
+// It does need the same marker temper as the prefix-anchored rules: `[REDACTED` `:`
+// `db-url-credentials]` `@` satisfies its own `user:pass@` shape, so a second pass over its own
+// output counted a phantom hit. Measured on 4 rows of the shipped archive. The rewritten text was
+// identical either way, so this cost a count rather than any content.
 const DB_URL_PATTERN =
-    /\b(postgres(?:ql)?|mysql|mongodb(?:\+srv)?|redis|amqp):\/\/[^/\s:@]+:[^/\s@]+@/g;
+    /\b(postgres(?:ql)?|mysql|mongodb(?:\+srv)?|redis|amqp):\/\/(?!\[REDACTED:)[^/\s:@]+:[^/\s@]+@/g;
 
 function increment(counts: Partial<Record<RedactKind, number>>, kind: RedactKind): void {
     counts[kind] = (counts[kind] ?? 0) + 1;
@@ -125,7 +195,8 @@ function applyDbUrlRule(text: string, counts: Partial<Record<RedactKind, number>
  * Rewrites `text`, replacing every recognized secret shape with `[REDACTED:<kind>]`, and
  * returns a per-kind hit count alongside the rewritten text. Never returns or logs the
  * matched secret itself, and never re-redacts anything already inside a `[REDACTED:...]`
- * marker, because none of the patterns below can match that literal bracketed form.
+ * marker: the delimiter-terminated rules are tempered against that literal bracketed form by
+ * {@link SECRET_CHAR}, and the two rules that are not delimiter-terminated cannot reach it.
  */
 export function redact(text: string): RedactResult {
     const counts: Partial<Record<RedactKind, number>> = {};

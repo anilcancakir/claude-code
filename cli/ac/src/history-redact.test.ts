@@ -183,6 +183,58 @@ test("redact bearer consumes a standard-base64 token whole, leaving no tail behi
     }
 });
 
+// The live defect this file's `|` cases exist for: the shipped archive held 13 rows across 3
+// sessions carrying `[REDACTED:bearer]` immediately followed by 46 characters of the real token,
+// because `|` sat outside the allowlisted character class and ended the match. Widening an
+// allowlist is unfixable in principle, since the next token brings a character nobody enumerated,
+// so the match is terminated by a DELIMITER instead. The shape below is the real leaked one.
+test("redact bearer consumes a token containing an out-of-alphabet character whole", () => {
+    const secret = "Bearer aB1cD2eF3gH4iJ5kL6mN7|tzcmoO0iINf6yzxpuYc72rmILHFwX2gK";
+    const result = redact(`authorization: ${secret} next`);
+
+    expect(result.text).toBe("authorization: [REDACTED:bearer] next");
+    expect(result.counts).toEqual({ bearer: 1 });
+    expect(result.text).not.toContain("|");
+    expect(result.text).not.toContain("tzcmoO0iINf6");
+});
+
+// A delimiter-terminated match is greedy, so it could swallow a marker an earlier rule already
+// wrote: `Bearer [REDACTED:kodizm-token]` is exactly the shape this archive stores, since the
+// kodizm token travels as a bearer credential. Collapsing it into `[REDACTED:bearer]` would
+// re-redact a marker and lose the more specific kind, so the match is tempered against it.
+test("redact bearer leaves a token an earlier rule already redacted alone", () => {
+    const alreadyRedacted = "authorization: Bearer [REDACTED:kodizm-token]";
+    const result = redact(alreadyRedacted);
+
+    expect(result.text).toBe(alreadyRedacted);
+    expect(result.counts).toEqual({});
+});
+
+// One case per prefix-anchored kind, each carrying a character outside the alphabet its pattern
+// used to allowlist, and each followed by a space plus a word. Two failures are visible at once:
+// a surviving tail proves the match stopped at the stray character, and a missing `tail` proves it
+// ran past the delimiter that ends a token.
+const OUT_OF_ALPHABET_CASES: readonly { kind: string; secret: string; stray: string }[] = [
+    { kind: "github-pat", secret: `ghp_${"A".repeat(30)}|${"B".repeat(8)}`, stray: "|" },
+    { kind: "anthropic-key", secret: `sk-ant-${"A".repeat(15)}%${"B".repeat(9)}`, stray: "%" },
+    { kind: "openai-key", secret: `sk-${"a1".repeat(20)}!${"b".repeat(5)}`, stray: "!" },
+    { kind: "kodizm-token", secret: `kdz-${"A".repeat(12)}#${"B".repeat(10)}`, stray: "#" },
+    { kind: "gitlab-pat", secret: `glpat-${"A".repeat(12)}$${"B".repeat(10)}`, stray: "$" },
+    { kind: "slack-token", secret: `xoxb-${"A".repeat(6)}*${"B".repeat(6)}`, stray: "*" },
+    { kind: "google-key", secret: `AIza${"A".repeat(20)}~${"B".repeat(20)}`, stray: "~" },
+    { kind: "jwt", secret: "eyJhbGciOiJIUzI1NiJ9^a.eyJzdWIiOiIxIn0.c2lnbmF0dXJl^b", stray: "^" },
+];
+
+test("redact consumes a secret containing an out-of-alphabet character whole, for every kind", () => {
+    for (const { kind, secret, stray } of OUT_OF_ALPHABET_CASES) {
+        const result = redact(`value=${secret} tail`);
+
+        expect(result.text).toBe(`value=[REDACTED:${kind}] tail`);
+        expect(result.counts).toEqual({ [kind]: 1 });
+        expect(result.text).not.toContain(stray);
+    }
+});
+
 // db-url-credentials
 
 test("redact db-url-credentials replaces only the credential span, keeping the scheme and host", () => {
@@ -208,12 +260,42 @@ test("redact db-url-credentials near-miss: a URL with no embedded credentials is
     expect(result.counts).toEqual({});
 });
 
+// Found while measuring the delimiter inversion against the real archive: 4 shipped rows still
+// matched this rule on a second pass, because `[REDACTED` `:` `db-url-credentials]` `@` satisfies its
+// own `user:pass@` shape. The rewritten text is identical either way, so nothing leaked and nothing
+// was mangled, but the hit count gained a phantom redaction the archive never performed.
+test("redact db-url-credentials does not re-redact its own marker on a second pass", () => {
+    const once = redact("connect to postgres://dbuser:dbpass123@db.internal:5432/appdb now");
+    const twice = redact(once.text);
+
+    expect(twice.text).toBe(once.text);
+    expect(twice.counts).toEqual({});
+});
+
 // private-key
 
 test("redact private-key BEGIN ... PRIVATE KEY header is redacted", () => {
     const result = redact("-----BEGIN RSA PRIVATE KEY-----\nMIIB...");
     expect(result.text).toBe("[REDACTED:private-key]\nMIIB...");
     expect(result.counts).toEqual({ "private-key": 1 });
+});
+
+// Matching the header alone left the base64 body and the `-----END-----` footer in the archive, so
+// a pasted key read as sanitised while remaining whole and usable. The whole block is one match.
+test("redact private-key redacts the header, the body and the footer as one block", () => {
+    const pem = [
+        "-----BEGIN OPENSSH PRIVATE KEY-----",
+        "b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtz",
+        "c2gtZW7NTE5AAAAIA2c2ltdWxhdGVkX2tleV9ib2R5X2Zvcl90aGlzX3Rlc3Rf",
+        "-----END OPENSSH PRIVATE KEY-----",
+    ].join("\n");
+
+    const result = redact(`key follows:\n${pem}\ndone`);
+
+    expect(result.text).toBe("key follows:\n[REDACTED:private-key]\ndone");
+    expect(result.counts).toEqual({ "private-key": 1 });
+    expect(result.text).not.toContain("b3BlbnNzaC1rZXktdjEA");
+    expect(result.text).not.toContain("-----END");
 });
 
 test("redact private-key near-miss: a BEGIN CERTIFICATE header is untouched", () => {
