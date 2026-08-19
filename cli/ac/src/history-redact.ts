@@ -62,9 +62,28 @@ const SECRET_CHAR = "(?:(?!\\[REDACTED:)[^\\s\"'\\\\])";
  * @param anchor Regex fragment for the literal prefix, a character class included (`xox[bpsar]-`).
  * @param minLength Floor on the body, in characters. What keeps the delimiter-terminated greed off
  *        ordinary prose, so it may be raised but never lowered.
+ * @param maxLength Ceiling on the body. Delimiter termination stops only at whitespace, a quote or a
+ *        backslash, so a chance prefix hit inside a long delimiter-free run consumes the whole run:
+ *        measured at 185,792 characters for one `AIza` hit over raw corpus strings. Nothing
+ *        structural bounds it, since bodies are not truncated before redaction and the largest
+ *        stored body is 882,668 characters; what limits it today is only that the longest
+ *        delimiter-free run in any stored body happens to be 2,230 characters. A ceiling turns that
+ *        luck into a guarantee, and no published credential format approaches it.
  */
-function prefixAnchored(anchor: string, minLength: number): RegExp {
-    return new RegExp(`\\b${anchor}${SECRET_CHAR}{${minLength},}`, "g");
+function prefixAnchored(anchor: string, minLength: number, maxLength: number): RegExp {
+    return new RegExp(`\\b${anchor}${SECRET_CHAR}{${minLength},${maxLength}}`, "g");
+}
+
+// Delimiter-terminated greed reaches into exactly the text this archive exists to search: measured
+// over a fifth of the corpus, the false positives were a shell `grep` whose regex begins `kdz-[`, a
+// config filename, and a listing of these very patterns. A brace or a bracket inside a match is the
+// signal, since no published key format contains one, while `${VAR}` placeholders and regex sources
+// are full of them. This is a VETO rather than a charset change on purpose: a real token carrying a
+// character nobody enumerated still redacts whole, which is the property the delimiter shape bought.
+const STRUCTURAL_CHARACTERS = /[[\]{}]/;
+
+function holdsStructuralCharacter(match: string): boolean {
+    return STRUCTURAL_CHARACTERS.test(match);
 }
 
 // A PEM body is bounded so that a `BEGIN` whose own `END` is missing cannot reach a later block's
@@ -82,20 +101,20 @@ const RULES: readonly RedactRule[] = [
     {
         kind: "github-pat",
         pattern: new RegExp(
-            `\\b(?:ghp_${SECRET_CHAR}{36,}|github_pat_${SECRET_CHAR}{22,})`,
+            `\\b(?:ghp_${SECRET_CHAR}{36,512}|github_pat_${SECRET_CHAR}{22,512})`,
             "g",
         ),
     },
     {
         kind: "anthropic-key",
-        pattern: prefixAnchored("sk-ant-", 20),
+        pattern: prefixAnchored("sk-ant-", 20, 512),
     },
     {
         // Tightened past the prototype's "sk- plus 32 alphanumerics", which fired 154 times on
         // the real corpus: at least 40 characters after the prefix, and the match must contain
         // at least one digit, since a real API key is never all letters.
         kind: "openai-key",
-        pattern: new RegExp(`\\bsk-(?!ant-)${SECRET_CHAR}{40,}`, "g"),
+        pattern: new RegExp(`\\bsk-(?!ant-)${SECRET_CHAR}{40,512}`, "g"),
         isValid: (match) => /\d/.test(match),
     },
     {
@@ -107,19 +126,19 @@ const RULES: readonly RedactRule[] = [
     },
     {
         kind: "kodizm-token",
-        pattern: prefixAnchored("kdz-", 20),
+        pattern: prefixAnchored("kdz-", 20, 512),
     },
     {
         kind: "gitlab-pat",
-        pattern: prefixAnchored("glpat-", 20),
+        pattern: prefixAnchored("glpat-", 20, 512),
     },
     {
         kind: "slack-token",
-        pattern: prefixAnchored("xox[bpsar]-", 10),
+        pattern: prefixAnchored("xox[bpsar]-", 10, 512),
     },
     {
         kind: "google-key",
-        pattern: prefixAnchored("AIza", 35),
+        pattern: /\bAIza[A-Za-z0-9_-]{35}/g,
     },
     {
         // The two dots are the anchor here rather than a prefix alphabet: `eyJ` plus three
@@ -132,14 +151,16 @@ const RULES: readonly RedactRule[] = [
         // encoded), while 4 on the payload and the signature keeps a truncated paste in scope.
         kind: "jwt",
         pattern: new RegExp(
-            `\\beyJ${SECRET_CHAR}{10,}\\.${SECRET_CHAR}{4,}\\.${SECRET_CHAR}{4,}`,
+            `\\beyJ${SECRET_CHAR}{10,2048}\\.${SECRET_CHAR}{4,2048}\\.${SECRET_CHAR}{4,2048}`,
             "g",
         ),
     },
     {
         // Case-sensitive "Bearer" so ordinary prose using the lowercase word is left alone.
+        // Bounded for the same reason as every other delimiter-terminated rule: without a ceiling a
+        // `Bearer ` followed by one long delimiter-free run consumes the whole run.
         kind: "bearer",
-        pattern: new RegExp(`\\bBearer\\s+${SECRET_CHAR}{20,}`, "g"),
+        pattern: new RegExp(`\\bBearer\\s+${SECRET_CHAR}{20,512}`, "g"),
     },
     {
         // Header through footer as one match. Matching the header alone left the base64 body and
@@ -176,6 +197,15 @@ function applyRule(
     counts: Partial<Record<RedactKind, number>>,
 ): string {
     return text.replace(rule.pattern, (match: string): string => {
+        // The structural veto runs for every rule, not per-rule, because no published credential
+        // format contains a brace or a bracket, base64 and base64url included, so there is no rule
+        // it could wrongly exempt. It is what keeps delimiter-terminated greed out of the technical
+        // text this archive exists to search: measured over a fifth of the corpus, the false
+        // positives were a shell `grep` whose regex begins `kdz-[`, a config filename, a listing of
+        // these very patterns, and `Bearer ${process.env.TOKEN}` swallowed whole.
+        if (holdsStructuralCharacter(match)) {
+            return match;
+        }
         if (rule.isValid && !rule.isValid(match)) {
             return match;
         }

@@ -221,9 +221,38 @@ const OUT_OF_ALPHABET_CASES: readonly { kind: string; secret: string; stray: str
     { kind: "kodizm-token", secret: `kdz-${"A".repeat(12)}#${"B".repeat(10)}`, stray: "#" },
     { kind: "gitlab-pat", secret: `glpat-${"A".repeat(12)}$${"B".repeat(10)}`, stray: "$" },
     { kind: "slack-token", secret: `xoxb-${"A".repeat(6)}*${"B".repeat(6)}`, stray: "*" },
-    { kind: "google-key", secret: `AIza${"A".repeat(20)}~${"B".repeat(20)}`, stray: "~" },
     { kind: "jwt", secret: "eyJhbGciOiJIUzI1NiJ9^a.eyJzdWIiOiIxIn0.c2lnbmF0dXJl^b", stray: "^" },
 ];
+
+// The two rules that are NOT delimiter-terminated, and correctly so: both formats publish an exact
+// body length, so the pattern can match the whole credential without guessing where it ends. That
+// leaves no tail for a stray character to strand, which is the only thing delimiter greed buys, and
+// it avoids the over-reach greed costs. `google-key` moved here from the sweep above after review
+// measured a delimiter-terminated `AIza` hit consuming 185,792 characters of one long run.
+const FIXED_WIDTH_CASES: readonly { kind: string; secret: string }[] = [
+    { kind: "aws-key", secret: `AKIA${"A".repeat(16)}` },
+    { kind: "google-key", secret: `AIza${"A".repeat(35)}` },
+];
+
+test("redact matches a fixed-width credential exactly, without reaching past its published length", () => {
+    for (const { kind, secret } of FIXED_WIDTH_CASES) {
+        const result = redact(`value=${secret} tail`);
+
+        expect(result.text, `${kind} must redact its published shape`)
+            .toBe(`value=[REDACTED:${kind}] tail`);
+        expect(result.counts).toEqual({ [kind]: 1 });
+    }
+});
+
+test("redact leaves a fixed-width prefix alone when the body is the wrong length", () => {
+    // One character short of the published body, so it is not that credential and must survive.
+    for (const { kind, secret } of FIXED_WIDTH_CASES) {
+        const short = secret.slice(0, -1);
+        const result = redact(`value=${short} tail`);
+
+        expect(result.text, `${kind} must not redact a short body`).toBe(`value=${short} tail`);
+    }
+});
 
 test("redact consumes a secret containing an out-of-alphabet character whole, for every kind", () => {
     for (const { kind, secret, stray } of OUT_OF_ALPHABET_CASES) {
