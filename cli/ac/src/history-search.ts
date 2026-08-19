@@ -4,6 +4,8 @@ import { ErrorCode, McpError } from "@modelcontextprotocol/sdk/types.js";
 import {
     buildContentQuery,
     buildCountQuery,
+    buildProjectCountQuery,
+    buildProjectsQuery,
     buildReadQuery,
     buildSessionRowCountQuery,
     buildSessionsQuery,
@@ -11,8 +13,20 @@ import {
     toMatchExpression,
 } from "./history-query.ts";
 import type { HistoryQueryFilters, SqlStatement } from "./history-query.ts";
-import { renderContent, renderCount, renderRead, renderSessions } from "./history-format.ts";
-import type { ContentHitRow, CountRow, ReadHitRow, SessionHitRow } from "./history-format.ts";
+import {
+    renderContent,
+    renderCount,
+    renderProjects,
+    renderRead,
+    renderSessions,
+} from "./history-format.ts";
+import type {
+    ContentHitRow,
+    CountRow,
+    ProjectHitRow,
+    ReadHitRow,
+    SessionHitRow,
+} from "./history-format.ts";
 import { syncArchive } from "./history-sync.ts";
 import type { HistorySyncDeps, HistorySyncOptions, HistorySyncReport } from "./history-sync.ts";
 import type {
@@ -54,8 +68,8 @@ import type { HistoryManifestEntry } from "./history-cursor.ts";
  * first line of the output: a lock-contended write, and an archive written by a newer build.
  */
 
-/** The four shapes a search can return, named exactly as the tool schema's `output_mode` enum. */
-export type HistoryOutputMode = "content" | "sessions" | "count" | "read";
+/** The five shapes a search can return, named exactly as the tool schema's `output_mode` enum. */
+export type HistoryOutputMode = "content" | "sessions" | "projects" | "count" | "read";
 
 /** Default page size when the caller names none. Exported so the tool schema states the same number. */
 export const HISTORY_HEAD_LIMIT_DEFAULT = 20;
@@ -278,6 +292,8 @@ function executeMode(request: SearchRequest, deps: HistorySearchDeps): string {
             return executeContent(request, deps);
         case "sessions":
             return executeSessions(request, deps);
+        case "projects":
+            return executeProjects(request, deps);
         case "count":
             return executeCount(request, deps);
         case "read":
@@ -339,6 +355,43 @@ function executeSessions(request: SearchRequest, deps: HistorySearchDeps): strin
         totalSessions: Math.max(0, totals.sessions - request.offset),
         ...(deps.now === undefined ? {} : { now: deps.now }),
     });
+}
+
+/**
+ * One row per project, busiest first: the answer to "which projects on this machine did I work on
+ * this in", which `count` could give only as a bare number and `sessions` only per session, naming
+ * a project once per session and leaving the caller to dedupe across pages.
+ */
+function executeProjects(request: SearchRequest, deps: HistorySearchDeps): string {
+    const rows = deps.store.select(buildProjectsQuery({
+        match: request.match,
+        filters: request.filters,
+        limit: request.headLimit,
+        offset: request.offset,
+    }));
+    if (rows.length === 0) {
+        return emptyResultText(request);
+    }
+
+    const totalProjects = selectProjectTotal(request, deps);
+
+    return renderProjects(rows.map(toProjectHitRow), {
+        headLimit: request.headLimit,
+        // Net of the caller's own paging, so the notice counts what is still unseen rather than
+        // re-counting the pages already read.
+        totalProjects: Math.max(0, totalProjects - request.offset),
+        ...(deps.now === undefined ? {} : { now: deps.now }),
+    });
+}
+
+/** Distinct projects the match spans, for the `projects` renderer's total and withheld count. */
+function selectProjectTotal(request: SearchRequest, deps: HistorySearchDeps): number {
+    const rows = deps.store.select(buildProjectCountQuery({
+        match: request.match,
+        filters: request.filters,
+    }));
+
+    return asNumber(rows[0]?.["total_projects"]);
 }
 
 /** Match, session and project totals, the cheapest way to size a topic before reading it. */
@@ -554,11 +607,14 @@ function validateMode(value: string | undefined): HistoryOutputMode {
     if (value === undefined) {
         return "content";
     }
-    if (value === "content" || value === "sessions" || value === "count" || value === "read") {
+    if (
+        value === "content" || value === "sessions" || value === "projects"
+        || value === "count" || value === "read"
+    ) {
         return value;
     }
 
-    throw invalidParams("output_mode must be one of content|sessions|count|read");
+    throw invalidParams("output_mode must be one of content|sessions|projects|count|read");
 }
 
 /** Escapes the pattern into a MATCH expression, refusing one that holds no searchable token. */
@@ -849,6 +905,16 @@ function toSessionHitRow(row: HistoryResultRow): SessionHitRow {
         first_ts: asNullableNumber(row["first_ts"]),
         last_ts: asNullableNumber(row["last_ts"]),
         score: asNumber(row["score"]),
+    };
+}
+
+function toProjectHitRow(row: HistoryResultRow): ProjectHitRow {
+    return {
+        project_path: asText(row["project_path"]),
+        hits: asNumber(row["hits"]),
+        sessions: asNumber(row["sessions"]),
+        first_ts: asNullableNumber(row["first_ts"]),
+        last_ts: asNullableNumber(row["last_ts"]),
     };
 }
 

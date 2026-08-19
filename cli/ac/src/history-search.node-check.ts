@@ -300,3 +300,69 @@ test("a filter that matches nothing names itself in the answer", async () => {
     assert.match(text, /No matches/);
     assert.match(text, /\/tmp\/no-such-project/);
 });
+
+/**
+ * `projects` mode against the real archive: the rollup that answers "which projects on this machine
+ * did I work on X in", which `count` could answer only as a bare number and `sessions` only per
+ * session, naming a project once per session and leaving the caller to dedupe across pages.
+ *
+ * The appended lines carry no `cwd` of their own on purpose. `project_path` comes from the FIRST
+ * line of each transcript (`history-distill.ts:545` reads `cwd` out of the file head and
+ * `history-sync.ts:438` hands it to every row in that file), so a project is a property of the
+ * transcript rather than of the turn, and the fixture's own two project directories are what this
+ * mode must roll up.
+ */
+const PROJECT_MARKER = "QWXPROJECT";
+
+/** Appends `count` prose turns carrying {@link PROJECT_MARKER} to one session file. */
+function appendProjectTurns(path: string, sessionId: string, count: number, seed: number): void {
+    const lines = Array.from({ length: count }, (_, index) =>
+        JSON.stringify({
+            type: "user",
+            uuid: `00000000-0000-4000-8000-${(seed + index).toString(16).padStart(12, "0")}`,
+            sessionId,
+            timestamp: `2026-08-03T00:${index.toString().padStart(2, "0")}:00.000Z`,
+            message: { role: "user", content: `${PROJECT_MARKER} occurrence ${index}` },
+        }),
+    );
+
+    appendToFixture(path, lines);
+}
+
+test("projects mode rolls hits up per project, busiest first, and counts distinct sessions", async () => {
+    const { corpus, deps } = await setup();
+
+    // Three lines go to the main session and only TWO of them are indexed: that file ends on a torn
+    // fragment by design, so the first appended line glues onto it and the cursor correctly refuses
+    // the result. The second project's file ends on a newline and keeps its single line. Two hits
+    // against one is still the ordering this test is about, and the asymmetry is deterministic.
+    appendProjectTurns(corpus.mainSessionPath, corpus.mainSessionId, 3, 0x900);
+    appendProjectTurns(corpus.projectBSessionPath, corpus.projectBSessionId, 1, 0x950);
+
+    const text = await runSearch({ pattern: PROJECT_MARKER, output_mode: "projects" }, deps);
+
+    assert.match(text, /^2 project\(s\) matched/, `unexpected header: ${text}`);
+    assert.match(text, /proj-a \| 2 hit\(s\) \| 1 session\(s\)/, text);
+    assert.match(text, /proj-b \| 1 hit\(s\) \| 1 session\(s\)/, text);
+
+    const alpha = text.indexOf("proj-a");
+    const beta = text.indexOf("proj-b");
+    assert.ok(alpha < beta, `the busier project must sort first: ${text}`);
+
+    // The full path, not a basename: this mode's whole output IS the project identity.
+    assert.match(text, /^\/.*proj-a/m, `expected an absolute path: ${text}`);
+});
+
+test("projects mode applies the same metadata filters the other modes take", async () => {
+    const { deps } = await setup();
+
+    // A `since` past every appended turn must empty the rollup, proving the filters reach this mode
+    // rather than being accepted and ignored, which is exactly how `read` shipped its filters inert.
+    const filtered = await runSearch(
+        { pattern: PROJECT_MARKER, output_mode: "projects", since: "2027-01-01" },
+        deps,
+    );
+
+    assert.match(filtered, /No matches/, filtered);
+    assert.match(filtered, /Applied filters:/, filtered);
+});
