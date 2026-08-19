@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `search-history`, an MCP tool that searches every Claude Code transcript on the machine, across all projects. One tool rather than a family: the mode (`content`, `sessions`, `count`, `read`), the project path, the date bounds, the role and kind filters, subagent inclusion and paging are all parameters inside it, and it borrows Grep's parameter vocabulary so there is no second vocabulary to learn. Backed by a permanent sqlite + FTS5 archive at `~/.claude/ac/history-index/`, built through Node's builtin `node:sqlite` behind a lazy import so the rest of the suite still runs under bun. Measured over the author's own 2,003 transcripts: 189,292 rows, 304 MB, a cold build of 25 to 50 s, and a warm no-change freshness pass of 0.45 s, which is what makes the per-call auto-sync affordable instead of needing a daemon. Secrets are redacted at ingest across 12 credential shapes, and `ac history forget` deletes by session, project or date. The `unicode61` tokenizer folds every Turkish diacritic except `ı` (U+0131), which the tool description and the CLI help both state, because a caller assuming full folding silently misses most Turkish text.
+- `ac history index`, `ac history search` and `ac history forget`, the same engine behind a terminal front end for warming, debugging and deletion.
+
+### Removed
+
+- `call-external-agent`, which dispatched a prompt to a local `codex`, `gemini` or `opencode` CLI. The tool and its child-process supervision are gone rather than deprecated, along with `external-agent.ts`, its test file, its shutdown hook and its sentence in the server instructions. The plugin's local surface is now the two tools that read this machine's own state, `web-fetch` and `search-history`, plus the proxied kodizm surface.
+
 ## [0.10.1] - 2026-08-04
 
 Repairs nine citations in shipped files that pointed at paths no installed copy of the plugin can reach.

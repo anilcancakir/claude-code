@@ -5,8 +5,8 @@ Companion CLI runtime for the `ac` Claude Code plugin. Written in TypeScript, bu
 ## Roadmap
 
 - Host MCP servers on the local machine.
-- Run third-party AI CLIs (opencode, codex, others).
 - Proxy the kodizm MCP server.
+- Search the local Claude Code history archive across every project.
 
 ## Development
 
