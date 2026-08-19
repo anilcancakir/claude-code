@@ -14364,10 +14364,10 @@ var require_helpers = __commonJS((exports) => {
       return !arr.includes(node2, i + 1);
     });
     nodes.sort(function(a, b) {
-      var relative = compareDocumentPosition2(a, b);
-      if (relative & DocumentPosition2.PRECEDING) {
+      var relative2 = compareDocumentPosition2(a, b);
+      if (relative2 & DocumentPosition2.PRECEDING) {
         return -1;
-      } else if (relative & DocumentPosition2.FOLLOWING) {
+      } else if (relative2 & DocumentPosition2.FOLLOWING) {
         return 1;
       }
       return 0;
@@ -27961,6 +27961,7 @@ function buildCountQuery(query) {
   };
 }
 function buildReadQuery(query) {
+  const filters = buildFilterFragments(query.filters ?? {});
   const columns = [
     ...TURN_COLUMNS,
     "t.body AS body"
@@ -27968,7 +27969,7 @@ function buildReadQuery(query) {
   const sql = [
     `SELECT ${columns.join(", ")}`,
     "FROM turns t",
-    "WHERE t.session_id = ?",
+    whereClause(["t.session_id = ?", ...filters.clauses], { withMatch: false }),
     "ORDER BY t.ts ASC, t.id ASC",
     "LIMIT ? OFFSET ?"
   ].join(`
@@ -27977,8 +27978,25 @@ function buildReadQuery(query) {
     sql,
     params: [
       query.sessionId,
+      ...filters.params,
       query.limit,
       query.offset
+    ]
+  };
+}
+function buildSessionRowCountQuery(query) {
+  const filters = buildFilterFragments(query.filters ?? {});
+  const sql = [
+    "SELECT COUNT(*) AS total_turns",
+    "FROM turns t",
+    whereClause(["t.session_id = ?", ...filters.clauses], { withMatch: false })
+  ].join(`
+`);
+  return {
+    sql,
+    params: [
+      query.sessionId,
+      ...filters.params
     ]
   };
 }
@@ -28035,6 +28053,8 @@ ${opts.indent ?? ""}  AND `)}`;
 import { basename } from "node:path";
 var MAX_CONTENT_OUTPUT_BYTES = 8000;
 var SNIPPET_TRUNCATE_CHARS = 400;
+var MAX_READ_OUTPUT_BYTES = 16000;
+var MAX_READ_ROW_CHARS = 1200;
 var ELLIPSIS = "…";
 var MINUTE_MS = 60000;
 var HOUR_MS = 60 * MINUTE_MS;
@@ -28109,20 +28129,36 @@ function renderCount(row) {
 }
 function renderRead(rows, opts) {
   const window2 = rows.slice(0, opts.limit);
-  const windowEnd = opts.offset + window2.length;
-  const positionLine = `session:${opts.sessionId} | turns ${opts.offset + 1}-${windowEnd} of ${opts.totalRows}`;
-  const lines = window2.map((row) => renderReadLine(row));
-  const withheld = Math.max(0, opts.totalRows - windowEnd);
-  const body = [positionLine, ...lines].join(`
+  const framingBytes = Buffer.byteLength(positionLine(opts, window2.length), "utf8") + Buffer.byteLength(truncationNotice(opts.totalRows), "utf8") + 4;
+  const turnBudget = Math.max(0, MAX_READ_OUTPUT_BYTES - framingBytes);
+  const blocks = [];
+  let usedBytes = 0;
+  for (const row of window2) {
+    const block = renderReadLine(row);
+    const blockBytes = Buffer.byteLength(block, "utf8") + 2;
+    if (blocks.length > 0 && usedBytes + blockBytes > turnBudget) {
+      break;
+    }
+    blocks.push(block);
+    usedBytes += blockBytes;
+  }
+  const withheldByWindow = Math.max(0, opts.totalRows - (opts.offset + window2.length));
+  const withheldByBudget = window2.length - blocks.length;
+  const withheld = withheldByWindow + withheldByBudget;
+  const body = [positionLine(opts, blocks.length), ...blocks].join(`
 
 `);
   return withheld > 0 ? `${body}
 
 ${truncationNotice(withheld)}` : body;
 }
+function positionLine(opts, renderedCount) {
+  const end = opts.offset + renderedCount;
+  return `session:${opts.sessionId} | turns ${opts.offset + 1}-${end} of ${opts.totalRows}`;
+}
 function renderReadLine(row) {
   const label = row.is_sub === 1 && row.agent_type !== null ? `${row.role} (${row.agent_type})` : row.role;
-  return `${label}: ${row.body}`;
+  return `${label}: ${truncateOnWordBoundary(row.body, MAX_READ_ROW_CHARS)}`;
 }
 function truncationNotice(withheld) {
   return `[${withheld} hit(s) withheld: increase head_limit, narrow the query, or page with offset]`;
@@ -28156,7 +28192,7 @@ function formatRelativeAge(ts, now) {
 // src/history-sync.ts
 import { open, readdir, stat as statAsync } from "node:fs/promises";
 import { readFile as readFileAsync } from "node:fs/promises";
-import { basename as basename2, dirname, join } from "node:path";
+import { basename as basename2, dirname, join, relative } from "node:path";
 
 // src/history-cursor.ts
 import { createHash } from "node:crypto";
@@ -28461,8 +28497,15 @@ function resolveSessionMeta(head, tail) {
 // src/history-sync.ts
 var HEAD_WINDOW_BYTES = 65536;
 var TAIL_WINDOW_BYTES = 65536;
+function errnoCode(err) {
+  if (typeof err !== "object" || err === null || !("code" in err)) {
+    return;
+  }
+  const code = err.code;
+  return typeof code === "string" && /^E[A-Z0-9]+$/.test(code) ? code : undefined;
+}
 function isEnoentError(err) {
-  return typeof err === "object" && err !== null && "code" in err && err.code === "ENOENT";
+  return errnoCode(err) === "ENOENT";
 }
 async function defaultListSessionFiles(root) {
   const results = [];
@@ -28516,30 +28559,37 @@ async function defaultReadSubagentMeta(metaPath) {
     }
     throw err;
   }
-  const parsed = JSON.parse(raw);
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (err) {
+    if (err instanceof SyntaxError) {
+      return;
+    }
+    throw err;
+  }
   return {
     agentType: typeof parsed.agentType === "string" ? parsed.agentType : undefined,
     description: typeof parsed.description === "string" ? parsed.description : undefined
   };
 }
-function classifyTranscript(path) {
+function classifyTranscript(path, root) {
   const parentDir = dirname(path);
   const fileBase = basename2(path, ".jsonl");
+  const transcriptKey = relative(root, path);
   if (basename2(parentDir) === "subagents") {
-    const subagentId = fileBase.startsWith("agent-") ? fileBase.slice("agent-".length) : fileBase;
-    const sessionId = basename2(dirname(parentDir));
     return {
       path,
       isSubagent: true,
-      transcriptKey: subagentId,
-      sessionId,
+      transcriptKey,
+      sessionId: basename2(dirname(parentDir)),
       metaPath: join(parentDir, `${fileBase}.meta.json`)
     };
   }
   return {
     path,
     isSubagent: false,
-    transcriptKey: fileBase,
+    transcriptKey,
     sessionId: fileBase,
     metaPath: undefined
   };
@@ -28571,7 +28621,7 @@ function sumRedactionCounts(redactions) {
   return total;
 }
 async function processFile(file, store, deps) {
-  const classified = classifyTranscript(file.path);
+  const classified = classifyTranscript(file.path, deps.root);
   const manifestEntry = store.getManifestEntry(classified.transcriptKey);
   const priorCursor = manifestEntry?.cursor ?? 0;
   const decisionHeadLength = Math.min(deps.headWindowBytes, manifestEntry === undefined ? file.stat.size : priorCursor);
@@ -28665,13 +28715,30 @@ async function syncArchive(opts) {
   let skipped = 0;
   let redactions = 0;
   let changed = false;
+  let vanishedMidRead = 0;
+  let failed = 0;
   for (const file of selected) {
-    const outcome = await processFile(file, opts.store, {
-      readFileRange,
-      readSubagentMeta,
-      headWindowBytes,
-      tailWindowBytes
-    });
+    let outcome;
+    try {
+      outcome = await processFile(file, opts.store, {
+        root: opts.root,
+        readFileRange,
+        readSubagentMeta,
+        headWindowBytes,
+        tailWindowBytes
+      });
+    } catch (err) {
+      const code = errnoCode(err);
+      if (code === undefined) {
+        throw err;
+      }
+      if (code === "ENOENT") {
+        vanishedMidRead += 1;
+      } else {
+        failed += 1;
+      }
+      continue;
+    }
     if (outcome.ingested) {
       changed = true;
     }
@@ -28682,7 +28749,8 @@ async function syncArchive(opts) {
   }
   return {
     filesScanned: selected.length,
-    filesVanished: vanished,
+    filesVanished: vanished + vanishedMidRead,
+    filesFailed: failed,
     rowsAdded,
     quarantined,
     skipped,
@@ -28696,7 +28764,6 @@ async function syncArchive(opts) {
 var HISTORY_HEAD_LIMIT_DEFAULT = 20;
 var HISTORY_HEAD_LIMIT_MAX = 100;
 var SESSION_ID_MAX_LENGTH = 128;
-var SESSION_TURN_COUNT_SQL = "SELECT COUNT(*) AS total_turns FROM turns WHERE session_id = ?";
 var BUSY_NOTICE = "Note: another writer held the archive lock, so this search ran against the last " + "committed snapshot; the newest turns may be missing until the next call.";
 var READ_ONLY_NOTICE = "Note: this archive was written by a newer build of ac, so it was searched " + "without syncing; upgrade ac to keep it current.";
 function resolveProjectsRoot(options = {}) {
@@ -28815,13 +28882,14 @@ function executeRead(request, deps) {
   }
   const rows = deps.store.select(buildReadQuery({
     sessionId,
+    filters: request.filters,
     limit: request.headLimit,
     offset: request.offset
   }));
   if (rows.length === 0) {
     return emptyResultText(request);
   }
-  const totalRows = selectSessionTurnCount(sessionId, deps);
+  const totalRows = selectSessionTurnCount(sessionId, request.filters, deps);
   return renderRead(rows.map(toReadHitRow), {
     sessionId,
     offset: request.offset,
@@ -28841,11 +28909,11 @@ function selectCounts(request, deps) {
     projects: asNumber(row?.["projects"])
   };
 }
-function selectSessionTurnCount(sessionId, deps) {
-  const rows = deps.store.select({
-    sql: SESSION_TURN_COUNT_SQL,
-    params: [sessionId]
-  });
+function selectSessionTurnCount(sessionId, filters, deps) {
+  const rows = deps.store.select(buildSessionRowCountQuery({
+    sessionId,
+    filters
+  }));
   return asNumber(rows[0]?.["total_turns"]);
 }
 function collapseBySession(rows) {
@@ -28898,7 +28966,7 @@ ${emptyExplanation(request)}`;
 }
 function emptyExplanation(request) {
   const applied = request.appliedFilters.length === 0 ? "Applied filters: none." : `Applied filters: ${request.appliedFilters.join(", ")}.`;
-  const advice = request.mode === "read" ? "Either that session is not in the archive, or the offset is past its last turn." : "Nothing matched, so either one of those filters is too narrow or the topic is genuinely " + "absent; drop a filter or shorten the pattern to tell the two apart.";
+  const advice = request.mode === "read" ? "Either that session is not in the archive, the offset is past its last turn, or one of the " + "filters above excluded every turn in it." : "Nothing matched, so either one of those filters is too narrow or the topic is genuinely " + "absent; drop a filter or shorten the pattern to tell the two apart.";
   return `${applied}
 ${advice}`;
 }
@@ -29156,18 +29224,25 @@ import { homedir as homedir2 } from "node:os";
 import { join as join3 } from "node:path";
 
 // src/history-redact.ts
+var SECRET_CHAR = `(?:(?!\\[REDACTED:)[^\\s"'\\\\])`;
+function prefixAnchored(anchor, minLength) {
+  return new RegExp(`\\b${anchor}${SECRET_CHAR}{${minLength},}`, "g");
+}
+var PRIVATE_KEY_BODY_LIMIT = 8000;
+var PRIVATE_KEY_BEGIN = "-----BEGIN(?: [A-Z0-9]+)* PRIVATE KEY-----";
+var PRIVATE_KEY_END = "-----END(?: [A-Z0-9]+)* PRIVATE KEY-----";
 var RULES = [
   {
     kind: "github-pat",
-    pattern: /\b(?:ghp_[A-Za-z0-9]{36}|github_pat_[A-Za-z0-9_]{22,})\b/g
+    pattern: new RegExp(`\\b(?:ghp_${SECRET_CHAR}{36,}|github_pat_${SECRET_CHAR}{22,})`, "g")
   },
   {
     kind: "anthropic-key",
-    pattern: /\bsk-ant-[A-Za-z0-9_-]{20,}\b/g
+    pattern: prefixAnchored("sk-ant-", 20)
   },
   {
     kind: "openai-key",
-    pattern: /\bsk-(?!ant-)[A-Za-z0-9]{40,}\b/g,
+    pattern: new RegExp(`\\bsk-(?!ant-)${SECRET_CHAR}{40,}`, "g"),
     isValid: (match) => /\d/.test(match)
   },
   {
@@ -29176,34 +29251,34 @@ var RULES = [
   },
   {
     kind: "kodizm-token",
-    pattern: /\bkdz-[A-Za-z0-9_-]{20,}\b/g
+    pattern: prefixAnchored("kdz-", 20)
   },
   {
     kind: "gitlab-pat",
-    pattern: /\bglpat-[A-Za-z0-9_-]{20,}\b/g
+    pattern: prefixAnchored("glpat-", 20)
   },
   {
     kind: "slack-token",
-    pattern: /\bxox[bpsar]-[A-Za-z0-9-]{10,}\b/g
+    pattern: prefixAnchored("xox[bpsar]-", 10)
   },
   {
     kind: "google-key",
-    pattern: /\bAIza[A-Za-z0-9_-]{35}\b/g
+    pattern: prefixAnchored("AIza", 35)
   },
   {
     kind: "jwt",
-    pattern: /\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/g
+    pattern: new RegExp(`\\beyJ${SECRET_CHAR}{10,}\\.${SECRET_CHAR}{4,}\\.${SECRET_CHAR}{4,}`, "g")
   },
   {
     kind: "bearer",
-    pattern: /\bBearer\s+[A-Za-z0-9._+/=-]{20,}/g
+    pattern: new RegExp(`\\bBearer\\s+${SECRET_CHAR}{20,}`, "g")
   },
   {
     kind: "private-key",
-    pattern: /-----BEGIN(?: [A-Z0-9]+)* PRIVATE KEY-----/g
+    pattern: new RegExp(PRIVATE_KEY_BEGIN + `(?:[\\s\\S]{0,${PRIVATE_KEY_BODY_LIMIT}}?${PRIVATE_KEY_END})?`, "g")
   }
 ];
-var DB_URL_PATTERN = /\b(postgres(?:ql)?|mysql|mongodb(?:\+srv)?|redis|amqp):\/\/[^/\s:@]+:[^/\s@]+@/g;
+var DB_URL_PATTERN = /\b(postgres(?:ql)?|mysql|mongodb(?:\+srv)?|redis|amqp):\/\/(?!\[REDACTED:)[^/\s:@]+:[^/\s@]+@/g;
 function increment(counts, kind) {
   counts[kind] = (counts[kind] ?? 0) + 1;
 }
@@ -29318,7 +29393,13 @@ function createHistoryStoreHandle(options = {}) {
   return {
     ensureOpen: () => {
       if (openPromise === undefined) {
-        openPromise = openHistoryStore(options);
+        const attempt = openHistoryStore(options).catch((error2) => {
+          if (openPromise === attempt) {
+            openPromise = undefined;
+          }
+          throw error2;
+        });
+        openPromise = attempt;
       }
       return openPromise;
     },
@@ -29342,8 +29423,8 @@ async function loadSqlite() {
   }
 }
 function applyPragmas(db, busyTimeoutMs) {
-  db.exec("PRAGMA journal_mode = WAL");
   db.exec(`PRAGMA busy_timeout = ${busyTimeoutMs}`);
+  db.exec("PRAGMA journal_mode = WAL");
   db.exec("PRAGMA synchronous = NORMAL");
   assertPragma(db, "PRAGMA journal_mode", "journal_mode", "wal");
   assertPragma(db, "PRAGMA busy_timeout", "timeout", busyTimeoutMs);
@@ -29369,11 +29450,20 @@ function createSchema(db, currentVersion) {
     if (currentVersion < HISTORY_SCHEMA_VERSION) {
       db.exec(`PRAGMA user_version = ${HISTORY_SCHEMA_VERSION}`);
     }
-    open2 = false;
     db.exec("COMMIT");
+    open2 = false;
   } finally {
     if (open2) {
-      db.exec("ROLLBACK");
+      rollbackQuietly(db);
+    }
+  }
+}
+function rollbackQuietly(db) {
+  try {
+    db.exec("ROLLBACK");
+  } catch (error2) {
+    if (!isNoTransactionError(error2)) {
+      throw error2;
     }
   }
 }
@@ -29417,15 +29507,15 @@ function createStore(db, databasePath, schemaVersion, writable) {
     inTransaction = true;
   }
   function commit() {
-    inTransaction = false;
     db.exec("COMMIT");
+    inTransaction = false;
   }
   function rollback() {
     if (!inTransaction) {
       return;
     }
     inTransaction = false;
-    db.exec("ROLLBACK");
+    rollbackQuietly(db);
   }
   function readManifest(transcriptKey) {
     const row = db.prepare(SELECT_MANIFEST_SQL).get(transcriptKey);
@@ -29637,22 +29727,28 @@ function asNumber2(value) {
   return typeof value === "number" ? value : undefined;
 }
 function isBusyError(error2) {
+  const primary = primaryResultCode(error2);
+  return primary === 5 || primary === 6;
+}
+function isNoTransactionError(error2) {
+  return primaryResultCode(error2) === 1 && error2 instanceof Error && error2.message.includes("no transaction is active");
+}
+function primaryResultCode(error2) {
   if (!(error2 instanceof Error) || !("errcode" in error2)) {
-    return false;
+    return;
   }
   const errcode = error2.errcode;
   if (typeof errcode !== "number") {
-    return false;
+    return;
   }
-  const primary = errcode & 255;
-  return primary === 5 || primary === 6;
+  return errcode & 255;
 }
 
 // src/history-tool.ts
 var HISTORY_TOOL_NAME = "search-history";
 var HISTORY_TOOL_DEFINITION = {
   name: HISTORY_TOOL_NAME,
-  description: "Search the user's own local Claude Code conversation history across every local project, " + "backed by a permanent SQLite full-text archive. `pattern` is TOKENIZED FULL-TEXT search " + "with prefix matching, NOT a regular expression: it splits on whitespace, matches each " + "token as a prefix, and ANDs the tokens together, so punctuation-heavy or regex-shaped " + "input (`node.*sqlite`, `a|b`) is matched literally rather than interpreted; write plain " + "search words instead. The `unicode61` tokenizer is case-insensitive and folds Turkish " + "diacritics, so `gozden` finds `gözden`. `pattern` is required for `output_mode` " + "`content`, `sessions` and `count`; it is not used for `read`, which instead opens a " + "chronological window on one `session_id` (required in that mode). Only prose and tool " + "arguments are indexed: successful tool output is never indexed, while failed tool " + "output (errors) is, so this tool cannot surface a large file dump but can surface why " + "something broke.",
+  description: "Search the user's own local Claude Code conversation history across every local project, " + "backed by a permanent SQLite full-text archive. `pattern` is TOKENIZED FULL-TEXT search " + "with prefix matching, NOT a regular expression: it splits on whitespace, matches each " + "token as a prefix, and ANDs the tokens together. Punctuation is DROPPED by the tokenizer " + "rather than searched, so regex-shaped input degrades silently instead of erroring: `C++` " + "searches the bare prefix `c` and matches almost every turn, and `node.*sqlite` searches " + "for `node` immediately followed by `sqlite`; write plain search words instead. The " + "`unicode61` tokenizer is case-insensitive and folds every Turkish diacritic except `ı` " + "(U+0131, dotless i), so `gozden` finds `gözden` but `calisiyor` does NOT find " + "`çalışıyor`; keep the `ı` when a Turkish search word has one. `pattern` is required for " + "`output_mode` " + "`content`, `sessions` and `count`; it is not used for `read`, which instead opens a " + "chronological window on one `session_id` (required in that mode). Only prose and tool " + "arguments are indexed: successful tool output is never indexed, while failed tool " + "output (errors) is, so this tool cannot surface a large file dump but can surface why " + "something broke.",
   inputSchema: {
     type: "object",
     properties: {
@@ -29685,7 +29781,7 @@ var HISTORY_TOOL_DEFINITION = {
       },
       "-i": {
         type: "boolean",
-        description: "Always on regardless of this flag: the archive's unicode61 tokenizer " + "is case-insensitive and diacritic-folding by construction. Accepted only for " + "vocabulary compatibility with the built-in Grep tool."
+        description: "Always on regardless of this flag: the archive's unicode61 tokenizer " + "is case-insensitive by construction. Accepted only for vocabulary " + "compatibility with the built-in Grep tool."
       },
       since: {
         type: "string",
@@ -32336,10 +32432,10 @@ function compareDocumentPosition(nodeA, nodeB) {
 function uniqueSort(nodes) {
   nodes = nodes.filter((node2, i, arr) => !arr.includes(node2, i + 1));
   nodes.sort((a, b) => {
-    const relative = compareDocumentPosition(a, b);
-    if (relative & DocumentPosition.PRECEDING) {
+    const relative2 = compareDocumentPosition(a, b);
+    if (relative2 & DocumentPosition.PRECEDING) {
       return -1;
-    } else if (relative & DocumentPosition.FOLLOWING) {
+    } else if (relative2 & DocumentPosition.FOLLOWING) {
       return 1;
     }
     return 0;
@@ -38747,7 +38843,7 @@ history.command("index").description("Build or refresh the history archive from 
     store.close();
   }
 });
-history.command("search <pattern>").description("Search the history archive. pattern is tokenized full-text with prefix matching, not a " + "regex; Turkish diacritics fold, so 'gozden' finds 'gözden'.").option("--path <value>", "Filter to project paths containing this substring.").option("--output-mode <value>", "content|sessions|count|read", "content").option("--head-limit <value>", `Max hits per page (1-${HISTORY_HEAD_LIMIT_MAX}).`, String(HISTORY_HEAD_LIMIT_DEFAULT)).option("--offset <value>", "Page offset.", "0").option("--since <value>", "ISO date/time lower bound.").option("--until <value>", "ISO date/time upper bound.").option("--role <value>", "user|assistant|any", "any").option("--kind <value>", "prose|tool_use|tool_error|any", "any").option("--no-include-subagents", "Exclude subagent turns (included by default).").option("--agent-type <value>", "Filter to one subagent agent type, e.g. ac:librarian.").option("--session-id <value>", "Session to open a window on; required (and pattern is ignored) when --output-mode is read.").action(async (pattern, opts) => {
+history.command("search <pattern>").description("Search the history archive. pattern is tokenized full-text with prefix matching, not a " + "regex, and punctuation is dropped rather than matched, so 'C++' searches for 'c'. " + "Every Turkish diacritic folds EXCEPT 'ı' (U+0131), so 'gozden' finds 'gözden' but " + "'calisiyor' does NOT find 'çalışıyor'; type the dotless i as itself.").option("--path <value>", "Filter to project paths containing this substring.").option("--output-mode <value>", "content|sessions|count|read", "content").option("--head-limit <value>", `Max hits per page (1-${HISTORY_HEAD_LIMIT_MAX}).`, String(HISTORY_HEAD_LIMIT_DEFAULT)).option("--offset <value>", "Page offset.", "0").option("--since <value>", "ISO date/time lower bound.").option("--until <value>", "ISO date/time upper bound.").option("--role <value>", "user|assistant|any", "any").option("--kind <value>", "prose|tool_use|tool_error|any", "any").option("--no-include-subagents", "Exclude subagent turns (included by default).").option("--agent-type <value>", "Filter to one subagent agent type, e.g. ac:librarian.").option("--session-id <value>", "Session to open a window on; required (and pattern is ignored) when --output-mode is read.").action(async (pattern, opts) => {
   const store = await openHistoryStore();
   try {
     const headLimit = Number.parseInt(opts.headLimit, 10);
@@ -38808,7 +38904,9 @@ function formatSyncReport(report) {
   return [
     `Files scanned: ${report.filesScanned}`,
     `Files vanished mid-walk: ${report.filesVanished}`,
+    `Files failed to read: ${report.filesFailed ?? 0}`,
     `Rows added: ${report.rowsAdded}`,
+    `Lines skipped (nothing indexable): ${report.skipped ?? 0}`,
     `Lines quarantined: ${report.quarantined}`,
     `Redactions applied: ${report.redactions}`,
     `Elapsed: ${report.elapsedMillis} ms`,
@@ -38818,4 +38916,4 @@ function formatSyncReport(report) {
 }
 await program2.parseAsync(process.argv);
 
-//# debugId=65788A42F8646AC364756E2164756E21
+//# debugId=27BD631553C44F7D64756E2164756E21
