@@ -84,13 +84,19 @@ test("decideRead returns append-from-cursor when the file grew past the cursor w
     expect(decision).toBe("append-from-cursor");
 });
 
-test("manifest entries are looked up by session id, never by file path", () => {
+test("manifest entries are looked up by an opaque per-file key that decideRead never interprets", () => {
     const manifest: Record<string, HistoryManifestEntry> = {
-        "session-alpha": { cursor: 100, headFingerprint: FRESH_HEAD },
+        "-tmp-proj-a/session-alpha.jsonl": { cursor: 100, headFingerprint: FRESH_HEAD },
     };
-    // Same session, relocated to a new project directory: the lookup key is still the session
-    // id, so a "type":"relocated" move that changes the file's path never invalidates the cursor.
-    const decision = decideRead(manifest["session-alpha"], { size: 100, headFingerprint: FRESH_HEAD });
+    // The key identifies one FILE (`history-sync.ts` derives it as the path relative to the walked
+    // root), because a session id names several files: every subagent transcript carries its
+    // parent's session id, and one main session uuid was measured living under two project
+    // directories. This module only ever receives the entry, so the key shape is the caller's
+    // business and a lookup that finds an entry decides on size and fingerprint alone.
+    const decision = decideRead(manifest["-tmp-proj-a/session-alpha.jsonl"], {
+        size: 100,
+        headFingerprint: FRESH_HEAD,
+    });
     expect(decision).toBe("up-to-date");
 });
 

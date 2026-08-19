@@ -1,7 +1,7 @@
 import { after, test } from "node:test";
 import assert from "node:assert/strict";
 import { DatabaseSync } from "node:sqlite";
-import { mkdtempSync, rmSync, statSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -482,4 +482,115 @@ test("the handle opens the database once and hands the same store to concurrent 
     assert.equal(first, second);
 
     await handle.close();
+});
+
+test("the handle retries a rejected open instead of caching the rejection", async () => {
+    const dir = tempArchiveDir();
+    writeFileSync(dir, "a regular file standing where the archive directory belongs", "utf8");
+    const handle = createHistoryStoreHandle({ dir });
+
+    await assert.rejects(handle.ensureOpen(), /EEXIST/);
+
+    // One transient open failure must not disable the tool for the rest of the process. The memoised
+    // promise is the lock, so a REJECTED one has to be cleared: kept, it is handed to every later
+    // caller and the search stays broken until the MCP server restarts.
+    unlinkSync(dir);
+    const store = await handle.ensureOpen();
+    assert.equal(store.writable, true);
+    assert.equal(count(store, "SELECT count(*) AS c FROM turns"), 0);
+
+    await handle.close();
+});
+
+// ---------------------------------------------------------------------------
+// Transaction and connection lifetime edges. Each error code below was measured on node v22.17.1
+// rather than assumed, because the whole failure mode is one error replacing another.
+// ---------------------------------------------------------------------------
+
+test("a COMMIT that fails under contention leaves the connection usable for the next ingest", async () => {
+    const store = await openTempStore({ busyTimeoutMs: 50 });
+
+    // Rollback-journal mode is the shape where the COMMIT ITSELF can fail: the writer holds RESERVED
+    // through its inserts and needs EXCLUSIVE to commit, which a reader's SHARED lock denies.
+    // Measured: `database is locked`, errcode 5, and sqlite leaves the transaction OPEN. So clearing
+    // the in-transaction flag BEFORE the COMMIT exec skips the rollback, sqlite stays inside a
+    // transaction nothing will close, and every later call throws `cannot start a transaction within
+    // a transaction`, errcode 1, which `isBusyError` correctly refuses to read as contention.
+    store.select({ sql: "PRAGMA journal_mode = delete", params: [] });
+
+    const reader = new DatabaseSync(store.databasePath);
+    reader.exec("PRAGMA busy_timeout = 50");
+    reader.exec("BEGIN");
+    reader.prepare("SELECT count(*) AS c FROM turns").get();
+
+    const blocked = ingestOnce(store, [makeRow("PTQN-COMMIT-BLOCKED body")]);
+    assert.equal(blocked.busy, true);
+
+    reader.exec("ROLLBACK");
+    reader.close();
+
+    const recovered = ingestOnce(store, [makeRow("PTQN-AFTER-FAILED-COMMIT body")]);
+
+    assert.equal(recovered.busy, false);
+    assert.equal(recovered.rowsAdded, 1);
+    // Exactly one row: the blocked attempt's row was rolled back rather than left half-committed.
+    assert.equal(count(store, "SELECT count(*) AS c FROM turns"), 1);
+});
+
+test("an ingest that dies of a full database surfaces that error rather than a rollback error", async () => {
+    const store = await openTempStore();
+
+    // `max_page_count` just above the current size is a deterministic disk-full: measured, the write
+    // throws `database or disk is full`, errcode 13, and sqlite has ALREADY rolled the transaction
+    // back, so the explicit ROLLBACK that follows throws `cannot rollback - no transaction is
+    // active`, errcode 1. Untolerated, that second error replaces the first one on its way out and
+    // the caller is told the rollback failed instead of that the disk is full.
+    const pages = Number(firstRow(store.select({ sql: "PRAGMA page_count", params: [] }))["page_count"]);
+    store.select({ sql: `PRAGMA max_page_count = ${pages + 2}`, params: [] });
+
+    const oversized = Array.from(
+        { length: 200 },
+        (_unused, index) => makeRow(`SDFL-DISK-FULL-${index} ${"x".repeat(4096)}`),
+    );
+
+    assert.throws(
+        () => ingestOnce(store, oversized),
+        (error: unknown) => {
+            const message = error instanceof Error ? error.message : String(error);
+            assert.ok(message.includes("disk is full"), `the original failure must survive: ${message}`);
+
+            return true;
+        },
+    );
+
+    // And the store is still usable once the ceiling is lifted, rather than stuck in a transaction.
+    store.select({ sql: "PRAGMA max_page_count = 1073741823", params: [] });
+    const recovered = ingestOnce(store, [makeRow("SDFL-AFTER-FULL body")]);
+
+    assert.equal(recovered.rowsAdded, 1);
+});
+
+test("the busy timeout is in force before the journal-mode conversion", async () => {
+    const dir = tempArchiveDir();
+    mkdirSync(dir, { recursive: true });
+    const databasePath = join(dir, "history.db");
+
+    // A fresh archive file still in sqlite's default `delete` journal mode with a reader holding
+    // SHARED on it: the first open on a machine, racing a second `ac` process. Measured, the WAL
+    // conversion DOES call the busy handler for this shape, failing in 0 ms under sqlite's default
+    // timeout of 0 and waiting 329 ms when a 300 ms timeout was set first. The wait is the only
+    // observable difference, since both orders end in the same error here.
+    const holder = new DatabaseSync(databasePath);
+    holder.exec("CREATE TABLE probe(id INTEGER PRIMARY KEY)");
+    holder.exec("BEGIN");
+    holder.prepare("SELECT count(*) AS c FROM probe").get();
+
+    const startedAt = Date.now();
+    await assert.rejects(openHistoryStore({ dir, busyTimeoutMs: 300 }), /database is locked/);
+    const elapsed = Date.now() - startedAt;
+
+    holder.exec("ROLLBACK");
+    holder.close();
+
+    assert.ok(elapsed >= 200, `the conversion must wait out the busy timeout, waited ${elapsed} ms`);
 });

@@ -1,6 +1,6 @@
 import { open, readdir, stat as statAsync } from "node:fs/promises";
 import { readFile as readFileAsync } from "node:fs/promises";
-import { basename, dirname, join } from "node:path";
+import { basename, dirname, join, relative } from "node:path";
 import { decideRead, fingerprint, splitDelta } from "./history-cursor.ts";
 import { distillLine, resolveSessionMeta } from "./history-distill.ts";
 import type { DistillContext, DistillRow } from "./history-distill.ts";
@@ -72,6 +72,14 @@ export interface HistorySyncOptions {
 export interface HistorySyncReport {
     readonly filesScanned: number;
     readonly filesVanished: number;
+    /**
+     * Files whose own read failed with a filesystem error other than `ENOENT` (a permission
+     * failure, an IO error), counted so one unreadable transcript degrades that file rather than
+     * failing the whole pass and, through it, the search that triggered the pass. Optional for the
+     * same reason as {@link HistorySyncReport.skipped}: a report literal written before this field
+     * existed, in another module's test, still type-checks. `syncArchive` always sets it.
+     */
+    readonly filesFailed?: number;
     readonly rowsAdded: number;
     readonly quarantined: number;
     /**
@@ -88,10 +96,27 @@ export interface HistorySyncReport {
     readonly changed: boolean;
 }
 
-/** Narrows a thrown value to a Node errno exception carrying `.code`, without an `any` cast. */
+/**
+ * Reads the `code` off a thrown value, without an `any` cast, when it looks like a POSIX errno.
+ *
+ * The shape test matters more than it looks. A `libuv` errno is `ENOENT`, `EACCES`, `EIO`: capital
+ * letters and digits only. Node's OWN error codes are also strings on the same property and also
+ * start with `E`, `ERR_SQLITE_ERROR` among them, so a per-file catch that classified on the mere
+ * presence of `code` would swallow a malformed-archive failure from the store and report it as one
+ * unreadable transcript. The underscore is what separates the two families.
+ */
+function errnoCode(err: unknown): string | undefined {
+    if (typeof err !== "object" || err === null || !("code" in err)) {
+        return undefined;
+    }
+
+    const code = (err as { code?: unknown }).code;
+
+    return typeof code === "string" && /^E[A-Z0-9]+$/.test(code) ? code : undefined;
+}
+
 function isEnoentError(err: unknown): boolean {
-    return typeof err === "object" && err !== null && "code" in err
-        && (err as { code?: unknown }).code === "ENOENT";
+    return errnoCode(err) === "ENOENT";
 }
 
 /** Recursively lists every `*.jsonl` file's absolute path under `root`, depth-first. */
@@ -145,7 +170,16 @@ async function defaultReadFileRange(path: string, start: number, end: number): P
     }
 }
 
-/** Reads a subagent transcript's sibling `.meta.json`; a missing file is not an error, just no label. */
+/**
+ * Reads a subagent transcript's sibling `.meta.json`; a missing file is not an error, just no label.
+ *
+ * An unparseable file is not an error either, and that is a deliberate decision rather than a
+ * swallowed failure: this file is read while another Claude Code session may be writing it as it
+ * spawns subagents, so half a JSON document is a routine race. The worst outcome of ignoring it is
+ * one subagent's rows carrying no `agentType`; the worst outcome of throwing is a whole sync pass,
+ * and the search that triggered it, failing over a label. Only a `SyntaxError` is treated this way;
+ * anything else `JSON.parse` could throw propagates.
+ */
 async function defaultReadSubagentMeta(metaPath: string): Promise<HistorySubagentMeta | undefined> {
     let raw: string;
     try {
@@ -157,7 +191,16 @@ async function defaultReadSubagentMeta(metaPath: string): Promise<HistorySubagen
         throw err;
     }
 
-    const parsed = JSON.parse(raw) as { agentType?: unknown; description?: unknown };
+    let parsed: { agentType?: unknown; description?: unknown };
+    try {
+        parsed = JSON.parse(raw) as { agentType?: unknown; description?: unknown };
+    } catch (err) {
+        if (err instanceof SyntaxError) {
+            return undefined;
+        }
+        throw err;
+    }
+
     return {
         agentType: typeof parsed.agentType === "string" ? parsed.agentType : undefined,
         description: typeof parsed.description === "string" ? parsed.description : undefined,
@@ -179,24 +222,45 @@ interface ClassifiedTranscript {
  *
  * The `subagents/` PATH POSITION is the signal, not the filename pattern: a subagent id is
  * measured to be 17 characters starting with `a`, never a UUID, but keying detection on that
- * shape would be fragile against a future id format. A main transcript's manifest key is the
- * session id (its own filename); a subagent transcript's manifest key is the subagent id, while
- * its `sessionId` is the PARENT session id, recovered from the directory two levels up
+ * shape would be fragile against a future id format. A subagent transcript's `sessionId` is the
+ * PARENT session id, recovered from the directory two levels up
  * (`<project>/<session-id>/subagents/agent-<id>.jsonl`), because a subagent transcript's own
  * lines carry their parent's session id, not one of their own.
+ *
+ * **The manifest key identifies a FILE, not a session, and that correction is the whole point of
+ * this function taking `root`.** A byte cursor is only meaningful against one specific file, and a
+ * session id does not name one: measured live on this machine, the session uuid
+ * `3e19ee0b-d0bb-4aa1-9052-6ed71f290745` exists as a transcript under BOTH
+ * `-Users-anilcan-Code-tools-myco-backup` (6,082,328 bytes) and `-Users-anilcan-Code-tools-myco`
+ * (29,622 bytes). Sharing one manifest row between them has each pass read a cursor belonging to
+ * the other file, and either flips that row forever (a 6 MB transcript re-read and re-distilled on
+ * every single tool call) or, when the two files share their 64 KB head, starts an
+ * `append-from-cursor` read mid-line in the other file and loses every line between the two cursors
+ * with no error anywhere.
+ *
+ * The key is therefore the path RELATIVE to the walked root, not the absolute path: relocating the
+ * whole `~/.claude` tree (`CLAUDE_CONFIG_DIR` points somewhere else) then keeps every key valid.
+ * The plan's earlier "never key on the file path" rule rested on `"type":"relocated"` records
+ * moving a session's directory, and that premise is measured false: a relocation writes
+ * `{"type":"relocated","relocatedCwd":...}` INTO the existing transcript and leaves the file where
+ * it is (verified on `-Users-anilcan-Code-fluttersdk-uptizm/3e57c0f1-...jsonl`, whose relocated cwd
+ * has no project directory of its own), and the reference implementation never renames a transcript.
+ * `dev:ino` from `stat` was the other candidate and is rejected in the report: it cannot survive a
+ * backup restore, it inherits a stale cursor when an inode is recycled after a `cleanupPeriodDays`
+ * deletion, and it would force `HistoryFileStat` to grow two fields that every injected `statFile`
+ * fake in the suite would have to supply.
  */
-function classifyTranscript(path: string): ClassifiedTranscript {
+function classifyTranscript(path: string, root: string): ClassifiedTranscript {
     const parentDir = dirname(path);
     const fileBase = basename(path, ".jsonl");
+    const transcriptKey = relative(root, path);
 
     if (basename(parentDir) === "subagents") {
-        const subagentId = fileBase.startsWith("agent-") ? fileBase.slice("agent-".length) : fileBase;
-        const sessionId = basename(dirname(parentDir));
         return {
             path,
             isSubagent: true,
-            transcriptKey: subagentId,
-            sessionId,
+            transcriptKey,
+            sessionId: basename(dirname(parentDir)),
             metaPath: join(parentDir, `${fileBase}.meta.json`),
         };
     }
@@ -204,7 +268,7 @@ function classifyTranscript(path: string): ClassifiedTranscript {
     return {
         path,
         isSubagent: false,
-        transcriptKey: fileBase,
+        transcriptKey,
         sessionId: fileBase,
         metaPath: undefined,
     };
@@ -252,6 +316,15 @@ async function walkAndStat(
     return { files, vanished };
 }
 
+/** What {@link processFile} accomplished for one transcript, folded into the pass totals by the caller. */
+interface ProcessedFile {
+    readonly ingested: boolean;
+    readonly rowsAdded: number;
+    readonly quarantined: number;
+    readonly skipped: number;
+    readonly redactions: number;
+}
+
 /** Sums every redaction count across every kind into one total for the report. */
 function sumRedactionCounts(redactions: Partial<Record<string, number>>): number {
     let total = 0;
@@ -277,19 +350,14 @@ async function processFile(
     file: StatedFile,
     store: HistoryStore,
     deps: {
+        readonly root: string;
         readonly readFileRange: ReadFileRangeFn;
         readonly readSubagentMeta: ReadSubagentMetaFn;
         readonly headWindowBytes: number;
         readonly tailWindowBytes: number;
     },
-): Promise<{
-    readonly ingested: boolean;
-    readonly rowsAdded: number;
-    readonly quarantined: number;
-    readonly skipped: number;
-    readonly redactions: number;
-}> {
-    const classified = classifyTranscript(file.path);
+): Promise<ProcessedFile> {
+    const classified = classifyTranscript(file.path, deps.root);
     const manifestEntry = store.getManifestEntry(classified.transcriptKey);
     const priorCursor = manifestEntry?.cursor ?? 0;
 
@@ -435,14 +503,39 @@ export async function syncArchive(opts: HistorySyncOptions): Promise<HistorySync
     let skipped = 0;
     let redactions = 0;
     let changed = false;
+    let vanishedMidRead = 0;
+    let failed = 0;
 
     for (const file of selected) {
-        const outcome = await processFile(file, opts.store, {
-            readFileRange,
-            readSubagentMeta,
-            headWindowBytes,
-            tailWindowBytes,
-        });
+        let outcome: ProcessedFile;
+        try {
+            outcome = await processFile(file, opts.store, {
+                root: opts.root,
+                readFileRange,
+                readSubagentMeta,
+                headWindowBytes,
+                tailWindowBytes,
+            });
+        } catch (err) {
+            // One file's filesystem failure is that file's failure. Both causes are reachable
+            // rather than theoretical: a `cleanupPeriodDays` sweep takes a transcript between the
+            // walk and the read (`ENOENT`, counted exactly as a stat-time disappearance is), and a
+            // read can fail outright (`EACCES`, `EIO`). Anything that is not a POSIX errno is a
+            // store or programming failure and must take the pass down rather than be counted: the
+            // store already decides for itself which of its failures are degraded (`busy`) and
+            // which are fatal, and burying a fatal one here would hide a broken archive.
+            const code = errnoCode(err);
+            if (code === undefined) {
+                throw err;
+            }
+            if (code === "ENOENT") {
+                vanishedMidRead += 1;
+            } else {
+                failed += 1;
+            }
+            continue;
+        }
+
         if (outcome.ingested) {
             changed = true;
         }
@@ -454,7 +547,8 @@ export async function syncArchive(opts: HistorySyncOptions): Promise<HistorySync
 
     return {
         filesScanned: selected.length,
-        filesVanished: vanished,
+        filesVanished: vanished + vanishedMidRead,
+        filesFailed: failed,
         rowsAdded,
         quarantined,
         skipped,

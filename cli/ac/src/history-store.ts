@@ -100,11 +100,14 @@ const SCHEMA_STATEMENTS: readonly string[] = [
         is_sub INTEGER NOT NULL DEFAULT 0,
         agent_type TEXT
     )`,
-    // Keyed on `transcript_key`, not on `session_id`: a subagent transcript's lines carry their
-    // PARENT session id, so several files share one session id and a session-keyed cursor would let
-    // a subagent file overwrite its parent's cursor. The caller supplies the session id for a main
-    // transcript and the subagent id for a nested one. Never the file path: `"type":"relocated"`
-    // records move a session's directory 4,601 times in the real corpus.
+    // Keyed on `transcript_key`, not on `session_id`, because a byte cursor belongs to one FILE and a
+    // session id names several. A subagent transcript's lines carry their PARENT session id, and a
+    // main session's uuid is not unique across project directories either (one live case measured at
+    // 6,082,328 and 29,622 bytes under two project directories). Sharing a row between two files has
+    // each pass read the other file's cursor: either a permanent full re-read or, when the two heads
+    // match, an append that starts mid-line and loses every line between the two cursors. The caller
+    // (`history-sync.ts`) derives the key from the transcript's path relative to the walked root;
+    // `session_id` stays alongside so a row can still name the session a search result came from.
     `CREATE TABLE IF NOT EXISTS manifest (
         transcript_key TEXT PRIMARY KEY,
         session_id TEXT NOT NULL,
@@ -283,10 +286,11 @@ export interface HistoryStore {
 }
 
 /**
- * A store that opens on first use and only once.
+ * A store that opens on first use and only once, until an open fails.
  *
  * Copied from the `connectPromise` memoization at `mcp.ts:320-328`: the promise itself is the lock,
- * so two concurrent callers share one open rather than racing to create the schema twice.
+ * so two concurrent callers share one open rather than racing to create the schema twice. A REJECTED
+ * open is not memoised, so one transient failure costs one call rather than the process's lifetime.
  */
 export interface HistoryStoreHandle {
     ensureOpen(): Promise<HistoryStore>;
@@ -358,7 +362,18 @@ export function createHistoryStoreHandle(options: HistoryStoreOptions = {}): His
     return {
         ensureOpen: (): Promise<HistoryStore> => {
             if (openPromise === undefined) {
-                openPromise = openHistoryStore(options);
+                // The memoised promise is the lock, but only a FULFILLED one is worth keeping. Cached,
+                // a rejection (a directory that briefly could not be created, a pragma lost to a
+                // competing process) would be handed to every later caller and the tool would stay
+                // broken until the MCP server restarts, which is the whole process lifetime.
+                const attempt: Promise<HistoryStore> = openHistoryStore(options).catch((error: unknown) => {
+                    if (openPromise === attempt) {
+                        openPromise = undefined;
+                    }
+
+                    throw error;
+                });
+                openPromise = attempt;
             }
 
             return openPromise;
@@ -399,10 +414,20 @@ async function loadSqlite(): Promise<SqliteModule> {
     }
 }
 
-/** Sets the three connection pragmas and verifies each one actually took. */
+/**
+ * Sets the three connection pragmas and verifies each one actually took.
+ *
+ * `busy_timeout` goes FIRST because the `journal_mode` conversion is itself a lock-taking statement
+ * and sqlite's default timeout is 0. Measured on node v22.17.1 against a fresh `delete`-mode file
+ * held open by a reader: the conversion fails with `database is locked` (errcode 5) after 0 ms with
+ * no timeout set, and waits 329 ms when a 300 ms timeout was set first. So the old order exposed the
+ * very first open on a machine, where two `ac` processes both try to convert, to an instant failure.
+ * (A competing WRITER is a different shape: the conversion never calls the busy handler for that
+ * one, failing in 0 ms either way, which is why `openHistoryStore` failing here is still reachable.)
+ */
 function applyPragmas(db: SqliteDatabase, busyTimeoutMs: number): void {
-    db.exec("PRAGMA journal_mode = WAL");
     db.exec(`PRAGMA busy_timeout = ${busyTimeoutMs}`);
+    db.exec("PRAGMA journal_mode = WAL");
     db.exec("PRAGMA synchronous = NORMAL");
 
     assertPragma(db, "PRAGMA journal_mode", "journal_mode", "wal");
@@ -438,11 +463,35 @@ function createSchema(db: SqliteDatabase, currentVersion: number): void {
         if (currentVersion < HISTORY_SCHEMA_VERSION) {
             db.exec(`PRAGMA user_version = ${HISTORY_SCHEMA_VERSION}`);
         }
-        open = false;
         db.exec("COMMIT");
+        // Cleared only once the COMMIT has actually returned: a COMMIT that throws leaves sqlite's
+        // transaction OPEN (measured under contention), and clearing the flag first would skip the
+        // rollback below and hand the caller a connection stuck inside a transaction for good.
+        open = false;
     } finally {
         if (open) {
-            db.exec("ROLLBACK");
+            rollbackQuietly(db);
+        }
+    }
+}
+
+/**
+ * Rolls back, tolerating the one error that means the rollback was unnecessary.
+ *
+ * Some failures roll their own transaction back before throwing: measured on node v22.17.1, a write
+ * that exceeds `max_page_count` throws `database or disk is full` (errcode 13) with the transaction
+ * already gone, so the explicit ROLLBACK then throws `cannot rollback - no transaction is active`
+ * (errcode 1, `ERR_SQLITE_ERROR`). Since `isBusyError` correctly refuses errcode 1, that second
+ * error would propagate in place of the first and the caller would be told the rollback failed
+ * instead of that the disk is full. Anything else propagates: a rollback that fails for a reason we
+ * do not recognize is real news.
+ */
+function rollbackQuietly(db: SqliteDatabase): void {
+    try {
+        db.exec("ROLLBACK");
+    } catch (error) {
+        if (!isNoTransactionError(error)) {
+            throw error;
         }
     }
 }
@@ -518,8 +567,14 @@ function createStore(
     }
 
     function commit(): void {
-        inTransaction = false;
         db.exec("COMMIT");
+        // After the exec, never before. A COMMIT that throws leaves sqlite's transaction OPEN
+        // (measured: `database is locked`, errcode 5, under a reader holding SHARED in rollback-journal
+        // mode), so a flag cleared first makes `rollback()` believe there is nothing to roll back. The
+        // transaction then stays open on a long-lived connection and every later call throws `cannot
+        // start a transaction within a transaction`, errcode 1, which is not a busy error and so takes
+        // down the search rather than degrading it.
+        inTransaction = false;
     }
 
     function rollback(): void {
@@ -527,7 +582,7 @@ function createStore(
             return;
         }
         inTransaction = false;
-        db.exec("ROLLBACK");
+        rollbackQuietly(db);
     }
 
     function readManifest(transcriptKey: string): HistoryManifestEntry | undefined {
@@ -900,22 +955,41 @@ function asNumber(value: HistoryCellValue | undefined): number | undefined {
 /**
  * Recognizes a lock contention error, which is a degraded pass rather than a failure.
  *
- * sqlite's extended result codes carry the primary code in the low eight bits, so masking catches
- * `SQLITE_BUSY_SNAPSHOT` and friends alongside plain `SQLITE_BUSY` and `SQLITE_LOCKED`. Measured on
- * node v22.17.1, a blocked writer throws an `Error` with `code: "ERR_SQLITE_ERROR"`, `errcode: 5`
- * and `errstr: "database is locked"`.
+ * `SQLITE_BUSY` (5) and `SQLITE_LOCKED` (6), including their extended forms. Measured on node
+ * v22.17.1, a blocked writer throws an `Error` with `code: "ERR_SQLITE_ERROR"`, `errcode: 5` and
+ * `errstr: "database is locked"`.
  */
 function isBusyError(error: unknown): boolean {
+    const primary = primaryResultCode(error);
+
+    return primary === 5 || primary === 6;
+}
+
+/**
+ * Recognizes the one rollback failure that carries no information: there was nothing to roll back.
+ *
+ * Errcode 1 is `SQLITE_ERROR`, which covers every SQL logic error, so the message has to narrow it:
+ * matching on errcode alone would swallow a genuine failure. Measured message on node v22.17.1:
+ * `cannot rollback - no transaction is active`.
+ */
+function isNoTransactionError(error: unknown): boolean {
+    return primaryResultCode(error) === 1
+        && error instanceof Error
+        && error.message.includes("no transaction is active");
+}
+
+/** The primary sqlite result code behind a thrown error, or undefined when it is not a sqlite error. */
+function primaryResultCode(error: unknown): number | undefined {
     if (!(error instanceof Error) || !("errcode" in error)) {
-        return false;
+        return undefined;
     }
 
     const errcode = error.errcode;
     if (typeof errcode !== "number") {
-        return false;
+        return undefined;
     }
 
-    const primary = errcode & 0xff;
-
-    return primary === 5 || primary === 6;
+    // Extended result codes carry the primary code in the low eight bits, so masking catches
+    // `SQLITE_BUSY_SNAPSHOT` and friends alongside plain `SQLITE_BUSY`.
+    return errcode & 0xff;
 }

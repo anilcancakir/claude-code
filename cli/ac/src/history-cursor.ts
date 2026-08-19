@@ -1,16 +1,22 @@
 import { createHash } from "node:crypto";
 
 /**
- * One row of the incremental-sync manifest for a single Claude Code session transcript.
+ * One row of the incremental-sync manifest for a single Claude Code transcript FILE.
  *
  * `cursor` is the byte offset the last sync consumed up to; it always sits exactly after a
  * complete newline, never at `stat.size`, because a byte past the last newline may be a torn,
  * in-progress line. `headFingerprint` hashes a fixed-size window at the start of the file, so a
  * truncate-then-rewrite that happens to land back on a size at or above `cursor` is still caught
- * even though the size check alone would have missed it. The manifest holding these entries is
- * keyed on session id, never on file path: `"type":"relocated"` records move a session's
- * directory 4,601 times in the real corpus, and a path key would treat every move as a brand new
- * file needing a full re-read.
+ * even though the size check alone would have missed it.
+ *
+ * The manifest holding these entries is keyed per FILE, never per session. Both halves of that are
+ * measured. A session id names several files: a subagent transcript's lines carry their parent's
+ * session id (12 of 12 sampled files), and a main session's uuid is not unique across project
+ * directories either (one live case, `3e19ee0b-d0bb-4aa1-9052-6ed71f290745.jsonl`, present under two
+ * project directories at 6,082,328 and 29,622 bytes). Since a byte cursor only means anything
+ * against one file's bytes, sharing a row between files either re-reads them forever or reads from
+ * an offset that lands mid-line in the other file. `history-sync.ts` derives the key as the
+ * transcript's path relative to the walked root.
  */
 export interface HistoryManifestEntry {
     readonly cursor: number;
