@@ -594,3 +594,82 @@ test("the busy timeout is in force before the journal-mode conversion", async ()
 
     assert.ok(elapsed >= 200, `the conversion must wait out the busy timeout, waited ${elapsed} ms`);
 });
+
+// The dotless-i expansion, proven behaviourally rather than by string shape. `toMatchExpression`
+// leaves ç, ş, ğ, ö and ü alone because the tokenizer folds them at match time, so two spellings of
+// the same word produce DIFFERENT expressions that must nonetheless select the same rows. Only a
+// real FTS5 index can show that, which is why these live here and not in `history-query.test.ts`.
+
+/** Rows matched by one raw pattern, against a throwaway in-memory index seeded with `bodies`. */
+function matchCount(bodies: readonly string[], pattern: string): number {
+    const db = new DatabaseSync(":memory:");
+    db.exec("CREATE VIRTUAL TABLE turns_fts USING fts5(body, tokenize='unicode61')");
+    const insert = db.prepare("INSERT INTO turns_fts(body) VALUES (?)");
+    for (const body of bodies) {
+        insert.run(body);
+    }
+
+    const row = db
+        .prepare("SELECT count(*) AS c FROM turns_fts WHERE turns_fts MATCH ?")
+        .get(toMatchExpression(pattern, { prefix: true }));
+    db.close();
+
+    return Number(row?.["c"]);
+}
+
+test("every spelling of a dotless-i word selects every other spelling", () => {
+    // The four ways this word is actually typed: correct Turkish, bare ASCII, and the two mixed
+    // forms that come from a keyboard that has ç and ş but no ı.
+    const bodies = ["çalışıyor", "calisiyor", "çalisiyor", "calışıyor"];
+
+    for (const spelling of bodies) {
+        assert.equal(
+            matchCount(bodies, spelling),
+            bodies.length,
+            `"${spelling}" should reach all ${bodies.length} spellings`,
+        );
+    }
+});
+
+test("the ASCII spelling reaches the correct Turkish one, which is the case that was broken", () => {
+    // Before the expansion this returned 0: `ı` is a distinct token, so `bilgi` could not reach
+    // `bılgı` and a Turkish user typing ASCII lost the majority of their own history.
+    assert.equal(matchCount(["bılgı"], "bilgi"), 1);
+    assert.equal(matchCount(["bilgi"], "bılgı"), 1);
+});
+
+test("the expansion does not widen a word that carries no i", () => {
+    // `gozden`/`gözden` was already handled by the tokenizer and must be untouched, and an
+    // unrelated word must not start matching just because the OR group grew.
+    assert.equal(matchCount(["gözden geçirildi"], "gozden"), 1);
+    assert.equal(matchCount(["frankenphp"], "gozden"), 0);
+});
+
+test("the expansion does not make an unrelated English word match", () => {
+    // `migration` fans out to two terms, one of which is the nonsense `mıgration`. That variant
+    // must find nothing rather than colliding with a real word.
+    assert.equal(matchCount(["migration"], "migration"), 1);
+    assert.equal(matchCount(["mutation"], "migration"), 0);
+    assert.equal(matchCount(["mıgration"], "migration"), 1);
+});
+
+test("a multi-token pattern whose tokens expand is still a legal FTS5 expression", () => {
+    // The regression this exists for: tokens used to join with a bare space, relying on FTS5's
+    // implicit AND. That AND is defined between adjacent PHRASES only, so once a token became a
+    // parenthesised OR group the next token was a syntax error, and `fts5: syntax error near
+    // ""pattern""` came back for the very ordinary query `search-history pattern`. Every string
+    // assertion in history-query.test.ts passed throughout, because none of them reaches sqlite.
+    assert.equal(matchCount(["search-history pattern=alpha"], "search-history pattern"), 1);
+});
+
+test("multi-token AND still excludes a row holding only one of the tokens", () => {
+    // The explicit AND must not silently widen into an OR: a row missing the second token stays out.
+    const bodies = ["migration bilgi", "migration only", "bilgi only"];
+
+    assert.equal(matchCount(bodies, "migration bilgi"), 1);
+});
+
+test("both spellings of a multi-token Turkish query select the same row", () => {
+    assert.equal(matchCount(["çalışıyor bilgi"], "calisiyor bilgi"), 1);
+    assert.equal(matchCount(["calisiyor bılgı"], "çalışıyor bilgi"), 1);
+});

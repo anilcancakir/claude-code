@@ -131,6 +131,78 @@ interface FilterFragments {
     readonly params: readonly SqlParameter[];
 }
 
+const DOTLESS_I = "ı";
+const DOTTED_CAPITAL_I = "İ";
+
+/**
+ * Cap on the OR group one token may fan out into, so a pathological word cannot expand without
+ * bound. Five `i` positions fit under it; a sixth trips the fallback.
+ */
+const MAX_DOTLESS_I_VARIANTS = 32;
+
+/**
+ * Expands one token across every dotted/dotless `i` spelling.
+ *
+ * `unicode61` folds every Turkish letter EXCEPT `ı` (U+0131), which is a distinct letter rather
+ * than a diacritic-bearing `i` and therefore indexes as its own token. Measured over the real
+ * archive: `gecti` and `geçti` both return 906 hits and `gozden` and `gözden` both return 220, so
+ * `ç` and `ö` fold; `bilgi` returns 663 and `bılgı` returns 0, so `ı` does not. The cost fell on
+ * exactly the user this tool is for, a Turkish speaker typing ASCII: `calisiyor` found 138 of the
+ * 1,896 hits `çalışıyor` found.
+ *
+ * Varying a token over that one axis is exactly sufficient rather than approximate, which is why
+ * this needs no second index and no reindex: `calısıyor` returns 1,899 against `çalışıyor`'s
+ * 1,896, the gap being only the rows the measuring session itself added in between. Every other
+ * Turkish letter is already handled by the tokenizer.
+ *
+ * The expansion is strictly additive. Each variant joins its siblings under OR, so a query can
+ * only gain the spellings it meant, never lose a hit it already had.
+ */
+function dotlessIVariants(token: string): readonly string[] {
+    const canonical = token.replaceAll(DOTLESS_I, "i").replaceAll(DOTTED_CAPITAL_I, "i");
+
+    // Code units, not code points, so these indices stay aligned with the array built below.
+    // Splitting a surrogate pair is safe here: only ASCII `i` positions are ever rewritten, and
+    // the halves rejoin unchanged.
+    const characters = canonical.split("");
+    const positions: number[] = [];
+    characters.forEach((character, index) => {
+        if (character === "i" || character === "I") {
+            positions.push(index);
+        }
+    });
+
+    if (positions.length === 0) {
+        return [canonical];
+    }
+
+    const total = 2 ** positions.length;
+    if (total > MAX_DOTLESS_I_VARIANTS) {
+        // Past the cap, keep the two spellings that occur in bulk: all-dotted, which is what an
+        // ASCII keyboard produces, and all-dotless. A word this long with a MIXED spelling is rare
+        // enough to lose, and losing it costs a hit rather than correctness.
+        return [canonical, withDotlessAt(characters, positions)];
+    }
+
+    const variants: string[] = [];
+    for (let mask = 0; mask < total; mask += 1) {
+        const selected = positions.filter((_, bit) => (mask & (1 << bit)) !== 0);
+        variants.push(withDotlessAt(characters, selected));
+    }
+
+    return variants;
+}
+
+/** Rewrites the given code-unit positions to `ı`, leaving every other position untouched. */
+function withDotlessAt(characters: readonly string[], positions: readonly number[]): string {
+    const rewritten = [...characters];
+    for (const position of positions) {
+        rewritten[position] = DOTLESS_I;
+    }
+
+    return rewritten.join("");
+}
+
 /**
  * Escapes a user pattern into a valid FTS5 MATCH expression.
  *
@@ -139,6 +211,15 @@ interface FilterFragments {
  * `"term*"`, per fts5.html 3.1 and 3.3). Tokens join with a single space, which FTS5 reads as an
  * implicit AND. Quoting is what neutralizes `:`, `+`, a leading `-` and a bare `OR`, all of which
  * are query-grammar syntax outside quotes and plain characters inside them.
+ *
+ * A token carrying an `i` in any of its four spellings additionally becomes a parenthesised OR
+ * group over the dotted/dotless axis, per `dotlessIVariants`.
+ *
+ * Tokens join with an EXPLICIT `AND` rather than the implicit one a space gives. FTS5's implicit
+ * AND is defined between adjacent phrases only, so a parenthesised group followed by a phrase is a
+ * syntax error: `("search-history"* OR "search-hıstory"*) "pattern"*` fails with
+ * `fts5: syntax error near ""pattern""`. The explicit operator is identical in meaning for the
+ * unexpanded case, and it is what makes the expanded one legal.
  *
  * @param pattern Raw text as the caller typed it.
  * @param opts `prefix: true` makes every token a prefix term.
@@ -152,8 +233,17 @@ export function toMatchExpression(pattern: string, opts: { prefix: boolean }): s
     return pattern
         .split(/\s+/)
         .filter((token) => token !== "")
-        .map((token) => `"${token.replaceAll("\"", "\"\"")}"${suffix}`)
-        .join(" ");
+        .map((token) => {
+            const terms = dotlessIVariants(token)
+                .map((variant) => `"${variant.replaceAll("\"", "\"\"")}"${suffix}`);
+
+            if (terms.length === 1) {
+                return terms.join("");
+            }
+
+            return `(${terms.join(" OR ")})`;
+        })
+        .join(" AND ");
 }
 
 /**
@@ -440,4 +530,37 @@ function whereClause(clauses: readonly string[], opts: { withMatch?: boolean; in
     const all = opts.withMatch === false ? clauses : ["turns_fts MATCH ?", ...clauses];
 
     return `WHERE ${all.join(`\n${opts.indent ?? ""}  AND `)}`;
+}
+
+/**
+ * Names the pattern tokens the tokenizer will strip down to a near-match-all prefix.
+ *
+ * `unicode61` drops punctuation rather than searching it, so a regex-shaped or symbol-heavy word
+ * silently becomes whatever alphanumeric run survives. Measured on the real archive: `C++` searches
+ * the bare prefix `c` and returns 168,101 of the 189,644 indexed turns, an answer that looks like a
+ * result and carries no information. The tool description says this, but a caller who has already
+ * typed the query is past reading the description; the answer itself has to say it.
+ *
+ * Only the LAST run matters, because that is the one the prefix star attaches to: `node:sqlite`
+ * keeps `sqlite` and searches usefully, while `C++` and `C#` keep one character and do not.
+ *
+ * @returns One entry per degraded token, as `[token, survivingRun]`, in the order typed.
+ */
+export function degradedTokens(pattern: string): readonly (readonly [string, string])[] {
+    const degraded: (readonly [string, string])[] = [];
+
+    for (const token of pattern.split(/\s+/).filter((candidate) => candidate !== "")) {
+        const runs = token.split(/[^\p{L}\p{N}]+/u).filter((run) => run !== "");
+        const surviving = runs.at(-1);
+
+        // A token made entirely of punctuation contributes no searchable run at all; the empty
+        // match expression it produces is refused upstream, so it is not this function's warning.
+        if (surviving === undefined || surviving.length > 2 || surviving === token) {
+            continue;
+        }
+
+        degraded.push([token, surviving]);
+    }
+
+    return degraded;
 }

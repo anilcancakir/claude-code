@@ -7,6 +7,7 @@ import {
     buildSessionsQuery,
     SNIPPET_CLOSE_MARKER,
     SNIPPET_OPEN_MARKER,
+    degradedTokens,
     toMatchExpression,
 } from "./history-query.ts";
 import type { HistoryQueryFilters, SqlStatement } from "./history-query.ts";
@@ -184,7 +185,10 @@ function countPlaceholders(sql: string): number {
 // (1) toMatchExpression: the four inputs measured to throw when passed raw to MATCH.
 
 test("toMatchExpression quotes a colon token, which raw MATCH reads as a column filter", () => {
-    expect(toMatchExpression("node:sqlite", { prefix: true })).toBe("\"node:sqlite\"*");
+    // The colon stays inside the quotes in EVERY dotless-i variant, which is the property under
+    // test: expansion must not open a hole the quoting closed.
+    expect(toMatchExpression("node:sqlite", { prefix: true }))
+        .toBe("(\"node:sqlite\"* OR \"node:sqlıte\"*)");
 });
 
 test("toMatchExpression quotes C++, whose plus signs are a raw MATCH syntax error", () => {
@@ -192,11 +196,18 @@ test("toMatchExpression quotes C++, whose plus signs are a raw MATCH syntax erro
 });
 
 test("toMatchExpression quotes a leading hyphen, which raw MATCH reads as a column filter", () => {
-    expect(toMatchExpression("gozden -gecirildi", { prefix: true })).toBe("\"gozden\"* \"-gecirildi\"*");
+    const expression = toMatchExpression("gozden -gecirildi", { prefix: true });
+
+    // `gozden` carries no `i` and so keeps its exact pre-expansion shape; `-gecirildi` carries
+    // three and fans out to 2^3, with the leading hyphen quoted inside every one of them.
+    expect(expression).toBe(
+        "\"gozden\"* AND (\"-gecirildi\"* OR \"-gecırildi\"* OR \"-gecirıldi\"* OR \"-gecırıldi\"* "
+        + "OR \"-gecirildı\"* OR \"-gecırildı\"* OR \"-gecirıldı\"* OR \"-gecırıldı\"*)",
+    );
 });
 
 test("toMatchExpression quotes a dangling OR, which raw MATCH reads as an operator", () => {
-    expect(toMatchExpression("a OR", { prefix: true })).toBe("\"a\"* \"OR\"*");
+    expect(toMatchExpression("a OR", { prefix: true })).toBe("\"a\"* AND \"OR\"*");
 });
 
 // (2) toMatchExpression: quoting, whitespace and the empty case.
@@ -204,8 +215,9 @@ test("toMatchExpression quotes a dangling OR, which raw MATCH reads as an operat
 test("toMatchExpression doubles an internal double quote and emits one token per word", () => {
     const expression = toMatchExpression("he said \"hi\"", { prefix: false });
 
-    expect(expression).toBe("\"he\" \"said\" \"\"\"hi\"\"\"");
-    expect(expression.split(" ").length).toBe(3);
+    // Doubling happens per variant, so the escaping survives the expansion rather than being
+    // applied to a token that is later rewritten.
+    expect(expression).toBe("\"he\" AND (\"said\" OR \"saıd\") AND (\"\"\"hi\"\"\" OR \"\"\"hı\"\"\")");
 });
 
 test("toMatchExpression appends the prefix star outside the closing quote", () => {
@@ -218,7 +230,7 @@ test("toMatchExpression returns an empty string for whitespace-only input", () =
 });
 
 test("toMatchExpression drops empty tokens from runs of mixed whitespace", () => {
-    expect(toMatchExpression("  alpha \t\n beta  ", { prefix: true })).toBe("\"alpha\"* \"beta\"*");
+    expect(toMatchExpression("  alpha \t\n beta  ", { prefix: true })).toBe("\"alpha\"* AND \"beta\"*");
 });
 
 // (3) An empty match expression is refused, because FTS5 throws `syntax error near ""` on one.
@@ -626,4 +638,102 @@ test("snippet markers are distinct and appear in the generated snippet call", ()
     expect(SNIPPET_OPEN_MARKER).not.toBe(SNIPPET_CLOSE_MARKER);
     expect(statement.sql).toContain(`'${SNIPPET_OPEN_MARKER}'`);
     expect(statement.sql).toContain(`'${SNIPPET_CLOSE_MARKER}'`);
+});
+
+// (7) The dotless-i expansion. `unicode61` folds every Turkish letter except `ı` (U+0131), so a
+// token varying over that one axis is exactly sufficient: measured over the real archive,
+// `calısıyor` returns 1,899 hits against `çalışıyor`'s 1,896, while `bilgi` returns 663 and
+// `bılgı` returns 0.
+
+test("toMatchExpression leaves a token with no i exactly as it was before the expansion", () => {
+    expect(toMatchExpression("frankenphp", { prefix: true })).toBe("\"frankenphp\"*");
+    expect(toMatchExpression("gozden", { prefix: true })).toBe("\"gozden\"*");
+});
+
+test("toMatchExpression expands one i into both spellings under OR", () => {
+    expect(toMatchExpression("bir", { prefix: true })).toBe("(\"bir\"* OR \"bır\"*)");
+});
+
+test("toMatchExpression reaches one group from either spelling of a token with no other Turkish letter", () => {
+    // `bilgi` and `bılgı` differ ONLY on the expanded axis, so here the two spellings really do
+    // converge on one string. Where a token also carries ç, ş, ğ, ö or ü the two spellings stay
+    // textually different and converge only after the tokenizer folds them, which a string
+    // assertion cannot see; `history-store.node-check.ts` proves that case against a real index.
+    expect(toMatchExpression("bilgi", { prefix: false }))
+        .toBe(toMatchExpression("bılgı", { prefix: false }));
+});
+
+test("toMatchExpression canonicalizes the dotted capital I onto the expanded axis", () => {
+    expect(toMatchExpression("İ", { prefix: false })).toBe("(\"i\" OR \"ı\")");
+});
+
+test("toMatchExpression covers every combination, not just all-dotted and all-dotless", () => {
+    const expression = toMatchExpression("çalışıyor", { prefix: false });
+
+    // ç and ş are left ALONE: the tokenizer already folds them at match time, so rewriting them
+    // here would be redundant. Only the `ı` axis varies, and it varies over every combination,
+    // because the real spelling is mixed and an all-or-nothing pair would miss it.
+    expect(expression).toContain("\"çalışıyor\"");
+    expect(expression).toContain("\"çalişiyor\"");
+    expect(expression).toContain("\"çalışiyor\"");
+    expect(expression).toContain("\"çalişıyor\"");
+});
+
+test("toMatchExpression caps the fan-out and falls back to the two bulk spellings", () => {
+    // Six `i` positions would be 64 terms. Past the cap the group keeps all-dotted and all-dotless.
+    const expression = toMatchExpression("iiiiii", { prefix: false });
+
+    expect(expression).toBe("(\"iiiiii\" OR \"ıııııı\")");
+});
+
+test("toMatchExpression expands the largest uncapped word to exactly 32 terms", () => {
+    const expression = toMatchExpression("iiiii", { prefix: false });
+
+    expect(expression.split(" OR ").length).toBe(32);
+});
+
+test("toMatchExpression keeps each token's group independent, so tokens AND rather than multiply", () => {
+    const expression = toMatchExpression("bir iki", { prefix: false });
+
+    // Two groups separated by a space, which FTS5 reads as AND. The cost is the SUM of the two
+    // fan-outs, not their product.
+    expect(expression).toBe("(\"bir\" OR \"bır\") AND (\"iki\" OR \"ıki\" OR \"ikı\" OR \"ıkı\")");
+});
+
+test("toMatchExpression preserves a surrogate pair while rewriting an i beside it", () => {
+    // Positions are computed in code units and the array is split the same way, so an emoji must
+    // survive the rejoin intact.
+    const expression = toMatchExpression("i\u{1F600}", { prefix: false });
+
+    expect(expression).toBe("(\"i\u{1F600}\" OR \"ı\u{1F600}\")");
+});
+
+// (8) degradedTokens: naming the tokens the tokenizer strips down to a near-match-all prefix.
+// Measured on the real archive, `C++` searches the bare prefix `c` and returns 168,241 of 189,644
+// indexed turns, which reads as an answer and carries no information.
+
+test("degradedTokens names a symbol-only word and what it actually searches", () => {
+    expect(degradedTokens("C++")).toEqual([["C++", "C"]]);
+    expect(degradedTokens("C#")).toEqual([["C#", "C"]]);
+});
+
+test("degradedTokens stays silent when the surviving run is still useful", () => {
+    // The prefix star attaches to the LAST run, so `node:sqlite` searches `sqlite` and is fine.
+    expect(degradedTokens("node:sqlite")).toEqual([]);
+    expect(degradedTokens("laravel migration")).toEqual([]);
+});
+
+test("degradedTokens stays silent on a plain word, punctuation being the trigger", () => {
+    // `a` is one character but loses nothing, so there is nothing to explain to the caller.
+    expect(degradedTokens("a")).toEqual([]);
+    expect(degradedTokens("çalışıyor")).toEqual([]);
+});
+
+test("degradedTokens reports every degraded token in the order typed", () => {
+    expect(degradedTokens("C++ real F#")).toEqual([["C++", "C"], ["F#", "F"]]);
+});
+
+test("degradedTokens treats a Turkish letter as content, not punctuation", () => {
+    // The class is Unicode letters and numbers, so a non-ASCII word is never reported as degraded.
+    expect(degradedTokens("iş")).toEqual([]);
 });
