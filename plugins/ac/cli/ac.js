@@ -27583,9 +27583,48 @@ var TURN_COLUMNS = [
   "t.is_sub AS is_sub",
   "t.agent_type AS agent_type"
 ];
+var DOTLESS_I = "ı";
+var DOTTED_CAPITAL_I = "İ";
+var MAX_DOTLESS_I_VARIANTS = 32;
+function dotlessIVariants(token) {
+  const canonical = token.replaceAll(DOTLESS_I, "i").replaceAll(DOTTED_CAPITAL_I, "i");
+  const characters = canonical.split("");
+  const positions = [];
+  characters.forEach((character, index) => {
+    if (character === "i" || character === "I") {
+      positions.push(index);
+    }
+  });
+  if (positions.length === 0) {
+    return [canonical];
+  }
+  const total = 2 ** positions.length;
+  if (total > MAX_DOTLESS_I_VARIANTS) {
+    return [canonical, withDotlessAt(characters, positions)];
+  }
+  const variants = [];
+  for (let mask = 0;mask < total; mask += 1) {
+    const selected = positions.filter((_, bit) => (mask & 1 << bit) !== 0);
+    variants.push(withDotlessAt(characters, selected));
+  }
+  return variants;
+}
+function withDotlessAt(characters, positions) {
+  const rewritten = [...characters];
+  for (const position of positions) {
+    rewritten[position] = DOTLESS_I;
+  }
+  return rewritten.join("");
+}
 function toMatchExpression(pattern, opts) {
   const suffix = opts.prefix ? "*" : "";
-  return pattern.split(/\s+/).filter((token) => token !== "").map((token) => `"${token.replaceAll('"', '""')}"${suffix}`).join(" ");
+  return pattern.split(/\s+/).filter((token) => token !== "").map((token) => {
+    const terms = dotlessIVariants(token).map((variant) => `"${variant.replaceAll('"', '""')}"${suffix}`);
+    if (terms.length === 1) {
+      return terms.join("");
+    }
+    return `(${terms.join(" OR ")})`;
+  }).join(" AND ");
 }
 function buildContentQuery(query) {
   assertNonEmptyMatch(query.match, "content");
@@ -27767,6 +27806,18 @@ function whereClause(clauses, opts = {}) {
   return `WHERE ${all.join(`
 ${opts.indent ?? ""}  AND `)}`;
 }
+function degradedTokens(pattern) {
+  const degraded = [];
+  for (const token of pattern.split(/\s+/).filter((candidate) => candidate !== "")) {
+    const runs = token.split(/[^\p{L}\p{N}]+/u).filter((run) => run !== "");
+    const surviving = runs.at(-1);
+    if (surviving === undefined || surviving.length > 2 || surviving === token) {
+      continue;
+    }
+    degraded.push([token, surviving]);
+  }
+  return degraded;
+}
 
 // src/history-format.ts
 import { basename } from "node:path";
@@ -27804,7 +27855,7 @@ function renderContent(rows, opts) {
 `);
   return withheld > 0 ? `${body}
 
-${truncationNotice(withheld)}` : body;
+${truncationNotice(withheld, { noun: "hit(s)", narrowable: true })}` : body;
 }
 function renderContentHit(row, position, now) {
   const fields = [
@@ -27830,7 +27881,7 @@ function renderSessions(rows, opts) {
 `);
   return withheld > 0 ? `${body}
 
-${truncationNotice(withheld)}` : body;
+${truncationNotice(withheld, { noun: "session(s)", narrowable: true })}` : body;
 }
 function renderSessionLine(row, now) {
   const title = row.title ?? "(untitled session)";
@@ -27848,7 +27899,7 @@ function renderCount(row) {
 }
 function renderRead(rows, opts) {
   const window2 = rows.slice(0, opts.limit);
-  const framingBytes = Buffer.byteLength(positionLine(opts, window2.length), "utf8") + Buffer.byteLength(truncationNotice(opts.totalRows), "utf8") + 4;
+  const framingBytes = Buffer.byteLength(positionLine(opts, window2.length), "utf8") + Buffer.byteLength(truncationNotice(opts.totalRows, READ_NOTICE_SHAPE), "utf8") + 4;
   const turnBudget = Math.max(0, MAX_READ_OUTPUT_BYTES - framingBytes);
   const blocks = [];
   let usedBytes = 0;
@@ -27869,7 +27920,7 @@ function renderRead(rows, opts) {
 `);
   return withheld > 0 ? `${body}
 
-${truncationNotice(withheld)}` : body;
+${truncationNotice(withheld, READ_NOTICE_SHAPE)}` : body;
 }
 function positionLine(opts, renderedCount) {
   const end = opts.offset + renderedCount;
@@ -27879,8 +27930,10 @@ function renderReadLine(row) {
   const label = row.is_sub === 1 && row.agent_type !== null ? `${row.role} (${row.agent_type})` : row.role;
   return `${label}: ${truncateOnWordBoundary(row.body, MAX_READ_ROW_CHARS)}`;
 }
-function truncationNotice(withheld) {
-  return `[${withheld} hit(s) withheld: increase head_limit, narrow the query, or page with offset]`;
+var READ_NOTICE_SHAPE = { noun: "turn(s)", narrowable: false };
+function truncationNotice(withheld, opts) {
+  const remedies = opts.narrowable ? "increase head_limit, narrow the query, or page with offset" : "increase head_limit or page with offset";
+  return `[${withheld} ${opts.noun} withheld: ${remedies}]`;
 }
 function truncateOnWordBoundary(text, maxChars) {
   if (text.length <= maxChars) {
@@ -27993,6 +28046,10 @@ function makeRow(id, sessionId, ts, role, kind, ctx, body) {
   };
 }
 var KNOWN_BLOCK_TYPES = new Set(["text", "thinking", "tool_use", "tool_result", "image"]);
+var SEARCH_TOOL_NAME = "search-history";
+function isSelfReferentialToolCall(name) {
+  return name === SEARCH_TOOL_NAME || name.endsWith(`__${SEARCH_TOOL_NAME}`);
+}
 function buildRows(content, uuid2, sessionId, role, ts, ctx) {
   const rows = [];
   if (typeof content === "string") {
@@ -28020,6 +28077,9 @@ function buildRows(content, uuid2, sessionId, role, ts, ctx) {
   blocks.forEach((block, index) => {
     if (block.type === "tool_use") {
       const name = typeof block.name === "string" ? block.name : "";
+      if (isSelfReferentialToolCall(name)) {
+        return;
+      }
       const rendered = renderToolUseInput(block.input);
       const body = rendered.length > 0 ? `${name} ${rendered}` : name;
       rows.push(makeRow(`${uuid2}:tool_use:${index}`, sessionId, ts, role, "tool_use", ctx, body));
@@ -28494,6 +28554,10 @@ function resolveProjectsRoot(options = {}) {
 async function runSearch(args, deps) {
   const request = validateArgs(args);
   const notices = await syncBeforeSearch(deps);
+  const degradedNotice = degradationNotice(args.pattern);
+  if (degradedNotice !== undefined) {
+    notices.push(degradedNotice);
+  }
   const body = executeMode(request, deps);
   return notices.length === 0 ? body : `${notices.join(`
 `)}
@@ -28942,6 +29006,17 @@ function toReadHitRow(row) {
     agent_type: asNullableText(row["agent_type"]),
     body: asText(row["body"])
   };
+}
+function degradationNotice(pattern) {
+  if (pattern === undefined) {
+    return;
+  }
+  const degraded = degradedTokens(pattern);
+  if (degraded.length === 0) {
+    return;
+  }
+  const described = degraded.map(([token, surviving]) => `"${token}" searched as "${surviving}"`);
+  return `Note: punctuation is dropped rather than searched, so ${described.join(", ")}. ` + "That prefix matches most of the archive; write plain search words for a useful result.";
 }
 
 // src/history-store.ts
@@ -29481,7 +29556,7 @@ function primaryResultCode(error2) {
 var HISTORY_TOOL_NAME = "search-history";
 var HISTORY_TOOL_DEFINITION = {
   name: HISTORY_TOOL_NAME,
-  description: "Search the user's own local Claude Code conversation history across every local project, " + "backed by a permanent SQLite full-text archive. `pattern` is TOKENIZED FULL-TEXT search " + "with prefix matching, NOT a regular expression: it splits on whitespace, matches each " + "token as a prefix, and ANDs the tokens together. Punctuation is DROPPED by the tokenizer " + "rather than searched, so regex-shaped input degrades silently instead of erroring: `C++` " + "searches the bare prefix `c` and matches almost every turn, and `node.*sqlite` searches " + "for `node` immediately followed by `sqlite`; write plain search words instead. The " + "`unicode61` tokenizer is case-insensitive and folds every Turkish diacritic except `ı` " + "(U+0131, dotless i), so `gozden` finds `gözden` but `calisiyor` does NOT find " + "`çalışıyor`; keep the `ı` when a Turkish search word has one. `pattern` is required for " + "`output_mode` " + "`content`, `sessions` and `count`; it is not used for `read`, which instead opens a " + "chronological window on one `session_id` (required in that mode). Only prose and tool " + "arguments are indexed: successful tool output is never indexed, while failed tool " + "output (errors) is, so this tool cannot surface a large file dump but can surface why " + "something broke.",
+  description: "Search the user's own local Claude Code conversation history across every local project, " + "backed by a permanent SQLite full-text archive. `pattern` is TOKENIZED FULL-TEXT search " + "with prefix matching, NOT a regular expression: it splits on whitespace, matches each " + "token as a prefix, and ANDs the tokens together. Punctuation is DROPPED by the tokenizer " + "rather than searched, so regex-shaped input degrades silently instead of erroring: `C++` " + "searches the bare prefix `c` and matches almost every turn, and `node.*sqlite` searches " + "for `node` immediately followed by `sqlite`; write plain search words instead. Matching " + "is case-insensitive and fully diacritic-insensitive for Turkish, in both directions: " + "`gozden` finds `gözden`, and `calisiyor` finds `çalışıyor` because every token is " + "expanded over the dotted/dotless i axis the tokenizer does not fold on its own. Type a " + "Turkish word either way. `pattern` is required for " + "`output_mode` " + "`content`, `sessions` and `count`; it is not used for `read`, which instead opens a " + "chronological window on one `session_id` (required in that mode). Only prose and tool " + "arguments are indexed: successful tool output is never indexed, while failed tool " + "output (errors) is, so this tool cannot surface a large file dump but can surface why " + "something broke.",
   inputSchema: {
     type: "object",
     properties: {
@@ -38571,7 +38646,7 @@ history.command("index").description("Build or refresh the history archive from 
     store.close();
   }
 });
-history.command("search <pattern>").description("Search the history archive. pattern is tokenized full-text with prefix matching, not a " + "regex, and punctuation is dropped rather than matched, so 'C++' searches for 'c'. " + "Every Turkish diacritic folds EXCEPT 'ı' (U+0131), so 'gozden' finds 'gözden' but " + "'calisiyor' does NOT find 'çalışıyor'; type the dotless i as itself.").option("--path <value>", "Filter to project paths containing this substring.").option("--output-mode <value>", "content|sessions|count|read", "content").option("--head-limit <value>", `Max hits per page (1-${HISTORY_HEAD_LIMIT_MAX}).`, String(HISTORY_HEAD_LIMIT_DEFAULT)).option("--offset <value>", "Page offset.", "0").option("--since <value>", "ISO date/time lower bound.").option("--until <value>", "ISO date/time upper bound.").option("--role <value>", "user|assistant|any", "any").option("--kind <value>", "prose|tool_use|tool_error|any", "any").option("--no-include-subagents", "Exclude subagent turns (included by default).").option("--agent-type <value>", "Filter to one subagent agent type, e.g. ac:librarian.").option("--session-id <value>", "Session to open a window on; required (and pattern is ignored) when --output-mode is read.").action(async (pattern, opts) => {
+history.command("search <pattern>").description("Search the history archive. pattern is tokenized full-text with prefix matching, not a " + "regex, and punctuation is dropped rather than matched, so 'C++' searches for 'c'. " + "Turkish folding works in both directions: 'gozden' finds 'gözden' and 'calisiyor' " + "finds 'çalışıyor', so type a Turkish word either way.").option("--path <value>", "Filter to project paths containing this substring.").option("--output-mode <value>", "content|sessions|count|read", "content").option("--head-limit <value>", `Max hits per page (1-${HISTORY_HEAD_LIMIT_MAX}).`, String(HISTORY_HEAD_LIMIT_DEFAULT)).option("--offset <value>", "Page offset.", "0").option("--since <value>", "ISO date/time lower bound.").option("--until <value>", "ISO date/time upper bound.").option("--role <value>", "user|assistant|any", "any").option("--kind <value>", "prose|tool_use|tool_error|any", "any").option("--no-include-subagents", "Exclude subagent turns (included by default).").option("--agent-type <value>", "Filter to one subagent agent type, e.g. ac:librarian.").option("--session-id <value>", "Session to open a window on; required (and pattern is ignored) when --output-mode is read.").action(async (pattern, opts) => {
   const store = await openHistoryStore();
   try {
     const headLimit = Number.parseInt(opts.headLimit, 10);
@@ -38644,4 +38719,4 @@ function formatSyncReport(report) {
 }
 await program2.parseAsync(process.argv);
 
-//# debugId=106D1297CB24E31164756E2164756E21
+//# debugId=870ADA639655418264756E2164756E21
