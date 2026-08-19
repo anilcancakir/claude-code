@@ -129,7 +129,9 @@ history
     .command("search <pattern>")
     .description(
         "Search the history archive. pattern is tokenized full-text with prefix matching, not a "
-            + "regex; Turkish diacritics fold, so 'gozden' finds 'gözden'.",
+            + "regex, and punctuation is dropped rather than matched, so 'C++' searches for 'c'. "
+            + "Every Turkish diacritic folds EXCEPT 'ı' (U+0131), so 'gozden' finds 'gözden' but "
+            + "'calisiyor' does NOT find 'çalışıyor'; type the dotless i as itself.",
     )
     .option("--path <value>", "Filter to project paths containing this substring.")
     .option("--output-mode <value>", "content|sessions|count|read", "content")
@@ -234,7 +236,13 @@ function formatSyncReport(report: HistorySyncReport): string {
     return [
         `Files scanned: ${report.filesScanned}`,
         `Files vanished mid-walk: ${report.filesVanished}`,
+        // Both counters exist to be seen. `filesFailed` counts a transcript this pass could not
+        // read at all, and `skipped` counts conversational lines that carried nothing indexable;
+        // misclassifying the latter is what once produced a 1.53 GB quarantine table, so the
+        // diagnostic surface for it must not hide either number.
+        `Files failed to read: ${report.filesFailed ?? 0}`,
         `Rows added: ${report.rowsAdded}`,
+        `Lines skipped (nothing indexable): ${report.skipped ?? 0}`,
         `Lines quarantined: ${report.quarantined}`,
         `Redactions applied: ${report.redactions}`,
         `Elapsed: ${report.elapsedMillis} ms`,
