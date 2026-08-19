@@ -27842,6 +27842,1916 @@ async function runExternalAgent(args, options) {
   throw new McpError(ErrorCode.InternalError, `${cli} exited ${code}: ${tail}`);
 }
 
+// src/history-search.ts
+import { homedir } from "node:os";
+import { join as join2 } from "node:path";
+
+// src/history-query.ts
+var SNIPPET_OPEN_MARKER = "«";
+var SNIPPET_CLOSE_MARKER = "»";
+var SNIPPET_MAX_TOKENS = 40;
+var SNIPPET_ELLIPSIS = "…";
+var RANK_EXPRESSION = "bm25(turns_fts) - (COALESCE(t.ts, 0) / 1e15)";
+var LIKE_ESCAPE_CLAUSE = "ESCAPE '\\'";
+var TURN_COLUMNS = [
+  "t.id AS id",
+  "t.uuid AS uuid",
+  "t.session_id AS session_id",
+  "t.project_path AS project_path",
+  "t.ts AS ts",
+  "t.role AS role",
+  "t.kind AS kind",
+  "t.is_sub AS is_sub",
+  "t.agent_type AS agent_type"
+];
+function toMatchExpression(pattern, opts) {
+  const suffix = opts.prefix ? "*" : "";
+  return pattern.split(/\s+/).filter((token) => token !== "").map((token) => `"${token.replaceAll('"', '""')}"${suffix}`).join(" ");
+}
+function buildContentQuery(query) {
+  assertNonEmptyMatch(query.match, "content");
+  const filters = buildFilterFragments(query.filters);
+  const columns = [
+    ...TURN_COLUMNS,
+    `snippet(turns_fts, 0, '${SNIPPET_OPEN_MARKER}', '${SNIPPET_CLOSE_MARKER}', ` + `'${SNIPPET_ELLIPSIS}', ${SNIPPET_MAX_TOKENS}) AS snippet`
+  ];
+  const sql = [
+    `SELECT ${columns.join(", ")}`,
+    "FROM turns_fts",
+    "JOIN turns t ON t.id = turns_fts.rowid",
+    whereClause(filters.clauses),
+    `ORDER BY ${RANK_EXPRESSION} ASC`,
+    "LIMIT ? OFFSET ?"
+  ].join(`
+`);
+  return {
+    sql,
+    params: [
+      query.match,
+      ...filters.params,
+      query.limit,
+      query.offset
+    ]
+  };
+}
+function buildSessionsQuery(query) {
+  assertNonEmptyMatch(query.match, "sessions");
+  const filters = buildFilterFragments(query.filters);
+  const hitColumns = [
+    "t.session_id AS session_id",
+    "t.project_path AS project_path",
+    "t.ts AS ts",
+    `${RANK_EXPRESSION} AS score`
+  ];
+  const columns = [
+    "hit.session_id AS session_id",
+    "MAX(hit.project_path) AS project_path",
+    "COUNT(*) AS hits",
+    "MIN(hit.ts) AS first_ts",
+    "MAX(hit.ts) AS last_ts",
+    "MIN(hit.score) AS score"
+  ];
+  const sql = [
+    "WITH hit AS MATERIALIZED (",
+    `    SELECT ${hitColumns.join(", ")}`,
+    "    FROM turns_fts",
+    "    JOIN turns t ON t.id = turns_fts.rowid",
+    `    ${whereClause(filters.clauses, { indent: "    " })}`,
+    ")",
+    `SELECT ${columns.join(", ")}`,
+    "FROM hit",
+    "GROUP BY hit.session_id",
+    "ORDER BY score ASC",
+    "LIMIT ? OFFSET ?"
+  ].join(`
+`);
+  return {
+    sql,
+    params: [
+      query.match,
+      ...filters.params,
+      query.limit,
+      query.offset
+    ]
+  };
+}
+function buildCountQuery(query) {
+  assertNonEmptyMatch(query.match, "count");
+  const filters = buildFilterFragments(query.filters);
+  const columns = [
+    "COUNT(*) AS matches",
+    "COUNT(DISTINCT t.session_id) AS sessions",
+    "COUNT(DISTINCT t.project_path) AS projects"
+  ];
+  const sql = [
+    `SELECT ${columns.join(", ")}`,
+    "FROM turns t",
+    whereClause([
+      "t.rowid IN (SELECT rowid FROM turns_fts WHERE turns_fts MATCH ?)",
+      ...filters.clauses
+    ], { withMatch: false })
+  ].join(`
+`);
+  return {
+    sql,
+    params: [
+      query.match,
+      ...filters.params
+    ]
+  };
+}
+function buildReadQuery(query) {
+  const columns = [
+    ...TURN_COLUMNS,
+    "t.body AS body"
+  ];
+  const sql = [
+    `SELECT ${columns.join(", ")}`,
+    "FROM turns t",
+    "WHERE t.session_id = ?",
+    "ORDER BY t.ts ASC, t.id ASC",
+    "LIMIT ? OFFSET ?"
+  ].join(`
+`);
+  return {
+    sql,
+    params: [
+      query.sessionId,
+      query.limit,
+      query.offset
+    ]
+  };
+}
+function assertNonEmptyMatch(match, mode) {
+  if (match.trim() === "") {
+    throw new Error(`the ${mode} query needs a non-empty MATCH expression; FTS5 rejects an empty one`);
+  }
+}
+function buildFilterFragments(filters) {
+  const clauses = [];
+  const params = [];
+  if (filters.path !== undefined) {
+    clauses.push(`t.project_path LIKE ? ${LIKE_ESCAPE_CLAUSE}`);
+    params.push(toSubstringPattern(filters.path));
+  }
+  if (filters.since !== undefined) {
+    clauses.push("t.ts >= ?");
+    params.push(filters.since);
+  }
+  if (filters.until !== undefined) {
+    clauses.push("t.ts <= ?");
+    params.push(filters.until);
+  }
+  if (filters.role !== undefined) {
+    clauses.push("t.role = ?");
+    params.push(filters.role);
+  }
+  if (filters.kind !== undefined) {
+    clauses.push("t.kind = ?");
+    params.push(filters.kind);
+  }
+  if (filters.includeSubagents === false) {
+    clauses.push("t.is_sub = 0");
+  }
+  if (filters.agentType !== undefined) {
+    clauses.push("t.agent_type = ?");
+    params.push(filters.agentType);
+  }
+  return {
+    clauses,
+    params
+  };
+}
+function toSubstringPattern(value) {
+  return `%${value.replace(/[\\%_]/g, "\\$&")}%`;
+}
+function whereClause(clauses, opts = {}) {
+  const all = opts.withMatch === false ? clauses : ["turns_fts MATCH ?", ...clauses];
+  return `WHERE ${all.join(`
+${opts.indent ?? ""}  AND `)}`;
+}
+
+// src/history-format.ts
+import { basename } from "node:path";
+var MAX_CONTENT_OUTPUT_BYTES = 8000;
+var SNIPPET_TRUNCATE_CHARS = 400;
+var ELLIPSIS = "…";
+var MINUTE_MS = 60000;
+var HOUR_MS = 60 * MINUTE_MS;
+var DAY_MS = 24 * HOUR_MS;
+function renderContent(rows, opts) {
+  const now = opts.now ?? Date.now();
+  const page = rows.slice(0, opts.headLimit);
+  const blocks = [];
+  let usedBytes = 0;
+  for (let index = 0;index < page.length; index++) {
+    const row = page[index];
+    if (row === undefined) {
+      continue;
+    }
+    const block = renderContentHit(row, index + 1, now);
+    const blockBytes = Buffer.byteLength(block, "utf8") + 2;
+    if (blocks.length > 0 && usedBytes + blockBytes > MAX_CONTENT_OUTPUT_BYTES) {
+      break;
+    }
+    blocks.push(block);
+    usedBytes += blockBytes;
+  }
+  const withheldByLimit = Math.max(0, opts.totalMatches - page.length);
+  const withheldByBudget = page.length - blocks.length;
+  const withheld = withheldByLimit + withheldByBudget;
+  const body = blocks.join(`
+
+`);
+  return withheld > 0 ? `${body}
+
+${truncationNotice(withheld)}` : body;
+}
+function renderContentHit(row, position, now) {
+  const fields = [
+    `#${position}`,
+    formatRelativeAge(row.ts, now),
+    basename(row.project_path),
+    `session:${row.session_id}`,
+    row.kind
+  ];
+  if (row.is_sub === 1 && row.agent_type !== null) {
+    fields.push(`subagent:${row.agent_type}`);
+  }
+  return `${fields.join(" | ")}
+${truncateOnWordBoundary(row.snippet, SNIPPET_TRUNCATE_CHARS)}`;
+}
+function renderSessions(rows, opts) {
+  const now = opts.now ?? Date.now();
+  const page = rows.slice(0, opts.headLimit);
+  const lines = page.map((row) => renderSessionLine(row, now));
+  const withheld = Math.max(0, opts.totalSessions - page.length);
+  const body = lines.join(`
+
+`);
+  return withheld > 0 ? `${body}
+
+${truncationNotice(withheld)}` : body;
+}
+function renderSessionLine(row, now) {
+  const title = row.title ?? "(untitled session)";
+  const range = `${formatRelativeAge(row.first_ts, now)} .. ${formatRelativeAge(row.last_ts, now)}`;
+  return [
+    title,
+    `${row.hits} hit(s)`,
+    basename(row.project_path),
+    `session:${row.session_id}`,
+    range
+  ].join(" | ");
+}
+function renderCount(row) {
+  return `${row.matches} match(es) across ${row.sessions} session(s) in ${row.projects} project(s)`;
+}
+function renderRead(rows, opts) {
+  const window2 = rows.slice(0, opts.limit);
+  const windowEnd = opts.offset + window2.length;
+  const positionLine = `session:${opts.sessionId} | turns ${opts.offset + 1}-${windowEnd} of ${opts.totalRows}`;
+  const lines = window2.map((row) => renderReadLine(row));
+  const withheld = Math.max(0, opts.totalRows - windowEnd);
+  const body = [positionLine, ...lines].join(`
+
+`);
+  return withheld > 0 ? `${body}
+
+${truncationNotice(withheld)}` : body;
+}
+function renderReadLine(row) {
+  const label = row.is_sub === 1 && row.agent_type !== null ? `${row.role} (${row.agent_type})` : row.role;
+  return `${label}: ${row.body}`;
+}
+function truncationNotice(withheld) {
+  return `[${withheld} hit(s) withheld: increase head_limit, narrow the query, or page with offset]`;
+}
+function truncateOnWordBoundary(text, maxChars) {
+  if (text.length <= maxChars) {
+    return text;
+  }
+  const slice = text.slice(0, maxChars);
+  const lastSpace = slice.lastIndexOf(" ");
+  const cut = lastSpace > 0 ? slice.slice(0, lastSpace) : slice;
+  return `${cut}${ELLIPSIS}`;
+}
+function formatRelativeAge(ts, now) {
+  if (ts === null || ts === undefined) {
+    return "unknown time";
+  }
+  const deltaMs = now - ts;
+  if (deltaMs < MINUTE_MS) {
+    return "just now";
+  }
+  if (deltaMs < HOUR_MS) {
+    return `${Math.floor(deltaMs / MINUTE_MS)}m ago`;
+  }
+  if (deltaMs < DAY_MS) {
+    return `${Math.floor(deltaMs / HOUR_MS)}h ago`;
+  }
+  return `${Math.floor(deltaMs / DAY_MS)}d ago`;
+}
+
+// src/history-sync.ts
+import { open, readdir, stat as statAsync } from "node:fs/promises";
+import { readFile as readFileAsync } from "node:fs/promises";
+import { basename as basename2, dirname, join } from "node:path";
+
+// src/history-cursor.ts
+import { createHash } from "node:crypto";
+function decideRead(entry, stat) {
+  if (entry === undefined) {
+    return "full-reread";
+  }
+  if (stat.size < entry.cursor) {
+    return "full-reread";
+  }
+  if (stat.headFingerprint !== entry.headFingerprint) {
+    return "full-reread";
+  }
+  if (stat.size === entry.cursor) {
+    return "up-to-date";
+  }
+  return "append-from-cursor";
+}
+function splitDelta(buffer, hadPriorCursor) {
+  const lastNewlineIndex = buffer.lastIndexOf(10);
+  if (lastNewlineIndex === -1) {
+    return { lines: [], advanceBy: 0 };
+  }
+  const complete = buffer.subarray(0, lastNewlineIndex + 1).toString("utf8");
+  const lines = complete.split(`
+`).slice(0, -1);
+  const usableLines = hadPriorCursor ? lines.slice(1) : lines;
+  return { lines: usableLines, advanceBy: lastNewlineIndex + 1 };
+}
+function fingerprint(bytes) {
+  return createHash("sha256").update(bytes).digest("hex");
+}
+
+// src/history-distill.ts
+var USER_TYPE_MARKER = '"type":"user"';
+var ASSISTANT_TYPE_MARKER = '"type":"assistant"';
+function looksLikeConversationalLine(line) {
+  return line.includes(USER_TYPE_MARKER) || line.includes(ASSISTANT_TYPE_MARKER);
+}
+function renderToolUseInput(input) {
+  if (typeof input !== "object" || input === null) {
+    return "";
+  }
+  const pairs = [];
+  for (const [key, value] of Object.entries(input)) {
+    if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+      pairs.push(`${key}=${value}`);
+    }
+  }
+  return pairs.join(" ");
+}
+function extractToolResultText(content) {
+  if (typeof content === "string") {
+    return content;
+  }
+  if (Array.isArray(content)) {
+    const texts = [];
+    for (const block of content) {
+      if (block.type === "text" && typeof block.text === "string") {
+        texts.push(block.text);
+      }
+    }
+    return texts.join(`
+`);
+  }
+  return "";
+}
+function makeRow(id, sessionId, ts, role, kind, ctx, body) {
+  return {
+    id,
+    sessionId,
+    projectPath: ctx.projectPath,
+    ts,
+    role,
+    kind,
+    isSubagent: ctx.isSubagent,
+    agentType: ctx.agentType,
+    body
+  };
+}
+var KNOWN_BLOCK_TYPES = new Set(["text", "thinking", "tool_use", "tool_result", "image"]);
+function buildRows(content, uuid2, sessionId, role, ts, ctx) {
+  const rows = [];
+  if (typeof content === "string") {
+    rows.push(makeRow(`${uuid2}:prose`, sessionId, ts, role, "prose", ctx, content));
+    return { rows, hasUnknownBlock: false };
+  }
+  if (!Array.isArray(content)) {
+    return { rows, hasUnknownBlock: true };
+  }
+  const blocks = content;
+  let hasUnknownBlock = false;
+  const proseParts = [];
+  for (const block of blocks) {
+    if (typeof block.type !== "string" || !KNOWN_BLOCK_TYPES.has(block.type)) {
+      hasUnknownBlock = true;
+    }
+    if (block.type === "text" && typeof block.text === "string") {
+      proseParts.push(block.text);
+    }
+  }
+  if (proseParts.length > 0) {
+    rows.push(makeRow(`${uuid2}:prose`, sessionId, ts, role, "prose", ctx, proseParts.join(`
+`)));
+  }
+  blocks.forEach((block, index) => {
+    if (block.type === "tool_use") {
+      const name = typeof block.name === "string" ? block.name : "";
+      const rendered = renderToolUseInput(block.input);
+      const body = rendered.length > 0 ? `${name} ${rendered}` : name;
+      rows.push(makeRow(`${uuid2}:tool_use:${index}`, sessionId, ts, role, "tool_use", ctx, body));
+      return;
+    }
+    if (block.type === "tool_result" && block.is_error === true) {
+      const body = extractToolResultText(block.content);
+      rows.push(makeRow(`${uuid2}:tool_error:${index}`, sessionId, ts, role, "tool_error", ctx, body));
+    }
+  });
+  return { rows, hasUnknownBlock };
+}
+function distillLine(line, ctx) {
+  if (!looksLikeConversationalLine(line)) {
+    return { outcome: "control" };
+  }
+  let parsed;
+  try {
+    parsed = JSON.parse(line);
+  } catch {
+    return { outcome: "quarantine", raw: line };
+  }
+  if (parsed.type !== "user" && parsed.type !== "assistant") {
+    return { outcome: "control" };
+  }
+  const role = parsed.type;
+  if (typeof parsed.uuid !== "string" || typeof parsed.sessionId !== "string") {
+    return { outcome: "quarantine", raw: line };
+  }
+  const parsedTs = typeof parsed.timestamp === "string" ? Date.parse(parsed.timestamp) : NaN;
+  const ts = Number.isNaN(parsedTs) ? undefined : parsedTs;
+  const { rows, hasUnknownBlock } = buildRows(parsed.message?.content, parsed.uuid, parsed.sessionId, role, ts, ctx);
+  if (rows.length === 0) {
+    return hasUnknownBlock ? { outcome: "quarantine", raw: line } : { outcome: "skipped" };
+  }
+  return { outcome: "rows", rows };
+}
+function unescapeJsonString(raw) {
+  if (!raw.includes("\\")) {
+    return raw;
+  }
+  try {
+    return JSON.parse(`"${raw}"`);
+  } catch {
+    return raw;
+  }
+}
+function extractJsonStringField(text, key) {
+  for (const pattern of [`"${key}":"`, `"${key}": "`]) {
+    const idx = text.indexOf(pattern);
+    if (idx < 0) {
+      continue;
+    }
+    const valueStart = idx + pattern.length;
+    let i = valueStart;
+    while (i < text.length) {
+      if (text[i] === "\\") {
+        i += 2;
+        continue;
+      }
+      if (text[i] === '"') {
+        return unescapeJsonString(text.slice(valueStart, i));
+      }
+      i++;
+    }
+  }
+  return;
+}
+function extractLastJsonStringField(text, key) {
+  let lastValue;
+  for (const pattern of [`"${key}":"`, `"${key}": "`]) {
+    let searchFrom = 0;
+    while (true) {
+      const idx = text.indexOf(pattern, searchFrom);
+      if (idx < 0) {
+        break;
+      }
+      const valueStart = idx + pattern.length;
+      let i = valueStart;
+      while (i < text.length) {
+        if (text[i] === "\\") {
+          i += 2;
+          continue;
+        }
+        if (text[i] === '"') {
+          lastValue = unescapeJsonString(text.slice(valueStart, i));
+          break;
+        }
+        i++;
+      }
+      searchFrom = i + 1;
+    }
+  }
+  return lastValue;
+}
+function extractJsonStringFieldPrefix(text, key, maxLen) {
+  for (const pattern of [`"${key}":"`, `"${key}": "`]) {
+    const idx = text.indexOf(pattern);
+    if (idx < 0) {
+      continue;
+    }
+    const valueStart = idx + pattern.length;
+    let i = valueStart;
+    let collected = 0;
+    while (i < text.length && collected < maxLen) {
+      if (text[i] === "\\") {
+        i += 2;
+        collected++;
+        continue;
+      }
+      if (text[i] === '"') {
+        break;
+      }
+      i++;
+      collected++;
+    }
+    const raw = text.slice(valueStart, i);
+    return raw.replace(/\\n/g, " ").replace(/\\t/g, " ").trim();
+  }
+  return "";
+}
+var SKIP_FIRST_PROMPT_PATTERN = /^(?:\s*<[a-z][\w-]*[\s>]|\[Request interrupted by user[^\]]*\])/;
+var COMMAND_NAME_RE = /<command-name>(.*?)<\/command-name>/;
+function extractFirstPromptFromChunk(chunk) {
+  let start = 0;
+  let commandFallback = "";
+  while (start < chunk.length) {
+    const newlineIdx = chunk.indexOf(`
+`, start);
+    const line = newlineIdx >= 0 ? chunk.slice(start, newlineIdx) : chunk.slice(start);
+    start = newlineIdx >= 0 ? newlineIdx + 1 : chunk.length;
+    if (!line.includes(USER_TYPE_MARKER)) {
+      continue;
+    }
+    if (line.includes('"tool_result"')) {
+      continue;
+    }
+    if (line.includes('"isMeta":true') || line.includes('"isMeta": true')) {
+      continue;
+    }
+    if (line.includes('"isCompactSummary":true') || line.includes('"isCompactSummary": true')) {
+      continue;
+    }
+    let entry;
+    try {
+      entry = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (entry.type !== "user") {
+      continue;
+    }
+    const content = entry.message?.content;
+    const texts = [];
+    if (typeof content === "string") {
+      texts.push(content);
+    } else if (Array.isArray(content)) {
+      for (const block of content) {
+        if (block.type === "text" && typeof block.text === "string") {
+          texts.push(block.text);
+        }
+      }
+    }
+    for (const raw of texts) {
+      let result = raw.replace(/\n/g, " ").trim();
+      if (!result) {
+        continue;
+      }
+      const cmdMatch = COMMAND_NAME_RE.exec(result);
+      if (cmdMatch !== null) {
+        if (!commandFallback && cmdMatch[1] !== undefined) {
+          commandFallback = cmdMatch[1];
+        }
+        continue;
+      }
+      if (SKIP_FIRST_PROMPT_PATTERN.test(result)) {
+        continue;
+      }
+      if (result.length > 200) {
+        result = `${result.slice(0, 200).trim()}…`;
+      }
+      return result;
+    }
+  }
+  return commandFallback;
+}
+function resolveSessionMeta(head, tail) {
+  const title = extractLastJsonStringField(tail, "customTitle") ?? extractLastJsonStringField(head, "customTitle") ?? extractLastJsonStringField(tail, "aiTitle") ?? extractLastJsonStringField(head, "aiTitle");
+  const firstPrompt = extractLastJsonStringField(tail, "lastPrompt") || extractFirstPromptFromChunk(head) || extractJsonStringFieldPrefix(head, "content", 200) || extractJsonStringFieldPrefix(head, "text", 200) || "";
+  const projectPath = extractJsonStringField(head, "cwd");
+  return { title, firstPrompt, projectPath };
+}
+
+// src/history-sync.ts
+var HEAD_WINDOW_BYTES = 65536;
+var TAIL_WINDOW_BYTES = 65536;
+function isEnoentError(err) {
+  return typeof err === "object" && err !== null && "code" in err && err.code === "ENOENT";
+}
+async function defaultListSessionFiles(root) {
+  const results = [];
+  async function walk(dir) {
+    let entries;
+    try {
+      entries = await readdir(dir, { withFileTypes: true });
+    } catch (err) {
+      if (isEnoentError(err)) {
+        return;
+      }
+      throw err;
+    }
+    for (const entry of entries) {
+      const entryPath = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        await walk(entryPath);
+      } else if (entry.isFile() && entry.name.endsWith(".jsonl")) {
+        results.push(entryPath);
+      }
+    }
+  }
+  await walk(root);
+  return results;
+}
+async function defaultStatFile(path) {
+  const stats = await statAsync(path);
+  return { size: stats.size, mtimeMs: stats.mtimeMs };
+}
+async function defaultReadFileRange(path, start, end) {
+  const length = Math.max(0, end - start);
+  if (length === 0) {
+    return Buffer.alloc(0);
+  }
+  const handle = await open(path, "r");
+  try {
+    const buffer = Buffer.alloc(length);
+    const { bytesRead } = await handle.read(buffer, 0, length, start);
+    return buffer.subarray(0, bytesRead);
+  } finally {
+    await handle.close();
+  }
+}
+async function defaultReadSubagentMeta(metaPath) {
+  let raw;
+  try {
+    raw = await readFileAsync(metaPath, "utf8");
+  } catch (err) {
+    if (isEnoentError(err)) {
+      return;
+    }
+    throw err;
+  }
+  const parsed = JSON.parse(raw);
+  return {
+    agentType: typeof parsed.agentType === "string" ? parsed.agentType : undefined,
+    description: typeof parsed.description === "string" ? parsed.description : undefined
+  };
+}
+function classifyTranscript(path) {
+  const parentDir = dirname(path);
+  const fileBase = basename2(path, ".jsonl");
+  if (basename2(parentDir) === "subagents") {
+    const subagentId = fileBase.startsWith("agent-") ? fileBase.slice("agent-".length) : fileBase;
+    const sessionId = basename2(dirname(parentDir));
+    return {
+      path,
+      isSubagent: true,
+      transcriptKey: subagentId,
+      sessionId,
+      metaPath: join(parentDir, `${fileBase}.meta.json`)
+    };
+  }
+  return {
+    path,
+    isSubagent: false,
+    transcriptKey: fileBase,
+    sessionId: fileBase,
+    metaPath: undefined
+  };
+}
+async function walkAndStat(root, listSessionFiles, statFile) {
+  const candidates = await listSessionFiles(root);
+  const files = [];
+  let vanished = 0;
+  for (const path of candidates) {
+    try {
+      const stat = await statFile(path);
+      files.push({ path, stat });
+    } catch (err) {
+      if (isEnoentError(err)) {
+        vanished += 1;
+        continue;
+      }
+      throw err;
+    }
+  }
+  files.sort((a, b) => b.stat.mtimeMs - a.stat.mtimeMs);
+  return { files, vanished };
+}
+function sumRedactionCounts(redactions) {
+  let total = 0;
+  for (const count of Object.values(redactions)) {
+    total += count ?? 0;
+  }
+  return total;
+}
+async function processFile(file, store, deps) {
+  const classified = classifyTranscript(file.path);
+  const manifestEntry = store.getManifestEntry(classified.transcriptKey);
+  const priorCursor = manifestEntry?.cursor ?? 0;
+  const decisionHeadLength = Math.min(deps.headWindowBytes, manifestEntry === undefined ? file.stat.size : priorCursor);
+  const decisionHeadBuffer = await deps.readFileRange(file.path, 0, decisionHeadLength);
+  const decisionHeadFingerprint = fingerprint(decisionHeadBuffer);
+  const decision = decideRead(manifestEntry, {
+    size: file.stat.size,
+    headFingerprint: decisionHeadFingerprint
+  });
+  if (decision === "up-to-date") {
+    return { ingested: false, rowsAdded: 0, quarantined: 0, skipped: 0, redactions: 0 };
+  }
+  const readStart = decision === "append-from-cursor" ? priorCursor : 0;
+  const bodyBuffer = await deps.readFileRange(file.path, readStart, file.stat.size);
+  const { lines, advanceBy } = splitDelta(bodyBuffer, false);
+  const newCursor = readStart + advanceBy;
+  if (lines.length === 0 && newCursor === priorCursor) {
+    return { ingested: false, rowsAdded: 0, quarantined: 0, skipped: 0, redactions: 0 };
+  }
+  const storageHeadLength = Math.min(deps.headWindowBytes, newCursor);
+  const storageHeadBuffer = storageHeadLength === decisionHeadLength ? decisionHeadBuffer : await deps.readFileRange(file.path, 0, storageHeadLength);
+  const storageHeadFingerprint = fingerprint(storageHeadBuffer);
+  const tailLength = Math.min(deps.tailWindowBytes, file.stat.size);
+  const tailStart = Math.max(0, file.stat.size - tailLength);
+  const tailBuffer = await deps.readFileRange(file.path, tailStart, file.stat.size);
+  const meta2 = resolveSessionMeta(storageHeadBuffer.toString("utf8"), tailBuffer.toString("utf8"));
+  const subagentMeta = classified.isSubagent && classified.metaPath !== undefined ? await deps.readSubagentMeta(classified.metaPath) : undefined;
+  const ctx = {
+    projectPath: meta2.projectPath ?? "",
+    isSubagent: classified.isSubagent,
+    agentType: subagentMeta?.agentType
+  };
+  const rows = [];
+  const quarantined = [];
+  let skippedLines = 0;
+  for (const line of lines) {
+    const outcome = distillLine(line, ctx);
+    if (outcome.outcome === "rows") {
+      rows.push(...outcome.rows);
+    } else if (outcome.outcome === "skipped") {
+      skippedLines += 1;
+    } else if (outcome.outcome === "quarantine") {
+      quarantined.push({
+        sessionId: classified.sessionId,
+        projectPath: ctx.projectPath,
+        sourcePath: file.path,
+        raw: outcome.raw
+      });
+    }
+  }
+  const session = classified.isSubagent ? undefined : {
+    sessionId: classified.sessionId,
+    projectPath: meta2.projectPath,
+    title: meta2.title,
+    firstPrompt: meta2.firstPrompt,
+    mtime: file.stat.mtimeMs,
+    isSubagent: false,
+    agentType: undefined
+  };
+  const request = {
+    transcriptKey: classified.transcriptKey,
+    sessionId: classified.sessionId,
+    priorCursor,
+    cursor: newCursor,
+    headFingerprint: storageHeadFingerprint,
+    rows,
+    quarantined,
+    session
+  };
+  const result = store.ingest(request);
+  return {
+    ingested: true,
+    rowsAdded: result.rowsAdded,
+    quarantined: result.quarantined,
+    skipped: skippedLines,
+    redactions: sumRedactionCounts(result.redactions)
+  };
+}
+async function syncArchive(opts) {
+  const startedAt = Date.now();
+  const listSessionFiles = opts.fs?.listSessionFiles ?? defaultListSessionFiles;
+  const statFile = opts.fs?.statFile ?? defaultStatFile;
+  const readFileRange = opts.fs?.readFileRange ?? defaultReadFileRange;
+  const readSubagentMeta = opts.fs?.readSubagentMeta ?? defaultReadSubagentMeta;
+  const headWindowBytes = opts.headWindowBytes ?? HEAD_WINDOW_BYTES;
+  const tailWindowBytes = opts.tailWindowBytes ?? TAIL_WINDOW_BYTES;
+  const { files, vanished } = await walkAndStat(opts.root, listSessionFiles, statFile);
+  const selected = opts.maxFiles === undefined ? files : files.slice(0, opts.maxFiles);
+  let rowsAdded = 0;
+  let quarantined = 0;
+  let skipped = 0;
+  let redactions = 0;
+  let changed = false;
+  for (const file of selected) {
+    const outcome = await processFile(file, opts.store, {
+      readFileRange,
+      readSubagentMeta,
+      headWindowBytes,
+      tailWindowBytes
+    });
+    if (outcome.ingested) {
+      changed = true;
+    }
+    rowsAdded += outcome.rowsAdded;
+    quarantined += outcome.quarantined;
+    skipped += outcome.skipped;
+    redactions += outcome.redactions;
+  }
+  return {
+    filesScanned: selected.length,
+    filesVanished: vanished,
+    rowsAdded,
+    quarantined,
+    skipped,
+    redactions,
+    elapsedMillis: Date.now() - startedAt,
+    changed
+  };
+}
+
+// src/history-search.ts
+var HISTORY_HEAD_LIMIT_DEFAULT = 20;
+var HISTORY_HEAD_LIMIT_MAX = 100;
+var SESSION_ID_MAX_LENGTH = 128;
+var SESSION_TURN_COUNT_SQL = "SELECT COUNT(*) AS total_turns FROM turns WHERE session_id = ?";
+var BUSY_NOTICE = "Note: another writer held the archive lock, so this search ran against the last " + "committed snapshot; the newest turns may be missing until the next call.";
+var READ_ONLY_NOTICE = "Note: this archive was written by a newer build of ac, so it was searched " + "without syncing; upgrade ac to keep it current.";
+function resolveProjectsRoot(options = {}) {
+  const env = options.env ?? process.env;
+  const configured = (env["CLAUDE_CONFIG_DIR"] ?? "").trim();
+  const base = configured === "" ? join2(options.home ?? homedir(), ".claude") : configured;
+  return join2(base, "projects");
+}
+async function runSearch(args, deps) {
+  const request = validateArgs(args);
+  const notices = await syncBeforeSearch(deps);
+  const body = executeMode(request, deps);
+  return notices.length === 0 ? body : `${notices.join(`
+`)}
+
+${body}`;
+}
+async function syncBeforeSearch(deps) {
+  if (!deps.store.writable) {
+    return [READ_ONLY_NOTICE];
+  }
+  const sync = deps.sync ?? syncArchive;
+  const observed = observeBusyWrites(deps.store);
+  const options = {
+    root: deps.projectsRoot ?? resolveProjectsRoot({ env: deps.env, home: deps.home }),
+    store: observed.store,
+    ...deps.fs === undefined ? {} : { fs: deps.fs }
+  };
+  await sync(options);
+  return observed.wasBusy() ? [BUSY_NOTICE] : [];
+}
+function observeBusyWrites(store) {
+  let busy = false;
+  return {
+    store: {
+      databasePath: store.databasePath,
+      schemaVersion: store.schemaVersion,
+      writable: store.writable,
+      getManifestEntry: (transcriptKey) => store.getManifestEntry(transcriptKey),
+      ingest: (request) => {
+        const result = store.ingest(request);
+        if (result.busy) {
+          busy = true;
+        }
+        return result;
+      },
+      upsertSession: (record3) => store.upsertSession(record3),
+      lookupSessions: (sessionIds) => store.lookupSessions(sessionIds),
+      select: (statement) => store.select(statement),
+      forget: (filter) => store.forget(filter),
+      close: () => store.close()
+    },
+    wasBusy: () => busy
+  };
+}
+function executeMode(request, deps) {
+  switch (request.mode) {
+    case "content":
+      return executeContent(request, deps);
+    case "sessions":
+      return executeSessions(request, deps);
+    case "count":
+      return executeCount(request, deps);
+    case "read":
+      return executeRead(request, deps);
+  }
+}
+function executeContent(request, deps) {
+  const rows = deps.store.select(buildContentQuery({
+    match: request.match,
+    filters: request.filters,
+    limit: request.headLimit,
+    offset: request.offset
+  }));
+  if (rows.length === 0) {
+    return emptyResultText(request);
+  }
+  const totals = selectCounts(request, deps);
+  return renderContent(rows.map(toContentHitRow), {
+    headLimit: request.headLimit,
+    totalMatches: Math.max(0, totals.matches - request.offset),
+    ...deps.now === undefined ? {} : { now: deps.now }
+  });
+}
+function executeSessions(request, deps) {
+  const rows = deps.store.select(buildSessionsQuery({
+    match: request.match,
+    filters: request.filters,
+    limit: request.headLimit,
+    offset: request.offset
+  }));
+  if (rows.length === 0) {
+    return emptyResultText(request);
+  }
+  const collapsed = collapseBySession(rows.map(toSessionHitRow));
+  const titles = deps.store.lookupSessions(collapsed.map((row) => row.session_id));
+  const titled = collapsed.map((row) => withTitle(row, titles.get(row.session_id)?.title));
+  const totals = selectCounts(request, deps);
+  return renderSessions(titled, {
+    headLimit: request.headLimit,
+    totalSessions: Math.max(0, totals.sessions - request.offset),
+    ...deps.now === undefined ? {} : { now: deps.now }
+  });
+}
+function executeCount(request, deps) {
+  const totals = selectCounts(request, deps);
+  const line = renderCount(totals);
+  return totals.matches === 0 ? `${line}
+
+${emptyExplanation(request)}` : line;
+}
+function executeRead(request, deps) {
+  const sessionId = request.sessionId;
+  if (sessionId === undefined) {
+    throw invalidParams("session_id is required when output_mode is read");
+  }
+  const rows = deps.store.select(buildReadQuery({
+    sessionId,
+    limit: request.headLimit,
+    offset: request.offset
+  }));
+  if (rows.length === 0) {
+    return emptyResultText(request);
+  }
+  const totalRows = selectSessionTurnCount(sessionId, deps);
+  return renderRead(rows.map(toReadHitRow), {
+    sessionId,
+    offset: request.offset,
+    limit: request.headLimit,
+    totalRows
+  });
+}
+function selectCounts(request, deps) {
+  const rows = deps.store.select(buildCountQuery({
+    match: request.match,
+    filters: request.filters
+  }));
+  const row = rows[0];
+  return {
+    matches: asNumber(row?.["matches"]),
+    sessions: asNumber(row?.["sessions"]),
+    projects: asNumber(row?.["projects"])
+  };
+}
+function selectSessionTurnCount(sessionId, deps) {
+  const rows = deps.store.select({
+    sql: SESSION_TURN_COUNT_SQL,
+    params: [sessionId]
+  });
+  return asNumber(rows[0]?.["total_turns"]);
+}
+function collapseBySession(rows) {
+  const best = new Map;
+  for (const row of rows) {
+    const existing = best.get(row.session_id);
+    if (existing === undefined) {
+      best.set(row.session_id, row);
+      continue;
+    }
+    const winner = row.score < existing.score ? row : existing;
+    best.set(row.session_id, {
+      ...winner,
+      hits: existing.hits + row.hits,
+      first_ts: minTimestamp(existing.first_ts, row.first_ts),
+      last_ts: maxTimestamp(existing.last_ts, row.last_ts)
+    });
+  }
+  return [...best.values()].sort((a, b) => a.score - b.score);
+}
+function minTimestamp(left, right) {
+  if (left === null) {
+    return right;
+  }
+  if (right === null) {
+    return left;
+  }
+  return Math.min(left, right);
+}
+function maxTimestamp(left, right) {
+  if (left === null) {
+    return right;
+  }
+  if (right === null) {
+    return left;
+  }
+  return Math.max(left, right);
+}
+function withTitle(row, title) {
+  if (title === undefined || title.trim() === "") {
+    return row;
+  }
+  return { ...row, title };
+}
+function emptyResultText(request) {
+  const headline = request.mode === "read" ? "No turns found for that session in the local Claude Code history archive." : "No matches in the local Claude Code history archive.";
+  return `${headline}
+
+${emptyExplanation(request)}`;
+}
+function emptyExplanation(request) {
+  const applied = request.appliedFilters.length === 0 ? "Applied filters: none." : `Applied filters: ${request.appliedFilters.join(", ")}.`;
+  const advice = request.mode === "read" ? "Either that session is not in the archive, or the offset is past its last turn." : "Nothing matched, so either one of those filters is too narrow or the topic is genuinely " + "absent; drop a filter or shorten the pattern to tell the two apart.";
+  return `${applied}
+${advice}`;
+}
+function invalidParams(message) {
+  return new McpError(ErrorCode.InvalidParams, message);
+}
+function validateArgs(args) {
+  const mode = validateMode(args.output_mode);
+  const applied = [];
+  const match = mode === "read" ? "" : validatePattern(args.pattern, applied);
+  const sessionId = validateSessionId(args.session_id, mode, applied);
+  const headLimit = validateHeadLimit(args.head_limit);
+  const offset = validateOffset(args.offset);
+  if (mode === "read") {
+    applied.push(`offset=${offset}`);
+  }
+  const filters = validateFilters(args, applied);
+  return {
+    mode,
+    match,
+    filters,
+    headLimit,
+    offset,
+    sessionId,
+    appliedFilters: applied
+  };
+}
+function validateMode(value) {
+  if (value === undefined) {
+    return "content";
+  }
+  if (value === "content" || value === "sessions" || value === "count" || value === "read") {
+    return value;
+  }
+  throw invalidParams("output_mode must be one of content|sessions|count|read");
+}
+function validatePattern(value, applied) {
+  if (typeof value !== "string") {
+    throw invalidParams("pattern is required unless output_mode is read");
+  }
+  const match = toMatchExpression(value, { prefix: true });
+  if (match === "") {
+    throw invalidParams("pattern must hold at least one searchable token");
+  }
+  applied.push(`pattern "${value}" (tokenized full-text with prefix matching, not a regex)`);
+  return match;
+}
+function validateSessionId(value, mode, applied) {
+  if (value === undefined) {
+    if (mode === "read") {
+      throw invalidParams("session_id is required when output_mode is read");
+    }
+    return;
+  }
+  if (typeof value !== "string" || value.trim() === "") {
+    throw invalidParams("session_id must be a non-empty string");
+  }
+  const sessionId = value.trim();
+  if (sessionId.length > SESSION_ID_MAX_LENGTH) {
+    throw invalidParams(`session_id must be at most ${SESSION_ID_MAX_LENGTH} characters`);
+  }
+  if (/[/\\]/.test(sessionId)) {
+    throw invalidParams("session_id must not contain a path separator; it is a database key, never a path");
+  }
+  if (sessionId.includes("..")) {
+    throw invalidParams("session_id must not contain a '..' segment; it is a database key, never a path");
+  }
+  if (holdsControlCharacter(sessionId)) {
+    throw invalidParams("session_id must not contain a control character");
+  }
+  if (mode === "read") {
+    applied.push(`session_id "${sessionId}"`);
+  }
+  return sessionId;
+}
+function holdsControlCharacter(value) {
+  for (const char of value) {
+    const code = char.codePointAt(0) ?? 0;
+    if (code < 32 || code === 127) {
+      return true;
+    }
+  }
+  return false;
+}
+function validateHeadLimit(value) {
+  if (value === undefined) {
+    return HISTORY_HEAD_LIMIT_DEFAULT;
+  }
+  if (!Number.isInteger(value) || value < 1 || value > HISTORY_HEAD_LIMIT_MAX) {
+    throw invalidParams(`head_limit must be an integer between 1 and ${HISTORY_HEAD_LIMIT_MAX}`);
+  }
+  return value;
+}
+function validateOffset(value) {
+  if (value === undefined) {
+    return 0;
+  }
+  if (!Number.isInteger(value) || value < 0) {
+    throw invalidParams("offset must be an integer of 0 or more");
+  }
+  return value;
+}
+function validateFilters(args, applied) {
+  const filters = {};
+  const path = optionalText(args.path, "path");
+  if (path !== undefined) {
+    filters.path = path;
+    applied.push(`project path containing "${path}"`);
+  }
+  const since = optionalTimestamp(args.since, "since");
+  if (since !== undefined) {
+    filters.since = since;
+    applied.push(`since ${new Date(since).toISOString()}`);
+  }
+  const until = optionalTimestamp(args.until, "until");
+  if (until !== undefined) {
+    filters.until = until;
+    applied.push(`until ${new Date(until).toISOString()}`);
+  }
+  const role = args.role;
+  if (role !== undefined && role !== "any") {
+    if (role !== "user" && role !== "assistant") {
+      throw invalidParams("role must be one of user|assistant|any");
+    }
+    filters.role = role;
+    applied.push(`role=${role}`);
+  }
+  const kind = args.kind;
+  if (kind !== undefined && kind !== "any") {
+    if (kind !== "prose" && kind !== "tool_use" && kind !== "tool_error") {
+      throw invalidParams("kind must be one of prose|tool_use|tool_error|any");
+    }
+    filters.kind = kind;
+    applied.push(`kind=${kind}`);
+  }
+  if (args.include_subagents === false) {
+    filters.includeSubagents = false;
+    applied.push("subagent turns excluded");
+  }
+  const agentType = optionalText(args.agent_type, "agent_type");
+  if (agentType !== undefined) {
+    filters.agentType = agentType;
+    applied.push(`agent_type=${agentType}`);
+  }
+  return filters;
+}
+function optionalText(value, field) {
+  if (value === undefined) {
+    return;
+  }
+  if (typeof value !== "string") {
+    throw invalidParams(`${field} must be a string`);
+  }
+  const trimmed = value.trim();
+  return trimmed === "" ? undefined : trimmed;
+}
+function optionalTimestamp(value, field) {
+  if (value === undefined) {
+    return;
+  }
+  const parsed = typeof value === "string" ? Date.parse(value) : Number.NaN;
+  if (Number.isNaN(parsed)) {
+    throw invalidParams(`${field} must be an ISO 8601 date or date-time string`);
+  }
+  return parsed;
+}
+function asText(value) {
+  if (typeof value === "string") {
+    return value;
+  }
+  if (typeof value === "number" || typeof value === "bigint") {
+    return String(value);
+  }
+  return "";
+}
+function asNullableText(value) {
+  return typeof value === "string" ? value : null;
+}
+function asNumber(value) {
+  if (typeof value === "number") {
+    return value;
+  }
+  if (typeof value === "bigint") {
+    return Number(value);
+  }
+  if (typeof value === "string") {
+    const parsed = Number(value);
+    return Number.isNaN(parsed) ? 0 : parsed;
+  }
+  return 0;
+}
+function asNullableNumber(value) {
+  if (typeof value === "number") {
+    return value;
+  }
+  if (typeof value === "bigint") {
+    return Number(value);
+  }
+  return null;
+}
+function asRole(value) {
+  return value === "assistant" ? "assistant" : "user";
+}
+function asKind(value) {
+  if (value === "tool_use") {
+    return "tool_use";
+  }
+  if (value === "tool_error") {
+    return "tool_error";
+  }
+  return "prose";
+}
+function toContentHitRow(row) {
+  return {
+    id: asNumber(row["id"]),
+    uuid: asText(row["uuid"]),
+    session_id: asText(row["session_id"]),
+    project_path: asText(row["project_path"]),
+    ts: asNullableNumber(row["ts"]),
+    role: asRole(row["role"]),
+    kind: asKind(row["kind"]),
+    is_sub: asNumber(row["is_sub"]),
+    agent_type: asNullableText(row["agent_type"]),
+    snippet: asText(row["snippet"])
+  };
+}
+function toSessionHitRow(row) {
+  return {
+    session_id: asText(row["session_id"]),
+    project_path: asText(row["project_path"]),
+    hits: asNumber(row["hits"]),
+    first_ts: asNullableNumber(row["first_ts"]),
+    last_ts: asNullableNumber(row["last_ts"]),
+    score: asNumber(row["score"])
+  };
+}
+function toReadHitRow(row) {
+  return {
+    id: asNumber(row["id"]),
+    uuid: asText(row["uuid"]),
+    session_id: asText(row["session_id"]),
+    project_path: asText(row["project_path"]),
+    ts: asNullableNumber(row["ts"]),
+    role: asRole(row["role"]),
+    kind: asKind(row["kind"]),
+    is_sub: asNumber(row["is_sub"]),
+    agent_type: asNullableText(row["agent_type"]),
+    body: asText(row["body"])
+  };
+}
+
+// src/history-store.ts
+import { chmodSync, mkdirSync } from "node:fs";
+import { homedir as homedir2 } from "node:os";
+import { join as join3 } from "node:path";
+
+// src/history-redact.ts
+var RULES = [
+  {
+    kind: "github-pat",
+    pattern: /\b(?:ghp_[A-Za-z0-9]{36}|github_pat_[A-Za-z0-9_]{22,})\b/g
+  },
+  {
+    kind: "anthropic-key",
+    pattern: /\bsk-ant-[A-Za-z0-9_-]{20,}\b/g
+  },
+  {
+    kind: "openai-key",
+    pattern: /\bsk-(?!ant-)[A-Za-z0-9]{40,}\b/g,
+    isValid: (match) => /\d/.test(match)
+  },
+  {
+    kind: "aws-key",
+    pattern: /\bAKIA[A-Z0-9]{16}\b/g
+  },
+  {
+    kind: "kodizm-token",
+    pattern: /\bkdz-[A-Za-z0-9_-]{20,}\b/g
+  },
+  {
+    kind: "gitlab-pat",
+    pattern: /\bglpat-[A-Za-z0-9_-]{20,}\b/g
+  },
+  {
+    kind: "slack-token",
+    pattern: /\bxox[bpsar]-[A-Za-z0-9-]{10,}\b/g
+  },
+  {
+    kind: "google-key",
+    pattern: /\bAIza[A-Za-z0-9_-]{35}\b/g
+  },
+  {
+    kind: "jwt",
+    pattern: /\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/g
+  },
+  {
+    kind: "bearer",
+    pattern: /\bBearer\s+[A-Za-z0-9._+/=-]{20,}/g
+  },
+  {
+    kind: "private-key",
+    pattern: /-----BEGIN(?: [A-Z0-9]+)* PRIVATE KEY-----/g
+  }
+];
+var DB_URL_PATTERN = /\b(postgres(?:ql)?|mysql|mongodb(?:\+srv)?|redis|amqp):\/\/[^/\s:@]+:[^/\s@]+@/g;
+function increment(counts, kind) {
+  counts[kind] = (counts[kind] ?? 0) + 1;
+}
+function applyRule(text, rule, counts) {
+  return text.replace(rule.pattern, (match) => {
+    if (rule.isValid && !rule.isValid(match)) {
+      return match;
+    }
+    increment(counts, rule.kind);
+    return `[REDACTED:${rule.kind}]`;
+  });
+}
+function applyDbUrlRule(text, counts) {
+  return text.replace(DB_URL_PATTERN, (_match, scheme) => {
+    increment(counts, "db-url-credentials");
+    return `${scheme}://[REDACTED:db-url-credentials]@`;
+  });
+}
+function redact(text) {
+  const counts = {};
+  let result = text;
+  for (const rule of RULES) {
+    result = applyRule(result, rule, counts);
+  }
+  result = applyDbUrlRule(result, counts);
+  return { text: result, counts };
+}
+
+// src/history-store.ts
+var HISTORY_SCHEMA_VERSION = 1;
+var DEFAULT_BUSY_TIMEOUT_MS = 5000;
+var SYNCHRONOUS_NORMAL = 1;
+var LOOKUP_CHUNK_SIZE = 500;
+var DATABASE_FILE_NAME = "history.db";
+var SCHEMA_STATEMENTS = [
+  `CREATE TABLE IF NOT EXISTS turns (
+        id INTEGER PRIMARY KEY,
+        uuid TEXT UNIQUE NOT NULL,
+        session_id TEXT NOT NULL,
+        project_path TEXT,
+        ts INTEGER,
+        role TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        is_sub INTEGER NOT NULL DEFAULT 0,
+        agent_type TEXT,
+        body TEXT NOT NULL
+    )`,
+  `CREATE VIRTUAL TABLE IF NOT EXISTS turns_fts USING fts5(
+        body,
+        content=turns,
+        content_rowid=id,
+        tokenize='unicode61'
+    )`,
+  "CREATE INDEX IF NOT EXISTS turns_session_ts ON turns(session_id, ts)",
+  "CREATE INDEX IF NOT EXISTS turns_project_ts ON turns(project_path, ts DESC)",
+  "CREATE INDEX IF NOT EXISTS turns_kind_ts ON turns(kind, ts DESC)",
+  "CREATE INDEX IF NOT EXISTS turns_ts ON turns(ts DESC)",
+  `CREATE TABLE IF NOT EXISTS sessions (
+        session_id TEXT PRIMARY KEY,
+        project_path TEXT,
+        title TEXT,
+        first_prompt TEXT,
+        mtime INTEGER,
+        is_sub INTEGER NOT NULL DEFAULT 0,
+        agent_type TEXT
+    )`,
+  `CREATE TABLE IF NOT EXISTS manifest (
+        transcript_key TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL,
+        cursor INTEGER NOT NULL,
+        head_fingerprint TEXT NOT NULL,
+        updated_at INTEGER NOT NULL
+    )`,
+  `CREATE TABLE IF NOT EXISTS quarantine (
+        id INTEGER PRIMARY KEY,
+        session_id TEXT,
+        project_path TEXT,
+        source_path TEXT NOT NULL,
+        seen_at INTEGER NOT NULL,
+        raw TEXT NOT NULL,
+        UNIQUE(source_path, raw)
+    )`
+];
+function resolveArchivePaths(options = {}) {
+  const env = options.env ?? process.env;
+  const configured = (env["CLAUDE_CONFIG_DIR"] ?? "").trim();
+  const base = configured === "" ? join3(options.home ?? homedir2(), ".claude") : configured;
+  const dir = options.dir ?? join3(base, "ac", "history-index");
+  return {
+    dir,
+    databasePath: join3(dir, DATABASE_FILE_NAME)
+  };
+}
+async function openHistoryStore(options = {}) {
+  const paths = resolveArchivePaths(options);
+  const busyTimeoutMs = options.busyTimeoutMs ?? DEFAULT_BUSY_TIMEOUT_MS;
+  mkdirSync(paths.dir, { recursive: true, mode: 448 });
+  chmodSync(paths.dir, 448);
+  const sqlite = await loadSqlite();
+  const db = new sqlite.DatabaseSync(paths.databasePath);
+  chmodSync(paths.databasePath, 384);
+  applyPragmas(db, busyTimeoutMs);
+  const schemaVersion = readUserVersion(db);
+  const writable = schemaVersion <= HISTORY_SCHEMA_VERSION;
+  if (writable) {
+    createSchema(db, schemaVersion);
+  }
+  return createStore(db, paths.databasePath, schemaVersion, writable);
+}
+function createHistoryStoreHandle(options = {}) {
+  let openPromise;
+  return {
+    ensureOpen: () => {
+      if (openPromise === undefined) {
+        openPromise = openHistoryStore(options);
+      }
+      return openPromise;
+    },
+    close: async () => {
+      if (openPromise === undefined) {
+        return;
+      }
+      const pending = openPromise;
+      openPromise = undefined;
+      const store = await pending;
+      store.close();
+    }
+  };
+}
+async function loadSqlite() {
+  try {
+    const loaded = await import("node:sqlite");
+    return loaded;
+  } catch (error2) {
+    throw new Error("the history archive needs the node:sqlite builtin, which requires Node 22.13.0 or newer", { cause: error2 });
+  }
+}
+function applyPragmas(db, busyTimeoutMs) {
+  db.exec("PRAGMA journal_mode = WAL");
+  db.exec(`PRAGMA busy_timeout = ${busyTimeoutMs}`);
+  db.exec("PRAGMA synchronous = NORMAL");
+  assertPragma(db, "PRAGMA journal_mode", "journal_mode", "wal");
+  assertPragma(db, "PRAGMA busy_timeout", "timeout", busyTimeoutMs);
+  assertPragma(db, "PRAGMA synchronous", "synchronous", SYNCHRONOUS_NORMAL);
+}
+function assertPragma(db, sql, column, expected) {
+  const actual = db.prepare(sql).get()?.[column];
+  if (actual !== expected) {
+    throw new Error(`${sql} read back as ${String(actual)} instead of ${String(expected)}`);
+  }
+}
+function readUserVersion(db) {
+  const value = db.prepare("PRAGMA user_version").get()?.["user_version"];
+  return typeof value === "number" ? value : 0;
+}
+function createSchema(db, currentVersion) {
+  db.exec("BEGIN IMMEDIATE");
+  let open2 = true;
+  try {
+    for (const statement of SCHEMA_STATEMENTS) {
+      db.exec(statement);
+    }
+    if (currentVersion < HISTORY_SCHEMA_VERSION) {
+      db.exec(`PRAGMA user_version = ${HISTORY_SCHEMA_VERSION}`);
+    }
+    open2 = false;
+    db.exec("COMMIT");
+  } finally {
+    if (open2) {
+      db.exec("ROLLBACK");
+    }
+  }
+}
+var INSERT_TURN_SQL = `INSERT OR IGNORE INTO turns
+    (uuid, session_id, project_path, ts, role, kind, is_sub, agent_type, body)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+var INSERT_TURN_INDEX_SQL = "INSERT INTO turns_fts(rowid, body) VALUES (?, ?)";
+var INSERT_QUARANTINE_SQL = `INSERT OR IGNORE INTO quarantine
+    (session_id, project_path, source_path, seen_at, raw)
+    VALUES (?, ?, ?, ?, ?)`;
+var UPSERT_SESSION_SQL = `INSERT INTO sessions
+    (session_id, project_path, title, first_prompt, mtime, is_sub, agent_type)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(session_id) DO UPDATE SET
+        project_path = excluded.project_path,
+        title = excluded.title,
+        first_prompt = excluded.first_prompt,
+        mtime = excluded.mtime,
+        is_sub = excluded.is_sub,
+        agent_type = excluded.agent_type`;
+var UPSERT_MANIFEST_SQL = `INSERT INTO manifest
+    (transcript_key, session_id, cursor, head_fingerprint, updated_at)
+    VALUES (?, ?, ?, ?, ?)
+    ON CONFLICT(transcript_key) DO UPDATE SET
+        session_id = excluded.session_id,
+        cursor = excluded.cursor,
+        head_fingerprint = excluded.head_fingerprint,
+        updated_at = excluded.updated_at`;
+var SELECT_MANIFEST_SQL = "SELECT cursor, head_fingerprint FROM manifest WHERE transcript_key = ?";
+function createStore(db, databasePath, schemaVersion, writable) {
+  let inTransaction = false;
+  let closed = false;
+  function assertWritable() {
+    if (writable) {
+      return;
+    }
+    throw new Error(`the history archive at ${databasePath} reports schema version ${schemaVersion}, but this build of ac knows version ${HISTORY_SCHEMA_VERSION}; upgrade ac to write to this archive`);
+  }
+  function begin() {
+    db.exec("BEGIN IMMEDIATE");
+    inTransaction = true;
+  }
+  function commit() {
+    inTransaction = false;
+    db.exec("COMMIT");
+  }
+  function rollback() {
+    if (!inTransaction) {
+      return;
+    }
+    inTransaction = false;
+    db.exec("ROLLBACK");
+  }
+  function readManifest(transcriptKey) {
+    const row = db.prepare(SELECT_MANIFEST_SQL).get(transcriptKey);
+    if (row === undefined) {
+      return;
+    }
+    return {
+      cursor: Number(row["cursor"]),
+      headFingerprint: String(row["head_fingerprint"])
+    };
+  }
+  function writeSession(record3, counts) {
+    db.prepare(UPSERT_SESSION_SQL).run(record3.sessionId, record3.projectPath ?? null, record3.title === undefined ? null : redactInto(record3.title, counts), redactInto(record3.firstPrompt, counts), record3.mtime ?? null, record3.isSubagent ? 1 : 0, record3.agentType ?? null);
+  }
+  function ingest(request) {
+    assertWritable();
+    const redactions = {};
+    const rows = request.rows.map((row) => ({
+      row,
+      body: redactInto(row.body, redactions)
+    }));
+    const quarantined = (request.quarantined ?? []).map((entry) => ({
+      entry,
+      raw: redactInto(entry.raw, redactions)
+    }));
+    try {
+      begin();
+    } catch (error2) {
+      if (!isBusyError(error2)) {
+        throw error2;
+      }
+      return emptyIngestResult(redactions, { busy: true });
+    }
+    try {
+      const stored = readManifest(request.transcriptKey);
+      if (stored !== undefined && stored.headFingerprint === request.headFingerprint && stored.cursor >= request.cursor) {
+        rollback();
+        return emptyIngestResult(redactions, { skipped: true });
+      }
+      const result = writeAll(request, rows, quarantined, redactions);
+      commit();
+      return result;
+    } catch (error2) {
+      rollback();
+      if (!isBusyError(error2)) {
+        throw error2;
+      }
+      return emptyIngestResult(redactions, { busy: true });
+    }
+  }
+  function writeAll(request, rows, quarantined, redactions) {
+    const insertTurn = db.prepare(INSERT_TURN_SQL);
+    const insertIndex = db.prepare(INSERT_TURN_INDEX_SQL);
+    let rowsAdded = 0;
+    for (const { row, body } of rows) {
+      const outcome = insertTurn.run(row.id, row.sessionId, row.projectPath, row.ts ?? null, row.role, row.kind, row.isSubagent ? 1 : 0, row.agentType ?? null, body);
+      if (Number(outcome.changes) === 0) {
+        continue;
+      }
+      insertIndex.run(Number(outcome.lastInsertRowid), body);
+      rowsAdded += 1;
+    }
+    const insertQuarantine = db.prepare(INSERT_QUARANTINE_SQL);
+    const seenAt = Date.now();
+    let quarantinedCount = 0;
+    for (const { entry, raw } of quarantined) {
+      const outcome = insertQuarantine.run(entry.sessionId ?? null, entry.projectPath ?? null, entry.sourcePath, seenAt, raw);
+      quarantinedCount += Number(outcome.changes) === 0 ? 0 : 1;
+    }
+    if (request.session !== undefined) {
+      writeSession(request.session, redactions);
+    }
+    db.prepare(UPSERT_MANIFEST_SQL).run(request.transcriptKey, request.sessionId, request.cursor, request.headFingerprint, seenAt);
+    return {
+      rowsAdded,
+      rowsIgnored: rows.length - rowsAdded,
+      quarantined: quarantinedCount,
+      redactions,
+      skipped: false,
+      busy: false
+    };
+  }
+  function forget(filter) {
+    assertWritable();
+    const turns = buildForgetClauses(filter, {
+      path: "project_path",
+      time: "ts"
+    });
+    if (turns.clauses.length === 0) {
+      throw new Error("forget needs at least one of sessionId, projectPath or before");
+    }
+    const sessions = buildForgetClauses(filter, {
+      path: "project_path",
+      time: "mtime"
+    });
+    const quarantine = buildForgetClauses({ sessionId: filter.sessionId, projectPath: filter.projectPath }, { path: "project_path", time: undefined });
+    try {
+      begin();
+    } catch (error2) {
+      if (!isBusyError(error2)) {
+        throw error2;
+      }
+      return { turnsRemoved: 0, sessionsRemoved: 0, quarantineRemoved: 0, busy: true };
+    }
+    try {
+      const turnsRemoved = Number(db.prepare(`DELETE FROM turns WHERE ${turns.clauses.join(" AND ")}`).run(...turns.params).changes);
+      const sessionsRemoved = Number(db.prepare(`DELETE FROM sessions WHERE ${sessions.clauses.join(" AND ")}`).run(...sessions.params).changes);
+      const quarantineRemoved = quarantine.clauses.length === 0 ? 0 : Number(db.prepare(`DELETE FROM quarantine WHERE ${quarantine.clauses.join(" AND ")}`).run(...quarantine.params).changes);
+      db.exec("INSERT INTO turns_fts(turns_fts) VALUES('rebuild')");
+      commit();
+      return { turnsRemoved, sessionsRemoved, quarantineRemoved, busy: false };
+    } catch (error2) {
+      rollback();
+      if (!isBusyError(error2)) {
+        throw error2;
+      }
+      return { turnsRemoved: 0, sessionsRemoved: 0, quarantineRemoved: 0, busy: true };
+    }
+  }
+  return {
+    databasePath,
+    schemaVersion,
+    writable,
+    getManifestEntry: readManifest,
+    ingest,
+    upsertSession: (record3) => {
+      assertWritable();
+      writeSession(record3, {});
+    },
+    lookupSessions: (sessionIds) => {
+      const found = new Map;
+      for (const chunk of chunkIds(sessionIds)) {
+        const placeholders = chunk.map(() => "?").join(", ");
+        const rows = db.prepare(`SELECT session_id, project_path, title, first_prompt, mtime, is_sub, agent_type FROM sessions WHERE session_id IN (${placeholders})`).all(...chunk);
+        for (const row of rows) {
+          const record3 = toSessionRecord(row);
+          found.set(record3.sessionId, record3);
+        }
+      }
+      return found;
+    },
+    select: (statement) => db.prepare(statement.sql).all(...statement.params),
+    forget,
+    close: () => {
+      if (closed) {
+        return;
+      }
+      closed = true;
+      db.close();
+    }
+  };
+}
+function redactInto(text, counts) {
+  const result = redact(text);
+  for (const [kind, hits] of Object.entries(result.counts)) {
+    counts[kind] = (counts[kind] ?? 0) + (hits ?? 0);
+  }
+  return result.text;
+}
+function emptyIngestResult(redactions, flags) {
+  return {
+    rowsAdded: 0,
+    rowsIgnored: 0,
+    quarantined: 0,
+    redactions,
+    skipped: flags.skipped === true,
+    busy: flags.busy === true
+  };
+}
+function buildForgetClauses(filter, columns) {
+  const clauses = [];
+  const params = [];
+  if (filter.sessionId !== undefined) {
+    clauses.push("session_id = ?");
+    params.push(filter.sessionId);
+  }
+  if (filter.projectPath !== undefined) {
+    clauses.push(`${columns.path} = ?`);
+    params.push(filter.projectPath);
+  }
+  if (filter.before !== undefined && columns.time !== undefined) {
+    clauses.push(`${columns.time} < ?`);
+    params.push(filter.before);
+  }
+  return { clauses, params };
+}
+function chunkIds(sessionIds) {
+  const chunks = [];
+  for (let index = 0;index < sessionIds.length; index += LOOKUP_CHUNK_SIZE) {
+    chunks.push([...sessionIds.slice(index, index + LOOKUP_CHUNK_SIZE)]);
+  }
+  return chunks;
+}
+function toSessionRecord(row) {
+  return {
+    sessionId: String(row["session_id"]),
+    projectPath: asText2(row["project_path"]),
+    title: asText2(row["title"]),
+    firstPrompt: asText2(row["first_prompt"]) ?? "",
+    mtime: asNumber2(row["mtime"]),
+    isSubagent: Number(row["is_sub"]) === 1,
+    agentType: asText2(row["agent_type"])
+  };
+}
+function asText2(value) {
+  return typeof value === "string" ? value : undefined;
+}
+function asNumber2(value) {
+  return typeof value === "number" ? value : undefined;
+}
+function isBusyError(error2) {
+  if (!(error2 instanceof Error) || !("errcode" in error2)) {
+    return false;
+  }
+  const errcode = error2.errcode;
+  if (typeof errcode !== "number") {
+    return false;
+  }
+  const primary = errcode & 255;
+  return primary === 5 || primary === 6;
+}
+
+// src/history-tool.ts
+var HISTORY_TOOL_NAME = "search-history";
+var HISTORY_TOOL_DEFINITION = {
+  name: HISTORY_TOOL_NAME,
+  description: "Search the user's own local Claude Code conversation history across every local project, " + "backed by a permanent SQLite full-text archive. `pattern` is TOKENIZED FULL-TEXT search " + "with prefix matching, NOT a regular expression: it splits on whitespace, matches each " + "token as a prefix, and ANDs the tokens together, so punctuation-heavy or regex-shaped " + "input (`node.*sqlite`, `a|b`) is matched literally rather than interpreted; write plain " + "search words instead. The `unicode61` tokenizer is case-insensitive and folds Turkish " + "diacritics, so `gozden` finds `gözden`. `pattern` is required for `output_mode` " + "`content`, `sessions` and `count`; it is not used for `read`, which instead opens a " + "chronological window on one `session_id` (required in that mode). Only prose and tool " + "arguments are indexed: successful tool output is never indexed, while failed tool " + "output (errors) is, so this tool cannot surface a large file dump but can surface why " + "something broke.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      pattern: {
+        type: "string",
+        description: "Tokenized full-text search terms, NOT a regex. Required unless " + 'output_mode is "read".'
+      },
+      path: {
+        type: "string",
+        description: "Filters to turns whose stored project path contains this substring."
+      },
+      output_mode: {
+        type: "string",
+        enum: ["content", "sessions", "count", "read"],
+        default: "content",
+        description: "content: one excerpt per matching turn. sessions: one entry per " + "matching session. count: match/session/project totals only. read: a " + "chronological window on one session_id, no search performed."
+      },
+      head_limit: {
+        type: "number",
+        minimum: 1,
+        maximum: HISTORY_HEAD_LIMIT_MAX,
+        default: HISTORY_HEAD_LIMIT_DEFAULT,
+        description: "Maximum number of hits (or turns, in read mode) to return."
+      },
+      offset: {
+        type: "number",
+        minimum: 0,
+        default: 0,
+        description: "Number of hits (or turns, in read mode) to skip before the page starts."
+      },
+      "-i": {
+        type: "boolean",
+        description: "Always on regardless of this flag: the archive's unicode61 tokenizer " + "is case-insensitive and diacritic-folding by construction. Accepted only for " + "vocabulary compatibility with the built-in Grep tool."
+      },
+      since: {
+        type: "string",
+        description: "ISO 8601 date or date-time; excludes turns before it."
+      },
+      until: {
+        type: "string",
+        description: "ISO 8601 date or date-time; excludes turns after it."
+      },
+      role: {
+        type: "string",
+        enum: ["user", "assistant", "any"],
+        default: "any",
+        description: "Restricts to turns from this role."
+      },
+      kind: {
+        type: "string",
+        enum: ["prose", "tool_use", "tool_error", "any"],
+        default: "any",
+        description: "Restricts to this kind of turn."
+      },
+      include_subagents: {
+        type: "boolean",
+        default: true,
+        description: "Set false to exclude subagent transcript turns."
+      },
+      agent_type: {
+        type: "string",
+        description: 'Restricts to subagent turns of this agent type, e.g. "ac:librarian".'
+      },
+      session_id: {
+        type: "string",
+        description: 'Database key of one session. Required when output_mode is "read"; ' + "the value comes from the session_id shown on a prior content or sessions hit."
+      }
+    },
+    required: []
+  }
+};
+var productionStoreHandle;
+function getProductionStoreHandle() {
+  if (productionStoreHandle === undefined) {
+    productionStoreHandle = createHistoryStoreHandle();
+  }
+  return productionStoreHandle;
+}
+function toSearchArgs(args) {
+  if (typeof args !== "object" || args === null) {
+    throw new McpError(ErrorCode.InvalidParams, "arguments must be an object");
+  }
+  return args;
+}
+async function runHistoryTool(args, overrides = {}) {
+  try {
+    const request = toSearchArgs(args);
+    const store = overrides.store ?? await getProductionStoreHandle().ensureOpen();
+    const deps = { ...overrides, store };
+    const text = await runSearch(request, deps);
+    return { content: [{ type: "text", text }] };
+  } catch (err) {
+    if (err instanceof McpError) {
+      throw err;
+    }
+    return toIsErrorResult(err);
+  }
+}
+
 // src/local-fetch.ts
 var import_readability = __toESM(require_readability(), 1);
 import { Buffer as Buffer2 } from "node:buffer";
@@ -36550,7 +38460,8 @@ function applyFallbackDirective(tool) {
 var ALWAYS_LOAD_TOOLS = new Set([
   "search-docs",
   "resolve-library",
-  "web-code-search"
+  "web-code-search",
+  "search-history"
 ]);
 function applyAlwaysLoad(tool) {
   if (!ALWAYS_LOAD_TOOLS.has(tool.name)) {
@@ -36571,7 +38482,7 @@ function toIsErrorResult(err) {
     content: [{ type: "text", text: `remote tool call failed: ${message}` }]
   };
 }
-var SERVER_INSTRUCTIONS = "ac proxies a documentation and open-source research surface. Routing: call " + "resolve-library first to map a library name to its cached documentation id, then " + "search-docs to read that library's cached docs; call web-code-search to find real " + "usage patterns across public GitHub repositories. Prefer these three over generic " + "web access; they return curated, cached results with no live-fetch latency. Use " + "web-fetch and web-search only as a fallback, when the built-in WebFetch/WebSearch " + "and the docs tools above cannot answer (broken or auth-walled pages, non-library " + "sources, live pages absent from the cache). call-external-agent dispatches a prompt " + "to a local coding CLI (codex, gemini, opencode) in a chosen directory.";
+var SERVER_INSTRUCTIONS = "ac proxies a documentation and open-source research surface. Routing: call " + "resolve-library first to map a library name to its cached documentation id, then " + "search-docs to read that library's cached docs; call web-code-search to find real " + "usage patterns across public GitHub repositories. Prefer these three over generic " + "web access; they return curated, cached results with no live-fetch latency. Use " + "web-fetch and web-search only as a fallback, when the built-in WebFetch/WebSearch " + "and the docs tools above cannot answer (broken or auth-walled pages, non-library " + "sources, live pages absent from the cache). call-external-agent dispatches a prompt " + "to a local coding CLI (codex, gemini, opencode) in a chosen directory. For anything about " + "the user's own past work or conversations, call search-history instead of guessing from " + "memory: it searches the local Claude Code history archive across every project.";
 async function runMcpProxy(options) {
   const token = (options.token ?? process.env["KODIZM_MCP_TOKEN"] ?? "").trim();
   const url2 = (options.url ?? process.env["KODIZM_MCP_URL"] ?? DEFAULT_REMOTE_URL).trim();
@@ -36583,7 +38494,11 @@ async function runMcpProxy(options) {
       return { tools: cachedTools };
     }
     if (remote === null) {
-      cachedTools = [LOCAL_WEB_FETCH_TOOL_DEFINITION, EXTERNAL_AGENT_TOOL_DEFINITION];
+      cachedTools = [
+        LOCAL_WEB_FETCH_TOOL_DEFINITION,
+        EXTERNAL_AGENT_TOOL_DEFINITION,
+        applyAlwaysLoad(HISTORY_TOOL_DEFINITION)
+      ];
       return { tools: cachedTools };
     }
     const remoteTools = [];
@@ -36594,13 +38509,20 @@ async function runMcpProxy(options) {
         remoteTools.push(applyAlwaysLoad(applyFallbackDirective(tool)));
       }
     }
-    cachedTools = [...remoteTools, EXTERNAL_AGENT_TOOL_DEFINITION];
+    cachedTools = [
+      ...remoteTools,
+      EXTERNAL_AGENT_TOOL_DEFINITION,
+      applyAlwaysLoad(HISTORY_TOOL_DEFINITION)
+    ];
     return { tools: cachedTools };
   });
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const requestedName = request.params.name;
     if (requestedName === LOCAL_TOOL_NAME) {
       return runExternalAgent(request.params.arguments);
+    }
+    if (requestedName === HISTORY_TOOL_NAME) {
+      return runHistoryTool(request.params.arguments);
     }
     if (requestedName === "web-fetch") {
       const args = request.params.arguments;
@@ -36672,8 +38594,8 @@ function buildRemoteHandle(url2, token) {
 }
 
 // src/plan-scaffold.ts
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, mkdirSync as mkdirSync2, writeFileSync } from "node:fs";
+import { join as join4 } from "node:path";
 var PLAN_SECTIONS = [
   "Research Summary",
   "Codebase Conventions",
@@ -36704,10 +38626,10 @@ function buildSkeleton(slug) {
 `);
 }
 function scaffoldPlan(slug, opts) {
-  const planDir = join(opts.dir, ".ac", "plans", slug);
-  mkdirSync(join(planDir, "research"), { recursive: true });
-  mkdirSync(join(planDir, "evidence"), { recursive: true });
-  const planPath = join(planDir, "plan.md");
+  const planDir = join4(opts.dir, ".ac", "plans", slug);
+  mkdirSync2(join4(planDir, "research"), { recursive: true });
+  mkdirSync2(join4(planDir, "evidence"), { recursive: true });
+  const planPath = join4(planDir, "plan.md");
   if (existsSync(planPath)) {
     return { created: false, planPath };
   }
@@ -36814,6 +38736,86 @@ program2.command("plan-scaffold <slug>").description("Create .ac/plans/<slug>/ w
   process.stdout.write(`${result.planPath} (${state})
 `);
 });
+var history = program2.command("history").description("Debugging and warming surface for the local Claude Code history archive that backs the " + "search-history MCP tool.");
+history.command("index").description("Build or refresh the history archive from ~/.claude/projects (or CLAUDE_CONFIG_DIR) and " + "print the sync report. A cold build costs roughly 21s; a warm no-change pass is near-instant.").action(async () => {
+  const store = await openHistoryStore();
+  try {
+    const report = await syncArchive({ root: resolveProjectsRoot(), store });
+    process.stdout.write(formatSyncReport(report) + `
+`);
+  } finally {
+    store.close();
+  }
+});
+history.command("search <pattern>").description("Search the history archive. pattern is tokenized full-text with prefix matching, not a " + "regex; Turkish diacritics fold, so 'gozden' finds 'gözden'.").option("--path <value>", "Filter to project paths containing this substring.").option("--output-mode <value>", "content|sessions|count|read", "content").option("--head-limit <value>", `Max hits per page (1-${HISTORY_HEAD_LIMIT_MAX}).`, String(HISTORY_HEAD_LIMIT_DEFAULT)).option("--offset <value>", "Page offset.", "0").option("--since <value>", "ISO date/time lower bound.").option("--until <value>", "ISO date/time upper bound.").option("--role <value>", "user|assistant|any", "any").option("--kind <value>", "prose|tool_use|tool_error|any", "any").option("--no-include-subagents", "Exclude subagent turns (included by default).").option("--agent-type <value>", "Filter to one subagent agent type, e.g. ac:librarian.").option("--session-id <value>", "Session to open a window on; required (and pattern is ignored) when --output-mode is read.").action(async (pattern, opts) => {
+  const store = await openHistoryStore();
+  try {
+    const headLimit = Number.parseInt(opts.headLimit, 10);
+    const offset = Number.parseInt(opts.offset, 10);
+    const args = {
+      pattern,
+      path: opts.path,
+      output_mode: opts.outputMode,
+      head_limit: Number.isNaN(headLimit) ? undefined : headLimit,
+      offset: Number.isNaN(offset) ? undefined : offset,
+      since: opts.since,
+      until: opts.until,
+      role: opts.role,
+      kind: opts.kind,
+      include_subagents: opts.includeSubagents,
+      agent_type: opts.agentType,
+      session_id: opts.sessionId
+    };
+    const text = await runSearch(args, { store });
+    process.stdout.write(text + `
+`);
+  } finally {
+    store.close();
+  }
+});
+history.command("forget").description("Delete rows from the history archive. Requires at least one of --session, --project, " + "--before; there is no wholesale wipe.").option("--session <value>", "Delete rows for one session id.").option("--project <value>", "Delete rows for one project path, matched EXACTLY (never as a substring).").option("--before <value>", "Delete rows older than this ISO date/time.").action(async (opts) => {
+  if (opts.session === undefined && opts.project === undefined && opts.before === undefined) {
+    process.stderr.write(`history forget requires at least one of --session, --project, --before
+`);
+    process.exitCode = 1;
+    return;
+  }
+  let before2;
+  if (opts.before !== undefined) {
+    const parsed = Date.parse(opts.before);
+    if (Number.isNaN(parsed)) {
+      process.stderr.write(`--before must be an ISO 8601 date or date-time string
+`);
+      process.exitCode = 1;
+      return;
+    }
+    before2 = parsed;
+  }
+  const store = await openHistoryStore();
+  try {
+    const result = store.forget({
+      sessionId: opts.session,
+      projectPath: opts.project,
+      before: before2
+    });
+    process.stdout.write(`Removed ${result.turnsRemoved} turn(s), ${result.sessionsRemoved} session(s), ` + `${result.quarantineRemoved} quarantine row(s).
+`);
+  } finally {
+    store.close();
+  }
+});
+function formatSyncReport(report) {
+  return [
+    `Files scanned: ${report.filesScanned}`,
+    `Files vanished mid-walk: ${report.filesVanished}`,
+    `Rows added: ${report.rowsAdded}`,
+    `Lines quarantined: ${report.quarantined}`,
+    `Redactions applied: ${report.redactions}`,
+    `Elapsed: ${report.elapsedMillis} ms`,
+    `Changed: ${report.changed ? "yes" : "no"}`
+  ].join(`
+`);
+}
 await program2.parseAsync(process.argv);
 
-//# debugId=96DEE184AF55FE3664756E2164756E21
+//# debugId=65788A42F8646AC364756E2164756E21
