@@ -387,6 +387,86 @@ export function buildCountQuery(query: HistoryCountQuery): SqlStatement {
 }
 
 /**
+ * Builds the `projects` mode statement: one row per project, ordered by how much of the match it
+ * holds.
+ *
+ * Answers "which projects on this machine did I work on this in", which `count` could only answer
+ * as a bare number ("in 29 projects") and `sessions` only at session granularity, repeating a
+ * project once per session and leaving the caller to dedupe across pages.
+ *
+ * Takes the cheap subquery shape rather than the `sessions` CTE, because ordering by hit volume
+ * needs no auxiliary function: `MIN(bm25(...))` is what forces `sessions` into
+ * `WITH ... AS MATERIALIZED`, and there is no reason to pay for that here. `hits DESC` also beats
+ * relevance for this question, since "the project I did this in" is the one that mentions it most,
+ * and `last_ts DESC` breaks the tie towards the project still in use.
+ *
+ * @throws Error when `match` is empty.
+ */
+export function buildProjectsQuery(query: HistorySearchQuery): SqlStatement {
+    assertNonEmptyMatch(query.match, "projects");
+
+    const filters = buildFilterFragments(query.filters);
+    const columns = [
+        "t.project_path AS project_path",
+        "COUNT(*) AS hits",
+        "COUNT(DISTINCT t.session_id) AS sessions",
+        "MIN(t.ts) AS first_ts",
+        "MAX(t.ts) AS last_ts",
+    ];
+
+    const sql = [
+        `SELECT ${columns.join(", ")}`,
+        "FROM turns t",
+        whereClause([
+            "t.rowid IN (SELECT rowid FROM turns_fts WHERE turns_fts MATCH ?)",
+            ...filters.clauses,
+        ], { withMatch: false }),
+        "GROUP BY t.project_path",
+        "ORDER BY hits DESC, last_ts DESC",
+        "LIMIT ? OFFSET ?",
+    ].join("\n");
+
+    return {
+        sql,
+        params: [
+            query.match,
+            ...filters.params,
+            query.limit,
+            query.offset,
+        ],
+    };
+}
+
+/**
+ * Counts the distinct projects a `projects` search spans, so the renderer can say how many it
+ * withheld rather than implying the page is the whole answer.
+ *
+ * @throws Error when `match` is empty.
+ */
+export function buildProjectCountQuery(query: HistoryCountQuery): SqlStatement {
+    assertNonEmptyMatch(query.match, "projects");
+
+    const filters = buildFilterFragments(query.filters);
+
+    const sql = [
+        "SELECT COUNT(DISTINCT t.project_path) AS total_projects",
+        "FROM turns t",
+        whereClause([
+            "t.rowid IN (SELECT rowid FROM turns_fts WHERE turns_fts MATCH ?)",
+            ...filters.clauses,
+        ], { withMatch: false }),
+    ].join("\n");
+
+    return {
+        sql,
+        params: [
+            query.match,
+            ...filters.params,
+        ],
+    };
+}
+
+/**
  * Builds the `read` mode statement: a chronological window on one session, with no MATCH at all.
  *
  * That absence is the point. `read` is how a caller opens the conversation a hit came from, so it

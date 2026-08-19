@@ -2,6 +2,8 @@ import { expect, test } from "bun:test";
 import {
     buildContentQuery,
     buildCountQuery,
+    buildProjectCountQuery,
+    buildProjectsQuery,
     buildReadQuery,
     buildSessionRowCountQuery,
     buildSessionsQuery,
@@ -68,6 +70,22 @@ function everyBuilder(): readonly NamedStatement[] {
         {
             name: "count",
             statement: buildCountQuery({
+                match,
+                filters: ALL_FILTERS,
+            }),
+        },
+        {
+            name: "projects",
+            statement: buildProjectsQuery({
+                match,
+                filters: ALL_FILTERS,
+                limit: 20,
+                offset: 0,
+            }),
+        },
+        {
+            name: "projectCount",
+            statement: buildProjectCountQuery({
                 match,
                 filters: ALL_FILTERS,
             }),
@@ -736,4 +754,55 @@ test("degradedTokens reports every degraded token in the order typed", () => {
 test("degradedTokens treats a Turkish letter as content, not punctuation", () => {
     // The class is Unicode letters and numbers, so a non-ASCII word is never reported as degraded.
     expect(degradedTokens("iş")).toEqual([]);
+});
+
+// (9) projects mode: the rollup that answers "which projects on this machine did I work on X in".
+
+test("buildProjectsQuery groups by project and orders by hit volume, not relevance", () => {
+    const statement = buildProjectsQuery({
+        match: "\"dusk\"*",
+        filters: {},
+        limit: 20,
+        offset: 0,
+    });
+
+    expect(statement.sql).toContain("GROUP BY t.project_path");
+    expect(statement.sql).toContain("ORDER BY hits DESC, last_ts DESC");
+
+    // No auxiliary function, so it must NOT pay for the materialized CTE that `sessions` needs
+    // only because of its MIN(bm25(...)) aggregate.
+    expect(statement.sql).not.toContain("bm25(");
+    expect(statement.sql).not.toContain("MATERIALIZED");
+});
+
+test("buildProjectsQuery counts distinct sessions per project, so one busy session is not many", () => {
+    const statement = buildProjectsQuery({ match: "\"dusk\"*", filters: {}, limit: 20, offset: 0 });
+
+    expect(statement.sql).toContain("COUNT(DISTINCT t.session_id) AS sessions");
+});
+
+test("buildProjectsQuery binds the match and the window in order, concatenating nothing", () => {
+    const statement = buildProjectsQuery({
+        match: "\"dusk\"*",
+        filters: { path: HOSTILE_PATH },
+        limit: 7,
+        offset: 14,
+    });
+
+    expect(statement.params[0]).toBe("\"dusk\"*");
+    expect(statement.params.at(-2)).toBe(7);
+    expect(statement.params.at(-1)).toBe(14);
+    expect(statement.sql).not.toContain(HOSTILE_PATH);
+});
+
+test("buildProjectCountQuery counts distinct projects and takes no window", () => {
+    const statement = buildProjectCountQuery({ match: "\"dusk\"*", filters: {} });
+
+    expect(statement.sql).toContain("COUNT(DISTINCT t.project_path) AS total_projects");
+    expect(statement.sql).not.toContain("LIMIT");
+});
+
+test("both projects builders refuse an empty match, which FTS5 answers with a syntax error", () => {
+    expect(() => buildProjectsQuery({ match: "", filters: {}, limit: 20, offset: 0 })).toThrow();
+    expect(() => buildProjectCountQuery({ match: "", filters: {} })).toThrow();
 });
