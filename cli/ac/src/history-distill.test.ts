@@ -344,3 +344,80 @@ test("resolveSessionMeta's first-prompt chain falls back to the head's first use
     const meta = resolveSessionMeta(head, "");
     expect(meta.firstPrompt).toBe("ZQX head fallback prompt");
 });
+
+// 8. The archive declines to index its own search calls, so the tool does not pollute the corpus
+// it searches. Measured live before the fix: two `count` calls for one word thirty seconds apart
+// returned 1,896 then 1,899 hits, the three new rows being the searches themselves.
+
+/** One assistant line carrying a single `tool_use` block with the given tool name. */
+function toolUseLine(name: string, uuid: string): string {
+    return JSON.stringify({
+        type: "assistant",
+        uuid,
+        sessionId: "sess-1",
+        timestamp: "2026-08-01T00:00:00.000Z",
+        message: {
+            role: "assistant",
+            content: [
+                {
+                    type: "tool_use",
+                    id: `toolu_${uuid}`,
+                    name,
+                    input: { pattern: "zqxSearchTerm", output_mode: "count" },
+                },
+            ],
+        },
+    });
+}
+
+test("a search-history tool_use is skipped rather than indexed, under both its bare and MCP names", () => {
+    for (const name of ["search-history", "mcp__plugin_ac_ac__search-history"]) {
+        const outcome = distillLine(toolUseLine(name, `line-${name}`), CTX);
+
+        // `skipped`, never `quarantine`: the block is well-formed and understood, it is simply not
+        // wanted. Quarantining it would refill the table the quarantine rule was narrowed to empty.
+        expect(outcome.outcome).toBe("skipped");
+    }
+});
+
+test("a tool whose name merely contains search-history is still indexed", () => {
+    // The guard matches the exact name or an MCP-namespaced one, so a user's own similarly-named
+    // tool keeps its rows instead of silently vanishing from the archive.
+    const outcome = distillLine(toolUseLine("my-search-history-viewer", "line-lookalike"), CTX);
+
+    expect(outcome.outcome).toBe("rows");
+    if (outcome.outcome !== "rows") {
+        throw new Error("unreachable: asserted above");
+    }
+    expect(outcome.rows.some((row) => row.kind === "tool_use")).toBe(true);
+});
+
+test("a skipped search call does not suppress the other blocks on its line", () => {
+    const line = JSON.stringify({
+        type: "assistant",
+        uuid: "line-mixed",
+        sessionId: "sess-1",
+        timestamp: "2026-08-01T00:00:00.000Z",
+        message: {
+            role: "assistant",
+            content: [
+                { type: "text", text: "zqxProseAlongside the search" },
+                {
+                    type: "tool_use",
+                    id: "toolu_mixed",
+                    name: "mcp__plugin_ac_ac__search-history",
+                    input: { pattern: "zqxSearchTerm" },
+                },
+            ],
+        },
+    });
+
+    const outcome = distillLine(line, CTX);
+    expect(outcome.outcome).toBe("rows");
+    if (outcome.outcome !== "rows") {
+        throw new Error("unreachable: asserted above");
+    }
+
+    expect(outcome.rows.some((row) => row.kind === "prose")).toBe(true);
+    expect(outcome.rows.some((row) => row.kind === "tool_use")).toBe(false);
+});

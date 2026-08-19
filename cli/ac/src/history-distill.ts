@@ -176,6 +176,24 @@ function makeRow(
  */
 const KNOWN_BLOCK_TYPES: ReadonlySet<string> = new Set(["text", "thinking", "tool_use", "tool_result", "image"]);
 
+const SEARCH_TOOL_NAME = "search-history";
+
+/**
+ * True for a call to this archive's own search tool, which is never indexed.
+ *
+ * A `tool_use` row renders its input as `key=value` pairs, so indexing a search records the query
+ * terms verbatim; the next search for those terms then finds the earlier search. Measured live
+ * while testing: two `count` calls for the same word thirty seconds apart returned 1,896 then
+ * 1,899 hits, the three new rows being the searches themselves, and a short high-density row like
+ * `search-history pattern=«FTS5» «tokenizer»` outranks the work it was looking for under bm25.
+ *
+ * So the tool declines to index itself. A past search is not past work, and the archive stays a
+ * record of what the user did rather than of what they looked for.
+ */
+function isSelfReferentialToolCall(name: string): boolean {
+    return name === SEARCH_TOOL_NAME || name.endsWith(`__${SEARCH_TOOL_NAME}`);
+}
+
 /**
  * What one line's content produced: the rows extracted, plus whether any block encountered was
  * outside {@link KNOWN_BLOCK_TYPES}. `hasUnknownBlock` is what {@link distillLine} uses to decide
@@ -238,6 +256,9 @@ function buildRows(
     blocks.forEach((block, index) => {
         if (block.type === "tool_use") {
             const name = typeof block.name === "string" ? block.name : "";
+            if (isSelfReferentialToolCall(name)) {
+                return;
+            }
             const rendered = renderToolUseInput(block.input);
             const body = rendered.length > 0 ? `${name} ${rendered}` : name;
             rows.push(makeRow(`${uuid}:tool_use:${index}`, sessionId, ts, role, "tool_use", ctx, body));
