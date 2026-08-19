@@ -11,6 +11,13 @@ import type { ContentHitRow, ReadHitRow, SessionHitRow } from "./history-format.
 const NOW = Date.parse("2026-08-19T00:00:00.000Z");
 const ONE_HOUR_MS = 60 * 60 * 1000;
 
+// Mirrors `MAX_READ_OUTPUT_BYTES` in `history-format.ts`, kept as a literal here for the same reason
+// the `content` budget test states 4000 and 10000 as literals: the assertion is about the number a
+// caller's context actually pays, so it has to fail when that number moves rather than move with it.
+const READ_OUTPUT_CEILING_BYTES = 16_000;
+
+const ELLIPSIS = "…";
+
 // A snippet long enough to be realistic (FTS5's snippet() with max_tokens=40 typically lands
 // around 200-250 characters), so the byte-budget test below exercises the actual content shape
 // rather than a toy string that would pass by accident.
@@ -203,6 +210,130 @@ test("renderRead reports its window position so a caller can page with offset", 
     expect(rendered).toContain("40");
     expect(rendered).toContain("ZRQPHX-FIRST");
     expect(rendered).toContain("ZRQPHX-SECOND");
+});
+
+// (8) read: the output budget. Measured on the shipped archive, a single `turns.body` reaches
+// 882,668 characters and the DEFAULT 20-turn window of the heaviest real session renders 124,599
+// characters (about 31,000 tokens), past Claude Code's own 25,000-token MCP result cap. Every
+// fixture body elsewhere in this suite is a few dozen bytes, which is exactly why an uncapped
+// renderer passed every earlier test.
+
+/** A body of roughly `chars` characters, in whole space-separated words so a cut can land on one. */
+function bulkBody(marker: string, chars: number): string {
+    const filler = "payload ".repeat(Math.ceil(chars / 8));
+
+    return `${marker} ${filler.slice(0, chars)}`;
+}
+
+/** `count` heavy turns, each marked with a zero-padded index so a substring check cannot alias. */
+function makeHeavyReadRows(count: number, sessionId: string, chars: number): ReadHitRow[] {
+    return Array.from({ length: count }, (_, index) =>
+        makeReadRow({
+            id: index + 1,
+            session_id: sessionId,
+            role: index % 2 === 0 ? "user" : "assistant",
+            body: bulkBody(`ZRQPHX-TURN-${index.toString().padStart(2, "0")}`, chars),
+        }),
+    );
+}
+
+test("renderRead keeps a 100 KB body inside the output ceiling", () => {
+    const sessionId = "00000000-0000-4000-8000-00000000c001";
+    const rows = [makeReadRow({ session_id: sessionId, body: bulkBody("ZRQPHX-HUGE", 100_000) })];
+
+    const rendered = renderRead(rows, {
+        sessionId,
+        offset: 0,
+        limit: 20,
+        totalRows: 1,
+    });
+
+    expect(Buffer.byteLength(rendered, "utf8")).toBeLessThanOrEqual(READ_OUTPUT_CEILING_BYTES);
+    // Truncated, not dropped: the turn the caller asked to read is still there.
+    expect(rendered).toContain("ZRQPHX-HUGE");
+    expect(rendered).toContain(ELLIPSIS);
+});
+
+test("renderRead truncates an over-long turn on a word boundary instead of dropping it", () => {
+    const sessionId = "00000000-0000-4000-8000-00000000c002";
+    const rows = [
+        makeReadRow({
+            session_id: sessionId,
+            body: `ZRQPHX-HEAD ${"alpha ".repeat(800)}ZRQPHX-TAIL`,
+        }),
+    ];
+
+    const rendered = renderRead(rows, {
+        sessionId,
+        offset: 0,
+        limit: 20,
+        totalRows: 1,
+    });
+
+    expect(rendered).toContain("ZRQPHX-HEAD");
+    expect(rendered).not.toContain("ZRQPHX-TAIL");
+    expect(rendered).toContain(ELLIPSIS);
+    // The cut lands after a whole word, never inside one: "alpha…", never "alph…".
+    const cut = rendered.slice(0, rendered.indexOf(ELLIPSIS));
+    expect(cut.endsWith("alpha")).toBe(true);
+});
+
+test("renderRead caps 20 heavy turns and reports what it rendered, not what was requested", () => {
+    const sessionId = "00000000-0000-4000-8000-00000000c003";
+    const rows = makeHeavyReadRows(20, sessionId, 10_000);
+
+    const rendered = renderRead(rows, {
+        sessionId,
+        offset: 0,
+        limit: 20,
+        totalRows: 20,
+    });
+
+    expect(Buffer.byteLength(rendered, "utf8")).toBeLessThanOrEqual(READ_OUTPUT_CEILING_BYTES);
+
+    const position = /turns 1-(\d+) of 20/.exec(rendered);
+    expect(position).not.toBeNull();
+    const renderedCount = Number(position?.[1]);
+    // The budget has to have cut something, or this test is not exercising it.
+    expect(renderedCount).toBeGreaterThan(0);
+    expect(renderedCount).toBeLessThan(20);
+
+    // The position line's own end is the last turn present, and the next one is genuinely absent.
+    const lastRendered = `ZRQPHX-TURN-${(renderedCount - 1).toString().padStart(2, "0")}`;
+    const firstWithheld = `ZRQPHX-TURN-${renderedCount.toString().padStart(2, "0")}`;
+    expect(rendered).toContain(lastRendered);
+    expect(rendered).not.toContain(firstWithheld);
+
+    // Paging from the reported end loses nothing: the first turn the budget dropped opens the
+    // next window. A position line naming the REQUESTED window would have skipped every one.
+    const next = renderRead(rows.slice(renderedCount), {
+        sessionId,
+        offset: renderedCount,
+        limit: 20,
+        totalRows: 20,
+    });
+
+    expect(next).toContain(firstWithheld);
+    expect(next).toContain(`turns ${renderedCount + 1}-`);
+});
+
+test("renderRead counts the turns its own budget cut in the withheld notice", () => {
+    const sessionId = "00000000-0000-4000-8000-00000000c004";
+    const rows = makeHeavyReadRows(20, sessionId, 10_000);
+
+    // totalRows equals the window, so nothing lies beyond it: every withheld turn is the budget's
+    // doing, and the notice has to say so rather than claiming a complete answer.
+    const rendered = renderRead(rows, {
+        sessionId,
+        offset: 0,
+        limit: 20,
+        totalRows: 20,
+    });
+
+    const renderedCount = Number(/turns 1-(\d+) of 20/.exec(rendered)?.[1]);
+    const notice = /\[(\d+) hit\(s\) withheld/.exec(rendered);
+    expect(notice).not.toBeNull();
+    expect(Number(notice?.[1])).toBe(20 - renderedCount);
 });
 
 test("renderRead prefixes each row with its role in chronological order", () => {

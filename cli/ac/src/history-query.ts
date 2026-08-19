@@ -57,9 +57,24 @@ export interface HistorySearchQuery extends HistoryCountQuery {
     readonly offset: number;
 }
 
-/** A window on one session, addressed by its opaque database key. Carries no search term. */
-export interface HistoryReadQuery {
+/**
+ * One session, addressed by its opaque database key, narrowed by the same metadata filters every
+ * other mode accepts. Carries no search term.
+ *
+ * The filters are not decoration. Measured on the shipped archive, 52 of 144 sessions hold both
+ * main-thread and subagent turns under one session id, worst case 27,388 subagent turns against
+ * 16,392 main ones, so a `read` builder that bound the session id alone handed back a window made
+ * almost entirely of what the caller asked to exclude, while the tool still reported the filter as
+ * applied.
+ */
+export interface HistorySessionRowCountQuery {
     readonly sessionId: string;
+    /** Optional in the same sense as every field inside it: absent means "no filter, whole session". */
+    readonly filters?: HistoryQueryFilters;
+}
+
+/** A window on one session: {@link HistorySessionRowCountQuery} plus the page it renders. */
+export interface HistoryReadQuery extends HistorySessionRowCountQuery {
     readonly limit: number;
     readonly offset: number;
 }
@@ -288,8 +303,14 @@ export function buildCountQuery(query: HistoryCountQuery): SqlStatement {
  * has to work with no pattern, and a MATCH clause would both require one and reorder the rows away
  * from reading order. `session_id` is an opaque database key bound as a parameter; it never reaches
  * a filesystem path. The `t.id` tiebreak keeps paging stable when two turns share a millisecond.
+ *
+ * The metadata filters bind here exactly as they do in the three searching modes, so `read` is not
+ * the one mode where `include_subagents`, `role` or `kind` is quietly ignored while the tool reports
+ * it as applied. {@link buildSessionRowCountQuery} counts over the same clauses, which is what keeps
+ * the rendered window position honest about the total it is a window on.
  */
 export function buildReadQuery(query: HistoryReadQuery): SqlStatement {
+    const filters = buildFilterFragments(query.filters ?? {});
     const columns = [
         ...TURN_COLUMNS,
         "t.body AS body",
@@ -298,7 +319,7 @@ export function buildReadQuery(query: HistoryReadQuery): SqlStatement {
     const sql = [
         `SELECT ${columns.join(", ")}`,
         "FROM turns t",
-        "WHERE t.session_id = ?",
+        whereClause(["t.session_id = ?", ...filters.clauses], { withMatch: false }),
         "ORDER BY t.ts ASC, t.id ASC",
         "LIMIT ? OFFSET ?",
     ].join("\n");
@@ -307,8 +328,36 @@ export function buildReadQuery(query: HistoryReadQuery): SqlStatement {
         sql,
         params: [
             query.sessionId,
+            ...filters.params,
             query.limit,
             query.offset,
+        ],
+    };
+}
+
+/**
+ * Builds the row count for one session's filtered turns, which is what `read` mode's window position
+ * ("turns 5-24 of 312") and its withheld count are stated against.
+ *
+ * Separate from {@link buildCountQuery} because that one requires a MATCH expression and `read` mode
+ * deliberately has none. It shares `buildReadQuery`'s WHERE clause exactly, minus the paging: a total
+ * counted over the unfiltered session would report a window drawn from 300 filtered turns as
+ * "turns 1-12 of 43,780", and the withheld count derived from it would be fiction.
+ */
+export function buildSessionRowCountQuery(query: HistorySessionRowCountQuery): SqlStatement {
+    const filters = buildFilterFragments(query.filters ?? {});
+
+    const sql = [
+        "SELECT COUNT(*) AS total_turns",
+        "FROM turns t",
+        whereClause(["t.session_id = ?", ...filters.clauses], { withMatch: false }),
+    ].join("\n");
+
+    return {
+        sql,
+        params: [
+            query.sessionId,
+            ...filters.params,
         ],
     };
 }

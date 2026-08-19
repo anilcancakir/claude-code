@@ -3,6 +3,7 @@ import {
     buildContentQuery,
     buildCountQuery,
     buildReadQuery,
+    buildSessionRowCountQuery,
     buildSessionsQuery,
     SNIPPET_CLOSE_MARKER,
     SNIPPET_OPEN_MARKER,
@@ -74,8 +75,16 @@ function everyBuilder(): readonly NamedStatement[] {
             name: "read",
             statement: buildReadQuery({
                 sessionId: HOSTILE_SESSION_ID,
+                filters: ALL_FILTERS,
                 limit: 20,
                 offset: 0,
+            }),
+        },
+        {
+            name: "sessionRowCount",
+            statement: buildSessionRowCountQuery({
+                sessionId: HOSTILE_SESSION_ID,
+                filters: ALL_FILTERS,
             }),
         },
     ];
@@ -250,6 +259,7 @@ test("buildCountQuery refuses an empty match expression", () => {
 test("buildReadQuery generates no MATCH clause", () => {
     const statement = buildReadQuery({
         sessionId: "0f2c-1d",
+        filters: {},
         limit: 50,
         offset: 100,
     });
@@ -261,6 +271,7 @@ test("buildReadQuery generates no MATCH clause", () => {
 test("buildReadQuery selects one session in chronological order with a window", () => {
     const statement = buildReadQuery({
         sessionId: "0f2c-1d",
+        filters: {},
         limit: 50,
         offset: 100,
     });
@@ -273,6 +284,77 @@ test("buildReadQuery selects one session in chronological order with a window", 
         50,
         100,
     ]);
+});
+
+// A `read` builder that bound only the session id made `include_subagents`, `role` and `kind` inert
+// in that one mode while the caller was still told they had been applied. Measured on the shipped
+// archive, 52 of 144 sessions mix main-thread and subagent turns under one session id, worst case
+// 27,388 subagent turns against 16,392 main ones, so an ignored exclusion hands back a window made
+// almost entirely of what the caller asked to leave out.
+test("buildReadQuery binds every metadata filter, so read is not the one mode that ignores them", () => {
+    const statement = buildReadQuery({
+        sessionId: "0f2c-1d",
+        filters: ALL_FILTERS,
+        limit: 50,
+        offset: 100,
+    });
+
+    expect(statement.sql).toContain("t.session_id = ?");
+    expect(statement.sql).toContain("t.project_path LIKE ? ESCAPE '\\'");
+    expect(statement.sql).toContain("t.role = ?");
+    expect(statement.sql).toContain("t.kind = ?");
+    expect(statement.sql).toContain("t.is_sub = 0");
+    expect(statement.sql).toContain("t.agent_type = ?");
+    expect(statement.params).toEqual([
+        "0f2c-1d",
+        `%${HOSTILE_PATH}%`,
+        SINCE_MS,
+        UNTIL_MS,
+        "assistant",
+        "tool_error",
+        HOSTILE_AGENT_TYPE,
+        50,
+        100,
+    ]);
+});
+
+// The window position and the withheld count are computed against this total, so it has to count
+// the same rows `buildReadQuery` selects. Counting the unfiltered session instead would report
+// "turns 1-12 of 43,780" for a window drawn from 300 filtered turns.
+test("buildSessionRowCountQuery counts exactly the rows the read window is drawn from", () => {
+    const filters: HistoryQueryFilters = {
+        role: "user",
+        kind: "prose",
+        includeSubagents: false,
+    };
+    const count = buildSessionRowCountQuery({
+        sessionId: "0f2c-1d",
+        filters,
+    });
+    const read = buildReadQuery({
+        sessionId: "0f2c-1d",
+        filters,
+        limit: 20,
+        offset: 0,
+    });
+
+    expect(count.sql).toContain("COUNT(*) AS total_turns");
+    expect(count.sql).toContain("FROM turns t");
+    expect(count.sql).not.toContain("LIMIT");
+    expect(count.sql).not.toContain("OFFSET");
+    expect(count.params).toEqual([
+        "0f2c-1d",
+        "user",
+        "prose",
+    ]);
+    // Same WHERE clause as the window it describes, minus the paging the count has no use for.
+    const whereOf = (sql: string): string => {
+        const start = sql.indexOf("WHERE");
+        const end = sql.indexOf("ORDER BY");
+
+        return (end === -1 ? sql.slice(start) : sql.slice(start, end)).trim();
+    };
+    expect(whereOf(count.sql)).toBe(whereOf(read.sql));
 });
 
 // (5) The two query shapes. Auxiliary functions are only reachable when turns_fts is in the outer FROM.

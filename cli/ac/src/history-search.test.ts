@@ -472,6 +472,58 @@ test("every metadata filter reaches the statement as a bound parameter", async (
     expect(content?.sql).toContain("t.is_sub = 0");
 });
 
+// `buildReadQuery` used to bind only the session id, so `include_subagents`, `role` and `kind` were
+// silently inert in `read` while `validateArgs` still listed them among the applied filters. That
+// mismatch is the defect: a tool that reports honouring a filter it ignored is worse than one that
+// refuses the combination.
+test("read mode binds the metadata filters it reports as applied", async () => {
+    const { store, state } = createFakeStore({ readRows: [], readTotal: 0 });
+    const spy = createSyncSpy();
+
+    const text = await runSearch({
+        output_mode: "read",
+        session_id: "sess-1",
+        role: "user",
+        kind: "prose",
+        include_subagents: false,
+    }, depsFor(store, { sync: spy.sync }));
+
+    // What the caller is told was applied.
+    expect(text).toContain("role=user");
+    expect(text).toContain("kind=prose");
+    expect(text).toContain("subagent turns excluded");
+
+    // What the statement actually applied, which has to be the same set.
+    const read = state.statements.find((statement) => statement.sql.includes("t.body AS body"));
+    expect(read?.sql).toContain("t.is_sub = 0");
+    expect(read?.params).toEqual([
+        "sess-1",
+        "user",
+        "prose",
+        20,
+        0,
+    ]);
+});
+
+test("read mode counts its total over the same filtered rows the window is drawn from", async () => {
+    const { store, state } = createFakeStore({
+        readRows: [readRow(), readRow({ id: 2, uuid: "uuid-2", role: "assistant" })],
+        readTotal: 2,
+    });
+    const spy = createSyncSpy();
+
+    const text = await runSearch({
+        output_mode: "read",
+        session_id: "sess-1",
+        include_subagents: false,
+    }, depsFor(store, { sync: spy.sync }));
+
+    expect(text).toContain("turns 1-2 of 2");
+    const total = state.statements.find((statement) => statement.sql.includes("AS total_turns"));
+    expect(total?.sql).toContain("t.is_sub = 0");
+    expect(total?.params).toEqual(["sess-1"]);
+});
+
 test("a lock-contended sync says the search ran against the last committed snapshot", async () => {
     const { store } = createFakeStore({
         contentRows: [contentRow()],

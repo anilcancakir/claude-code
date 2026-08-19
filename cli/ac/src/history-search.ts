@@ -5,6 +5,7 @@ import {
     buildContentQuery,
     buildCountQuery,
     buildReadQuery,
+    buildSessionRowCountQuery,
     buildSessionsQuery,
     toMatchExpression,
 } from "./history-query.ts";
@@ -72,18 +73,6 @@ export const HISTORY_HEAD_LIMIT_MAX = 100;
  * without accepting a value long enough to be an attempt at something else.
  */
 const SESSION_ID_MAX_LENGTH = 128;
-
-/**
- * Row count for one session, needed by `renderRead` to report its window position ("turns 5-24 of
- * 312") and to state how many turns it withheld.
- *
- * `history-query.ts` ships no builder for it: `buildCountQuery` requires a MATCH expression and
- * `read` mode deliberately has no pattern, so there is nothing to hand it. The statement lives here
- * rather than being faked from the page size, because the alternatives both lie about the total, and
- * a renderer that misstates what it withheld is exactly what the plan's output rules forbid. The
- * session id stays a bound parameter, same as every other caller value.
- */
-const SESSION_TURN_COUNT_SQL = "SELECT COUNT(*) AS total_turns FROM turns WHERE session_id = ?";
 
 const BUSY_NOTICE = "Note: another writer held the archive lock, so this search ran against the last "
     + "committed snapshot; the newest turns may be missing until the next call.";
@@ -345,6 +334,7 @@ function executeRead(request: SearchRequest, deps: HistorySearchDeps): string {
 
     const rows = deps.store.select(buildReadQuery({
         sessionId,
+        filters: request.filters,
         limit: request.headLimit,
         offset: request.offset,
     }));
@@ -352,7 +342,7 @@ function executeRead(request: SearchRequest, deps: HistorySearchDeps): string {
         return emptyResultText(request);
     }
 
-    const totalRows = selectSessionTurnCount(sessionId, deps);
+    const totalRows = selectSessionTurnCount(sessionId, request.filters, deps);
 
     return renderRead(rows.map(toReadHitRow), {
         sessionId,
@@ -377,12 +367,21 @@ function selectCounts(request: SearchRequest, deps: HistorySearchDeps): CountRow
     };
 }
 
-/** Total turns stored for one session, for `read`'s window position. */
-function selectSessionTurnCount(sessionId: string, deps: HistorySearchDeps): number {
-    const rows = deps.store.select({
-        sql: SESSION_TURN_COUNT_SQL,
-        params: [sessionId],
-    });
+/**
+ * Total turns stored for one session, for `read`'s window position and withheld count.
+ *
+ * Counted over the SAME filters the window was drawn from, so the two numbers describe one row set.
+ * An unfiltered count would report a window over 300 main-thread turns as "turns 1-12 of 43,780".
+ */
+function selectSessionTurnCount(
+    sessionId: string,
+    filters: HistoryQueryFilters,
+    deps: HistorySearchDeps,
+): number {
+    const rows = deps.store.select(buildSessionRowCountQuery({
+        sessionId,
+        filters,
+    }));
 
     return asNumber(rows[0]?.["total_turns"]);
 }
@@ -468,7 +467,8 @@ function emptyExplanation(request: SearchRequest): string {
         ? "Applied filters: none."
         : `Applied filters: ${request.appliedFilters.join(", ")}.`;
     const advice = request.mode === "read"
-        ? "Either that session is not in the archive, or the offset is past its last turn."
+        ? "Either that session is not in the archive, the offset is past its last turn, or one of the "
+            + "filters above excluded every turn in it."
         : "Nothing matched, so either one of those filters is too narrow or the topic is genuinely "
             + "absent; drop a filter or shorten the pattern to tell the two apart.";
 

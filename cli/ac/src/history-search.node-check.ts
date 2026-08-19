@@ -179,6 +179,119 @@ test("query text that breaks a raw MATCH is escaped end to end", async () => {
     assert.match(plus, /match\(es\)/);
 });
 
+/**
+ * `read` mode's output ceiling, proven against a real archive rather than a fake row array.
+ *
+ * Every other body in this fixture is a few dozen bytes, which is exactly how an uncapped `read`
+ * renderer passed both suites: measured on the shipped archive a single `turns.body` reaches 882,668
+ * characters and the default 20-turn window of the heaviest real session renders 124,599 characters,
+ * about 31,000 tokens, past Claude Code's own 25,000-token MCP result cap. So the heavy bodies are
+ * appended here and read back through the whole sync-distill-store-query-render path.
+ */
+const BULK_TURNS = 20;
+
+const BULK_BODY_CHARS = 40_000;
+
+const READ_OUTPUT_CEILING_BYTES = 16_000;
+
+/** The marker for bulk turn `index`, zero-padded so no marker is a prefix of another. */
+function bulkMarker(index: number): string {
+    return `QWXBULK-${index.toString().padStart(2, "0")}`;
+}
+
+/** Appends {@link BULK_TURNS} oversized prose turns to the second project's session file. */
+function appendBulkTurns(path: string, sessionId: string): void {
+    const filler = "payload ".repeat(BULK_BODY_CHARS / 8);
+    const lines = Array.from({ length: BULK_TURNS }, (_, index) =>
+        JSON.stringify({
+            type: index % 2 === 0 ? "user" : "assistant",
+            uuid: `00000000-0000-4000-8000-${(500 + index).toString(16).padStart(12, "0")}`,
+            sessionId,
+            // Later than every other fixture line, so the read window's order is deterministic:
+            // the original prose turn first, then these in index order.
+            timestamp: `2026-08-02T00:${index.toString().padStart(2, "0")}:00.000Z`,
+            cwd: "/tmp/proj-b",
+            message: {
+                role: index % 2 === 0 ? "user" : "assistant",
+                content: `${bulkMarker(index)} ${filler}`,
+            },
+        }),
+    );
+
+    appendToFixture(path, lines);
+}
+
+test("read mode holds its output ceiling against a real archive of oversized turns", async () => {
+    const { corpus, deps } = await setup();
+
+    appendBulkTurns(corpus.projectBSessionPath, corpus.projectBSessionId);
+
+    const text = await runSearch(
+        { output_mode: "read", session_id: corpus.projectBSessionId },
+        deps,
+    );
+
+    assert.ok(
+        Buffer.byteLength(text, "utf8") <= READ_OUTPUT_CEILING_BYTES,
+        `read output was ${Buffer.byteLength(text, "utf8")} bytes, over the ${READ_OUTPUT_CEILING_BYTES} ceiling`,
+    );
+
+    // The position line must describe what was rendered, not what was requested: a caller pages
+    // from its end, so a requested-window number would make every budget-dropped turn unreachable.
+    const position = new RegExp(`^session:${corpus.projectBSessionId} \\| turns 1-(\\d+) of (\\d+)`).exec(text);
+    assert.ok(position !== null, `no position line: ${text.slice(0, 200)}`);
+    const rendered = Number(position[1]);
+    const total = Number(position[2]);
+    assert.equal(total, BULK_TURNS + 1, "the session holds the original prose turn plus every bulk turn");
+    assert.ok(rendered < total, "the budget has to have cut something, or this proves nothing");
+
+    // The withheld notice accounts for both causes: the turn past the window and the ones the
+    // budget dropped.
+    const notice = /\[(\d+) hit\(s\) withheld/.exec(text);
+    assert.ok(notice !== null, `no withheld notice: ${text.slice(-300)}`);
+    assert.equal(Number(notice[1]), total - rendered);
+
+    // Turn 1 is the original prose turn, so turn n renders bulk marker n-2. The first turn the
+    // budget dropped opens the next window, which is what makes the reported end safe to page from.
+    assert.ok(text.includes(bulkMarker(rendered - 2)), "the last turn the position line claims is missing");
+    assert.ok(!text.includes(bulkMarker(rendered - 1)), "a turn past the reported end leaked into the window");
+
+    const next = await runSearch(
+        { output_mode: "read", session_id: corpus.projectBSessionId, offset: rendered },
+        deps,
+    );
+
+    assert.match(next, new RegExp(`turns ${rendered + 1}-`));
+    assert.ok(next.includes(bulkMarker(rendered - 1)), "paging from the reported end skipped a turn");
+    assert.ok(Buffer.byteLength(next, "utf8") <= READ_OUTPUT_CEILING_BYTES);
+});
+
+test("read mode excludes subagent turns when asked, in a session that mixes both", async () => {
+    const { corpus, deps } = await setup();
+
+    // The fixture's subagent transcript carries its PARENT's session id, the shape 52 of the 144
+    // real sessions have, so this session's window mixes main-thread and subagent turns.
+    const mixed = await runSearch(
+        { output_mode: "read", session_id: corpus.mainSessionId },
+        deps,
+    );
+    assert.match(mixed, /ZRQPHX-PROSE-PLAIN/);
+    assert.match(mixed, /ZRQPHX-SUBAGENT-PROSE/);
+
+    const mainOnly = await runSearch(
+        { output_mode: "read", session_id: corpus.mainSessionId, include_subagents: false },
+        deps,
+    );
+
+    assert.match(mainOnly, /ZRQPHX-PROSE-PLAIN/);
+    assert.ok(!mainOnly.includes("ZRQPHX-SUBAGENT-PROSE"), "the excluded subagent turn is still in the window");
+
+    // The reported total has to shrink with the filter too, or the position line and the withheld
+    // count describe a window the caller never asked for.
+    const totalOf = (text: string): number => Number(/ of (\d+)/.exec(text)?.[1]);
+    assert.ok(totalOf(mainOnly) < totalOf(mixed), "the total still counts the excluded subagent turns");
+});
+
 test("a filter that matches nothing names itself in the answer", async () => {
     const { deps } = await setup();
 

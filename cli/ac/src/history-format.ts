@@ -101,6 +101,20 @@ const MAX_CONTENT_OUTPUT_BYTES = 8000;
 // characters, so a snippet with unusually long tokens could still run over.
 const SNIPPET_TRUNCATE_CHARS = 400;
 
+// `read` gets a larger budget than `content` because its whole job is to be readable prose rather
+// than a scannable index, but it needs one just as much. Measured on the shipped archive: a single
+// turn's `body` reaches 882,668 characters, and the default 20-turn window of the heaviest real
+// session renders 124,599 characters, about 31,000 tokens, which is past Claude Code's own 25,000-
+// token MCP result cap. Four of the five heaviest sessions cross or brush that cap on a DEFAULT
+// call, and `read` is the second half of this tool's central flow (a content hit, then its session),
+// so an uncapped renderer would blow the caller's context on ordinary use. Neither test suite could
+// have caught it: every fixture body is a few dozen bytes.
+const MAX_READ_OUTPUT_BYTES = 16_000;
+
+// Per-row cap as well as a total, so one pathological turn cannot consume the whole window and
+// leave the caller with a single truncated message instead of a conversation.
+const MAX_READ_ROW_CHARS = 1_200;
+
 const ELLIPSIS = "…";
 
 const MINUTE_MS = 60_000;
@@ -204,23 +218,71 @@ export function renderCount(row: CountRow): string {
 /**
  * Renders a contiguous chronological window of one session's rows, with role prefixes and a
  * leading line stating the window's position so the caller can page with `offset`.
+ *
+ * Two budgets apply, and both are load-bearing rather than defensive. Each turn's body is capped at
+ * {@link MAX_READ_ROW_CHARS} on a word boundary, so one pathological turn is SHORTENED rather than
+ * dropped: a caller asked to read a conversation, and a silently missing turn is worse than a
+ * visibly truncated one. On top of that, turns are added one at a time until the running total would
+ * cross {@link MAX_READ_OUTPUT_BYTES}, which covers the position line and the withheld notice too,
+ * since the caller's context pays for those as well.
+ *
+ * The position line is derived from what was actually rendered, never from the requested window.
+ * A line naming the request would hand the caller a `next offset` that skips every turn the budget
+ * dropped, which turns a display detail into data the caller can never reach.
  */
 export function renderRead(rows: readonly ReadHitRow[], opts: RenderReadOptions): string {
+    // 1. The caller's own window first; the byte budget below trims further when it has to.
     const window = rows.slice(0, opts.limit);
-    const windowEnd = opts.offset + window.length;
 
-    const positionLine = `session:${opts.sessionId} | turns ${opts.offset + 1}-${windowEnd} of ${opts.totalRows}`;
-    const lines = window.map((row) => renderReadLine(row));
+    // 2. Reserve the framing before measuring any turn, at its longest possible length: the position
+    //    line for the full window, and a notice whose count can never exceed `totalRows`.
+    const framingBytes = Buffer.byteLength(positionLine(opts, window.length), "utf8")
+        + Buffer.byteLength(truncationNotice(opts.totalRows), "utf8")
+        + 4; // the two "\n\n" joins that attach them
+    const turnBudget = Math.max(0, MAX_READ_OUTPUT_BYTES - framingBytes);
 
-    const withheld = Math.max(0, opts.totalRows - windowEnd);
-    const body = [positionLine, ...lines].join("\n\n");
+    // 3. Add turns one at a time so the running byte total decides where the cut lands, rather than
+    //    rendering everything and slicing the string, which could sever a multi-byte character.
+    const blocks: string[] = [];
+    let usedBytes = 0;
+    for (const row of window) {
+        const block = renderReadLine(row);
+        const blockBytes = Buffer.byteLength(block, "utf8") + 2; // +2 for the joining "\n\n"
+        if (blocks.length > 0 && usedBytes + blockBytes > turnBudget) {
+            break;
+        }
+        blocks.push(block);
+        usedBytes += blockBytes;
+    }
+
+    // 4. State what was withheld, from both causes: the turns beyond this window, and the ones this
+    //    renderer's own budget cut. A caller cannot tell them apart and does not need to.
+    const withheldByWindow = Math.max(0, opts.totalRows - (opts.offset + window.length));
+    const withheldByBudget = window.length - blocks.length;
+    const withheld = withheldByWindow + withheldByBudget;
+
+    const body = [positionLine(opts, blocks.length), ...blocks].join("\n\n");
     return withheld > 0 ? `${body}\n\n${truncationNotice(withheld)}` : body;
 }
 
-/** Renders one `read` row with its role, and its `agentType` label when it is a subagent turn. */
+/** The leading line, stating the window `renderedCount` turns actually cover. */
+function positionLine(opts: RenderReadOptions, renderedCount: number): string {
+    const end = opts.offset + renderedCount;
+
+    return `session:${opts.sessionId} | turns ${opts.offset + 1}-${end} of ${opts.totalRows}`;
+}
+
+/**
+ * Renders one `read` row with its role, its `agentType` label when it is a subagent turn, and its
+ * body capped on a word boundary.
+ *
+ * The per-row cap is what keeps the first turn safe to render unconditionally: a single `tool_use`
+ * body in the real archive reaches 882,668 characters, so without it the "always render at least one
+ * turn" rule above would blow the whole ceiling on its own.
+ */
 function renderReadLine(row: ReadHitRow): string {
     const label = row.is_sub === 1 && row.agent_type !== null ? `${row.role} (${row.agent_type})` : row.role;
-    return `${label}: ${row.body}`;
+    return `${label}: ${truncateOnWordBoundary(row.body, MAX_READ_ROW_CHARS)}`;
 }
 
 /** The one truncation notice every renderer appends when its list was cut, by limit or by budget. */
