@@ -44,14 +44,20 @@ export interface DistillRow {
 }
 
 /**
- * The three outcomes a distilled line can produce: `rows` for a line that yielded at least one
- * indexable row, `control` for Claude Code's own bookkeeping records (allowlisted or not), and
- * `quarantine` for a `user` or `assistant` line that failed to parse or yielded nothing, carrying
- * the raw line so a later parser fix can recover it without the source transcript.
+ * The four outcomes a distilled line can produce: `rows` for a line that yielded at least one
+ * indexable row, `control` for Claude Code's own bookkeeping records (allowlisted or not),
+ * `skipped` for a `user` or `assistant` line whose every block is a type the distiller KNOWS and
+ * deliberately does not index (`thinking`, `image`, a successful `tool_result`), and `quarantine`
+ * for a line that failed to parse, lacked a `uuid` or `sessionId`, or held a block type the
+ * distiller does not recognize at all, carrying the raw line so a later parser fix can recover it
+ * without the source transcript. The `skipped` versus `quarantine` split is deliberate: a
+ * `skipped` line is data the user chose not to index, while a `quarantine` line may be prose lost
+ * forever once `cleanupPeriodDays` takes the transcript.
  */
 export type DistillOutcome =
     | { readonly outcome: "rows"; readonly rows: readonly DistillRow[] }
     | { readonly outcome: "control" }
+    | { readonly outcome: "skipped" }
     | { readonly outcome: "quarantine"; readonly raw: string };
 
 /** Resolved session metadata: the title and first-prompt contract `resolveSessionMeta` copies. */
@@ -162,10 +168,31 @@ function makeRow(
 }
 
 /**
+ * The block types the distiller recognizes and knows how to handle, whether or not the block
+ * itself produces a row. Measured over 400 real transcript files, the full inventory is exactly
+ * `text`, `thinking`, `tool_use`, `tool_result`, `image` and `document`; `document` is
+ * deliberately excluded here (see {@link buildRows}), so a `document`-only line quarantines
+ * rather than skips.
+ */
+const KNOWN_BLOCK_TYPES: ReadonlySet<string> = new Set(["text", "thinking", "tool_use", "tool_result", "image"]);
+
+/**
+ * What one line's content produced: the rows extracted, plus whether any block encountered was
+ * outside {@link KNOWN_BLOCK_TYPES}. `hasUnknownBlock` is what {@link distillLine} uses to decide
+ * `quarantine` over `skipped` when `rows` comes back empty.
+ */
+interface BuildRowsResult {
+    readonly rows: DistillRow[];
+    readonly hasUnknownBlock: boolean;
+}
+
+/**
  * Builds every row a parsed `user` or `assistant` line yields: at most one `prose` row from the
  * concatenation of all `text` blocks (or the plain string), one `tool_use` row per `tool_use`
  * block, and one `tool_error` row per `tool_result` block whose `is_error` is true. `thinking`,
- * `image`, and successful `tool_result` blocks contribute nothing.
+ * `image`, and successful `tool_result` blocks are KNOWN but contribute no row; a block type
+ * outside {@link KNOWN_BLOCK_TYPES} contributes no row either, but is flagged via
+ * `hasUnknownBlock` so the caller can tell "deliberately skipped" apart from "never seen before".
  */
 function buildRows(
     content: unknown,
@@ -174,24 +201,30 @@ function buildRows(
     role: DistillRole,
     ts: number | undefined,
     ctx: DistillContext,
-): DistillRow[] {
+): BuildRowsResult {
     const rows: DistillRow[] = [];
 
-    // 1. A plain string content is always exactly one prose row.
+    // 1. A plain string content is always exactly one prose row; there is no block to classify.
     if (typeof content === "string") {
         rows.push(makeRow(`${uuid}:prose`, sessionId, ts, role, "prose", ctx, content));
-        return rows;
+        return { rows, hasUnknownBlock: false };
     }
 
+    // 2. Any other non-array shape is not one the distiller recognizes at all.
     if (!Array.isArray(content)) {
-        return rows;
+        return { rows, hasUnknownBlock: true };
     }
 
     const blocks = content as readonly ContentBlock[];
 
-    // 2. Concatenate every text block into at most one prose row.
+    // 3. Concatenate every text block into at most one prose row, while flagging any block type
+    //    outside the known inventory (`document` being the real-corpus example).
+    let hasUnknownBlock = false;
     const proseParts: string[] = [];
     for (const block of blocks) {
+        if (typeof block.type !== "string" || !KNOWN_BLOCK_TYPES.has(block.type)) {
+            hasUnknownBlock = true;
+        }
         if (block.type === "text" && typeof block.text === "string") {
             proseParts.push(block.text);
         }
@@ -200,7 +233,7 @@ function buildRows(
         rows.push(makeRow(`${uuid}:prose`, sessionId, ts, role, "prose", ctx, proseParts.join("\n")));
     }
 
-    // 3. One tool_use row per tool_use block, one tool_error row per failed tool_result block.
+    // 4. One tool_use row per tool_use block, one tool_error row per failed tool_result block.
     //    `thinking`, `image`, and successful `tool_result` blocks contribute nothing.
     blocks.forEach((block, index) => {
         if (block.type === "tool_use") {
@@ -217,14 +250,16 @@ function buildRows(
         }
     });
 
-    return rows;
+    return { rows, hasUnknownBlock };
 }
 
 /**
  * Maps one raw transcript line to zero or more indexable rows. See the module docblock for the
- * control-versus-quarantine boundary this function is careful about: an unrecognized `type` is
- * `control`, but a `user` or `assistant` line that yields nothing is `quarantine`, because the
- * archive outlives its source transcript and a wrongly-skipped conversational line is lost for
+ * full outcome set. Two boundaries matter here: an unrecognized record `type` is `control`, never
+ * `quarantine`, so a future release's new record type cannot flood the quarantine table; and a
+ * `user` or `assistant` line that yields no row is `skipped` when every block present is a KNOWN,
+ * deliberately-unindexed type, or `quarantine` when a block type is not recognized at all, because
+ * the archive outlives its source transcript and a wrongly-skipped conversational line is lost for
  * good.
  */
 export function distillLine(line: string, ctx: DistillContext): DistillOutcome {
@@ -255,12 +290,16 @@ export function distillLine(line: string, ctx: DistillContext): DistillOutcome {
 
     const parsedTs = typeof parsed.timestamp === "string" ? Date.parse(parsed.timestamp) : NaN;
     const ts = Number.isNaN(parsedTs) ? undefined : parsedTs;
-    const rows = buildRows(parsed.message?.content, parsed.uuid, parsed.sessionId, role, ts, ctx);
+    const { rows, hasUnknownBlock } = buildRows(parsed.message?.content, parsed.uuid, parsed.sessionId, role, ts, ctx);
 
-    // 4. A conversational line that yields no row (image-only, successful-tool-result-only, or
-    //    any other textless shape) is quarantined rather than silently dropped.
+    // 4. A conversational line that yields no row is either `skipped` or `quarantine`, and WHY it
+    //    yielded nothing is what decides between them. Every block present being a KNOWN,
+    //    deliberately-unindexed type (image-only, successful-tool-result-only, thinking-only) is
+    //    `skipped`: counted, never stored, because this is the ordinary shape of most turns. A
+    //    block type outside the known inventory is `quarantine`, because it may be prose lost
+    //    forever once `cleanupPeriodDays` takes the source transcript.
     if (rows.length === 0) {
-        return { outcome: "quarantine", raw: line };
+        return hasUnknownBlock ? { outcome: "quarantine", raw: line } : { outcome: "skipped" };
     }
 
     return { outcome: "rows", rows };

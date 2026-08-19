@@ -142,6 +142,11 @@ test("a full sync over the fixture corpus produces exactly the row counts buildF
     expect(state.quarantine.length).toBe(corpus.expected.quarantineRows);
     expect(report.filesScanned).toBe(3);
     expect(report.rowsAdded).toBe(proseRows + toolUseRows + errorRows);
+    // Skipped lines (a known, deliberately-unindexed block type such as `image` or a successful
+    // `tool_result`) are counted in the report, but must never reach the store as quarantine
+    // entries: that conflation is exactly the plan defect this fixture's correction exists to
+    // catch.
+    expect(report.skipped).toBe(corpus.expected.skippedLines);
 });
 
 test("a subagent row is labelled with the agentType from its sibling meta.json", async () => {

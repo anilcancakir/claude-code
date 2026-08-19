@@ -40,6 +40,7 @@ export interface FixtureCounts {
     toolUseRows: number;
     errorRows: number;
     quarantineRows: number;
+    skippedLines: number;
     controlLinesSkipped: number;
 }
 
@@ -91,7 +92,9 @@ function jsonLine(record: Record<string, unknown>): string {
 /**
  * Builds the main session's well-formed lines: plain-string prose, an array-content turn mixing
  * text and a failed tool result, an assistant turn mixing text, thinking and a `Bash` tool use, a
- * compact-summary prose line, two shapes of textless `user` line, and one line per control type.
+ * compact-summary prose line, two shapes of textless `user` line the distiller KNOWS and skips
+ * (image-only, successful-tool-result-only), one textless `user` line holding a block type the
+ * distiller does not know at all (`document`, which quarantines), and one line per control type.
  */
 function buildMainSessionLines(sessionId: string): string[] {
     const timestamp = "2026-08-01T00:00:00.000Z";
@@ -195,6 +198,27 @@ function buildMainSessionLines(sessionId: string): string[] {
         },
     });
 
+    // A block type the distiller does not know at all, unlike `image` or a successful
+    // `tool_result`, both of which it recognizes and deliberately skips. `document` really
+    // occurs in the corpus (5 times over 400 files) and is the shape the quarantine arm exists
+    // for: an unrecognized block may be prose lost forever once `cleanupPeriodDays` takes the
+    // transcript, so it is quarantined rather than silently skipped.
+    const unknownBlockTypeOnly = jsonLine({
+        type: "user",
+        uuid: fixtureUuid(107),
+        sessionId,
+        timestamp,
+        message: {
+            role: "user",
+            content: [
+                {
+                    type: "document",
+                    source: { type: "base64", media_type: "application/pdf", data: "ZRQPHX-DOCUMENT-DATA" },
+                },
+            ],
+        },
+    });
+
     const controlLines = [...CONTROL_TYPES, FUTURE_CONTROL_TYPE].map((controlType, index) =>
         jsonLine({
             type: controlType,
@@ -219,6 +243,7 @@ function buildMainSessionLines(sessionId: string): string[] {
         compactSummaryProse,
         imageOnlyContent,
         successfulToolResultOnly,
+        unknownBlockTypeOnly,
         ...controlLines,
         malformedJson,
     ];
@@ -360,15 +385,21 @@ export function buildFixtureCorpus(root: string): FixtureCorpus {
     );
 
     // 4. State the expected counts a correct distiller pass produces across the whole corpus:
-    //    main session (4 prose, 1 tool_use, 1 error, 3 quarantine, 18 control) plus project B
-    //    (1 prose) plus the subagent transcript (2 prose, 1 tool_use). The torn tail is excluded:
-    //    it never reaches the distiller, because the byte cursor discards it as an incomplete
-    //    trailing fragment.
+    //    main session (4 prose, 1 tool_use, 1 error, 2 quarantine, 2 skipped, 18 control) plus
+    //    project B (1 prose) plus the subagent transcript (2 prose, 1 tool_use). The torn tail is
+    //    excluded: it never reaches the distiller, because the byte cursor discards it as an
+    //    incomplete trailing fragment. Quarantine now holds only the malformed-JSON line and the
+    //    unknown-block-type (`document`) line; the image-only line and the successful-tool-
+    //    result-only line are `skipped` instead, since both hold only block types the distiller
+    //    KNOWS and deliberately does not index. Treating those as quarantine was the plan defect
+    //    this fixture's correction exists to catch: measured against the real corpus it produced
+    //    195,140 quarantined lines and a 4 GB archive against a 296 MB one.
     const expected: FixtureCounts = {
         proseRows: 4 + 1 + 2,
         toolUseRows: 1 + 1,
         errorRows: 1,
-        quarantineRows: 3,
+        quarantineRows: 2,
+        skippedLines: 2,
         controlLinesSkipped: CONTROL_TYPES.length + 1,
     };
 

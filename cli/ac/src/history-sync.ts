@@ -74,6 +74,15 @@ export interface HistorySyncReport {
     readonly filesVanished: number;
     readonly rowsAdded: number;
     readonly quarantined: number;
+    /**
+     * Lines whose every block was a type the distiller KNOWS and deliberately does not index
+     * (`thinking`, `image`, a successful `tool_result`). Counted here, never handed to the store
+     * as a {@link HistoryQuarantineEntry}: conflating the two is the defect that once turned a
+     * 296 MB archive into 4 GB. Optional so a report literal built before this field existed
+     * (a fake `syncArchive` stub in another step's test) still type-checks; `syncArchive` itself
+     * always sets it.
+     */
+    readonly skipped?: number;
     readonly redactions: number;
     readonly elapsedMillis: number;
     readonly changed: boolean;
@@ -273,7 +282,13 @@ async function processFile(
         readonly headWindowBytes: number;
         readonly tailWindowBytes: number;
     },
-): Promise<{ readonly ingested: boolean; readonly rowsAdded: number; readonly quarantined: number; readonly redactions: number }> {
+): Promise<{
+    readonly ingested: boolean;
+    readonly rowsAdded: number;
+    readonly quarantined: number;
+    readonly skipped: number;
+    readonly redactions: number;
+}> {
     const classified = classifyTranscript(file.path);
     const manifestEntry = store.getManifestEntry(classified.transcriptKey);
     const priorCursor = manifestEntry?.cursor ?? 0;
@@ -294,7 +309,7 @@ async function processFile(
     });
 
     if (decision === "up-to-date") {
-        return { ingested: false, rowsAdded: 0, quarantined: 0, redactions: 0 };
+        return { ingested: false, rowsAdded: 0, quarantined: 0, skipped: 0, redactions: 0 };
     }
 
     // 2. Read only what is needed: the delta from the cursor when appending, the whole file on
@@ -308,7 +323,7 @@ async function processFile(
     //    bytes are still a torn, newline-less tail advances by zero every single pass. Skip the
     //    write entirely rather than re-ingesting nothing forever.
     if (lines.length === 0 && newCursor === priorCursor) {
-        return { ingested: false, rowsAdded: 0, quarantined: 0, redactions: 0 };
+        return { ingested: false, rowsAdded: 0, quarantined: 0, skipped: 0, redactions: 0 };
     }
 
     // 4. Storage-time head window: anchored to the NEW cursor, so the next pass's decision
@@ -339,10 +354,16 @@ async function processFile(
 
     const rows: DistillRow[] = [];
     const quarantined: HistoryQuarantineEntry[] = [];
+    let skippedLines = 0;
     for (const line of lines) {
         const outcome = distillLine(line, ctx);
         if (outcome.outcome === "rows") {
             rows.push(...outcome.rows);
+        } else if (outcome.outcome === "skipped") {
+            // A block type the distiller KNOWS and deliberately does not index. Counted here,
+            // never handed to the store: quarantining these is the defect this fixture's
+            // correction exists to catch.
+            skippedLines += 1;
         } else if (outcome.outcome === "quarantine") {
             quarantined.push({
                 sessionId: classified.sessionId,
@@ -384,6 +405,7 @@ async function processFile(
         ingested: true,
         rowsAdded: result.rowsAdded,
         quarantined: result.quarantined,
+        skipped: skippedLines,
         redactions: sumRedactionCounts(result.redactions),
     };
 }
@@ -410,6 +432,7 @@ export async function syncArchive(opts: HistorySyncOptions): Promise<HistorySync
 
     let rowsAdded = 0;
     let quarantined = 0;
+    let skipped = 0;
     let redactions = 0;
     let changed = false;
 
@@ -425,6 +448,7 @@ export async function syncArchive(opts: HistorySyncOptions): Promise<HistorySync
         }
         rowsAdded += outcome.rowsAdded;
         quarantined += outcome.quarantined;
+        skipped += outcome.skipped;
         redactions += outcome.redactions;
     }
 
@@ -433,6 +457,7 @@ export async function syncArchive(opts: HistorySyncOptions): Promise<HistorySync
         filesVanished: vanished,
         rowsAdded,
         quarantined,
+        skipped,
         redactions,
         elapsedMillis: Date.now() - startedAt,
         changed,

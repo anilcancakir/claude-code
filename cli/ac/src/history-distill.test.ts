@@ -47,12 +47,17 @@ function tallyOutcomes(lines: readonly string[], ctx: DistillContext): FixtureCo
     let toolUseRows = 0;
     let errorRows = 0;
     let quarantineRows = 0;
+    let skippedLines = 0;
     let controlLinesSkipped = 0;
 
     for (const line of lines) {
         const outcome: DistillOutcome = distillLine(line, ctx);
         if (outcome.outcome === "control") {
             controlLinesSkipped++;
+            continue;
+        }
+        if (outcome.outcome === "skipped") {
+            skippedLines++;
             continue;
         }
         if (outcome.outcome === "quarantine") {
@@ -70,7 +75,7 @@ function tallyOutcomes(lines: readonly string[], ctx: DistillContext): FixtureCo
         }
     }
 
-    return { proseRows, toolUseRows, errorRows, quarantineRows, controlLinesSkipped };
+    return { proseRows, toolUseRows, errorRows, quarantineRows, skippedLines, controlLinesSkipped };
 }
 
 // 1. The full corpus, exercised end to end (this is the step's QA).
@@ -83,6 +88,7 @@ test("distilling the whole fixture corpus reproduces buildFixtureCorpus's declar
         toolUseRows: 0,
         errorRows: 0,
         quarantineRows: 0,
+        skippedLines: 0,
         controlLinesSkipped: 0,
     };
 
@@ -101,6 +107,7 @@ test("distilling the whole fixture corpus reproduces buildFixtureCorpus's declar
         totals.toolUseRows += partial.toolUseRows;
         totals.errorRows += partial.errorRows;
         totals.quarantineRows += partial.quarantineRows;
+        totals.skippedLines += partial.skippedLines;
         totals.controlLinesSkipped += partial.controlLinesSkipped;
     }
 
@@ -194,9 +201,10 @@ test("an array tool_result with is_error true produces a tool_error row and one 
     expect(successOutcome.rows).toHaveLength(1);
 });
 
-// 4. An image-only line yields zero rows and quarantines, using the Step 1 fixture directly.
+// 4. An image-only line yields zero rows and is skipped, not quarantined: `image` is a block
+//    type the distiller KNOWS and deliberately does not index, using the Step 1 fixture directly.
 
-test("a line holding only an image block produces zero rows and a quarantine outcome", () => {
+test("a line holding only an image block produces a skipped outcome, not quarantine", () => {
     const corpus = buildFixtureCorpus(freshRoot());
     const lines = readWellFormedLines(corpus.mainSessionPath);
     const imageOnlyLine = lines.find((line) => line.includes("ZRQPHX-IMAGE-DATA"));
@@ -205,6 +213,60 @@ test("a line holding only an image block produces zero rows and a quarantine out
     }
 
     const outcome = distillLine(imageOnlyLine, CTX);
+    expect(outcome.outcome).toBe("skipped");
+});
+
+// 4b. A line holding only a SUCCESSFUL tool_result also skips rather than quarantines: this is
+//     the single most common textless shape in the real corpus, and quarantining it is what
+//     produced a 1.53 GB quarantine table against a 145 MB `turns` body.
+
+test("a line holding only a successful tool_result produces a skipped outcome", () => {
+    const corpus = buildFixtureCorpus(freshRoot());
+    const lines = readWellFormedLines(corpus.mainSessionPath);
+    const successfulToolResultLine = lines.find((line) => line.includes("ZRQPHX-SUCCESSFUL-TOOLRESULT"));
+    if (successfulToolResultLine === undefined) {
+        throw new Error("fixture successful-tool-result-only line not found");
+    }
+
+    const outcome = distillLine(successfulToolResultLine, CTX);
+    expect(outcome.outcome).toBe("skipped");
+});
+
+// 4c. A line holding a block type the distiller does not know at all (`document`, which really
+//     occurs) quarantines rather than skips: this is the shape the quarantine arm exists for.
+
+test("a line holding an unknown block type (document) produces a quarantine outcome", () => {
+    const corpus = buildFixtureCorpus(freshRoot());
+    const lines = readWellFormedLines(corpus.mainSessionPath);
+    const unknownBlockLine = lines.find((line) => line.includes("ZRQPHX-DOCUMENT-DATA"));
+    if (unknownBlockLine === undefined) {
+        throw new Error("fixture unknown-block-type line not found");
+    }
+
+    const outcome = distillLine(unknownBlockLine, CTX);
+    expect(outcome.outcome).toBe("quarantine");
+});
+
+// 4d. A conversational line lacking a uuid or sessionId still quarantines, unaffected by the
+//     skipped/quarantine split above.
+
+test("a user line lacking a uuid quarantines", () => {
+    const line = JSON.stringify({
+        type: "user",
+        sessionId: "sess-1",
+        message: { role: "user", content: "ZQX-NO-UUID" },
+    });
+    const outcome = distillLine(line, CTX);
+    expect(outcome.outcome).toBe("quarantine");
+});
+
+test("a user line lacking a sessionId quarantines", () => {
+    const line = JSON.stringify({
+        type: "user",
+        uuid: "line-no-session-id",
+        message: { role: "user", content: "ZQX-NO-SESSION-ID" },
+    });
+    const outcome = distillLine(line, CTX);
     expect(outcome.outcome).toBe("quarantine");
 });
 
