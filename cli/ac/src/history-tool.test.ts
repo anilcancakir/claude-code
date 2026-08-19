@@ -160,11 +160,16 @@ test("the description states that punctuation is dropped rather than matched lit
     expect(description).toContain("Punctuation is DROPPED");
 });
 
-test("the description qualifies diacritic folding with the one letter that does not fold", () => {
+test("the description promises Turkish folding in both directions, which the expansion now delivers", () => {
     const description = HISTORY_TOOL_DEFINITION.description ?? "";
 
-    expect(description).toContain("except `\u0131`");
-    expect(description).toContain("\u00e7al\u0131\u015f\u0131yor");
+    // This assertion previously locked in the OPPOSITE claim, that `\u0131` does not fold. It was true
+    // of the tokenizer alone and is false of the tool: `toMatchExpression` expands every token over
+    // the dotted/dotless axis, proven against a real FTS5 index in `history-store.node-check.ts`.
+    // A description that still warned the caller off `calisiyor` would send them typing around a
+    // limit that no longer exists.
+    expect(description).toContain("calisiyor` finds `\u00e7al\u0131\u015f\u0131yor");
+    expect(description).not.toContain("does NOT find");
 });
 
 test("output_mode read with a session_id and no pattern validates and returns a window", async () => {

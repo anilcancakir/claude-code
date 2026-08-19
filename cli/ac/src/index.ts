@@ -130,8 +130,8 @@ history
     .description(
         "Search the history archive. pattern is tokenized full-text with prefix matching, not a "
             + "regex, and punctuation is dropped rather than matched, so 'C++' searches for 'c'. "
-            + "Every Turkish diacritic folds EXCEPT 'ı' (U+0131), so 'gozden' finds 'gözden' but "
-            + "'calisiyor' does NOT find 'çalışıyor'; type the dotless i as itself.",
+            + "Turkish folding works in both directions: 'gozden' finds 'gözden' and 'calisiyor' "
+            + "finds 'çalışıyor', so type a Turkish word either way.",
     )
     .option("--path <value>", "Filter to project paths containing this substring.")
     .option("--output-mode <value>", "content|sessions|count|read", "content")
