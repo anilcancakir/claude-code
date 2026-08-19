@@ -145,6 +145,26 @@ test("the description disambiguates the borrowed pattern name from a regex", () 
     expect(description).toContain("TOKENIZED FULL-TEXT");
 });
 
+// Both claims below replace measured-false ones. Against a real in-memory FTS5 table the
+// `unicode61` tokenizer DROPS punctuation rather than matching it literally, so `C++` degrades to
+// the bare prefix `c` (167,001 of the real archive's 188,255 turns) and `node.*sqlite` becomes an
+// adjacency phrase over `node` and `sqlite`. And `ı` (U+0131) is the one Turkish letter it does not
+// fold, under `remove_diacritics` 1 and 2 alike, so `calisiyor` returned 110 hits where `çalışıyor`
+// returned 1,847. Step 11's own Must NOT makes this description the contract, hence the assertions.
+test("the description states that punctuation is dropped rather than matched literally", () => {
+    const description = HISTORY_TOOL_DEFINITION.description ?? "";
+
+    expect(description).not.toContain("matched literally");
+    expect(description).toContain("Punctuation is DROPPED");
+});
+
+test("the description qualifies diacritic folding with the one letter that does not fold", () => {
+    const description = HISTORY_TOOL_DEFINITION.description ?? "";
+
+    expect(description).toContain("except `\u0131`");
+    expect(description).toContain("\u00e7al\u0131\u015f\u0131yor");
+});
+
 test("output_mode read with a session_id and no pattern validates and returns a window", async () => {
     const store = createFakeStore({ readRows: [readRow()], readTotal: 1 });
 

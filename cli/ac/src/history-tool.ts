@@ -36,10 +36,14 @@ export const HISTORY_TOOL_DEFINITION: Tool = {
         "Search the user's own local Claude Code conversation history across every local project, "
         + "backed by a permanent SQLite full-text archive. `pattern` is TOKENIZED FULL-TEXT search "
         + "with prefix matching, NOT a regular expression: it splits on whitespace, matches each "
-        + "token as a prefix, and ANDs the tokens together, so punctuation-heavy or regex-shaped "
-        + "input (`node.*sqlite`, `a|b`) is matched literally rather than interpreted; write plain "
-        + "search words instead. The `unicode61` tokenizer is case-insensitive and folds Turkish "
-        + "diacritics, so `gozden` finds `gözden`. `pattern` is required for `output_mode` "
+        + "token as a prefix, and ANDs the tokens together. Punctuation is DROPPED by the tokenizer "
+        + "rather than searched, so regex-shaped input degrades silently instead of erroring: `C++` "
+        + "searches the bare prefix `c` and matches almost every turn, and `node.*sqlite` searches "
+        + "for `node` immediately followed by `sqlite`; write plain search words instead. The "
+        + "`unicode61` tokenizer is case-insensitive and folds every Turkish diacritic except `ı` "
+        + "(U+0131, dotless i), so `gozden` finds `gözden` but `calisiyor` does NOT find "
+        + "`çalışıyor`; keep the `ı` when a Turkish search word has one. `pattern` is required for "
+        + "`output_mode` "
         + "`content`, `sessions` and `count`; it is not used for `read`, which instead opens a "
         + "chronological window on one `session_id` (required in that mode). Only prose and tool "
         + "arguments are indexed: successful tool output is never indexed, while failed tool "
@@ -81,8 +85,8 @@ export const HISTORY_TOOL_DEFINITION: Tool = {
             "-i": {
                 type: "boolean",
                 description: "Always on regardless of this flag: the archive's unicode61 tokenizer "
-                    + "is case-insensitive and diacritic-folding by construction. Accepted only for "
-                    + "vocabulary compatibility with the built-in Grep tool.",
+                    + "is case-insensitive by construction. Accepted only for vocabulary "
+                    + "compatibility with the built-in Grep tool.",
             },
             since: {
                 type: "string",
