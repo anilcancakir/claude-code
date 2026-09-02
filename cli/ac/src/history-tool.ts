@@ -36,21 +36,14 @@ export const HISTORY_TOOL_DEFINITION: Tool = {
     description:
         "Search the user's own local Claude Code conversation history across every local project, "
         + "backed by a permanent SQLite full-text archive. `pattern` is TOKENIZED FULL-TEXT search "
-        + "with prefix matching, NOT a regular expression: it splits on whitespace, matches each "
-        + "token as a prefix, and ANDs the tokens together. Punctuation is DROPPED by the tokenizer "
-        + "rather than searched, so regex-shaped input degrades silently instead of erroring: `C++` "
-        + "searches the bare prefix `c` and matches almost every turn, and `node.*sqlite` searches "
-        + "for `node` immediately followed by `sqlite`; write plain search words instead. Matching "
-        + "is case-insensitive and fully diacritic-insensitive for Turkish, in both directions: "
-        + "`gozden` finds `gözden`, and `calisiyor` finds `çalışıyor` because every token is "
-        + "expanded over the dotted/dotless i axis the tokenizer does not fold on its own. Type a "
-        + "Turkish word either way. `pattern` is required for "
-        + "`output_mode` "
-        + "`content`, `sessions`, `projects` and `count`; it is not used for `read`, which opens a "
-        + "chronological window on one `session_id` (required in that mode). Only prose and tool "
-        + "arguments are indexed: successful tool output is never indexed, while failed tool "
-        + "output (errors) is, so this tool cannot surface a large file dump but can surface why "
-        + "something broke.",
+        + "with prefix matching, NOT a regular expression: it splits on whitespace, prefix-matches "
+        + "each token and ANDs them. Punctuation is DROPPED rather than searched, so regex-shaped "
+        + "input degrades silently instead of erroring; write plain words. Matching is "
+        + "case-insensitive and folds Turkish diacritics both ways, so `calisiyor` finds "
+        + "`çalışıyor`. `pattern` is required for every `output_mode` except `read`, which opens a "
+        + "chronological window on one `session_id`. Only prose and tool arguments are indexed; "
+        + "successful tool output is not, but failed output is, so this surfaces why something "
+        + "broke rather than large file dumps.",
     inputSchema: {
         type: "object",
         properties: {
@@ -68,10 +61,9 @@ export const HISTORY_TOOL_DEFINITION: Tool = {
                 enum: ["content", "sessions", "projects", "count", "read"],
                 default: "content",
                 description: "content: one excerpt per matching turn. sessions: one entry per "
-                    + "matching session. projects: one entry per project, busiest first, which is "
-                    + "how to answer \"which projects on this machine did I work on X in\". "
-                    + "count: match/session/project totals only. read: a "
-                    + "chronological window on one session_id, no search performed.",
+                    + "matching session. projects: one entry per project, busiest first. "
+                    + "count: match/session/project totals only. read: a chronological window on "
+                    + "one session_id, no search performed.",
             },
             head_limit: {
                 type: "number",
@@ -88,9 +80,8 @@ export const HISTORY_TOOL_DEFINITION: Tool = {
             },
             "-i": {
                 type: "boolean",
-                description: "Always on regardless of this flag: the archive's unicode61 tokenizer "
-                    + "is case-insensitive by construction. Accepted only for vocabulary "
-                    + "compatibility with the built-in Grep tool.",
+                description: "No-op; matching is always case-insensitive. Accepted only for "
+                    + "vocabulary parity with the built-in Grep tool.",
             },
             since: {
                 type: "string",

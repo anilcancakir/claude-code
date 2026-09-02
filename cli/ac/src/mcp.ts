@@ -56,12 +56,10 @@ const ALLOWED_REMOTE_TOOLS: ReadonlySet<string> = new Set([
  */
 const FALLBACK_DIRECTIVES: Readonly<Record<string, string>> = {
     "web-search":
-        "FALLBACK ONLY. Prefer the built-in WebSearch tool first (load it via ToolSearch if it "
-        + "is not already active). Use this ac web-search only when the built-in WebSearch errors, "
+        "FALLBACK ONLY. Prefer the built-in WebSearch; use this one only when WebSearch errors, "
         + "is unavailable or rate-limited, or returns insufficient results.\n\n",
     "web-fetch":
-        "FALLBACK ONLY. Prefer the built-in WebFetch tool first (load it via ToolSearch if it is "
-        + "not already active). Use this ac web-fetch only when the built-in WebFetch errors or "
+        "FALLBACK ONLY. Prefer the built-in WebFetch; use this one only when WebFetch errors or "
         + "times out, is rate-limited or blocked (HTTP 403/429), returns empty or auth-walled "
         + "content, or cannot follow a cross-host redirect.\n\n",
 };
