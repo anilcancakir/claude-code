@@ -7,7 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.11.0] - 2026-08-20
+### Changed
+
+- Every shipped `description` and `when_to_use` is shorter and now states where the component stops rather than listing the phrasings that should fire it. Eleven agents, eight skills and `/ac:commit` were rewritten. The old shape closed with "Use aggressively; undertriggering is the failure mode", which named a dozen occasions to fire and not one occasion to stay out, and it grew every time a new phrasing occurred to the author. Descriptions load into every main-thread turn whether or not anything invokes them, so this is the one surface where length is paid for unconditionally.
+- The advice the plugin gives about descriptions now matches the ones it ships. `ac:skill-creator` and `ac:prompt-writer` taught the pushy shape ("Modern Claude undertriggers, so lean toward catching the request") while `ac` itself had moved off it, so a skill written with these tools came out in a style their own author had abandoned. Both now teach capability plus boundary, and the worked examples and pre-flight checklists were rewritten to match.
+- The three local MCP tool descriptions (`search-history`, `web-fetch`, and the `web-search` fallback directive) drop their worked examples and their `ToolSearch` instructions for the built-in tools. Same routing rule, fewer tokens on every call.
+
+### Added
+
+- `/ac:install` Phase 4 gains Group D, an opt-in context trim covering unused built-ins, the scheduling stack, the task toolset, rarely-used bundled skills and the auto-mode classifier. Everything is unchecked by default and each option says which capability it removes, because `permissions.deny` strips a tool's schema rather than only blocking the call. No token figures are quoted: a tool that already defers costs its name rather than its schema, so the saving moves with the build and with whether tool search is on, and the section says how to measure it locally instead.
+
+### Fixed
+
+- Group B in `/ac:install` presented seven options in a single flat `AskUserQuestion` call. The schema caps a question at four options and expects a `questions` array, so the prompt would have failed at the point where the operator opts into permission and telemetry keys. It now asks two questions, permissions and env keys, in one call.
+- Group D set five bundled skills to `skillOverrides: "off"` under an option promising "Every one stays reachable by typing /name". Per the shipped 2.1.258 field documentation, `"off"` hides a skill from `/name` as well; only `"user-invocable-only"` keeps it. All seven entries now use `"user-invocable-only"`, and the section records what each of the four enum values hides so the next edit cannot repeat the swap.
 
 Gives the plugin a memory of its own machine. `search-history` searches every Claude Code transcript this computer has ever written, across all projects, and `call-external-agent` leaves in the same release, so the local surface is now the two tools that read this machine's own state rather than one that drives other CLIs.
 
