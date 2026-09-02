@@ -147,7 +147,7 @@ Synthesize a proposal from Phase 2 findings and the gap-fill answers.
 
 ## `/sync-claude-code` (project command)
 
-**Source**: `references/claude-code-cli-source-code/.claude/commands/sync-claude-code.md`.
+**Source**: `.claude/commands/sync-claude-code.md` in the CC source.
 
 **Frontmatter**:
 
@@ -252,7 +252,7 @@ For each major step:
 
 ## `/verify` (bundled skill)
 
-**Source**: System prompt extraction at `references/claude-code-system-prompts/system-prompts/skill-verify-skill.md`.
+**Source**: System prompt extraction at https://github.com/Piebald-AI/claude-code-system-prompts/tree/main/system-prompts, files `skill-verify-cli-changes-example-for-verify-skill.md` and `skill-verify-server-api-changes-example-for-verify-skill.md`.
 
 **Purpose**: Verify that a code change does what it says by running the app and observing behavior.
 

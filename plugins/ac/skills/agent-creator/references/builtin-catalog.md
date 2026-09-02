@@ -160,7 +160,7 @@ permissionMode: dontAsk
 
 ## verification (feature-flagged)
 
-**Source**: `tools/AgentTool/built-in/verificationAgent.ts`. The "runtime observation" agent. Feature-flagged behind `VERIFICATION_AGENT` + `tengu_hive_evidence`. Body emphasizes "build the app, run it, observe what happens. That is the evidence. Nothing else is." See `references/claude-code-system-prompts/system-prompts/skill-verify-skill.md` for the body extracted from a related skill.
+**Source**: `tools/AgentTool/built-in/verificationAgent.ts`. The "runtime observation" agent. Feature-flagged behind `VERIFICATION_AGENT` + `tengu_hive_evidence`. Body emphasizes "build the app, run it, observe what happens. That is the evidence. Nothing else is." For the shape a related skill's body takes, see the Verify-skill extractions at https://github.com/Piebald-AI/claude-code-system-prompts/tree/main/system-prompts (`skill-verify-cli-changes-example-for-verify-skill.md` and its server/API sibling).
 
 **Pattern to copy**: opinionated stance section at the top. "Verification is X. Don't do Y." Sharp, repeated rules.
 

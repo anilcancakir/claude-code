@@ -35,7 +35,7 @@ You are the `/ac:init-project` orchestrator. You investigate a target project, d
 
 ### 0b. Gitignore guard for `CLAUDE.local.md`
 
-Mirror `references/claude-code-cli-source-code/commands/init.ts:139`. Run only when `WRITE_LOCAL=true`, or when a `CLAUDE.local.md` already exists at the target root and `WRITE_LOCAL=false` (the file exists, so we still want it ignored).
+Claude Code's own `/init` adds `CLAUDE.local.md` to `.gitignore` when it writes one; this mirrors that. Run only when `WRITE_LOCAL=true`, or when a `CLAUDE.local.md` already exists at the target root and `WRITE_LOCAL=false` (the file exists, so we still want it ignored).
 
 In `PATH_ARG`:
 
@@ -46,7 +46,7 @@ The guard is idempotent. Apply on every invocation; the `git check-ignore` short
 
 ### 0c. Gap-fill interview (CLAUDE.md only)
 
-Modeled on `init.ts:30-43`, scoped to `CLAUDE.md` content. Ask the minimum set of questions the codebase scan cannot answer alone. Do not interview about skills, hooks, MCP servers, or `settings.json`; those surfaces are out of scope for this command.
+Modeled on the gap-fill interview Claude Code's native `/init` runs, scoped here to `CLAUDE.md` content. Ask the minimum set of questions the codebase scan cannot answer alone. Do not interview about skills, hooks, MCP servers, or `settings.json`; those surfaces are out of scope for this command.
 
 Use `AskUserQuestion` for each gap question that the Phase 1 results cannot resolve. Hold the questions until after Phase 1 returns; Phase 1 findings often eliminate gaps. Example gap questions, asked one at a time when Phase 1 leaves the answer ambiguous:
 
@@ -62,13 +62,13 @@ The interview runs in `--dry-run` mode the same way it runs in a live run; the a
 
 ### 1a. Worktree disambiguation
 
-Run one `Bash` call: `git -C <PATH_ARG> worktree list`. When the output contains more than one worktree row, ask the user to disambiguate via `AskUserQuestion` (header "Worktrees?", question "Multiple git worktrees detected. Where do your sibling worktrees live relative to the main repo?", options "Nested inside main repo (e.g., `.claude/worktrees/<name>/`)", "Sibling or external (e.g., `../<repo>-feature/`)", "Single worktree, ignore"). The choice routes `CLAUDE.local.md` placement per `init.ts:56,150`: nested worktrees inherit the main repo's `CLAUDE.local.md` via the upward walk; sibling worktrees need a `~/.claude/<PROJECT_SLUG>-instructions.md` file with a one-line `@~/.claude/<PROJECT_SLUG>-instructions.md` stub per worktree.
+Run one `Bash` call: `git -C <PATH_ARG> worktree list`. When the output contains more than one worktree row, ask the user to disambiguate via `AskUserQuestion` (header "Worktrees?", question "Multiple git worktrees detected. Where do your sibling worktrees live relative to the main repo?", options "Nested inside main repo (e.g., `.claude/worktrees/<name>/`)", "Sibling or external (e.g., `../<repo>-feature/`)", "Single worktree, ignore"). The choice routes `CLAUDE.local.md` placement the way Claude Code's own `/init` does: nested worktrees inherit the main repo's `CLAUDE.local.md` via the upward walk; sibling worktrees need a `~/.claude/<PROJECT_SLUG>-instructions.md` file with a one-line `@~/.claude/<PROJECT_SLUG>-instructions.md` stub per worktree.
 
 Skip the question when only one worktree row is reported.
 
 ### 1b. Four parallel `ac:explore` agents
 
-Spawn exactly four discovery agents in a single response, targeting `PATH_ARG` (not this repository). Each brief follows the "predict the standard answer first, report only the deviations" style from `init-deep.ts:38-54`. The agent returns a short report with the predicted-standard line plus any deviations cited as `file:line`.
+Spawn exactly four discovery agents in a single response, targeting `PATH_ARG` (not this repository). Each brief follows the "predict the standard answer first, report only the deviations" style borrowed from oh-my-openagent's `init-deep` skill (linked under References). The agent returns a short report with the predicted-standard line plus any deviations cited as `file:line`.
 
 ```
 Agent({
@@ -100,7 +100,7 @@ Wait for all four agents to return before continuing. Merge their reports into a
 
 ## Phase 2: Path-Scoped Rule Candidate Scoring
 
-Adapt the `init-deep.ts:152-160` 8-factor matrix. The omo version scored subdirectories for `AGENTS.md` hierarchy placement; we recast each factor for path-scoped rule semantics (`.claude/rules/<topic>.md` with `paths:` frontmatter).
+Adapt the 8-factor matrix from `init-deep` (linked under References). The omo version scored subdirectories for `AGENTS.md` hierarchy placement; we recast each factor for path-scoped rule semantics (`.claude/rules/<topic>.md` with `paths:` frontmatter).
 
 For every subdirectory `D` of the project, up to depth `MAX_DEPTH` (root is depth 0; root itself never becomes a path-scoped rule, it becomes the root `CLAUDE.md`), compute these factor scores from the Phase 1 findings:
 
@@ -113,7 +113,7 @@ For every subdirectory `D` of the project, up to depth `MAX_DEPTH` (root is dept
 7. **Hot-path frequency**: `D` is referenced by build, run, or CI scripts more than once. Adds 2 points.
 8. **Compaction sensitivity**: a rule in `D` must hold across `/compact`. Subtracts 3 points (path-scoped rules summarize away after compact; high-sensitivity rules belong in root CLAUDE.md instead).
 
-Thresholds, inherited from `init-deep.ts:152-160` and carried forward as starting values that need empirical tuning on real projects:
+Thresholds, inherited from that same `init-deep` matrix and carried forward as starting values that need empirical tuning on real projects:
 
 - Score `> 15`: strong candidate. Emit a `.claude/rules/<topic>.md` with `paths:` covering the subdirectory.
 - Score `8` to `15`: borderline. Hold for the post-clip review.
@@ -193,7 +193,7 @@ For every target file (`CLAUDE.md`, `CLAUDE.local.md`, each rule):
 
 ### 4b. Parent-vs-child dedupe pass
 
-Mirror `init-deep.ts:262-271`. For each line in a `.claude/rules/<topic>.md` file, check whether the same fact or near-paraphrase exists in the root `CLAUDE.md`. When a duplicate is found:
+Mirror the parent-versus-child dedupe rule from `init-deep` (linked under References), which holds that a child file never repeats its parent. For each line in a `.claude/rules/<topic>.md` file, check whether the same fact or near-paraphrase exists in the root `CLAUDE.md`. When a duplicate is found:
 
 1. Keep the version in the more specific scope. A path-scoped rule for `src/api/**` keeps the rule; the root file drops it.
 2. When the parent is more specific (the rule is a vague restatement), keep the parent and drop the child line.
@@ -221,16 +221,13 @@ End the report with a single-line "next step" pointer: when proposed sidecars re
 
 ## References
 
-Canonical anchors used by this command body. Cross-check before editing.
+Provenance for whoever edits this body. Cross-check before changing the behaviour each one backs.
 
-- `references/claude-code-cli-source-code/commands/init.ts:30-43` (CC native `/init` Phase 1 interview shape).
-- `references/claude-code-cli-source-code/commands/init.ts:56,150` (worktree sibling-vs-nested disambiguation).
-- `references/claude-code-cli-source-code/commands/init.ts:139` (gitignore guard for `CLAUDE.local.md`).
-- `init-deep.ts:38-54` (omo "predict standard, report only deviations" discovery brief style).
-- `init-deep.ts:152-160` (omo 8-factor scoring matrix and `>15 / 8-15 / <8` thresholds).
-- `init-deep.ts:262-271` (omo parent-vs-child dedupe pass).
-- `plugins/ac/skills/claude-md-rules-creator/SKILL.md:117-118` (principles 8 and 9: no aggressive caps, no duplication with existing layers).
-- `plugins/ac/skills/claude-md-rules-creator/SKILL.md:266-281` (path-scoped rule shape with `paths:` frontmatter).
-- `plugins/ac/skills/claude-md-rules-creator/SKILL.md:336-361` (pre-flight checklist applied before every `Write` or `Edit`).
-- `plugins/ac/commands/install.md:20-24` (CAN / CANNOT / MUST orchestrator block shape).
+Reachable from an installed copy:
+
+- `${CLAUDE_PLUGIN_ROOT}/skills/claude-md-rules-creator/SKILL.md` (principles 8 and 9: no aggressive caps, no duplication with existing layers; the path-scoped rule shape with `paths:` frontmatter; the pre-flight checklist applied before every `Write` or `Edit`).
+- `${CLAUDE_PLUGIN_ROOT}/commands/install.md` (CAN / CANNOT / MUST orchestrator block shape).
+- oh-my-openagent's `init-deep` skill, pinned at [`b12d08f`](https://github.com/code-yeongyu/oh-my-openagent/blob/b12d08f4ba6c8ad33c2b4032e1445dc56df7868b/packages/shared-skills/skills/init-deep/SKILL.md): [L52-L56](https://github.com/code-yeongyu/oh-my-openagent/blob/b12d08f4ba6c8ad33c2b4032e1445dc56df7868b/packages/shared-skills/skills/init-deep/SKILL.md#L52-L56) and [L222](https://github.com/code-yeongyu/oh-my-openagent/blob/b12d08f4ba6c8ad33c2b4032e1445dc56df7868b/packages/shared-skills/skills/init-deep/SKILL.md#L222) for the "report only deviations from standard" discovery brief, [L152-L159](https://github.com/code-yeongyu/oh-my-openagent/blob/b12d08f4ba6c8ad33c2b4032e1445dc56df7868b/packages/shared-skills/skills/init-deep/SKILL.md#L152-L159) for the 8-factor scoring matrix with [L163-L168](https://github.com/code-yeongyu/oh-my-openagent/blob/b12d08f4ba6c8ad33c2b4032e1445dc56df7868b/packages/shared-skills/skills/init-deep/SKILL.md#L163-L168) for the `>15 / 8-15 / <8` thresholds, and [L302](https://github.com/code-yeongyu/oh-my-openagent/blob/b12d08f4ba6c8ad33c2b4032e1445dc56df7868b/packages/shared-skills/skills/init-deep/SKILL.md#L302) for the parent-versus-child dedupe rule.
+
+Not reachable from an installed copy, so the facts are stated inline in the body above rather than left as a lookup. Claude Code's native `/init` is the source for three of them: the Phase 1 interview shape, the sibling-versus-nested worktree disambiguation, and the `CLAUDE.local.md` gitignore guard in section 0b. The only readable source for those is a local reverse-engineered mirror of the CLI, which has no public upstream, so do not add a path here expecting a reader to open it.
 - `code.claude.com/docs/en/features-overview#build-your-setup-over-time` (official "build your setup over time" decision table: CLAUDE.md / skill / subagent / hook).
