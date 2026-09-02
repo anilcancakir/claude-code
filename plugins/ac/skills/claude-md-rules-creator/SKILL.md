@@ -1,7 +1,7 @@
 ---
 name: claude-md-rules-creator
-description: Authors and audits CLAUDE.md, CLAUDE.local.md, and `.claude/rules/*.md`, covering the four scopes (managed, user-global, project-team, project-personal), `paths:` for path-scoped rules, `@path` imports, splitting an oversized file, and debugging instructions the model ignores. Use when standing instructions are being written or fixed. Triggers on "add to CLAUDE.md", "write a rule", "init memory", "global instructions", "team conventions", "project memory", "rules file", or a complaint that Claude is not following CLAUDE.md. Pair with `ac:prompt-writer` for the prose and `ac:skill-creator` when the content is really a skill.
-when_to_use: Authoring, editing, or auditing any CLAUDE.md, CLAUDE.local.md, or `.claude/rules/*.md` file.
+description: Authors and audits CLAUDE.md, CLAUDE.local.md, and `.claude/rules/*.md`, covering the four scopes (managed, user-global, project-team, project-personal), `paths:` for path-scoped rules, `@path` imports, splitting an oversized file, and debugging instructions the model ignores. Pair with `ac:prompt-writer` for the prose and `ac:skill-creator` when the content is really a skill.
+when_to_use: Authoring, editing or auditing any CLAUDE.md, CLAUDE.local.md or `.claude/rules/*.md` file, including when Claude is not following one.
 ---
 
 # CLAUDE.md and Rules Creator

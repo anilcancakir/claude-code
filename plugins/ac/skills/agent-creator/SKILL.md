@@ -1,7 +1,7 @@
 ---
 name: agent-creator
-description: Authors and audits Claude Code subagents, covering tool allowlist or denylist, model and effort, `permissionMode`, persistent `memory`, `skills:` preload, `isolation` worktrees, and the five-section system-prompt body. Use when a subagent is being designed or fixed, or when recurring work should move into a fresh isolated context. Triggers on "create a subagent", "write a new agent", "tool restrictions for an agent", "agent system prompt", "agent memory", "fix this agent". Use even when the user never says "agent" but wants a recurring task delegated to an isolated worker. Pair with `ac:prompt-writer` for the body.
-when_to_use: Creating, editing, auditing, or debugging any Claude Code subagent definition.
+description: Authors and audits Claude Code subagents, covering tool allowlist or denylist, model and effort, `permissionMode`, persistent `memory`, `skills:` preload, `isolation` worktrees, and the five-section system-prompt body. Pair with `ac:prompt-writer` for the body.
+when_to_use: Creating, editing, auditing or debugging any Claude Code subagent definition, or moving recurring work into a fresh isolated context.
 ---
 
 # Agent Creator
