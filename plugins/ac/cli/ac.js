@@ -29666,7 +29666,7 @@ function primaryResultCode(error2) {
 var HISTORY_TOOL_NAME = "search-history";
 var HISTORY_TOOL_DEFINITION = {
   name: HISTORY_TOOL_NAME,
-  description: "Search the user's own local Claude Code conversation history across every local project, " + "backed by a permanent SQLite full-text archive. `pattern` is TOKENIZED FULL-TEXT search " + "with prefix matching, NOT a regular expression: it splits on whitespace, matches each " + "token as a prefix, and ANDs the tokens together. Punctuation is DROPPED by the tokenizer " + "rather than searched, so regex-shaped input degrades silently instead of erroring: `C++` " + "searches the bare prefix `c` and matches almost every turn, and `node.*sqlite` searches " + "for `node` immediately followed by `sqlite`; write plain search words instead. Matching " + "is case-insensitive and fully diacritic-insensitive for Turkish, in both directions: " + "`gozden` finds `gözden`, and `calisiyor` finds `çalışıyor` because every token is " + "expanded over the dotted/dotless i axis the tokenizer does not fold on its own. Type a " + "Turkish word either way. `pattern` is required for " + "`output_mode` " + "`content`, `sessions`, `projects` and `count`; it is not used for `read`, which opens a " + "chronological window on one `session_id` (required in that mode). Only prose and tool " + "arguments are indexed: successful tool output is never indexed, while failed tool " + "output (errors) is, so this tool cannot surface a large file dump but can surface why " + "something broke.",
+  description: "Search the user's own local Claude Code conversation history across every local project, " + "backed by a permanent SQLite full-text archive. `pattern` is TOKENIZED FULL-TEXT search " + "with prefix matching, NOT a regular expression: it splits on whitespace, prefix-matches " + "each token and ANDs them. Punctuation is DROPPED rather than searched, so regex-shaped " + "input degrades silently instead of erroring; write plain words. Matching is " + "case-insensitive and folds Turkish diacritics both ways, so `calisiyor` finds " + "`çalışıyor`. `pattern` is required for every `output_mode` except `read`, which opens a " + "chronological window on one `session_id`. Only prose and tool arguments are indexed; " + "successful tool output is not, but failed output is, so this surfaces why something " + "broke rather than large file dumps.",
   inputSchema: {
     type: "object",
     properties: {
@@ -29682,7 +29682,7 @@ var HISTORY_TOOL_DEFINITION = {
         type: "string",
         enum: ["content", "sessions", "projects", "count", "read"],
         default: "content",
-        description: "content: one excerpt per matching turn. sessions: one entry per " + "matching session. projects: one entry per project, busiest first, which is " + 'how to answer "which projects on this machine did I work on X in". ' + "count: match/session/project totals only. read: a " + "chronological window on one session_id, no search performed."
+        description: "content: one excerpt per matching turn. sessions: one entry per " + "matching session. projects: one entry per project, busiest first. " + "count: match/session/project totals only. read: a chronological window on " + "one session_id, no search performed."
       },
       head_limit: {
         type: "number",
@@ -29699,7 +29699,7 @@ var HISTORY_TOOL_DEFINITION = {
       },
       "-i": {
         type: "boolean",
-        description: "Always on regardless of this flag: the archive's unicode61 tokenizer " + "is case-insensitive by construction. Accepted only for vocabulary " + "compatibility with the built-in Grep tool."
+        description: "No-op; matching is always case-insensitive. Accepted only for " + "vocabulary parity with the built-in Grep tool."
       },
       since: {
         type: "string",
@@ -38214,9 +38214,9 @@ var defaultLookup = async (hostname) => {
 };
 var LOCAL_WEB_FETCH_TOOL_DEFINITION = {
   name: "web-fetch",
-  description: "FALLBACK ONLY. Prefer the built-in WebFetch tool first (load it via ToolSearch if it is not " + "already active). Use this ac web-fetch only when the built-in WebFetch errors or times out, " + "is rate-limited or blocked (HTTP 403/429), returns empty or auth-walled content, or cannot " + `follow a cross-host redirect.
+  description: "FALLBACK ONLY. Prefer the built-in WebFetch; use this one only when WebFetch errors or " + "times out, is rate-limited or blocked (HTTP 403/429), returns empty or auth-walled " + `content, or cannot follow a cross-host redirect.
 
-` + "Fetch a URL from this machine using a real browser header set and return the page as markdown. " + "Validates the URL against an SSRF guard (no private, loopback, link-local, or cloud-metadata " + "targets) and does not follow redirects.",
+` + "Fetches a URL with a real browser header set and returns markdown. Guards against SSRF " + "(no private, loopback, link-local or cloud-metadata targets) and does not follow " + "redirects.",
   inputSchema: {
     type: "object",
     properties: {
@@ -38457,10 +38457,10 @@ var ALLOWED_REMOTE_TOOLS = new Set([
   "web-code-search"
 ]);
 var FALLBACK_DIRECTIVES = {
-  "web-search": "FALLBACK ONLY. Prefer the built-in WebSearch tool first (load it via ToolSearch if it " + "is not already active). Use this ac web-search only when the built-in WebSearch errors, " + `is unavailable or rate-limited, or returns insufficient results.
+  "web-search": "FALLBACK ONLY. Prefer the built-in WebSearch; use this one only when WebSearch errors, " + `is unavailable or rate-limited, or returns insufficient results.
 
 `,
-  "web-fetch": "FALLBACK ONLY. Prefer the built-in WebFetch tool first (load it via ToolSearch if it is " + "not already active). Use this ac web-fetch only when the built-in WebFetch errors or " + "times out, is rate-limited or blocked (HTTP 403/429), returns empty or auth-walled " + `content, or cannot follow a cross-host redirect.
+  "web-fetch": "FALLBACK ONLY. Prefer the built-in WebFetch; use this one only when WebFetch errors or " + "times out, is rate-limited or blocked (HTTP 403/429), returns empty or auth-walled " + `content, or cannot follow a cross-host redirect.
 
 `
 };
@@ -38829,4 +38829,4 @@ function formatSyncReport(report) {
 }
 await program2.parseAsync(process.argv);
 
-//# debugId=1263B6F84A1B014B64756E2164756E21
+//# debugId=38301304455EA9A664756E2164756E21
