@@ -1,7 +1,7 @@
 ---
 name: prompt-writer
-description: Writes high-signal prompts for Claude Opus 5 (system prompts, subagent briefings, skill bodies, command bodies, agent bodies, CLAUDE.md files, .claude/rules/*.md) and audits existing ones. Use whenever instructions are being authored or edited for any Claude to execute, even when the user does not say the word "prompt". Triggers on "write a system prompt", "brief a subagent", "draft an agent body", "skill content", "command body", "CLAUDE.md", "rules file", "audit this prompt", "improve this instruction", "make this prompt better". Sibling creator skills (skill-creator, command-creator, agent-creator, claude-md-rules-creator) call this skill for the prompt body itself. Use aggressively; undertriggering is the failure mode.
-when_to_use: Authoring or editing any prompt, instruction, SKILL.md body, command body, subagent prompt, CLAUDE.md content, or .claude/rules/*.md file that another Claude will execute.
+description: Writes and audits high-signal prompts for Claude Opus 5, covering system prompts, subagent briefings, skill and command bodies, agent bodies, CLAUDE.md files and `.claude/rules/*.md`. The sibling creator skills (`ac:skill-creator`, `ac:command-creator`, `ac:agent-creator`, `ac:claude-md-rules-creator`) call this one for the prompt body itself.
+when_to_use: Authoring or editing any prompt, instruction, SKILL.md body, command body, subagent prompt, CLAUDE.md content, or `.claude/rules/*.md` file that another Claude will execute, including when the user never says the word "prompt".
 ---
 
 # Prompt Writer
@@ -192,12 +192,12 @@ I have already ruled out: ESLint's no-unused-vars (it does not cross packages).
 Report: a list of `file_path:line_number` entries grouped by package. Under 500 words. If you cannot find unused exports with confidence, say so and explain what tooling you tried.
 ```
 
-**Custom subagent definition** (`.claude/agents/<name>.md`). Pushy description, explicit tools, decisional steps, locked output contract.
+**Custom subagent definition** (`.claude/agents/<name>.md`). Bounded description, explicit tools, decisional steps, locked output contract.
 
 ```markdown
 ---
 name: code-reviewer
-description: Use whenever the user mentions PRs, diffs, reviews, audits, code quality. Triggers even when the user does not say "review" (e.g., "spot anything wrong here"). Use aggressively; undertriggering is the failure mode.
+description: Reviews a diff for bugs, design problems, convention breaks and missing tests. Returns every issue it finds, low severity included. Use when a change is ready for a second read; an edit whose whole diff you have already read does not need it.
 tools: Read, Grep, Glob, Bash
 ---
 

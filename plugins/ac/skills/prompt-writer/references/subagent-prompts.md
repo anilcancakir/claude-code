@@ -204,17 +204,17 @@ To continue a previously spawned agent with full context, use SendMessage with t
 
 **Pattern.** Spawn an agent for an investigation, then SendMessage to ask follow-up questions, rather than spawning a new agent each time.
 
-## `subagent_type` design (pushy descriptions)
+## `subagent_type` design (bounded descriptions)
 
 When defining a custom `subagent_type` in `.claude/agents/<name>.md`, the `description` field is the primary triggering mechanism. From https://code.claude.com/docs/en/skills.md > Skill not triggering troubleshooting: check the description includes keywords users would naturally say.
 
-**Pushy description pattern.**
+**Description pattern.**
 
 ```markdown
-description: Use when the user mentions [trigger 1, trigger 2, trigger 3]. Triggers on [common phrasings]. Use this agent aggressively; undertriggering is the failure mode. Do not skip in favor of [common alternative] when [specific condition].
+description: [What it does, verb first.] [What it returns.] Use when [the condition that earns a separate context window]; [the cheaper path] when [the condition that does not].
 ```
 
-The orchestrator decides whether to delegate based on the description. A vague description ("a helpful agent for code review") undertriggers. A pushy description ("use whenever the user mentions code, PRs, diffs, reviews, or audits, even if they do not say 'review'") triggers reliably.
+The orchestrator decides whether to delegate based on the description. Both failure directions are real and they need different fixes. A vague description ("a helpful agent for code review") undertriggers, because nothing in it says what the agent is for. A phrasing list overtriggers, because it names occasions to fire without naming a single occasion to stop, and it keeps growing as new phrasings occur to the author. What works is a concrete capability plus the boundary: "Reviews a diff for bugs, design problems and missing tests. Use when the change is ready for a second read; a single-file edit you already understand does not need it."
 
 ## Quick checklist for subagent prompts
 

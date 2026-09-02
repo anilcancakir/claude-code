@@ -402,7 +402,7 @@ Confirm the output file exists and is non-empty before presenting. If the script
 
 - *Plugin scope*, the skill is shipped as part of a plugin and auto-namespaced as `<plugin>:pdf-extractor`.
 - *`${CLAUDE_SKILL_DIR}` everywhere*, the script, scratch file, and references resolve correctly regardless of install destination. Repo-relative paths would break.
-- *Pushy description*, covers synonyms ("extract", "parse", "fill"), example phrasings, and the "even when the user does not say 'extract'" undertrigger hedge.
+- *Description covers the vocabulary*, the synonyms a caller reaches for ("extract", "parse", "fill") rather than a list of sentences they might type, since PDF work is named a dozen ways and the verb alone does not reach all of them.
 - *Narrow `allowed-tools`*, only `Read` (to read the output file) and `Bash(python:*)` (the script). The bash injection runs via the preprocessor, but the body can also call the script via Bash if it needs interactive feedback.
 - *Verification step*, the model checks the output before presenting; the script does not have to be perfect.
 - *Drilldown for edge cases*, OCR and encryption are non-default flows; the model loads those references only when needed.

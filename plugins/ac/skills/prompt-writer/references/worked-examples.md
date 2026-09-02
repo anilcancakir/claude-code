@@ -141,7 +141,7 @@ Reusable across the project.
 ```markdown
 ---
 name: code-reviewer
-description: Review code for bugs, design issues, security risks, and adherence to project conventions. Use whenever the user mentions PRs, diffs, reviews, audits, code quality, or asks "is this safe to merge." Triggers even when the user does not explicitly say "review", e.g., "what do you think of this change" or "spot anything wrong here." Use this agent aggressively, undertriggering is the failure mode. Do not skip it in favor of inline comments when the user asks for a thorough review.
+description: Reviews code for bugs, design issues, security risks and breaks with project convention. Returns a markdown report with every finding, severity-tagged, including low severity. Use when a change is ready for a second read, including when the user asks "what do you think of this" rather than "review this"; an edit whose whole diff you have already read does not need it.
 tools: Read, Grep, Glob, Bash
 ---
 
@@ -210,7 +210,7 @@ If there are no issues, say so explicitly: "No issues found. The change is consi
 
 ### Why this works
 
-- **Description is pushy:** "Use whenever the user mentions PRs, diffs, reviews," covers undertriggering. Includes a "do not skip in favor of inline comments" line.
+- **Description is bounded:** it names the capability and the return shape, then draws the line ("an edit whose whole diff you have already read does not need it"). The boundary is what keeps it from firing on every diff, and it does the job a list of phrasings cannot.
 - **Tool list is explicit.**
 - **Approach is numbered and decisional.** Not "do a thorough review."
 - **Coverage rule counters the filtering tendency** modern Claude shows in code review contexts (see https://platform.claude.com/docs/en/about-claude/models/migration-guide.md > Behavior changes > Code review).

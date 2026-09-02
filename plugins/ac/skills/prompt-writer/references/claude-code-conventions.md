@@ -157,7 +157,7 @@ When a skill matches the user's request, the harness expects the model to invoke
 - If a `<system-reminder>` already shows the skill loaded, follow its instructions directly instead of re-invoking.
 - Built-in CLI commands (`/help`, `/clear`, etc.) are not invoked via the Skill tool.
 
-This contract is part of the harness's tool description for the Skill tool. When authoring a skill, write its `description` so this matching is reliable: front-load the verb and noun, include trigger phrases, and stay specific.
+This contract is part of the harness's tool description for the Skill tool. When authoring a skill, write its `description` so this matching is reliable: front-load the verb and noun, stay specific, and name the boundary that keeps it from firing on everything nearby.
 
 ## Custom agent definitions
 
@@ -166,7 +166,7 @@ When writing a custom agent that runs as a `subagent_type`, structure the system
 ```markdown
 ---
 name: my-agent
-description: One-line trigger description, pushy enough to combat undertriggering
+description: One line: what it does, what it returns, and where it stops
 tools: Read, Grep, Glob, Bash
 ---
 
@@ -201,7 +201,7 @@ Return a [shape] containing:
 - [Second constraint]
 ```
 
-The `description` field is the primary triggering mechanism. Skill and agent descriptions tend to undertrigger; the fix is "Use this skill aggressively whenever the user mentions X, Y, or Z, even if they do not say the word 'agent'." Source: https://code.claude.com/docs/en/skills.md > Skill not triggering.
+The `description` field is the primary triggering mechanism, and it can fail in both directions. A description that never says what the thing is for undertriggers; the docs' troubleshooting entry is about that case (https://code.claude.com/docs/en/skills.md > Skill not triggering). A description padded with phrasings the user might type overtriggers instead, because it never names a case where the skill should stay out. Write the capability, then the boundary: "Use when X; do Y directly when Z."
 
 The bundled `general-purpose` subagent is the canonical pattern for a clean subagent body. Its exposed behavior (per https://code.claude.com/docs/en/sub-agents.md) is: concise role, list of strengths, numbered guidelines, end-of-prompt constraints (do not create files unless necessary, prefer editing, no proactive `*.md` files). Mirror that shape for new subagents.
 
@@ -277,7 +277,7 @@ This avoids the "the model gives me a prompt mixed with explanation" problem.
 - [ ] Tool list is explicit if the agent needs specific tools.
 - [ ] Reversibility gate is mentioned if the agent does anything risky.
 - [ ] No-comments rule, no-compat-hacks rule, no-impossible-error-handling rule inherited (do not restate).
-- [ ] Description field is pushy enough to combat undertriggering.
+- [ ] Description names the capability and the boundary where the agent should not be used.
 - [ ] Output contract is explicit (shape, fields, examples).
 - [ ] Communication style matches the harness (brief, direct, no internal-deliberation narration).
 - [ ] No collisions with reserved CC tags listed in `${CLAUDE_SKILL_DIR}/references/architecture.md`.

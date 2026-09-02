@@ -1,7 +1,7 @@
 ---
 name: skill-creator
-description: Authors and audits Claude Code skills, covering `SKILL.md` frontmatter, directory layout, scope (project, user, plugin, managed), invocation control, and bundled `references/` or `scripts/`. Use when a skill is being written or edited, when a recurring playbook is being captured, when `allowed-tools` or `paths:` need choosing, or when a skill fails to fire. Triggers on "create a skill", "write a SKILL.md", "turn this into a skill", "package this workflow", "skill not triggering", "skillify". Use even when the user never says "skill" but is capturing a procedure they keep retyping. Pair with `ac:prompt-writer` for the body text.
-when_to_use: Creating, editing, auditing, or debugging any Claude Code skill at any scope.
+description: Authors and audits Claude Code skills, covering `SKILL.md` frontmatter, directory layout, scope (project, user, plugin, managed), invocation control, and bundled `references/` or `scripts/`. Pair with `ac:prompt-writer` for the body text.
+when_to_use: Creating, editing, auditing or debugging any Claude Code skill at any scope, capturing a procedure the user keeps retyping, choosing `allowed-tools` or `paths:`, or diagnosing a skill that fails to fire.
 ---
 
 # Skill Creator
@@ -52,7 +52,7 @@ Eight rules that change outcomes the most. Detail in the references.
 
 2. **Match freedom to fragility.** Three settings: high freedom (text instructions, multiple valid paths, code review, exploration), medium freedom (parameterized scripts with a preferred pattern, report generation), low freedom (specific commands, fixed sequences, migrations, deploys). Over-constraining open fields wastes tokens; under-constraining narrow bridges breaks production.
 
-3. **The description is the selection mechanism.** When the model has 100+ skills available, it picks based on `description` alone. Front-load the verb and noun, write third person ("Processes Excel files"), include trigger phrases, cover synonyms, be a little pushy. Modern Claude undertriggers skills, so lean toward catching the request.
+3. **The description is the selection mechanism.** When the model has 100+ skills available, it picks based on `description` alone. Front-load the verb and noun, write third person ("Processes Excel files"), cover the synonyms a caller would actually reach for, and close with the boundary that says when not to load it. The boundary is the part authors skip, and it is what keeps a skill from firing on every neighbouring request.
 
 4. **Progressive disclosure is the structural superpower.** Metadata always loaded, body on trigger, `references/` and `scripts/` only when the body points at them. Use this: keep the body lean, push detail into one-level-deep references, anchor each with "read this when X". Two-level-deep references suffer because the model often previews intermediate files with `head -100`.
 
@@ -237,7 +237,7 @@ Triggering rules for the description text:
 
 - **Third person.** "Summarizes a PR", not "I can summarize PRs" or "You can use this to summarize PRs". The description gets injected into the system prompt, mixed POV confuses skill discovery.
 - **Front-load the verb and the noun.** Start with what the skill does, then the contexts that pull it in.
-- **Be a little pushy.** Modern Claude undertriggers. Add: "Triggers on X, Y, Z. Use even when the user does not say 'skill' but asks for [common phrasing]."
+- **State the boundary, not a trigger list.** A list of phrasings grows without bounding anything, and the model still has to guess when NOT to load the skill. One clause naming where it stops does that work and costs less: "Use when the search spans several naming conventions; read the file directly when you already know where to look." Reach for a phrasing list only when the vocabulary is genuinely unguessable from the verb.
 - **Cover synonyms.** "Playbook", "checklist", "workflow", "procedure", "runbook" pull on different days.
 - **Be specific.** "Use whenever PDFs are involved" loses; "Use when the user extracts form fields, fills PDF forms, or merges multi-page PDFs" wins.
 
