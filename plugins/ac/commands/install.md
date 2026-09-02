@@ -1,6 +1,6 @@
 ---
-description: Interactive post-install setup for the ac plugin. Phase 0 parses flags (--dry-run, --skip-skills, --skip-settings, --skip-claude-md), detects the OS, the presence of the my-coding and my-language user skills, the global CLAUDE.md and settings.json, and probes ac MCP reachability. Phases 1 and 2 run short interviews and delegate my-coding and my-language skill creation to ac:skill-creator with the bundled templates, skipping any skill that already exists unless the user picks Recreate. Phase 3 runs a three-question placeholder interview, then merges the full workflow-discipline section (operating mode, code-lookup ladder, investigation, verification, delegation, web tools) into the global CLAUDE.md between the ac:delegation fence markers behind a .proposed gate. Phase 4 backs up (non-clobber) and idempotently merges settings.json in groups: safe-silent tuning (Group A, set-only-when-absent), core ac parity (Group C, enabledPlugins plus MCP allow plus plan-mode deny), security-sensitive keys behind an explicit opt-in multiSelect (Group B, default off), and an interactive MCP-token prompt whose value is masked in every rendered surface. The plan-mode block ships in the plugin hooks, so Phase 4 writes no settings hook. Phase 5 reports what was created, merged, skipped, and the backup path.
-argument-hint: [--dry-run] [--skip-skills] [--skip-settings] [--skip-claude-md]
+description: Interactive post-install setup for the ac plugin. Phase 0 parses flags (--dry-run, --skip-skills, --skip-settings, --skip-claude-md), detects the OS, the presence of the my-coding and my-language user skills, the global CLAUDE.md and settings.json, and probes ac MCP reachability. Phases 1 and 2 run short interviews and delegate my-coding and my-language skill creation to ac:skill-creator with the bundled templates, skipping any skill that already exists unless the user picks Recreate. Phase 3 runs a three-question placeholder interview, then merges the full workflow-discipline section (operating mode, code-lookup ladder, investigation, verification, delegation, web tools) into the global CLAUDE.md between the ac:delegation fence markers behind a .proposed gate. Phase 4 backs up (non-clobber) and idempotently merges settings.json in groups, namely safe-silent tuning (Group A, set-only-when-absent), core ac parity (Group C, enabledPlugins plus MCP allow plus plan-mode deny), security-sensitive keys behind an explicit opt-in multiSelect (Group B, default off), a context-trim opt-in that strips unused tool schemas, rarely-used bundled skills and the task toolset (Group D, default off), and an interactive MCP-token prompt whose value is masked in every rendered surface. The plan-mode block ships in the plugin hooks, so Phase 4 writes no settings hook. Phase 5 reports what was created, merged, skipped, and the backup path.
+argument-hint: "[--dry-run] [--skip-skills] [--skip-settings] [--skip-claude-md]"
 effort: high
 disable-model-invocation: true
 ---
@@ -254,7 +254,7 @@ The ac wiring is not security-sensitive, so it merges without a prompt. All ADD-
    - Remove any `hooks.PreToolUse` entry whose matcher equals `WebSearch|WebFetch`.
    - Remove the `hooks.PreToolUse` entry a prior install wrote for plan mode: matcher `EnterPlanMode` whose command echoes the `use /ac:plan` steer and exits 2. The plan-mode block now ships in the plugin's `hooks.json`, so this command writes NO settings hook.
 
-This command writes no `hooks.*` entry of its own. Every ac hook is delivered by the plugin through `plugins/ac/hooks/hooks.json` and needs no settings entry: the plan-mode PreToolUse block (matcher `EnterPlanMode|ExitPlanMode`), the worker file-scope PreToolUse guard (matcher `Edit|Write|MultiEdit`), the SessionStart plan-state hook (matcher `startup|resume|compact`), and the `Stop` guard that keeps an `/ac:execute` run from ending its turn mid-plan. For plan mode, `permissions.deny` above is the load-bearing guard either way.
+This command writes no `hooks.*` entry of its own. Every ac hook is delivered by the plugin through `${CLAUDE_PLUGIN_ROOT}/hooks/hooks.json` and needs no settings entry: the plan-mode PreToolUse block (matcher `EnterPlanMode|ExitPlanMode`), the worker file-scope PreToolUse guard (matcher `Edit|Write|MultiEdit`), the SessionStart plan-state hook (matcher `startup|resume|compact`), and the `Stop` guard that keeps an `/ac:execute` run from ending its turn mid-plan. For plan mode, `permissions.deny` above is the load-bearing guard either way.
 
 When `MCP_REACHABLE` is false, the CLAUDE.md fallback steering section (Phase 3) simply omits the mention of the ac web-fetch and web-search tools; the built-in WebSearch and WebFetch remain primary either way.
 
@@ -289,21 +289,34 @@ The deny array (plan-mode entries only):
 
 ### 4d. Group B: security-sensitive keys (explicit opt-in, default off)
 
-These change permission or telemetry behavior, so they are never silent. Present one `AskUserQuestion` multiSelect with every option unchecked by default. Write only the keys the operator checks; each is ADD-only (set only when absent, and do not extend the 4c migration strip to these keys). Under `--dry-run`, skip this prompt and note that no security-sensitive keys would be set.
+These change permission or telemetry behavior, so they are never silent. Present them as `AskUserQuestion` multiSelects with every option unchecked by default. Write only the keys the operator checks; each is ADD-only (set only when absent, and do not extend the 4c migration strip to these keys). Under `--dry-run`, skip this prompt and note that no security-sensitive keys would be set.
+
+`AskUserQuestion` caps each question at four options, so these seven split across two questions in one call.
 
 ```
 AskUserQuestion({
-  header: "Opt-in?",
-  question: "These change permission or telemetry behavior and are off by default. Select any you want applied. Each is added only when the key is absent; nothing you already set is changed.",
-  multiSelect: true,
-  options: [
-    {label: "Auto-accept edits", description: "permissions.defaultMode=acceptEdits. Edits apply without a per-edit prompt."},
-    {label: "Skip dangerous prompt", description: "permissions.skipDangerousModePermissionPrompt=true. No confirmation when entering bypass mode."},
-    {label: "All project MCP", description: "enableAllProjectMcpServers=true. Every project-scoped MCP server loads without asking."},
-    {label: "Skip fetch preflight", description: "skipWebFetchPreflight=true. Drops the per-fetch domain-safety blocklist preflight (a hang source) at the cost of that safety check."},
-    {label: "AFK timeout 10m", description: "env.CLAUDE_AFK_TIMEOUT_MS=600000."},
-    {label: "Disable agent teams", description: "env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=0."},
-    {label: "OTEL telemetry", description: "env.CLAUDE_CODE_ENABLE_TELEMETRY=1 plus OTEL_METRICS_EXPORTER=otlp, OTEL_EXPORTER_OTLP_PROTOCOL=grpc, OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317. Exports metrics to a local collector."}
+  questions: [
+    {
+      header: "Permissions?",
+      question: "These loosen a permission gate and are off by default. Each is added only when the key is absent; nothing you already set is changed.",
+      multiSelect: true,
+      options: [
+        {label: "Auto-accept edits", description: "permissions.defaultMode=acceptEdits. Edits apply without a per-edit prompt."},
+        {label: "Skip dangerous prompt", description: "permissions.skipDangerousModePermissionPrompt=true. No confirmation when entering bypass mode."},
+        {label: "All project MCP", description: "enableAllProjectMcpServers=true. Every project-scoped MCP server loads without asking."},
+        {label: "Skip fetch preflight", description: "skipWebFetchPreflight=true. Drops the per-fetch domain-safety blocklist preflight (a hang source) at the cost of that safety check."}
+      ]
+    },
+    {
+      header: "Env keys?",
+      question: "These set environment keys that change timeout, team and telemetry behavior. Same ADD-only rule.",
+      multiSelect: true,
+      options: [
+        {label: "AFK timeout 10m", description: "env.CLAUDE_AFK_TIMEOUT_MS=600000."},
+        {label: "Disable agent teams", description: "env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=0."},
+        {label: "OTEL telemetry", description: "env.CLAUDE_CODE_ENABLE_TELEMETRY=1 plus OTEL_METRICS_EXPORTER=otlp, OTEL_EXPORTER_OTLP_PROTOCOL=grpc, OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317. Exports metrics to a local collector."}
+      ]
+    }
   ]
 })
 ```
@@ -318,16 +331,58 @@ Map each checked option to its keys, writing each only when absent. Unchecked op
 - Disable agent teams: `env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS = "0"`.
 - OTEL telemetry: `env.CLAUDE_CODE_ENABLE_TELEMETRY = "1"`, `env.OTEL_METRICS_EXPORTER = "otlp"`, `env.OTEL_EXPORTER_OTLP_PROTOCOL = "grpc"`, `env.OTEL_EXPORTER_OTLP_ENDPOINT = "http://localhost:4317"`.
 
-### 4e. MCP token (interactive, masked)
+### 4e. Group D: context trim (explicit opt-in, default off)
+
+Every session pays for tool schemas, bundled skill descriptions and the task toolset whether or not they get used, because `permissions.deny` strips a tool's SCHEMA rather than only blocking the call. The options below take that cost off the baseline, and each one takes a capability away with it, so none of them is silent. How much each saves is not stated here: a tool that already defers costs its name rather than its schema, so the figure moves with the build and with whether tool search is on. Measure it on the operator's own machine with `claude -p "ok" --output-format json` before and after if the number matters to the decision. Present one `AskUserQuestion` multiSelect with every option unchecked by default. Under `--dry-run`, skip this prompt and note that no trim would be applied.
+
+`AskUserQuestion` caps each question at four options, so this gate asks two questions in one call rather than one list of five.
+
+```
+AskUserQuestion({
+  questions: [
+    {
+      header: "Trim tools?",
+      question: "These strip tool schemas out of every session's baseline. Each one removes a capability, so all are off by default.",
+      multiSelect: true,
+      options: [
+        {label: "Unused built-ins", description: "Denies NotebookEdit, PushNotification, EndConversation and the three MCP resource tools. Skip it if you edit Jupyter notebooks or your MCP servers expose resources."},
+        {label: "Scheduling stack", description: "Denies CronCreate/CronDelete/CronList, ScheduleWakeup, RemoteTrigger and TaskOutput, and turns the loop and schedule skills off. Monitor survives and covers polling and log-watching; take this only if you do not use in-session reminders or claude.ai cloud routines."},
+        {label: "Task tools off", description: "env.CLAUDE_CODE_ENABLE_TASKS=false. Drops TaskCreate/TaskGet/TaskList/TaskUpdate and restores the lighter TodoWrite, which still splits work into steps and marks them completed."}
+      ]
+    },
+    {
+      header: "Trim skills?",
+      question: "These hide rarely-used surfaces from the model without uninstalling them.",
+      multiSelect: true,
+      options: [
+        {label: "Rarely-used bundled skills", description: "Hides run, keybindings-help, fewer-permission-prompts, simplify, init, claude-api and update-config from the model. Every one stays reachable by typing /name."},
+        {label: "Auto-mode classifier off", description: "env.CLAUDE_CODE_ENABLE_AUTO_MODE=0. Stops the separate model call that classifies every permission decision under permissions.defaultMode=auto. Saves no context; removes latency and per-call cost."}
+      ]
+    }
+  ]
+})
+```
+
+Map each checked option to its keys, writing each only when absent. Unchecked options write nothing:
+
+- Unused built-ins: add `NotebookEdit`, `PushNotification`, `EndConversation`, `ListMcpResourcesTool`, `ReadMcpResourceTool` and `ReadMcpResourceDirTool` to `permissions.deny`, skipping any already present.
+- Scheduling stack: add `CronCreate`, `CronDelete`, `CronList`, `ScheduleWakeup`, `RemoteTrigger` and `TaskOutput` to `permissions.deny`, and set `skillOverrides.loop` plus `skillOverrides.schedule` to `"off"`. Deny and override travel together: a skill whose tools are denied is a dead entry that still costs its description.
+- Task tools off: `env.CLAUDE_CODE_ENABLE_TASKS = "false"`. Report in the Phase 5 summary that a `CLAUDE_CODE_ENABLE_TODO_TOOLS` key, if the operator already has one, re-adds the four tools and should be removed by hand.
+- Rarely-used bundled skills: merge into `skillOverrides` with `run`, `keybindings-help`, `fewer-permission-prompts`, `simplify`, `init`, `claude-api` and `update-config` all set to `"user-invocable-only"`. Not `"off"`: that value hides a skill from `/name` as well, which is not what this option promises.
+- Auto-mode classifier off: `env.CLAUDE_CODE_ENABLE_AUTO_MODE = "0"`.
+
+`skillOverrides` takes a string enum (`"on"`, `"name-only"`, `"user-invocable-only"`, `"off"`); writing an object value there raises a settings validation error per key. The four differ in what they hide: `"name-only"` lists the skill without its description, `"user-invocable-only"` hides it from the model but keeps `/name`, and `"off"` hides it from both. Anything the operator should still be able to type stays on `"user-invocable-only"`.
+
+### 4f. MCP token (interactive, masked)
 
 The ac MCP token is a secret; it is never bundled and never rendered. Two keys:
 
 1. `env.KODIZM_MCP_URL = "https://mcp.kodizm.com"` (set only when absent; this is the public default, safe to write).
 2. Prompt the operator to paste their `kdz-` MCP token, or leave it blank to skip. Under `--dry-run`, skip this prompt. Write `env.KODIZM_MCP_TOKEN` ONLY when the operator supplies a non-empty value; a blank or skipped answer leaves the key untouched. Never echo the pasted value, and never write it to a log, the diff, or the summary.
 
-### 4f. Show the diff and write (mask secrets)
+### 4g. Show the diff and write (mask secrets)
 
-Render the merged result as a diff against the original: which keys, deny entries, and allow entries were newly added versus already present, grouped as Group A / Group C / Group B (opt-in) / token. Mask every secret-pattern value: render `env.KODIZM_MCP_TOKEN` as `<set>` when newly written, `<unchanged>` when it was already present and left as-is, and omit it entirely when skipped. Never print the token value or any `kdz-` string in the diff. Under `--dry-run`, stop here; write nothing. Otherwise write the merged object back to `~/.claude/settings.json` and report the newly-added versus already-present breakdown, with the token still masked.
+Render the merged result as a diff against the original: which keys, deny entries, allow entries and `skillOverrides` entries were newly added versus already present, grouped as Group A / Group C / Group B (opt-in) / Group D (opt-in) / token. Mask every secret-pattern value: render `env.KODIZM_MCP_TOKEN` as `<set>` when newly written, `<unchanged>` when it was already present and left as-is, and omit it entirely when skipped. Never print the token value or any `kdz-` string in the diff. Under `--dry-run`, stop here; write nothing. Otherwise write the merged object back to `~/.claude/settings.json` and report the newly-added versus already-present breakdown, with the token still masked.
 
 ## Phase 5: Summary
 
@@ -343,6 +398,7 @@ CLAUDE.md:    <written | merged + applied | proposed (awaiting review) | skipped
 settings:     <merged | skipped (--skip-settings) | dry-run>
 Group A:      <N tuning keys set | all already present>
 Group B:      <opt-ins applied: comma-list | none selected | skipped (dry-run)>
+Group D:      <trims applied: comma-list | none selected | skipped (dry-run)>
 MCP token:    <set | unchanged | skipped>
 MCP URL:      <set to https://mcp.kodizm.com | unchanged>
 Backup:       <~/.claude/settings.json.bak-ac-install | kept (pre-existing) | none (settings absent or dry-run)>
@@ -366,14 +422,12 @@ Next steps to print:
 
 ## References
 
-Anchors this command body relies on. Cross-check before editing.
+Anchors this command body relies on. Cross-check before editing. Sibling files are named without line numbers on purpose: the previous set drifted the moment those files were edited, and every entry below names the section it means.
 
-- `plugins/ac/commands/init-project.md:19-23` (CAN / CANNOT / MUST orchestrator block shape).
-- `plugins/ac/commands/init-project.md:137` (bare `Skill({skill: "ac:..."})` invocation).
-- `plugins/ac/commands/init-project.md:167-173` (`.proposed` sidecar plus AskUserQuestion write-gate).
-- `plugins/ac/commands/commit.md:14-19` (Phase 0 `$ARGUMENTS` flag-parsing shape).
+- `${CLAUDE_PLUGIN_ROOT}/commands/init-project.md`, its `**CAN**` / `**CANNOT**` / `**MUST**` block for the orchestrator shape, the `Skill({skill: "ac:claude-md-rules-creator"})` line in section 3a for the bare-invocation form, and step 4 of section 3e for the `.proposed` sidecar plus AskUserQuestion write-gate.
+- `${CLAUDE_PLUGIN_ROOT}/commands/commit.md`, its Phase 0 for the `$ARGUMENTS` flag-parsing shape.
 - `ac:skill-creator` (delegated my-coding and my-language authoring at user scope).
 - `${CLAUDE_PLUGIN_ROOT}/references/coding-style-template.md` (Phase 1 my-coding seed template).
 - `${CLAUDE_PLUGIN_ROOT}/references/language-style-template.md` (Phase 2 my-language seed template).
 - `${CLAUDE_PLUGIN_ROOT}/references/global-claude-md-section-template.md` (Phase 3 full workflow-discipline section, wrapped in the `<!-- ac:delegation:start -->` / `<!-- ac:delegation:end -->` fence markers used for the deterministic merge; carries three angle-bracket placeholders the 3a interview fills).
-- `plugins/ac/hooks/hooks.json` (ships all four ac hooks: plan-mode PreToolUse block, worker file-scope PreToolUse guard, SessionStart plan state, and the `Stop` guard for in-flight execute runs; Phase 4 writes no settings hook).
+- `${CLAUDE_PLUGIN_ROOT}/hooks/hooks.json` (ships all four ac hooks: plan-mode PreToolUse block, worker file-scope PreToolUse guard, SessionStart plan state, and the `Stop` guard for in-flight execute runs; Phase 4 writes no settings hook).
