@@ -1,6 +1,6 @@
 ---
 name: plan-worker-junior-high
-description: Plan step executor for `junior-high` tier steps: junior-shaped work that sits at the borderline of coupling or context depth, or that codebase state escalated. Same capabilities and same reporting contract as `ac:plan-worker-junior`, run at high effort instead of medium, so a planner facing borderline work has somewhere to put it other than senior. Reads broader context than quick (callers, tests, imports), applies the step Description in the codebase style, runs full verification (LSP + build + test + QA scenario), reports in Changes Made / Verification / Issues. Single-shot stateless. Never the destination of a criticality escalation: rule 5 in `model-tiers.md` escalates to `senior`, because effort is a within-model lever and cannot substitute for a cross-model gap on security-critical surfaces.
+description: Executes `junior-high` tier plan steps, junior-shaped work at the borderline of coupling or context depth. Identical capabilities and reporting contract to `ac:plan-worker-junior`, run at high effort, so borderline work has a home other than senior. Never the destination of a criticality escalation; rule 5 in `model-tiers.md` sends those to `ac:plan-worker-senior`, because effort is a within-model lever and cannot close a cross-model gap.
 model: sonnet
 effort: high
 tools: Read, Write, Edit, Grep, Glob, Bash, LSP

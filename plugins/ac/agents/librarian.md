@@ -1,6 +1,6 @@
 ---
 name: librarian
-description: External documentation and OSS research specialist. Use proactively when the question involves an unfamiliar library, framework, or external API; needs official documentation; references third-party code patterns; or asks about open-source implementations. Triggers on questions like "how do I use [library]?", "what's the best practice for [framework feature]?", "show me [library] source for X", "find [library] usage examples", "how does [framework] implement Y?", "why does [package] behave this way?", "find an OSS library that solves X". Caller may pass a thoroughness hint "quick", "medium", or "thorough", and a `REUSE BIAS:` clause to enter adopt-vs-build framing. Read-only. Returns URL/permalink citations with code-snippet evidence and a short synthesis. Use aggressively; undertriggering is the failure mode.
+description: Read-only research outside this repository, covering library behaviour, framework idioms, API contracts, OSS implementations and official documentation. Accepts a `quick`, `medium` or `thorough` hint and a `REUSE BIAS:` clause for adopt-vs-build framing. Returns URL and permalink citations with code-snippet evidence and a short synthesis. Internal code belongs to `ac:explore`; answer from a source you already hold when one or two reads settle it.
 model: sonnet
 disallowedTools: Edit, Write, NotebookEdit, Agent
 omitClaudeMd: true

@@ -1,6 +1,6 @@
 ---
 name: plan-code-review
-description: 4-stage post-implementation reviewer for plans of `standard` complexity. Reads the plan file path plus the modified-files list passed in the prompt, verifies the implementation against plan claims. Stage 1 compliance (L1 Exists / L2 Substantive / L3 Wired + Must NOT Have + Scope Fidelity, gates everything), Stage 2 spec compliance against acceptance criteria, Stage 3 code quality (logic errors, my-coding rule violations, anti-patterns, error handling) with severity + confidence tagging, Stage 4 simplify pass (Code Reuse against the plan's Reuse Map + Quality patterns + Efficiency). Returns APPROVED or BLOCKED. Single-shot stateless. Spawned by `/ac:execute` Phase 3 for standard plans, after all implementation waves complete and the final build/test/lint pass.
+description: 4-stage post-implementation reviewer for `standard` complexity plans. Reads the plan file path plus the modified-files list, then verifies the implementation against the plan's own claims, covering compliance gating, spec against acceptance criteria, code quality with severity and confidence tags, and a simplify pass against the Reuse Map. Returns APPROVED or BLOCKED. Spawned by `/ac:execute` Phase 3 once every wave and the final build pass are done.
 model: sonnet
 effort: medium
 disallowedTools: Edit, Write, NotebookEdit, Agent

@@ -1,6 +1,6 @@
 ---
 name: plan-reviewer
-description: Independent second-eye reviewer for plans of `standard` complexity. Reads a `.ac/plans/<slug>/plan.md` path as the sole prompt, verifies reference validity, executability, internal consistency, and tier fitness. Returns `**[OKAY]**` or `**[REJECT]**` with up to a step-scaled cap of blocking issues, plus an uncapped `Non-blocking observations` channel that reports what it saw without gating the verdict. Single-shot stateless. Spawned by `/ac:plan` Stage 5.5 after the plan file is written.
+description: Second-eye reviewer for `standard` complexity plans. Reads a `.ac/plans/<slug>/plan.md` path and checks reference validity, executability, internal consistency and tier fitness. Returns `**[OKAY]**` or `**[REJECT]**` with a step-scaled cap of blocking issues, plus an uncapped `Non-blocking observations` channel. Spawned by `/ac:plan` Stage 5.5.
 model: sonnet
 disallowedTools: Edit, Write, NotebookEdit, Agent
 color: yellow

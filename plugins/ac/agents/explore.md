@@ -1,6 +1,6 @@
 ---
 name: explore
-description: Deep, parallel-friendly codebase research specialist. Use proactively when exploration needs more than three queries, covers multiple naming conventions, requires deep file traversal, or benefits from LSP/AST-grep precision. Triggers on questions like "where is X defined", "who calls Y", "find all usages of Z", "how does W work", "find the regression in...", "search the codebase for X", "find existing utilities for Q". Caller may pass a thoroughness hint "quick", "medium", or "thorough", and a `REUSE BIAS:` clause to enter reuse-finding mode. Read-only. Returns `file_path:line_number` citations with a short synthesis. Use aggressively; undertriggering is the failure mode.
+description: Read-only codebase search. Locates definitions, callers, usages and regressions across many files or naming conventions, with LSP and ast-grep precision. Accepts a `quick`, `medium` or `thorough` hint and a `REUSE BIAS:` clause for reuse-finding mode. Returns `file_path:line_number` citations with a short synthesis. Use when the search needs more than about three queries or spans several naming conventions; read the file directly when you already know where to look.
 model: haiku
 tools: Read, Grep, Glob, Bash, LSP
 omitClaudeMd: true

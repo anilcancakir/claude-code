@@ -1,5 +1,5 @@
 ---
-description: Commit current changes as atomic commits via the `ac:git-master` skill. Detects the repo's commit style from the last 30 commits, splits multi-file changes into multiple commits (3+ files require 2+ commits, 5+ require 3+, 10+ require 5+), keeps test files paired with their implementation, and pushes when an upstream exists. Runs an optional preflight (typecheck + test + lint) before committing. Accepts `--skip-preflight` (invoked by `/ac:execute` Phase 4 since execution already verified) and `--no-push` (commit locally only).
+description: Commits current changes as atomic commits through the `ac:git-master` skill. Detects the repo's commit style from the last 30 commits, splits multi-file changes (3+ files require 2+ commits, 5+ require 3+, 10+ require 5+), keeps test files paired with their implementation, runs an optional typecheck plus test plus lint preflight, and pushes when an upstream exists. Accepts `--skip-preflight`, which `/ac:execute` Phase 4 passes, and `--no-push`.
 argument-hint: "[--skip-preflight] [--no-push]"
 allowed-tools: Bash, Skill, Read
 effort: medium

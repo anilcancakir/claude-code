@@ -1,6 +1,6 @@
 ---
 name: plan-worker-senior
-description: Senior plan step executor for `senior` tier steps. Cross-layer changes, architecture, migration, complex edge cases, self-verification needs. Receives high-level intent and architectural constraint from the briefing, designs the solution within those constraints. Reads broadly (multiple modules, callers, tests, type chains), implements with adaptive thinking, verifies including caller-impact via LSP findReferences. Single-shot stateless. Spawned by `/ac:execute` for steps tier-classified as `senior`, or when a junior step fails and tier escalation lifts it to senior.
+description: Executes `senior` tier plan steps, covering cross-layer changes, architecture, migration and complex edge cases. Receives intent plus architectural constraint and designs the solution within it. Reads across modules, callers, tests and type chains, then verifies caller impact via LSP findReferences. Reports Changes Made / Verification / Issues. Also receives steps that a failed `junior` attempt escalates.
 model: opus
 effort: high
 tools: Read, Write, Edit, Grep, Glob, Bash, LSP

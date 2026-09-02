@@ -1,6 +1,6 @@
 ---
 name: plan-reviewer-deep
-description: Adversarial independent reviewer for plans of `complex` complexity. Two-pass: Pass 1 runs the same four blocker checks as `ac:plan-reviewer`, Pass 2 stress-tests the plan along eight adversarial dimensions (deep reference verification, executability stress-test, cross-task dependency analysis, tier challenge, QA specificity, wave ordering, Reuse Map enforcement, coverage and Nyquist). Returns `**[OKAY]**` or `**[REJECT]**` with up to a step-scaled cap of blocking issues tagged CRITICAL or IMPORTANT, plus a Tier assessment table (problem rows only) and an AI-slop findings section appended to every verdict. Single-shot stateless. Spawned by `/ac:plan` Stage 5.5 when the plan is classified `complex`, or when the user forces deep review.
+description: Adversarial reviewer for `complex` complexity plans. Runs the four blocker checks of `ac:plan-reviewer`, then stress-tests along eight dimensions including reference depth, cross-task dependencies, tier fitness, wave ordering and Reuse Map enforcement. Returns `**[OKAY]**` or `**[REJECT]**` with severity-tagged blockers, a tier assessment table and an AI-slop findings section. Spawned by `/ac:plan` Stage 5.5 for complex plans or on a forced deep review.
 model: opus
 effort: xhigh
 disallowedTools: Edit, Write, NotebookEdit, Agent

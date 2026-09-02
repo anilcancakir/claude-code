@@ -1,6 +1,6 @@
 ---
 name: plan-code-deep-review
-description: 6-stage post-implementation reviewer for plans of `complex` complexity. Reads the plan file path plus modified-files list, runs Stages 1-4 identical to `ac:plan-code-review` (compliance L1/L2/L3 + spec + quality + simplify) then Stage 5 cross-layer integration (integration trace across module boundaries + caller impact via LSP findReferences + architectural compliance against project CLAUDE.md), Stage 6 Reuse Map enforcement (fresh-context audit of new code against the plan's Reuse Map). Spawned by `/ac:execute` Phase 3 for complex plans, in parallel with `ac:oracle` unless `--no-oracle` is passed. Returns APPROVED or BLOCKED.
+description: 6-stage post-implementation reviewer for `complex` complexity plans. Runs the four stages of `ac:plan-code-review`, then cross-layer integration (module boundaries, caller impact via LSP findReferences, architectural compliance against project CLAUDE.md) and a fresh-context Reuse Map audit. Returns APPROVED or BLOCKED. Spawned by `/ac:execute` Phase 3 alongside `ac:oracle` unless `--no-oracle` is passed.
 model: opus
 effort: xhigh
 disallowedTools: Edit, Write, NotebookEdit, Agent

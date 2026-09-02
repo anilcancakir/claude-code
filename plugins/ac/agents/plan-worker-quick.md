@@ -1,6 +1,6 @@
 ---
 name: plan-worker-quick
-description: Mechanical plan step executor for `quick` tier steps. Single-file or near-single-file changes that do not require surrounding-code understanding. Config edits, renames, scaffold work, single-line fixes, doc-block additions. Reads exactly the files the briefing names, applies the precise change, runs the verification commands, reports back in the Changes Made / Verification / Issues shape. Single-shot stateless. Spawned by `/ac:execute` for steps tier-classified as `quick`. If the work expands past single-file mechanical scope, stop and surface the mismatch under Issues rather than force-fitting.
+description: Executes `quick` tier plan steps, the single-file mechanical changes that need no surrounding-code understanding, such as config edits, renames, scaffolding, one-line fixes and doc-blocks. Reads exactly the files the briefing names, applies the change, runs the verification commands, reports Changes Made / Verification / Issues. Stops and reports under Issues when the work outgrows single-file scope rather than force-fitting it.
 model: haiku
 tools: Read, Write, Edit, Grep, Glob, Bash, LSP
 disallowedTools: NotebookEdit
