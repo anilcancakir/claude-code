@@ -19,7 +19,7 @@ These hold for the whole run, including after a compaction. Everything below thi
 
 **Context.** Auto-compaction summarizes older turns and the run continues. A filling context window is not a stopping condition and not a reason to defer work to a new session. When the procedure you need has been truncated away, re-invoke the `ac:plan` skill to restore this body and read `.ac/plans/<slug>/checkpoint.json` for where the run was.
 
-**Loop bounds come from disk, never from working memory.** A counter you hold in context drifts across a long run; a file does not, and neither does a shell command's answer. Stage 5.5 reads its iteration number, its previous issue count, and both its gate verdicts out of `LOG_PATH` via the `review-counters` call in 5.5c. Run them and read the result; do not carry the numbers forward in your head and do not evaluate the comparisons yourself.
+**No loop needs bounding here.** Stage 5.5 is one advisory reviewer pass, so nothing on the plan side counts iterations. The only bounded loops left are Stage 3d's stall check, which fires after three non-progress interview turns, and the Stage 1e re-spawn, which allows one retry per subagent.
 
 **Progress surface.** Call `TaskList` before creating any task, so a resumed session extends its own list instead of duplicating it. One task per stage, never one per decision.
 
@@ -53,7 +53,7 @@ call, which is also the only way its cost stays visible.
 
 <constraints>
 - Decide nothing for the user when uncertainty remains. Surface the decision via `AskUserQuestion` with a recommended option grounded in research.
-- Read referenced files yourself. A subagent report is a candidate list, not a decision.
+- Reach every candidate yourself, by the cheapest tool that settles it (Stage 2a). A subagent report is a candidate list, not a decision.
 - Apply the routing rule in Stage 3b before every `AskUserQuestion`: if code or docs can answer the question, do that first.
 - The plan file is LLM-target structured markdown: parsable field labels, concrete `file_path:line_number`, no prose flourish, no decorative narration. Downstream agents read it as a spec.
 - Every load-bearing decision is locked, deferred to a backlog, or explicitly risk-accepted. The plan file contains zero open questions.
@@ -83,8 +83,6 @@ Auto mode automates system-process flow gates. It never auto-decides user-prefer
 | 3d Stalled? | flow | auto-pick `Continue` |
 | 3.5c Oracle returned CRITICAL | BLOCKER | surfaces |
 | 4 Lock all | flow | auto-pick `Lock all and run on auto mode` |
-| 5.5c Max iter? | flow | auto-pick `Proceed anyway` |
-| 5.5c Stalled? | flow | auto-pick `Proceed anyway` |
 | Stage 5 write fails twice | BLOCKER | surfaces |
 | Subagent malformed twice | BLOCKER | surfaces |
 
@@ -93,8 +91,8 @@ Interview gates surface whatever the mode, because they are preference content r
 recommendations are grounded in Stage 1 research and Stage 2 deep read, and the user picks among them. BLOCKER gates
 surface whatever the mode, because they need judgment auto mode cannot supply.
 
-The anti-runaway guards are the loop bounds, not this table: Stage 5.5 caps at 3 passes with a stall test, Stage 3d
-fires after three non-progress turns, and the chained `/ac:execute` bounds its own side. Heartbeat is one short line
+The anti-runaway guards are the loop bounds, not this table: Stage 3d fires after three non-progress
+interview turns, and the chained `/ac:execute` bounds its own side. Heartbeat is one short line
 per stage transition and per auto-resolved gate; interview gates emit none, since the user's answer already shows in
 the chat.
 </auto_mode>
@@ -114,10 +112,6 @@ and `TaskUpdate` each to `in_progress` on entry and `completed` on verified exit
 ## Stage 0: Setup
 
 ### 0a. Parse the argument
-
-Scan for `--deep-review` first. If present, set `DEEP_REVIEW = true` and strip it; Stage 5.5a then routes
-to `ac:plan-reviewer-deep` whatever the plan's complexity says. This is the escape hatch for a plan that
-classifies `standard` but the operator wants stress-tested.
 
 Scan `$ARGUMENTS` for the `--auto` flag (anywhere in the string, surrounded by whitespace or at the start/end). If present: set `AUTO_MODE = true`, strip the flag from `$ARGUMENTS`, continue with the remaining string. If absent: set `AUTO_MODE = false`.
 
@@ -213,11 +207,31 @@ TaskUpdate Stage 1 to `completed`, Stage 2 to `in_progress`.
 
 Goal: build your own mental model. Subagents found candidates; you read the code and make decisions. Apply this to every file referenced by Stage 1 results, not just the first.
 
-### 2a. Read every referenced file
+### 2a. Read what decides something, not everything referenced
 
-For every absolute path returned by Stage 1 agents (REUSE candidates, similar implementations, integration points, pattern references), `Read` the file. For long files, read the relevant ranges with offset and limit. Trace imports and call sites with `LSP findReferences` and `goToDefinition` when the file is part of a chain.
+Stage 1 hands you a candidate list. Open what will move a decision, and read enough of it to move that
+decision, rather than reading every path any agent happened to cite.
 
-State scope: read every referenced file; do not stop after the first three. The point of this stage is full ownership of the mental model; subagent paraphrases are insufficient input for decision-making.
+The order to reach for, cheapest first:
+
+1. `LSP hover` or `goToDefinition` when the question is "does this symbol exist and what is its shape".
+   That is most reuse-candidate questions and it costs a fraction of a file.
+2. `Grep` with context when the question is "is this pattern really here".
+3. `Read` with `offset` and `limit` on the cited range plus surrounding context.
+4. `Read` in full only when the file is short, or when the decision genuinely turns on the whole shape:
+   an interface you will conform to, a module you will restructure.
+
+Trace call sites with `LSP findReferences` when a candidate sits in a chain you intend to change.
+
+This is the same correction D2 made on the execute side, and it exists for the same reason: an earlier
+version of this stage said to Read every referenced path in full, which admits an entire candidate set
+into the context that then carries it for the rest of the planning run. What the stage is actually for
+is owning the mental model, and a symbol you confirmed with `hover` is owned just as well as one you
+read 400 lines to confirm.
+
+What has NOT changed: cover every candidate. Reaching each one cheaply is the point; skipping the fourth
+because the first three were interesting is the failure this paragraph used to guard against, and it
+still is.
 
 ### 2a.1. Verify before you trust
 
@@ -252,8 +266,16 @@ Distill these from the files read:
 - Type discipline (strict, mixed, untyped)
 - File organization (flat, nested, barrel exports)
 - Import convention (relative, aliased, absolute)
+- Path aliases (the alias-to-directory mapping, plus any mis-form that produces a build error)
+- LSP false-positive whitelist (autoload-registered globals and structural hints the executor should skip)
+- Test mount discipline (the one canonical mount pattern and any banned API, when test infrastructure exists)
 
-These six fields go into the checkpoint and into the plan template's `## Codebase Conventions` section verbatim.
+That is nine, and `TDD` from 2c.1 makes ten. All ten go into the checkpoint and into the plan template's
+`## Codebase Conventions` section verbatim.
+
+Extract all ten, not the first six. The executor now inlines this whole section into every worker briefing
+and the worker no longer opens the plan, so a convention this stage does not set is a convention no worker
+ever sees. Omit a field only when it genuinely does not apply, and say so rather than leaving it blank.
 
 ### 2c.1. Test infrastructure detection (drives TDD interview node)
 
@@ -357,11 +379,11 @@ Render the locked synthesis as plain text in the chat, using the shape at
 Scope IN and OUT, Codebase Conventions, Reuse Map, Locked Decisions, Oracle findings when Stage 3.5 surfaced any,
 Deferred Ideas, Risks Accepted, and Canonical References.
 
-Then call `AskUserQuestion` (header `Lock all?`), naming the review tier that will run:
+Then call `AskUserQuestion` (header `Lock all?`):
 
 1. `Lock all and run on auto mode (Recommended)`: sets `AUTO_MODE = true`, auto-resolves the remaining flow gates,
    and chains into `/ac:execute --auto` at Stage 6. The default once decisions are locked, because the interview and
-   the Stage 5.5 reviewer already carry the quality gate.
+   the Stage 5.5 reviewer already carry the quality bar.
 2. `Lock all and proceed step-by-step`: write the plan, run the review, then stop and let the user run execute.
 3. `Revise a decision`: loop back to Stage 3 targeting one node.
 4. `Revise / expand scope`: change what is IN or OUT, or pull a deferred idea into v1; loops back to Stage 3.
@@ -383,111 +405,72 @@ The subcommand writes every section heading in template order and no-ops when `p
 resumed run cannot clobber a filled-in plan. Fill it with `Edit`; a `Write` on `PLAN_PATH` erases the skeleton,
 and a second `Write` erases the first call's output.
 
-Write the plan to `PLAN_PATH` using the markdown structure at `${CLAUDE_SKILL_DIR}/references/plan-template.md`. That file contains the full plan-file shape (frontmatter + all sections + per-step field shape), the complexity classification rule that drives the `**Complexity**` frontmatter field, and the post-write verification + BLOCKER escalation if the write fails twice.
+Write the plan to `PLAN_PATH` using the markdown structure at `${CLAUDE_SKILL_DIR}/references/plan-template.md`. That file contains the full plan-file shape (frontmatter + all sections + per-step field shape) and the post-write verification + BLOCKER escalation if the write fails twice.
 
 Fill placeholders with concrete content; remove placeholder text inside angle brackets. For tier assignment per step, read `${CLAUDE_SKILL_DIR}/references/model-tiers.md` (capability summaries + decision heuristic). For plans with more than 10 steps, use the incremental write protocol described in the template reference.
 
-**Quality target: 0 reviewer iterations.** Write the plan as if no Stage 5.5 reviewer will look at it. The reviewer is a safety net for misses, not a draft-quality crutch. Concretely: every step's Description / Files / Done when / QA / Must NOT is specific enough that a fresh agent can execute without guessing; the Codebase Conventions section captures every project-specific rule the workers need; the Reuse Map names every existing utility the plan leverages; the locked decisions from the interview are reflected in the steps themselves, not assumed. The Stage 5.5 reviewer caps at 3 passes with a stall test; plans that converge in 0-1 are the goal.
+**Write the plan as if no reviewer will look at it.** Stage 5.5 is a single advisory pass now, not a loop that will grind a draft into shape, so a plan that arrives there needing work simply ships with the findings deferred. Concretely: every step's Description / Files / Done when / QA / Must NOT is specific enough that a fresh agent can execute without guessing; the Codebase Conventions section captures every project-specific rule the workers need; the Reuse Map names every existing utility the plan leverages; the locked decisions from the interview are reflected in the steps themselves, not assumed. The Stage 5.5 reviewer caps at 3 passes with a stall test; plans that converge in 0-1 are the goal.
 
 **Test-driven literal-pattern audit (Stage 5 quality discipline)**: when a step's Description names a literal regex pattern, a literal config snippet (package.json fragment, tsconfig field, command-line invocation), or a literal API chain (`.X().Y().Z()`), AND the same step's QA or Done when field lists concrete test inputs that exercise it, execute the pattern against each of those inputs in your head BEFORE plan write. If any listed input would fail the literal as written, either fix the literal in the plan or flag the gap in the step's Description as `regex-needs-validation`, `snippet-needs-validation`, or `chain-needs-validation`. The worker's TDD red phase is the safety net for what this misses; catching it at planning time is cheaper. The template reference carries a worked example of the class of bug this finds.
 
 TaskUpdate Stage 5 to `completed`, Stage 5.5 to `in_progress`.
 
-## Stage 5.5: Independent Review Cycle
+## Stage 5.5: Independent Review
 
-Goal: an independent second-eye review of the written plan file. The reviewer is a fresh-context subagent that reads only the plan file; it does not inherit your in-context state. This catches things the planner's own context bias misses (stale references after revision, executability from a fresh perspective, tier mismatches that drifted during writing).
+Goal: one second-eye read of the written plan by a fresh-context subagent that sees only the plan file.
+It catches what the planner's own context bias hides: stale references after revision, executability
+from a cold start, tier assignments that drifted while writing.
 
-Stage 5.5 audit shape: subagent file-based audit after write, Reference Validity / Executability / Internal Consistency / Tier Fitness for standard plans via `ac:plan-reviewer`; plus seven adversarial dimensions (deep reference verification, executability stress-test, cross-task dependency, tier challenge, QA specificity, wave ordering, Reuse Map enforcement) for complex plans via `ac:plan-reviewer-deep`.
+It is ONE pass and it is advisory. There is no verdict and no loop.
 
-### 5.5a. Route the reviewer tier
-
-Read `PLAN_PATH` and take the `**Complexity**` value the planner set in Stage 5. `standard` routes to
-`ac:plan-reviewer`; `complex` routes to `ac:plan-reviewer-deep`. The `--deep-review` flag from Stage 0a forces the
-deep reviewer whatever the complexity says.
-
-Print one line naming the routing and proceed. There is no confirmation gate here: the planner set the complexity
-with full context and the user has nothing to add that the flag does not already cover.
-
-### 5.5b. Open this run's section of the log
+### 5.5a. Spawn the reviewer
 
 ```
-Bash: printf '\n## Stage 5.5 Run %s\n' '<the plan file's **Generated** timestamp>' >> <LOG_PATH>
+Agent({
+  subagent_type: "ac:plan-reviewer",
+  description: "Independent plan review",
+  prompt: PLAN_PATH
+})
 ```
 
-Keyed on the plan's `Generated` timestamp rather than `date`, so a resumed run reopens the same section instead of
-starting a fresh budget. `LOG_PATH` is append-only across runs, and this header is what scopes the counters below to
-THIS run. Without it a re-plan on the same slug counts the previous run's passes, lands past the cap on its first
-pass, and skips review entirely.
+The prompt is the path and nothing else. The fresh context IS the second eye; adding your own context to
+the prompt destroys the property while looking like an optimization.
 
-### 5.5c. Review loop
+### 5.5b. Act on the findings, then move on
 
-Repeat:
+The reviewer returns findings tagged CRITICAL or IMPORTANT, with no verdict. You are the filter:
 
-1. **Read the counters off disk.** Never increment a remembered value.
+- **CRITICAL**: fix it with `Edit` before Stage 6. These are the ones that make a step unexecutable by a
+  fresh agent: a reference that does not resolve, a step whose `Done when` cannot be satisfied by its
+  `Files`, an internal contradiction between two steps.
+- **IMPORTANT**: fix it when the fix is small and local. Otherwise record it in the plan's
+  `## Deferred Ideas` with one line naming what was deferred and why.
+- Anything else goes in `## Deferred Ideas` or is dropped.
 
-   ```
-   Bash: node "${CLAUDE_PLUGIN_ROOT}/cli/ac.js" review-counters <LOG_PATH> --run-prefix '## Stage 5.5 Run ' --iter-prefix '## Stage 5.5 Iteration' --cap 3
-   ```
+After any edit, grep the plan for each string tied to the changed substance and patch every survivor.
+One step restates the same rule across `Description`, `Why this tier`, `Done when`, `QA`, `Must NOT` and
+`References`, so a single-field edit leaves contradictions behind. This sweep used to be carried by the
+loop's later passes; with one pass it has to happen here.
 
-   The line back reads `ITER=<n> PREV=<v> GATE=<OK|MAX_ITER> NEW=<count>`: the pass about to run, the previous pass's
-   issue count in this run, the cap verdict, and how many fingerprints this pass introduced that the one before it
-   did not. Read those verdicts; do not recompute them.
+Append the outcome to `LOG_PATH` under `## Stage 5.5 Review`: findings by severity, what was fixed, what
+was deferred. Then write a checkpoint with `last_stage: "5.5"`.
 
-2. **Max-iter check runs first.** On `GATE=MAX_ITER`, `AskUserQuestion` (header `Max iter?`, options
-   `Proceed anyway (Recommended)` / `Adjust approach` / `Abandon`). `Proceed anyway` exits the loop for Stage 6 with
-   the unresolved findings recorded in the plan's `## Risks Accepted`. `Adjust approach` loops back to Stage 4 with
-   the reviewer feedback inlined. `Abandon` writes `abandoned.md` and exits.
+### Why this is one advisory pass and not a gate
 
-3. **Spawn the reviewer**, prompt = `PLAN_PATH` and nothing else. The fresh context is the second eye; adding your
-   own context to the prompt destroys the property while looking like an optimization.
+Measured across 26 plans and 88 reviewer runs: 82 REJECT against 5 OKAY, a 94% reject rate, with 69% of
+plans hitting the 3-pass cap and 27% exceeding it. Eighty-eight passes produced five approvals, so about
+80% of plans left the loop by hitting the cap and having the operator pick `Proceed anyway`. The override
+was already the norm; this stops paying 3.4 Opus passes to reach it.
 
-   ```
-   Agent({
-     subagent_type: REVIEW_TIER === "complex" ? "ac:plan-reviewer-deep" : "ac:plan-reviewer",
-     description: "Independent plan review (iter <N>)",
-     prompt: PLAN_PATH
-   })
-   ```
+The 94% was not a quality signal, it was a self-contradiction in the agent: it was told to report
+everything and let a downstream pass filter, while its own verdict rule blocked on three accumulated
+IMPORTANT findings, so the downstream filter never ran. Removing the verdict is what lets the reporting
+instruction work as intended.
 
-4. **Parse the verdict.** Leading `**[OKAY]**` exits the loop. Leading `**[REJECT]**` continues. Anything else
-   re-spawns once with the same path; a second malformed reply is the `Agent fail?` BLOCKER from Stage 1e, not a
-   silent REJECT, because a reviewer that cannot produce a verdict twice is a broken gate rather than a rejection.
+The reviewer still catches real defects, which is why it stays: a plan claiming an API registered lazily
+when it does not, a plan whose auth objective no step actually implemented. Those are CRITICAL findings
+and they get fixed. What is gone is the machinery that turned every plan into three passes.
 
-5. **Stall check.** On `NEW=0` this pass surfaced nothing new: `AskUserQuestion` (header `Stalled?`, same three
-   options as step 2). A single `NEW=0` is the signal. `NEW` first becomes computable on the third pass, so a
-   two-consecutive rule could not fire before the fourth, where the cap has already ended the loop.
-
-6. **Revise with `Edit`.** Apply the smallest correct fix per BLOCKING issue; the reviewer's `Fix:` line is the
-   guidance. The reviewer also returns a `Non-blocking observations` section, which is uncapped, carries no
-   fingerprints, and never gated the verdict: read it, fix what is cheap, and move the rest to the plan's
-   `## Deferred Ideas`. Do not revise the plan for an observation and do not let one keep the loop alive, because the
-   loop's bound counts reviewer passes and an observation was never a reason to spend one.
-   After every edit, grep the plan for each string tied to the changed substance and patch every survivor: one step
-   restates the same rule across `Description`, `Why this tier`, `Done when`, `QA`, `Must NOT`, and `References`, so
-   a single-field edit leaves contradictions that resurface next pass as new fingerprints and hide the stall.
-
-7. **Append the pass to `LOG_PATH`** before looping. This append is what carries the loop state forward:
-
-   ```
-   ## Stage 5.5 Iteration <N>
-
-   - Reviewer verdict: REJECT
-   - Issue count: <N>
-   - Fingerprints: <the reviewer's per-issue Fingerprint values, comma-separated, verbatim>
-   - Issues addressed: <section or step references>
-   - Notes: <freeform>
-   ```
-
-   Record what the reviewer returned, not what you fixed. Every pass appends, including one that ended malformed
-   (`Issue count: 0`, and say so under Notes). A skipped append leaves the counters unchanged, and unchanging
-   counters are a loop with no bound.
-
-8. Write a checkpoint with `last_stage: "5.5"`, then continue.
-
-### 5.5d. Convergence
-
-The cycle ends when the reviewer returns `**[OKAY]**`, or the user proceeds through the max-iter or stall gate.
-Write a final checkpoint entry and TaskUpdate Stage 5.5 to `completed`, Stage 6 to `in_progress`.
 ## Stage 6: Deliver
 
 Delete `CHECKPOINT_PATH`. The plan is locked and reviewed.
@@ -505,8 +488,8 @@ execute reaches its own terminal state or a BLOCKER halts it.
 When `AUTO_MODE = false`, end the turn after the summary. The user reviews the plan and runs execute themselves.
 
 <reminders>
-- Read referenced files yourself, and verify subagent claims before they move a decision (Stage 2a.1).
+- Reach every candidate yourself by the cheapest tool that settles it, and verify subagent claims before they move a decision (Stage 2a.1).
 - Route every question through the three-way test; every load-bearing decision ends locked, deferred, or risk-accepted.
-- The reviewer receives a path and nothing else. Revise on REJECT with `Edit`, never `Write`.
+- The reviewer receives a path and nothing else, runs once, and returns findings rather than a verdict. Fix CRITICAL with `Edit`, defer the rest.
 - Do not invoke `/ac:execute` when `AUTO_MODE = false`. The user reviews the plan first.
 </reminders>
