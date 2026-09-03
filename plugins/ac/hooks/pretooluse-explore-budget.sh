@@ -17,9 +17,13 @@
 # on 2.1.259 and neither works: `maxTurns: 3` did not bind (61 turns observed), and a `hooks:`
 # block in an agent's frontmatter never fired (0 invocations, 0 payloads). What does work is this:
 # a plugin-level hook receives `agent_type` and `agent_id` when it fires inside a subagent, and
-# receives neither on the main thread. Measured directly, one probe run:
-#   agent_type=namedprobe agent_id=yes   <- inside the subagent
-#   agent_type=ABSENT     agent_id=no    <- main thread
+# receives neither on the main thread. Payload keys dumped from a live spawn on 2.1.259:
+#   agent_type=ac:explore agent_id=a1124775fb6dfdb02   <- inside the subagent
+#   (both keys absent, `effort` present instead)       <- main thread
+#
+# The value carries the plugin namespace. A gate written against a bare `explore` matches nothing
+# and the hook exits at the scope check on every call, which is what it did until this was dumped.
+# The bare form stays in the gate for an agent installed unprefixed under `.claude/agents/`.
 #
 # The budget is calibrated on the tail, not the mean. At 60 it never fires on a median run and
 # cuts the 183-call outlier. It is a circuit breaker, not a target, and the agent is told to
@@ -41,7 +45,10 @@ printf '%s' "$input" | jq -e . >/dev/null 2>&1 || exit 0
 # 1. Scope. This hook governs one agent and nothing else. A main-thread call carries no
 #    agent_type at all, so the absence check below is what keeps the orchestrator unaffected.
 agent_type="$(printf '%s' "$input" | jq -r '.agent_type // empty' 2>/dev/null)"
-[ "$agent_type" = "explore" ] || exit 0
+case "$agent_type" in
+    ac:explore | explore) ;;
+    *) exit 0 ;;
+esac
 
 agent_id="$(printf '%s' "$input" | jq -r '.agent_id // empty' 2>/dev/null)"
 [ -n "$agent_id" ] || exit 0
