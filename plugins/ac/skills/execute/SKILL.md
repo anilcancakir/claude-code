@@ -241,7 +241,7 @@ Spawn every `code` and `infra` step of the wave in ONE message, one `Agent` bloc
 spawn the next: a wave whose steps share no files has no reason to serialize, and the 4-layer check reads a finished
 wave better than a finished step. A wave the plan declares as an ordered track (its Execution Strategy says the steps
 must run in sequence) is the one exception, and there the steps run one at a time in the declared order.
-Keep the wave task's `activeForm` current rather than creating per-step entries.
+Say which steps the wave is running in one line before the spawns, so a reader can follow without a task list.
 
 ### 2d. Wave verification (4-layer, runs once per wave)
 
@@ -428,7 +428,7 @@ Layer B finding belongs to the step whose claimed hunks explain it; a failure no
 cross-step interaction and goes to 2f remediation, not to a retry. That attribution is what the per-step
 scoped test used to provide, and it is why Layer B's hunk-to-claim match is not optional.
 
-**All four layers pass**: append the wave's files to `MODIFIED_FILES`, refresh the wave task's `activeForm`, continue.
+**All four layers pass**: append the wave's files to `MODIFIED_FILES` and continue.
 
 **Worker reported `[BRIEFING GAP]`**: it could not proceed because something Section 6 should have carried
 was missing. Re-assemble the missing block and re-spawn at the SAME tier. Never escalate for this: the

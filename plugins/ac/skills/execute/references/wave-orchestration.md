@@ -64,7 +64,7 @@ Rendered once before the wave loop starts.
 Plan: <title> (.ac/plans/<slug>/plan.md)
 Codebase: <state>
 Total steps: <N> | Waves: <N> | TDD: <tdd | tests-after | none>
-Task entries: <WAVES + 3> (one per wave, plus Phase 1, 3, 4)
+Unchecked steps in the plan file: <N> (equals Total steps on a fresh run)
 
 Wave 1 (parallel, <K> steps):
 - Step 1: <title> [<tier>] <files>
