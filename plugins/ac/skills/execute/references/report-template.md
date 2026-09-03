@@ -12,7 +12,6 @@ Read in Phase 4b before calling `Write` on `.ac/plans/<slug>/report.md`. After W
 # Execution Report: <plan title>
 
 **Plan**: .ac/plans/<slug>/plan.md
-**Complexity**: <standard | complex>
 **Generated**: <ISO timestamp>
 
 ## Summary
@@ -37,8 +36,8 @@ Read in Phase 4b before calling `Write` on `.ac/plans/<slug>/report.md`. After W
 - Final build: PASS | FAIL
 - Final tests: <N pass, N fail>
 - Final lint: PASS | FAIL
-- Code-review: APPROVED (<standard|deep>)
-- Oracle: APPROVED | SKIPPED | <bottom-line if BLOCKED accepted>
+- Code-review: <N CRITICAL fixed, N IMPORTANT deferred, or `no findings`>
+- Oracle: <bottom line> | SKIPPED (no criticality surface touched) | SKIPPED (--no-oracle)
 
 ## Wisdom Accumulated
 

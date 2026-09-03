@@ -1,8 +1,8 @@
 # Cross-file Consistency Check
 
-The seven boundaries to inspect in Phase 2d Layer B step 5, with the concrete failure each one catches. Read this at the first wave that produces two or more files sharing an interface; the skill body carries the rule and the boundary list, this file carries the detail.
+The seven boundaries to inspect in Phase 2d Layer B step 6, with the concrete failure each one catches. Read this at the first wave that produces two or more files sharing an interface; the skill body carries the rule and the boundary list, this file carries the detail.
 
-The point of the check is what the worker did not see. A worker gets one file's scope; the orchestrator sees the whole wave. Catching an inconsistency here costs one extra Read; missing it costs a Phase 3 revision iteration, or ships a dead link.
+The point of the check is what the worker did not see. A worker gets one file's scope; the orchestrator sees the whole wave. Catching an inconsistency here costs one extra Read; missing it costs a Phase 3 CRITICAL finding and the fix-and-re-verify it forces, or ships a dead link.
 
 ## 1. Shared data shapes
 
@@ -32,4 +32,4 @@ The `<link href>` and `<script src>` URLs must match where the bundler actually 
 
 For every internal route or component reference the wave generates (`route('foo.bar', ...)`, `<a href="{{ route(...) }}">`, `<Link to="...">`, `<router-link>`, named-route helpers), open the target view or component and confirm it renders meaningful content under the project's layout, not a stub placeholder.
 
-File-level checks pass as soon as the file exists and the route is defined, so rendered content is the only signal that catches a dead end. A stub like `<div>Foo: {{ $foo->name }}</div>` sitting outside the layout chrome ships as a dead-end user click. Stage 5.4 of the deep reviewer would catch it eventually; catching it here costs one Read per target instead of a full revision iteration.
+File-level checks pass as soon as the file exists and the route is defined, so rendered content is the only signal that catches a dead end. A stub like `<div>Foo: {{ $foo->name }}</div>` sitting outside the layout chrome ships as a dead-end user click. Stage 5.4 of `ac:plan-code-review` would catch it eventually; catching it here costs one Read per target instead of a Phase 3 fix-and-re-verify.

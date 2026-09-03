@@ -17,7 +17,7 @@ TaskCreate({ subject: "[<slug>] Wave 1: <n> steps", description: "<step titles, 
 TaskCreate({ subject: "[<slug>] Wave 2: <n> steps", description: "<step titles, comma-separated>", activeForm: "Running wave 2" });
 // ... one TaskCreate per wave ...
 
-TaskCreate({ subject: "[<slug>] Phase 3: Final code-review", description: "Spawn ac:plan-code-review (+ oracle parallel for complex)", activeForm: "Spawning code-review" });
+TaskCreate({ subject: "[<slug>] Phase 3: Final code-review", description: "Spawn ac:plan-code-review (+ oracle on a criticality surface)", activeForm: "Spawning code-review" });
 TaskCreate({ subject: "[<slug>] Phase 4: Deliver", description: "/ac:commit + report.md + summary", activeForm: "Delivering" });
 
 // Then TaskUpdate the Wave 1 task to `in_progress` (Phase 2 starts after this call).
@@ -62,8 +62,9 @@ Rendered once before the wave loop starts.
 ## Execution Strategy
 
 Plan: <title> (.ac/plans/<slug>/plan.md)
-Complexity: <complexity> | Codebase: <state>
+Codebase: <state>
 Total steps: <N> | Waves: <N> | TDD: <tdd | tests-after | none>
+Task entries: <WAVES + 3> (one per wave, plus Phase 1, 3, 4)
 
 Wave 1 (parallel, <K> steps):
 - Step 1: <title> [<tier>] <files>
@@ -72,8 +73,8 @@ Wave 1 (parallel, <K> steps):
 Wave 2 (after Wave 1):
 - Step 3: <title> [<tier>] depends on Steps 1, 2
 
-Final review: <ac:plan-code-review | ac:plan-code-deep-review + ac:oracle>
-Checkpoint commits: <enabled (wave-after) | disabled>
+Final review: ac:plan-code-review<, + ac:oracle when a criticality surface is touched>
+Checkpoint commits: <after any wave that changed tracked files | disabled>
 ```
 
 ## Phase 2h progress table
@@ -83,7 +84,7 @@ After each wave:
 ```
 | # | Step | Wave | Tier | Result | Files changed |
 |---|------|------|------|--------|---------------|
-| 1 | <title> | 1 | junior | PASS | <file:line, ...> |
-| 2 | <title> | 1 | quick | escalated → junior PASS | <file:line> |
+| 1 | <title> | 1 | junior | PASS | <file:start-end, ...> |
+| 2 | <title> | 1 | quick | escalated to junior, PASS | <file:start-end> |
 | 3 | <title> | 2 | senior | (in progress) | (pending) |
 ```

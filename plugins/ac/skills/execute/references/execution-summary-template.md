@@ -12,11 +12,11 @@ Read in Phase 4b after the final commit and the dev report are written. Render i
 ## Execution Complete
 
 Plan: <title> (.ac/plans/<slug>/plan.md)
-Complexity: <complexity> | Steps: <N>/<total> | Escalations: <N>
+Steps: <N>/<total> | Escalations: <N>
 
 Verification:
-- Code-review: APPROVED (<standard|deep>)
-- Oracle: APPROVED | SKIPPED (--no-oracle) | <verdict if accepted with findings>
+- Code-review: <N CRITICAL fixed, N IMPORTANT deferred, or `no findings`>
+- Oracle: <bottom line> | SKIPPED (no criticality surface touched) | SKIPPED (--no-oracle) | <verdict if accepted with findings>
 
 Artifacts:
 - Plan: .ac/plans/<slug>/plan.md
