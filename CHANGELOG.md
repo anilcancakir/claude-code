@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.14.1] - 2026-09-04
+
+### Fixed
+
+- The MCP server no longer dies on Node 18 and older Node 20. The shipped bundle is ESM in a file named `ac.js`, and Node only reads such a file as ESM when the nearest `package.json` says so or when its module-syntax detection is on. That detection is unflagged from 20.19.0 and 22.7.0 only: on 18.x it never existed, and on 20.0 to 20.18 and 22.0 to 22.6 it is off, so `node ac.js mcp` raised "Cannot use import statement outside a module" and the server never started. It worked on the author's machine purely because that machine runs 22.17. The build now emits `plugins/ac/cli/package.json` carrying `{"type": "module"}` beside the bundle, which is the explicit form and works on every Node that supports ESM at all. Reproduced and verified locally with `node --no-experimental-detect-module`, which turns a 22.x runtime back into a 20.18 one: the bundle fails without the manifest and starts with it.
+
 ## [0.14.0] - 2026-09-03
 
 The three advisory agents rebuilt on measurement rather than on what their bodies claimed. `ac:oracle` now tests the premises a brief rests on before answering it, because both of its call sites hand it conclusions and an advisor that reasons inside a frame it was handed confirms that frame. `ac:explore` and `ac:librarian` were tuned apart rather than together: across 733 runs the same shape of instruction binds on Sonnet and does not bind on Haiku, so one agent got a harness-enforced call budget and the other got literal counts in its prose.
