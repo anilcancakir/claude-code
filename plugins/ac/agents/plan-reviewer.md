@@ -136,6 +136,14 @@ sub-60-second command can prove, so the wave barrier can confirm it by running s
 such criterion and no Wave-0 scaffold step declared for it is IMPORTANT; the plan template promises this
 check exists, so it has to.
 
+**A criterion that cannot fail.** Read each `Done when` command and ask what would make it report a
+failure. Three shapes make that impossible and all are CRITICAL, because a gate that always passes is
+reported as verification. A flag the tool does not support: `grep -P` on macOS exits 2 with empty stdout,
+so a "returns nothing" criterion written that way passes on input it should reject. A pipeline that
+truncates before the value it asserts, such as one ending in `head`. And a criterion checked against the
+wrong subject, most often a size or a count that the step's own fixture cannot reach: read every number
+in a `Done when` against the input the same step sets up.
+
 **Real-seam reachability.** When the plan's core mechanism is a network, IO, subprocess or multi-row data
 seam, check that some step stands up the actual instrument the QA runs against: a loopback listener that
 asserts on the wire, a fixture seeded to production row counts, a temp server the client really connects
