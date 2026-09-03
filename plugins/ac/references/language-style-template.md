@@ -161,6 +161,8 @@ Use these to match the author's voice. Vary them; do not stack.
 
 ## Writing Rules
 
+The operator's global CLAUDE.md already states the short unconditional rules, the dash ban among them, and it arrives on every main-thread turn where this skill body arrives only when the model elects to load it. So this section is the explanation and the worked alternatives, not the announcement. Do not add an author, name, or email section here for the same reason: identity is a one-line rule that belongs in the file that always arrives, and a second copy here is a copy that will drift.
+
 ### 1. No em-dash, no en-dash
 
 Em-dash (U+2014) and en-dash (U+2013) are banned in every output: docs, articles, commits, comments, PR bodies, and anything else that reaches a human reader. Use comma, colon, semicolon, period, parentheses, or plain conjunctions instead.

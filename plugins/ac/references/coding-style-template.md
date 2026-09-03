@@ -109,3 +109,15 @@ Read the file matching the language before writing code. Do not pre-load files f
 | Any language, before review or refactor | `references/anti-patterns.md` |
 
 Add one row per primary language. Create the referenced file as part of the skill (target 200-400 lines per language file). Create `references/anti-patterns.md` as a 30-60 line "never do" list.
+
+### Required seed entries for `references/anti-patterns.md`
+
+These three go into the generated file whatever the style interview surfaced, because the interview does not reliably surface them and nothing else carries them. Claude Code builds its main-thread system prompt in two shapes and picks per model; the shape the current Opus models get drops all three, so on those models an unstated rule is an absent rule. Write each in the file's own voice and table shape rather than pasting the wording below.
+
+| Never | Why |
+|---|---|
+| Extract an interface, base class, or factory before the third concrete caller | Speculative abstraction costs more to unwind than the duplication it replaced. Three similar lines beat a premature abstraction. |
+| Add error handling, fallbacks, or validation for a scenario that cannot happen | Trust internal code and framework guarantees. Validate at system boundaries only: user input and external APIs. |
+| Leave a backwards-compatibility shim behind a removal | No re-exports, deprecated wrappers, `_oldName` aliases, or `// removed` markers. If it is certainly unused, delete it. |
+
+The operator's global CLAUDE.md carries a one-line summary of each. That line is the unconditional copy and this file is the explanation; keep them consistent, and do not let this file contradict it.
