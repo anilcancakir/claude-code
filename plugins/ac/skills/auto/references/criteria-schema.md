@@ -1,6 +1,6 @@
 # Auto-Run Criteria and Marker Schema
 
-Two on-disk shapes back `/ac:auto`. The criteria file states, before any work starts, what "done" means for this request and how each item is checked. The state marker names which run is live, the way `.ac/state/active-execution.json` does for `/ac:execute` (`plugins/ac/skills/execute/references/execution-state.md:17-40`). A fresh agent should be able to write a valid criteria file from this document alone.
+Two on-disk shapes back `/ac:auto`. The criteria file states, before any work starts, what "done" means for this request and how each item is checked. The state marker names which run is live, the way `.ac/state/active-execution.json` does for `/ac:execute` (`${CLAUDE_PLUGIN_ROOT}/skills/execute/references/execution-state.md:17-40`). A fresh agent should be able to write a valid criteria file from this document alone.
 
 ## Why two verification tiers only
 
@@ -14,7 +14,6 @@ Path: `.ac/auto/<slug>/criteria.md`. One file per auto run, written before the p
 
 ```markdown
 ---
-status: pending
 turn_budget: 40
 failure_budget: 0.2
 criteria_sha256: "<sha256 hex, see below>"
@@ -41,45 +40,56 @@ criteria:
   - id: "c2"
     statement: "the reset email renders the user's first name, not their email address"
     verification: "judgment"
-gaps: []
-overrides: []
 ---
 
 Free-form notes on the request go here, below the closing frontmatter delimiter. Everything above
-the delimiter is the machine-read contract and is covered by `criteria_sha256`; everything below is
-prose for a human or a later agent, and is not. Editing these notes does not invalidate the digest.
-Editing a criterion does.
+the delimiter is the frozen contract and is covered by `criteria_sha256`; everything below is not.
+Editing these notes does not invalidate the digest. Editing a criterion does.
+
+## Overrides
+
+A human waiver of one criterion. Empty until a person adds one, and it lives HERE, below the
+delimiter, on purpose: an override is a legitimate later edit by a human, and a legitimate later
+edit must not look like tampering. Putting it in the frozen block would make every waiver break
+the digest and read as a rewritten contract.
+
+```yaml
+- criterion_id: "c2"
+  reason: "the endpoint is behind a feature flag that is off in this release"
+  accepted_by: "anilcan"
+  accepted_at: "2026-09-03T18:04:00Z"
+```
 ```
 
 ### Field reference
 
-- `status`: one of `pending`, `passed`, `failed`, `blocked`. Set by the gate at the end of the run, never by a worker mid-run. `pending` from the moment the file is written until the gate renders a verdict.
-- `must_haves`: the four sub-fields adapted from `references/get-shit-done/agents/gsd-verifier.md:137-152`, unchanged in field names and meaning:
+- `must_haves`: the four sub-fields adapted from the `must_haves` block in open-gsd/gsd-core's `agents/gsd-verifier.md`, unchanged in field names and meaning:
   - `truths`: observable, testable behaviors the finished request must exhibit. Plain sentences, not commands.
   - `artifacts`: `{path, provides}` pairs. `path` is the file the request must produce or change; `provides` is one sentence on what that file is for.
   - `key_links`: `{from, to, via}` triples naming a connection between two artifacts that must actually exist (a caller wired to a callee, not two files that happen to sit near each other). `via` states how, in prose.
   - `prohibitions`: `{statement, status, verification}` triples, the must-NOT sibling of `truths`. `statement` is the negative claim ("MUST NOT ..."). `status` is `resolved` or `unresolved`; `unresolved` means the run has not yet demonstrated the prohibition holds. `verification` is the same two-value field defined below, scoped to this one prohibition.
 - `criteria`: the enumerable list of completion criteria proper, distinct from `must_haves` (which states what must be true or exist; `criteria` states what must be checked to call the run done). Each entry:
-  - `id`: short stable string, referenced by `gaps[]` and `overrides[]`.
+  - `id`: short stable string. The gate keys its verdict rows on it, and an override names it.
   - `statement`: one sentence, human-readable, naming the observable outcome.
   - `verification`: `command` or `judgment`. No third value.
   - `command`: required when `verification: command`, absent when `verification: judgment`. The literal shell command the gate runs.
   - `expected_exit_code`: required when `verification: command`. The exit code that counts as a pass; the gate treats any other code as a fail, not a crash.
   - A `judgment`-tier criterion carries no `command` and no `expected_exit_code`. The gate reads the artifact or the transcript and states pass or fail with a one-line reason; it never invents a command for a criterion that named none.
-- `gaps`: list of `{id, criterion_id, reason}`. Written by the gate when a criterion evaluates to fail and no matching override exists. Empty at write time.
-- `overrides`: list of `{criterion_id, reason, accepted_by, accepted_at}`, adapted from `references/get-shit-done/gsd-core/references/verification-overrides.md:9-38`. An override marks one specific criterion as intentionally not met, with a reason, and moves it out of the failing count. Empty at write time. See the invariant below; the gate can read this list but only a real user answer can add to it.
 - `turn_budget`: an integer turn count. When the run's turn counter reaches this number without reaching a verdict, the run stops and asks the user how to proceed (extend the budget, accept partial progress, abort) rather than continuing silently past the number the user agreed to at the start.
 - `failure_budget`: a fraction between 0 and 1, applied to total step count across the run (not to `criteria` count). When the proportion of failed steps exceeds this fraction, the run hard-stops before reaching the gate, on the reasoning that a run already failing this often will not self-correct by continuing; a `0.2` value tolerates one failing step in five before it stops.
 - `criteria_sha256`: the sha256 hex digest of the frontmatter, taken over every line between the two `---` delimiters EXCEPT the `criteria_sha256` line itself, joined with newlines and hashed as UTF-8. Dropping that one line is what resolves the circularity of digesting a block that contains its own digest; it is ordinary checksum-line practice, the same trick a checksum embedded in the file it describes has always used.
 
   The digest deliberately covers the frontmatter and not the prose body. The criteria are the thing worth protecting, and they live in the frontmatter: a digest taken over the body after the delimiter would detect an edit to the notes while leaving every `command`, `expected_exit_code` and `prohibition` free to change unnoticed, which is the exact inversion this field exists to prevent. The body is unprotected on purpose, because prose drifting has no consequence the gate acts on.
 
-  The gate recomputes this digest before it reads a single criterion and refuses to proceed on a mismatch. Treat it as tamper evidence, not as a trust signal: nothing here is cryptographically signed, so a mismatch means "the contract changed after it was fixed", and a match means only "it did not", never "this file is authentic". The threat it addresses is narrow and real: the session that writes the criteria is the session that then runs the work, so without this the run could quietly rewrite its own passing conditions.
+  The gate recomputes this digest before it reads a single criterion and refuses to proceed on a mismatch. Treat it as tamper evidence, not as a trust signal: nothing here is cryptographically signed, so a mismatch means "the contract changed after it was fixed", and a match means only "it did not", never "this file is authentic". Read the guarantee narrowly. The session that writes the criteria is the session that then does the work and it holds the recipe, so a deliberate rewrite can update the digest too. What this catches is the UNRECORDED change: drift, a stray write, a rewrite that forgot the hash. Worth having, and not the same as a guarantee.
+
+- No `status` and no `gaps` field. The run's outcome lives in `verdict.md`, written once at the end from what the gate returns, and this file never learns it. That is not an omission: `criteria_sha256` covers this whole frontmatter, so a field the gate was expected to fill would either break the digest it just verified or sit at its write-time value forever. The contract is frozen by construction, and a frozen file cannot also be a status board.
+- Overrides live BELOW the closing delimiter, outside the digest, in the `## Overrides` section shown above. A waiver is a human edit made after the contract was fixed, which is exactly the shape the digest is built to flag, so it is kept out of the digested span rather than being allowed to look like tampering. The gate reads them from there. It may propose one; only a person may write `accepted_by`.
 
 ### Invariants
 
 - `started_at` on the state marker (below) is written once and never refreshed, for the same reason `plugins/ac/skills/execute/references/execution-state.md:34` gives for `active-execution.json`: it is the age bound a hook uses to treat a stale marker as abandoned, and it is the key a block counter uses to hand a run a fresh budget. A criteria file carries no `started_at` of its own; the marker is the single source for it.
-- `overrides[].accepted_by` is writable only from a real user answer, never by a model. A gate or a worker that finds a failing criterion may propose an override (statement plus reason), exactly as `references/get-shit-done/gsd-core/references/verification-overrides.md:139-160` has the verifier suggest one, but the entry does not exist in `overrides[]` until the user has answered an explicit question and the answer is recorded verbatim as `accepted_by`. No agent fills that field with its own name, a placeholder, or an inferred identity.
+- `overrides[].accepted_by` is writable only from a real user answer, never by a model. A gate or a worker that finds a failing criterion may propose an override (statement plus reason), the same split open-gsd/gsd-core draws in its `verification-overrides` reference, where the verifier suggests an override and a person accepts it, but the entry does not exist in `overrides[]` until the user has answered an explicit question and the answer is recorded verbatim as `accepted_by`. No agent fills that field with its own name, a placeholder, or an inferred identity.
 
 ## `.ac/state/active-auto.json`
 

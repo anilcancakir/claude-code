@@ -23,8 +23,8 @@ context on exactly the long runs that need it.
 **Turn termination.** Your turn ends on exactly one of: the Phase 5 closing report, or a terminal branch that
 deleted `.ac/state/active-auto.json` first. Nothing else ends it. While that marker exists and
 `.ac/auto/<slug>/verdict.md` does not, the plugin's auto `Stop` guard blocks the turn from ending
-(`${CLAUDE_PLUGIN_ROOT}/hooks/stop-guard-auto.sh`), and its block budget is 3, after which the run is stranded
-without a verdict. Writing the verdict at Phase 4 is the only action that releases it. Never end a turn by
+(`${CLAUDE_PLUGIN_ROOT}/hooks/stop-guard-auto.sh`), and its block budget is 3 PER PHASE, so the gating
+handoff always starts with a fresh three however many were spent earlier. Writing the verdict at Phase 4 is the only action that releases it. Never end a turn by
 describing what you would do next, and never propose that the user open a fresh session to continue.
 
 **Marker path.** `.ac/state/active-auto.json` is the single live-run record; the run directory is
@@ -59,7 +59,7 @@ properly in the remaining context" is none of them. Context pressure is not a st
 summarizes older turns and the run continues. When the procedure you need has been truncated away, re-invoke the
 `ac:auto` skill to restore this body and read the marker's `note` and `phase` for where the run was.
 
-**Nothing here is irreversible.** While the marker exists, the plugin's Bash guard denies nine verbs including
+**Nothing here is irreversible.** While the marker exists, the plugin's Bash guard denies twelve verbs including
 `git push`, `git reset --hard` and `rm -rf`, and it does not exempt you
 (`${CLAUDE_PLUGIN_ROOT}/hooks/pretooluse-bash-guard.sh`). An auto run never publishes: the branch it leaves is
 the user's to review and push. Reach outcomes another way rather than around the guard.
@@ -105,7 +105,7 @@ the same run duplicates the progress report without adding a fact.
 - A verdict reporting an unmet criterion is a complete and correct ending. Write it as returned. Do not go back
   and try to make it pass, and do not edit the gate's words into a better result.
 - Mutate a file with `Write` or `Edit`, never through `Bash`. Not `python3 -c`, not a `cat >` heredoc, not
-  `sed -i`. `Bash` computes and reads; it does not write project state.
+  `sed -i`. `Bash` computes and reads; it does not write project state. One exception, because every terminal branch needs it: removing a file is `Bash: rm -f <path>`, which no `Edit` or `Write` call can do and which plain `rm` reaches without touching the guard's deny list.
 - Do not invoke `ac:execute`. `ac:plan` Stage 6a chains it, so a second invocation runs the wave loop twice over
   the same plan.
 - Do not run your own question round. The single round the user agreed to is `ac:plan` Stage 3.
@@ -153,6 +153,21 @@ Say both values in the one-line admission heartbeat, since they are the bounds t
 
 ## Phase 1: Freeze the run
 
+### 1a0. Re-entry check, before anything else
+
+Read `.ac/state/active-auto.json` if it exists. Three outcomes, and none of them is "carry on and write a new
+marker": the marker is a single global slot per repository, so minting a second run over a live one leaves the
+first with no guards, no verdict, and nothing that notices.
+
+- **Absent**: no run is live. Continue to 1a.
+- **Present and its `session_id` is this session's**: this is a re-entry, not a new run. Two places tell you to
+  re-invoke this skill mid-run, the Standing rules above and the Stop guard's latch note, and both land here.
+  Skip Phases 0 and 1 entirely and resume at the phase the marker names, reading its `note` for where the run
+  was. Do not re-derive a slug and do not touch `criteria.md`; the contract is already frozen.
+- **Present and owned by another session**: refuse. Say which slug holds the marker and that the operator can
+  delete `.ac/state/active-auto.json` if that run is genuinely abandoned. Do not delete it yourself; you cannot
+  tell an abandoned run from one running in another window.
+
 ### 1a. Slug
 
 Kebab-case, at most 6 words, derived from the request. If `.ac/auto/<slug>/` exists, append `-2`, then `-3`,
@@ -161,12 +176,18 @@ until the name is free. Preserving a previous run beats overwriting it.
 ### 1b. Run directory and criteria file
 
 Create `.ac/auto/<slug>/` first, then `Write` the Phase 0 enumeration to `criteria.md` in the schema's exact
-shape, `status: pending`, `gaps: []`, `overrides: []`, and `criteria_sha256: "pending"`. The file lands here,
+shape and `criteria_sha256: "pending"`. The frontmatter carries no `status` and no `gaps`: the digest covers
+that whole block, so a field something was meant to fill later would either break the digest or sit unchanged
+forever, and the run's outcome belongs in `verdict.md`. Overrides go below the delimiter, outside the digest,
+because a human waiver is a legitimate later edit and must not read as tampering. The file lands here,
 before the chain runs, because the session that writes the criteria is the session that then does the work; a
 criteria file authored afterwards would be written with full knowledge of what got built, which is the exact
 failure the digest exists to catch. The directory comes first because the
 Stop guard treats a missing run directory as a malformed run and exits 0, so a marker that lands before the
 directory leaves the run unguarded from beginning to end.
+
+No `python3` on this machine is a gate you cannot pass: delete the marker, say so, and stop, because a digest
+you improvise is one the gate cannot reproduce and it would refuse every run.
 
 Then compute the digest over the frontmatter minus its own digest line, which is the span the schema defines,
 and patch that one line with `Edit`:
@@ -249,12 +270,18 @@ adjusted after the work is exactly what the digest exists to make visible.
 Agent({
   subagent_type: "ac:auto-verifier",
   description: "Auto-run verdict",
-  prompt: ".ac/auto/<slug>/criteria.md"
+  prompt: "Criteria: .ac/auto/<slug>/criteria.md
+Schema: ${CLAUDE_SKILL_DIR}/references/criteria-schema.md"
 })
 ```
 
-The prompt is the path and nothing else. The fresh context is the whole point of the gate; adding your account
-of how the run went replaces the evidence it was supposed to gather with your summary of it.
+Two paths and nothing else. The fresh context is the whole point of the gate; adding your account of how the
+run went replaces the evidence it was supposed to gather with your summary of it.
+
+The schema path is passed rather than left for the gate to construct because `${CLAUDE_PLUGIN_ROOT}` is
+substituted only in hook and MCP command strings and reaches an agent body unexpanded, while
+`${CLAUDE_SKILL_DIR}` does resolve here, in a skill body. Expand it yourself before the spawn so the gate
+receives a literal absolute path.
 
 `Write` the returned body verbatim to `.ac/auto/<slug>/verdict.md`. This write is the only thing that releases
 the Stop guard, and the guard never opens the file, so a verdict of `gaps_found` ends the run exactly as
@@ -280,13 +307,14 @@ local CLI command and the Skill tool rejects local-type commands, so never invok
 
 ## Terminal branches
 
-Four endings, and each deletes `.ac/state/active-auto.json` before it stops:
+Five endings, and each deletes `.ac/state/active-auto.json` and `.ac/auto/<slug>/stop-guard-auto.json` before it stops. Deleting only the marker leaves a counter whose budget the next run in this directory would inherit:
 
 | Ending | Where | Marker |
 |---|---|---|
 | Verdict written | Phase 4, then Phase 5 closes | deleted at Phase 5 |
 | Failure budget exceeded | Phase 2 | delete, then report the failed steps |
 | Turn budget reached and the user picked abort | any phase | delete, then report what landed |
+| A chained BLOCKER the user resolved as stop or pause | Phase 2, inside `ac:plan` or `ac:execute` | delete, then report which BLOCKER and what the user chose |
 | An error before the gate (branch, digest mismatch, chain aborted) | any phase | delete, then name the stop class |
 
 A Phase 0 refusal is not in this table: nothing was written, so there is nothing to clean up.

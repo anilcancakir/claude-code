@@ -11,10 +11,14 @@
 # Why a verb list and not path analysis: deciding that `rm -rf ./build` is safe while
 # `rm -rf ../..` is not requires resolving a path out of a shell word, which requires parsing
 # shell grammar, which is an arms race this hook declines to enter. It matches whole tokens
-# against literal verbs and nothing else. The list is closed by design: the review that shaped
-# it settled that a denylist needing more than about ten entries is the signal to move the run
-# into worktree isolation instead of growing the list. Treat an addition as evidence for that
-# move rather than as routine maintenance.
+# against literal verbs and nothing else.
+#
+# The list stands at twelve, and the threshold the design review set was about ten: past that, the
+# right move is to run the whole thing in a git worktree and delete this hook, not to keep adding
+# spellings. Three of the twelve are flag variants of entries already present (`rm -fr`,
+# `git checkout .`, `git restore .`), added because leaving a trivial reordering out while listing
+# its sibling misleads more than it protects. That is the last addition this file should take.
+# Worktree isolation is recorded in the plan's Deferred Ideas and this comment is the trigger for it.
 #
 # Why the orchestrator is NOT exempt, unlike pretooluse-file-scope.sh: that hook's predicate is
 # wave file scope, a worker concept, and the orchestrator legitimately writes outside every
@@ -28,11 +32,18 @@
 # Scope note: the plugin's other PreToolUse guard matches Edit|Write|MultiEdit only, so until
 # this one is registered on the Bash matcher an auto run has no control on the shell at all.
 #
-# Known limits, deliberate:
-#   - A verb inside a quoted string (`echo "git push"`) is denied like a real one. A false deny
-#     is recoverable in one turn; the alternative is parsing quoting rules.
-#   - A verb reached through a path or an alias (`/bin/rm -rf`, `g push`) is not matched. Same
-#     reason, opposite direction.
+# Known limits, all in the SAME direction: this guard under-matches. It is a speed bump against an
+# unthinking destructive call, not a boundary against an adversary, and every gap below was measured
+# by running the script rather than reasoned about.
+#   - Quoting defeats it entirely. `git "push"`, `git 'push'`, `eval "git push"` and `rm "-rf" x`
+#     all pass, because the token test sees `git`, `"push"` as separate words. The same property
+#     means `echo "git push"` is correctly allowed rather than falsely denied, which is a nice
+#     accident and not a design goal.
+#   - A verb reached through a path or an alias (`/bin/rm -rf`, `g push`) is not matched.
+#   - Flag spellings outside the list pass: `sed --in-place`, `perl -i -pe`, `sed -i.bak`.
+#   - Everything the list does deny lands on files that a wave checkpoint commit already captured,
+#     which is why the guard can afford to be this porous. What it buys is that the obvious
+#     irreversible call does not happen by reflex during an unattended run.
 #   - The marker is a single global slot per repository, and ownership is the session id, so a
 #     second concurrent run in one repository leaves the first unguarded.
 #   - No staleness bound. A marker outliving its run keeps the guard armed for that session
@@ -103,8 +114,11 @@ while IFS= read -r verb; do
     esac
 done <<'VERBS'
 rm -rf
+rm -fr
 git reset --hard
 git checkout -- .
+git checkout .
+git restore .
 git clean
 git push
 gh pr merge
@@ -127,7 +141,11 @@ gh release, sed -i, perl -pi.
 Reach the same outcome another way: edit files with the Edit tool rather than sed -i or perl -pi,
 remove a path with a plain rm of the named files, and leave publishing (push, merge, release) and
 history rewriting to the user after the verdict. If the run genuinely cannot proceed without this
-command, record that in the verdict as a blocker instead of working around the guard."
+command, record that in the verdict as a blocker instead of working around the guard.
+
+If no /ac:auto run is actually in progress, this guard is armed by a marker left behind by an
+interrupted one: delete .ac/state/active-auto.json and the command will be allowed. The marker
+carries no age bound, so it stays armed for this session until it is removed."
 
 jq -cn --arg r "$reason" '{
   hookSpecificOutput: {

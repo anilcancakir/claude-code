@@ -20,8 +20,8 @@
 # work at exactly the point where the real work has run out, which is the failure this design
 # exists to avoid. An unmet criterion is a verdict outcome, not a reason to block: a verdict
 # reporting a criterion unmet is a complete and legitimate ending for the run. So this hook
-# reads exactly three marker fields (slug, session_id, started_at) plus the existence of one
-# file, and never opens the criteria file at all. Nothing below is allowed to grow into a
+# reads exactly four marker fields (slug, session_id, started_at, phase) plus the existence of
+# one file, and never opens the criteria file at all. The fourth only scopes the block budget. Nothing below is allowed to grow into a
 # satisfaction test.
 #
 # Why a hook and not a skill rule: after compaction Claude Code re-attaches the most recent
@@ -31,8 +31,11 @@
 # behavior: https://code.claude.com/docs/en/skills.md.
 #
 # The block budget defaults to 3 rather than the plan guard's 10 because the only work a block
-# can buy here is one gate invocation. Past a few attempts, blocking again only repeats the
-# exchange while the user waits.
+# can buy here is one gate invocation. It is counted PER PHASE, not per run: this guard arms as
+# soon as the marker exists, long before the gate is owed anything, so a whole-run pool of 3 would
+# be spent on ordinary turn ends during planning and execution and latch before Phase 4 arrived,
+# silencing the guard at exactly the moment it exists to speak. Per phase, the ceiling is 3 times
+# the number of phases, which still terminates, and the gating handoff always starts full.
 #
 # Known limits, inherited from stop-guard.sh and deliberate:
 #   - `--resume --fork-session` keeps the fresh startup session id rather than the resumed one
@@ -115,6 +118,12 @@ slug="$(jq -r '.slug // empty' "$marker" 2>/dev/null)"
 run_dir="$project_dir/.ac/auto/$slug"
 [ -d "$run_dir" ] || exit 0
 
+# The run's own phase, used below to scope the block budget. A marker written by an older
+# version of the skill carries no `phase`, so default it rather than failing open: an absent
+# field is not an uncertainty about whether the run is live, which is what the exits above test.
+phase="$(jq -r '.phase // empty' "$marker" 2>/dev/null)"
+[ -n "$phase" ] || phase="unknown"
+
 # 5. The whole predicate. A verdict file exists, so the gate has run and the run has an ending,
 #    whatever that ending says. Its contents are none of this hook's business: a verdict that
 #    reports something unmet ends the run exactly as a clean one does.
@@ -127,11 +136,20 @@ verdict="$run_dir/verdict.md"
 #    exhausted this guard stops blocking the run entirely. Deleting the file instead would reset
 #    the count and produce an unbounded block-budget-then-one-allow cycle for as long as the
 #    marker lives, which is how a guard strands a user.
+#    The budget is per PHASE, not per run, and that distinction is the whole reason this block
+#    is worth reading. The guard arms as soon as the marker exists, which is long before the gate
+#    is owed anything, so a whole-run pool of 3 gets spent on ordinary turn ends during planning
+#    and execution and latches `spent` before Phase 4 ever arrives. That would silence the guard
+#    at exactly the moment it exists to speak. Keying on phase gives each stage its own 3, with a
+#    ceiling of 3 times the number of phases, so it still terminates and the gating handoff always
+#    starts with a full budget. A phase change resets the count and clears a spent latch, because
+#    the run demonstrably moved.
 counter="$run_dir/stop-guard-auto.json"
 blocks=0
 if [ -f "$counter" ] && jq -e . "$counter" >/dev/null 2>&1; then
     prev_run="$(jq -r '.run // empty' "$counter" 2>/dev/null)"
-    if [ "$prev_run" = "$started_at" ]; then
+    prev_phase="$(jq -r '.phase // empty' "$counter" 2>/dev/null)"
+    if [ "$prev_run" = "$started_at" ] && [ "$prev_phase" = "$phase" ]; then
         [ "$(jq -r '.spent // false' "$counter" 2>/dev/null)" = "true" ] && exit 0
         blocks="$(jq -r '.blocks // 0' "$counter" 2>/dev/null)"
         case "$blocks" in '' | *[!0-9]*) blocks=0 ;; esac
@@ -140,8 +158,8 @@ fi
 
 write_counter() {
     _tmp="$counter.tmp.$$"
-    if jq -cn --arg run "$started_at" --argjson b "$1" --argjson s "$2" \
-        '{run: $run, blocks: $b, spent: $s}' > "$_tmp" 2>/dev/null; then
+    if jq -cn --arg run "$started_at" --arg ph "$phase" --argjson b "$1" --argjson s "$2" \
+        '{run: $run, phase: $ph, blocks: $b, spent: $s}' > "$_tmp" 2>/dev/null; then
         mv "$_tmp" "$counter" 2>/dev/null && return 0
     fi
     rm -f "$_tmp" 2>/dev/null
@@ -154,7 +172,8 @@ if [ "$blocks" -ge "$max_blocks" ]; then
     write_counter "$blocks" true
     latch_note="ac auto stop-guard: block budget ($max_blocks) spent for $slug; allowing the turn to end."
     latch_note="$latch_note No verdict was written to .ac/auto/$slug/verdict.md."
-    latch_note="$latch_note Resume with /ac:auto, or delete .ac/state/active-auto.json to close the run."
+    latch_note="$latch_note Re-invoke /ac:auto to resume: it reads this marker, sees this session owns it, and"
+    latch_note="$latch_note picks the run up at its recorded phase. To close the run instead, delete the marker."
     printf '%s\n' "$latch_note" >&2
     exit 0
 fi
@@ -168,6 +187,25 @@ write_counter "$blocks" false || exit 0
 #    wrote anything. `reason` is the documented channel for telling Claude why it should
 #    continue (https://code.claude.com/docs/en/hooks.md), so it carries the directive; the
 #    factual-phrasing rule from the same page applies to additionalContext, not here.
+# What to do next depends on where the run is, and getting this wrong is not cosmetic. The plan
+# Stop guard fires on the same event and, mid-run, its reason says to continue the wave loop.
+# Both reasons reach the model together (measured). A fixed "hand off to the gate now" here would
+# contradict it during planning and execution, and obeying this one would gate a half-finished
+# run, whose verdict then releases this guard for good.
+case "$phase" in
+    planning | executing)
+        next_action="The run is still working, so this is a note rather than an instruction: no verdict exists yet
+and one will be owed at the end. Continue the run. If another guard blocked this same turn, follow
+its reason; it knows what the current stage needs and this one does not."
+        ;;
+    *)
+        next_action="Hand off to the read-only gate now. It reviews the run and writes .ac/auto/$slug/verdict.md.
+A verdict reporting something unmet is a complete and correct ending: report it, do not go back
+and try to make it pass. Running out of achievable work is a result for the gate to record, not
+a reason to invent more work."
+        ;;
+esac
+
 reason="An /ac:auto run for '$slug' has not been judged yet, so this turn must not end.
 
 State from disk: the marker .ac/state/active-auto.json exists and .ac/auto/$slug/verdict.md does not.
@@ -175,10 +213,7 @@ That is the entire test this guard runs. It does not read what the run was asked
 it does not measure how much of it you managed, so nothing you do to the work itself will clear
 it. The one action that clears it is the gate writing the verdict.
 
-Hand off to the read-only gate now. It reviews the run and writes .ac/auto/$slug/verdict.md.
-A verdict reporting something unmet is a complete and correct ending: report it, do not go back
-and try to make it pass. Running out of achievable work is a result for the gate to record, not
-a reason to invent more work.
+$next_action
 
 Context pressure is not a stopping condition. Auto-compaction summarizes older turns and the run
 continues; do not announce a context or token-budget concern in place of finishing, and do not
