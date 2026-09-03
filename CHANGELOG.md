@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-09-03
+
+The three advisory agents rebuilt on measurement rather than on what their bodies claimed. `ac:oracle` now tests the premises a brief rests on before answering it, because both of its call sites hand it conclusions and an advisor that reasons inside a frame it was handed confirms that frame. `ac:explore` and `ac:librarian` were tuned apart rather than together: across 733 runs the same shape of instruction binds on Sonnet and does not bind on Haiku, so one agent got a harness-enforced call budget and the other got literal counts in its prose.
+
+### Added
+
+- A `PreToolUse` hook caps one `ac:explore` spawn at 60 tool calls, scoped by the `agent_type` the harness supplies. Two frontmatter mechanisms were tested first and neither works on 2.1.259: `maxTurns: 3` did not bind (61 turns ran), and a `hooks:` block in an agent's own frontmatter never fired, though the pinned reverse-engineered docs describe it as supported. What does work was measured directly: a plugin-level hook receives `agent_type` and `agent_id` inside a subagent and neither on the main thread. The cap is calibrated on the tail, never firing on a median 36.6-call run and cutting the 183-call outlier, and it denies with a next action so a tripped budget still returns partial findings with the unfinished angle named.
+- Every research brief now carries a `DEPTH` and a `BUDGET` field. Both agents already defined what quick, medium and thorough mean, and across every shipped brief not one passed a value, so the lever existed on paper only. The instruction version already existed and already failed: the global CLAUDE.md says "say how deep to go" on every main-thread turn and no brief carried a hint. A blank field in a template gets filled; a sentence elsewhere telling you to fill it does not.
+
+### Changed
+
+- `ac:oracle` extracts the three to five claims a recommendation turns on and classifies each CONFIRMED, REFUTED or UNSUPPORTED against a primary source, with UNSUPPORTED as the default and a quote required to move a claim in either direction. That polarity is the design: this agent tagged 108 of 119 consultations high confidence and never once low, so a scheme where CONFIRMED is cheap returns all-CONFIRMED. Both callers now pass the sources it checks against, and a refuted premise gets its own branch at `/ac:plan` Stage 3.5c, above the finding severities, because it means the research under a locked decision does not hold.
+- `ac:explore` routes by question instead of ranking tools. It named LSP first and used it zero times in 309 runs; it said "prefer Grep over Bash grep" while shell grep ran 1,512 against the tool's 1,489, and a measured comparison finds shell grep is not the wrong choice for agent search. Tool names are now required verbatim, since this agent emitted two calls to tools that do not exist.
+- `ac:librarian` keeps its tool ladder, the only one of the three that matched its measured behaviour, and keeps its self-check language, which Anthropic names Opus 5 rather than Sonnet 5 as the exception for. Its stop conditions became counts: two consecutive queries returning no new URL, and five web searches against 13.3 measured and a documented accuracy plateau between three and five.
+- The global CLAUDE.md research section drops `ast-grep` (0 calls across 174 sessions), demotes `LSP` out of first place (8 calls, not zero), and states the research procedure as five ordered steps. The step that was missing is asking whether the project already solves it before going outside for an answer.
+
+
 ## [0.13.1] - 2026-09-03
 
 One fix, found from disk rather than from reading: the plan `Stop` guard was retiring itself at the first parallel wave, which is the first thing that makes a run long enough to need it.
@@ -500,6 +517,7 @@ The lesson driving this release: a limit written in prose is not a limit. The ca
 - `subagent-monitor` plugin removed from the marketplace; functionality superseded by
   the plan-chain agent reviewers.
 
+[0.14.0]: https://github.com/anilcancakir/claude-code/compare/v0.13.1...v0.14.0
 [0.13.1]: https://github.com/anilcancakir/claude-code/compare/v0.13.0...v0.13.1
 [0.13.0]: https://github.com/anilcancakir/claude-code/compare/v0.12.0...v0.13.0
 [0.12.0]: https://github.com/anilcancakir/claude-code/compare/v0.11.0...v0.12.0
