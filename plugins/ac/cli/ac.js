@@ -38449,7 +38449,7 @@ function errorMessage(error2) {
 // package.json
 var package_default = {
   name: "@anilcancakir/ac-cli",
-  version: "0.14.1",
+  version: "0.14.2",
   description: "Companion CLI runtime for the ac Claude Code plugin. Hosts MCP servers, proxies kodizm, runs other AI CLIs.",
   private: true,
   type: "module",
@@ -39153,4 +39153,4 @@ function formatSyncReport(report) {
 }
 await program2.parseAsync(process.argv);
 
-//# debugId=173E4984E95B44A164756E2164756E21
+//# debugId=7808B212D14246A164756E2164756E21

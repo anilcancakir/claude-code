@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.14.2] - 2026-09-04
+
+A pass over the workflow's own instructions, prompted by finding that several of them had been doing nothing for a while. The theme is that a rule which cannot be executed reads exactly like a rule that is being followed.
+
+### Fixed
+
+- The plan and execute skills no longer build a task list. Twenty-six instructions across `ac:plan`, `ac:execute`, `ac:auto` and `/ac:install` called `TaskCreate`, `TaskUpdate` or `TaskList`, and both `<bootstrap>` blocks tried to fetch them through `ToolSearch` along with `AskUserQuestion`, which is not deferred and was already present. None of it ran: `~/.claude/settings.json` can switch the task tools off, and where it does, every `TaskUpdate Stage N to completed` line is dead text. The progress surface is now the two things that already worked, the plan file's `- [ ]` checkboxes and the Phase 2h table, and Phase 1g checks the checkbox count against the plan's own `Steps` rather than assuming it.
+- A plan can no longer name a step the executor cannot perform. `disable-model-invocation: true` keeps a command out of the model's own list, so a step saying "run `/ac:init-project`" was unexecutable as written; the plan template now forbids it and `/ac:execute` checks reachability before a wave launches. Both read the component's frontmatter rather than grepping the file, because several skills discuss the flag without setting it.
+- `Done when` criteria are audited for whether they can fail at all. `grep -P` on macOS exits 2 with an empty stdout, so a "returns nothing" gate written that way passes on input it should reject; a pipeline ending in `head` can truncate before the value it asserts; and a criterion naming a number can contradict the fixture its own step prescribes. Stage 5 flags these as `criterion-needs-negative-test` and `ac:plan-reviewer` reports them as CRITICAL.
+- The advisory agents' shell constraint says what it meant. `ac:librarian` forbade writes in one sentence and prescribed `gh repo clone` in the one before it; both agents now allow exactly the scratch writes they need under `${TMPDIR}`, name them in the report, and produce no side effect anywhere else.
+- Slugs stop filling with Turkish filler. The stopword list was missing the common ones and matched literally, so `projesi` was filtered while `projeye` reached a slug; case suffixes are enumerated, duplicate tech tokens are deduplicated, and the topic that exposed this is a worked example.
+- Two hook scripts and `ac:auto` no longer tell the model that a task list mirrors the plan file.
+
+### Changed
+
+- The progress-surface rule moved into the global CLAUDE.md section `/ac:install` merges, so it governs ordinary work rather than only a plan run.
+- `ac:prompt-writer` gained a pre-flight item: a fenced command in a prompt body is code, and shipping it unrun is shipping untested code. Written after a shipped recipe turned out to be broken two independent ways, both invisible on reading.
+
 ## [0.14.1] - 2026-09-04
 
 ### Fixed
@@ -523,6 +541,8 @@ The lesson driving this release: a limit written in prose is not a limit. The ca
 - `subagent-monitor` plugin removed from the marketplace; functionality superseded by
   the plan-chain agent reviewers.
 
+[0.14.2]: https://github.com/anilcancakir/claude-code/compare/v0.14.1...v0.14.2
+[0.14.1]: https://github.com/anilcancakir/claude-code/compare/v0.14.0...v0.14.1
 [0.14.0]: https://github.com/anilcancakir/claude-code/compare/v0.13.1...v0.14.0
 [0.13.1]: https://github.com/anilcancakir/claude-code/compare/v0.13.0...v0.13.1
 [0.13.0]: https://github.com/anilcancakir/claude-code/compare/v0.12.0...v0.13.0
