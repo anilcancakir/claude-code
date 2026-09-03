@@ -263,7 +263,7 @@ Diagnostic checklist by symptom. Apply in order.
 
 1. **Run `/memory`.** Is the file in the list? If not: wrong path, wrong scope, `claudeMdExcludes` filtering it, settings-source disabled (`--setting-sources`), or the runtime hard-off (`CLAUDE_CODE_DISABLE_CLAUDE_MDS`). The fastest check is also the most often skipped.
 2. **Is the rule specific?** "Use 2-space indentation in TypeScript" is verifiable; "format code properly" is not. The runtime delivers your content; the model still picks which vague rules to fall back on its priors for.
-3. **Is the file too long?** Anthropic's docs target under 200 lines per file. Community benchmarks (HumanLayer, ChrisWiles) put the sweet spot at 40 to 80 lines, with adherence dropping uniformly past th The hard cap is 40,000 chars (`MAX_MEMORY_CHARACTER_COUNT`).
+3. **Is the file too long?** Anthropic's docs target under 200 lines per file, and adherence drops as the file grows past it. Target 60 to 120 lines: measured across eight production repositories read at a pinned commit SHA, the median is 105 to 110 and six of the eight sit above 80. The hard cap is 40,000 chars (`MAX_MEMORY_CHARACTER_COUNT`).
 4. **Are there conflicting rules?** Two CLAUDE.md files in the hierarchy disagreeing on the same point, or your CLAUDE.md disagreeing with a rule file. Run `/memory` and scan for overlap.
 5. **Did the session just compact?** Subdirectory CLAUDE.md and `paths:`-scoped rules do NOT survive compact. They reload on the next matching file touch. Project-root and unconditional content reload automatically.
 6. **Is the rule an aspiration?** "We aim for 90% coverage" is not a rule the model can apply. Reframe to a verifiable rule, or move enforcement to a hook.

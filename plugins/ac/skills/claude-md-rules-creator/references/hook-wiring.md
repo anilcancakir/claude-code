@@ -10,7 +10,7 @@ State these to the user rather than implying otherwise:
 
 - **A `PostToolUse` hook cannot block a write.** It runs after the tool completes, so the edit is already on disk. Exit 2 shows stderr to Claude but the tool already ran, and a `decision: "block"` only annotates the result. Preventing a write needs `PreToolUse` with `hookSpecificOutput.permissionDecision: "deny"`. This hook is a reporter, not a gate.
 - **It does not fire when a `Bash` command rewrites the same file.** The docs are explicit: Claude Code does not run a `PostToolUse` hook matching `Edit|Write` when a `Bash` command, or any process outside Claude Code, rewrites the file. `FileChanged` is the event that watches the disk instead.
-- **The matcher is an unanchored regex** run through `RegExp.prototype.test`, so `Edit` also matches `NotebookEdit`. Anchor it when you mean a whole-string match.
+- **A matcher takes the regex path only when it contains something outside `[A-Za-z0-9_- ,|]`.** A plain list such as `Write|Edit` is matched exactly, so it does not catch `NotebookEdit`. Add any other character and it becomes an unanchored `RegExp.prototype.test`, where the docs' own hazard example is `Edit.*` matching `NotebookEdit`. Anchor when you go there.
 - **A mistyped script path exits around 127**, which lands in the same non-blocking bucket as exit 0. A dead hook and a passing hook look identical from the transcript. That is the failure the verification steps exist to catch.
 
 ## The seven steps
@@ -55,7 +55,8 @@ Read the path with `jq -r` into a quoted variable and pass `--` before it. Do no
 
 set -u
 
-TOOL=eslint   # baked in at construction time, never read from repository content
+TOOL=eslint          # baked in at construction time, never read from repository content
+CHECK_ARGS=''        # baked in with TOOL: the flag that makes this tool REPORT rather than rewrite
 
 command -v jq >/dev/null 2>&1 || exit 0
 payload=$(cat) || exit 0
@@ -67,7 +68,7 @@ file=$(printf '%s' "$payload" | jq -r '.tool_input.file_path // empty') || exit 
 # Resolving only the file path rejects legitimate files whenever the project root itself sits
 # behind a symlink, which on macOS it routinely does (/tmp is /private/tmp).
 root=$(cd "${CLAUDE_PROJECT_DIR:-.}" && pwd -P) || exit 0
-dir=$(cd "$(dirname -- "$file")" && pwd -P) || exit 0
+dir=$(cd -- "$(dirname -- "$file")" && pwd -P) || exit 0
 real="$dir/$(basename -- "$file")"
 
 case "$real" in
@@ -77,6 +78,10 @@ esac
 case "$real" in
     */.git/*|*/.env|*/.env.*|*/node_modules/*|*.pem|*.key|*id_rsa*) exit 0 ;;
 esac
+# Generated at construction time from the linter chosen in the interview, exactly like TOOL.
+# The list below is the eslint case. A Python, PHP or Dart project needs its own extensions here,
+# and shipping this one unchanged gives that project a hook that exits 0 on every file it was
+# built for: a dead hook that looks identical to a working one.
 case "$real" in
     *.ts|*.tsx|*.js|*.jsx) ;;
     *) exit 0 ;;
@@ -88,7 +93,12 @@ for candidate in "node_modules/.bin/$TOOL" "vendor/bin/$TOOL" ".venv/bin/$TOOL";
 done
 [ -n "$bin" ] || bin=$(command -v "$TOOL") || exit 0
 
-output=$(cd "$root" && "$bin" -- "$real" 2>&1)
+# CHECK_ARGS is baked in per tool at construction time, like TOOL. Getting it wrong is the
+# quiet failure this file exists to prevent: bare `prettier <file>` prints the formatted text
+# to stdout and exits 0, so the hook reports nothing and the live proof passes on a file that
+# was never checked. Known-good forms: prettier --check, eslint, ruff check, pint --test.
+# `--` is not universal either; include it only for tools that accept it.
+output=$(cd "$root" && "$bin" $CHECK_ARGS "$real" 2>&1)
 status=$?
 [ "$status" -eq 0 ] && exit 0
 
@@ -106,7 +116,13 @@ Write to `.claude/settings.local.json`, not `.claude/settings.json`. The committ
 
 Merge with `jq` into a temporary file and `mv` it into place, after a timestamped backup. Never hand-write the whole file.
 
+Seed the file before merging. `jq` on an EMPTY file exits 0 and prints nothing, so the `&&` fires
+and `mv` installs a zero-byte settings file, losing whatever was there and the hook with it. On a
+MISSING file `jq` exits 2 and leaves an empty `.tmp` behind. Both states are ordinary on a first
+run, and the empty one destroys data silently rather than erroring.
+
 ```sh
+[ -s .claude/settings.local.json ] || printf '{}' > .claude/settings.local.json
 cp .claude/settings.local.json ".claude/settings.local.json.bak.$(date +%Y%m%d%H%M%S)"
 jq '.hooks.PostToolUse += [{
       matcher: "^(Write|Edit|MultiEdit)$",
@@ -126,7 +142,7 @@ jq -e '.hooks.PostToolUse[] | select(.matcher == "^(Write|Edit|MultiEdit)$")
        | .hooks[] | select(.type == "command") | .command' .claude/settings.local.json
 ```
 
-Exit 0 with your command printed means correct. Exit 4 means the matcher does not match what you searched for. Exit 5 means malformed JSON or wrong nesting.
+Exit 0 with your command printed means correct. Exit 2 means the file is missing or unreadable. Exit 4 means the selector matched nothing, which is a matcher mismatch OR an empty file, so check the file has content before concluding the matcher is wrong. Exit 5 means malformed JSON or wrong nesting.
 
 Then prove the live wiring: use `Edit` to introduce a violation the linter actually reports (a missing semicolon, bad indentation), and confirm the failure comes back as context. Not trailing whitespace, which `Edit` strips before writing. Clean up the violation afterwards whether the proof passed or failed.
 

@@ -37,7 +37,7 @@ You are the `/ac:init-project` orchestrator. You investigate a target project, d
 
 Print a short plain-language primer before the first question, in four lines: `CLAUDE.md` is read at the start of every session in this project, so it costs tokens on every request and earns them back only where Claude would otherwise get something wrong; `CLAUDE.local.md` is the same file for you alone and is gitignored; `.claude/rules/<topic>.md` with `paths:` loads only when Claude reads a matching file; a hook is the only one of the four that runs code. Then say the run will ask one question at a time and that any answer can be "skip".
 
-`Read` `<PATH_ARG>/CLAUDE.md`. When it exists, ask before anything else:
+Check for `<PATH_ARG>/CLAUDE.md` with `test -f` first, then `Read` it only on a hit; `Read` on a missing path returns an error rather than an empty result. When it exists, ask before anything else:
 
 ```
 AskUserQuestion({
@@ -226,19 +226,19 @@ AskUserQuestion({
 
 Record the answer in `PREFS.linter.target` and `PREFS.linter.promoted`. A write to `.claude/settings.json` happens only when this question returned the second option.
 
-When the target file does not exist, create it in the same step that adds its name to `<PATH_ARG>/.gitignore`; Claude Code gitignores `settings.local.json` only when it saves a setting there itself.
+When the target file does not exist, create it containing `{}` in the same step that adds its name to `<PATH_ARG>/.gitignore`; Claude Code gitignores `settings.local.json` only when it saves a setting there itself. The `{}` is not cosmetic and `install.md:221` already uses it: `jq` on a zero-byte file exits 0 and prints nothing, so the merge below would `mv` an empty file into place and lose both the settings and the hook without an error.
 
 ### 4c. Guard the write
 
 In order, stopping at the first failure:
 
 1. `cp` the target to `<target>.bak.$(date +%Y%m%d%H%M%S)` when it exists.
-2. `jq . <target>` on the existing file. A non-zero exit means the file was already malformed before this run: stop, report the parse error and the path, and change nothing. Do not repair a malformation this command did not create. Say which way it fails: interactively Claude Code offers a fix dialog, while a `-p` or CI run skips the broken file or the broken values silently.
+2. `jq . <target>` when the file existed before this run. A non-zero exit means it was already malformed: stop, report the parse error and the path, and change nothing. Do not repair a malformation this command did not create. Say which way it fails: interactively Claude Code offers a fix dialog, while a `-p` or CI run skips the broken file or the broken values silently. Skip this step for a file 4b just created, whose contents are the `{}` you wrote.
 3. Merge with the `jq` expression from `hook-wiring.md` into `<target>.tmp`, then `mv` it into place. Never hand-write the whole file with `Write`.
 4. `jq -e` for the nesting, per the same reference: exit 0 with the command printed is correct, exit 4 means the matcher does not match, exit 5 means malformed JSON or wrong nesting.
 5. `claude doctor` with the target project as the working directory.
 
-Restore the backup when step 4 or step 5 fails, then report which step failed and what it printed.
+Roll back when step 4 or step 5 fails, then report which step failed and what it printed. Rollback has two shapes: restore the backup when step 1 took one, and when 4b created the file this run, delete it and remove the `.gitignore` line instead. There is no backup to restore for a file that did not exist, and leaving a half-written one behind is worse than leaving none.
 
 Under `--dry-run`, print the script, the merge expression and the target path, then stop: create no file, add no `.gitignore` entry, and run none of the five steps. The pipe-test and the live-fire proof both have side effects.
 
@@ -248,7 +248,7 @@ An LSP that answers turns `LSP findReferences` and `goToDefinition` into real to
 
 1. Match the extension histogram from Phase 1 agent 2 against the `extensionToLanguage` maps the reference enumerates.
 2. Propose at most one plugin per extension through a single `AskUserQuestion`, naming the marketplace each candidate comes from. Two legitimate candidates for one language is a choice to hand to the user, not something to resolve silently.
-3. On approval, merge `enabledPlugins["<plugin>@<marketplace>"] = true` into `~/.claude/settings.json` through the same five guarded steps as 4c. When the marketplace holding the plugin is not installed, do not install it: print the `/plugin marketplace add` and `/plugin install` lines for the user to run, and stop the phase there.
+3. On approval, merge `enabledPlugins["<plugin>@<marketplace>"] = true` into `~/.claude/settings.json` through the same five guarded steps as 4c, with one substitution: step 4's assertion is `jq -e '.enabledPlugins["<plugin>@<marketplace>"]' ~/.claude/settings.json`, not 4c's hook selector. Reusing 4c's `.hooks.PostToolUse` expression here exits 4 on a settings file that carries no hooks, and step 4's failure path would then roll back a write that succeeded. When the marketplace holding the plugin is not installed, do not install it: print the `/plugin marketplace add` and `/plugin install` lines for the user to run, and stop the phase there.
 4. Verify both parts the reference requires, because neither is sufficient alone: the plugin appears under `enabledPlugins`, and one real `LSP` `hover` or `documentSymbol` call against an existing file of that language answers. Name the server that replied. When part 1 passes and part 2 fails, report it as the missing server binary it is, not as a misconfiguration, and name the binary.
 
 When the detected language is outside every installed marketplace's coverage, name that gap and stop. Authoring a `.lsp.json` means authoring a plugin, which is not a project-setup step.

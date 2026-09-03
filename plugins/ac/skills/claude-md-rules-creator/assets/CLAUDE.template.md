@@ -52,9 +52,13 @@ Vague rule (rejected): "Keep separation of concerns."
 
 ## Testing
 
-- Test command: `[your test command]`
 - Run a single test: `[how to run one test file or one test case]`
 - [Quirk or prerequisite, e.g., "Tests require .env.test file"; e.g., "PostgreSQL server must be running"]
+
+<!-- The full-suite command lives once, under Commands. Repeating it here is the duplication the
+     dedupe pass strips and principle 3 rejects. This section carries what Commands cannot: the
+     single-test invocation and the things that bite a newcomer. -->
+
 
 ## Off-limits
 
@@ -70,7 +74,7 @@ Vague rule (rejected): "Keep separation of concerns."
 
 <!--
 Maintainer notes (block-level HTML comments are stripped before injection):
-- Keep this file under 200 lines (target under 80).
+- Keep this file under 200 lines (target 60 to 120).
 - Every line should pass the "would removing this cause Claude to make mistakes?" test.
 - No aspirations ("we aim for X"). State what is actually enforced.
 - No standard-language conventions. List only what differs from defaults.

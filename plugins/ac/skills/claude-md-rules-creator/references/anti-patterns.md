@@ -347,7 +347,7 @@ Fix: split. If a topic feels like 100 lines, it is probably two topics. Identify
 
 Symptom: 230+ line CLAUDE.md. Adherence drops uniformly. The model ignores rules you care about.
 
-Why: Anthropic's docs target under 200 lines per file. Community benchmarks (HumanLayer 57, ChrisWiles 80, Boris Cherny ~83) put the sweet spot at 40-80.
+Why: Anthropic's docs target under 200 lines per file. Measured across eight production repositories read at a pinned commit SHA, the median is 105 to 110 lines and six of the eight sit above 80, so the target is 60 to 120 and 230 is well past it.
 
 Fix: run the cut/move pass. Move topic-specific content to `.claude/rules/<topic>.md`. Move long reference content to `@imports`. Move multi-step procedures to skills. Remove anything that fails the "would Claude make a mistake without this?" test.
 
@@ -401,7 +401,7 @@ Before shipping a CLAUDE.md or rule file, walk this:
 - [ ] No org-wide compliance content in project CLAUDE.md (use managed policy).
 
 **Length:**
-- [ ] CLAUDE.md under 200 lines (target under 80 if possible).
+- [ ] CLAUDE.md under 200 lines (target 60 to 120).
 - [ ] Each rule file under 30 lines.
 - [ ] Total rule-file count 3-5 max.
 

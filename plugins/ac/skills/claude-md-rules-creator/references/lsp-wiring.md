@@ -14,20 +14,40 @@ entries within a day.
 Enumerate every installed marketplace and match the project's own file extensions against the
 plugins' own `extensionToLanguage` maps:
 
+A server can be declared in either of two places, and a marketplace may use either one, so read both
+or you will miss whole marketplaces. `claude-code-lsps` ships a `.lsp.json` per plugin directory;
+`claude-plugins-official` declares its servers inline in the marketplace manifest under
+`plugins[].lspServers` and its plugin directories hold no `.lsp.json` at all.
+
 ```bash
 for m in ~/.claude/plugins/marketplaces/*/.claude-plugin/marketplace.json; do
-  dir=$(dirname "$(dirname "$m")")
-  for f in "$dir"/*/.lsp.json; do
-    [ -f "$f" ] || continue
-    jq -r --arg plugin "$(basename "$(dirname "$f")")" \
-      'to_entries[] | .value.extensionToLanguage | keys[] | $plugin + " " + .' "$f"
+  root=$(dirname "$(dirname "$m")"); mkt=$(basename "$root")
+  # Source A: servers declared inline in the marketplace manifest.
+  jq -r --arg mkt "$mkt" '
+    .plugins[]? | select(.lspServers) | .name as $p
+    | .lspServers | to_entries[] | .value.extensionToLanguage // {} | keys[]
+    | $p + "@" + $mkt + " " + .' "$m" 2>/dev/null
+  # Source B: servers declared in each plugin directory's own .lsp.json.
+  jq -r '.plugins[]? | .source | select(type == "string")' "$m" 2>/dev/null | while IFS= read -r src; do
+    p="$root/${src#./}"; [ -f "$p/.lsp.json" ] || continue
+    jq -r --arg mkt "$mkt" --arg plugin "$(basename "$p")" '
+      to_entries[] | .value.extensionToLanguage // {} | keys[]
+      | $plugin + "@" + $mkt + " " + .' "$p/.lsp.json" 2>/dev/null
   done
-done
+done | sort -u
 ```
 
-This prints `<plugin-name> <extension>` pairs sourced from the plugins actually on disk. Match
+This prints `<plugin>@<marketplace> <extension>` pairs sourced from what is actually on disk. Match
 against the extensions present in the target project (`find` or `git ls-files` plus counting
 suffixes) rather than assuming a language from the project's stated stack.
+
+Two shell details are load-bearing. The plugin directory comes from the manifest's own
+`plugins[].source` rather than from a fixed glob depth, because `claude-plugins-official` nests its
+plugins one level deeper than `claude-code-lsps` does. And nothing here globs for `.lsp.json`
+directly: under `zsh`, which is the default shell on macOS, a glob that matches nothing is a fatal
+error rather than an empty list, so a single marketplace without one would abort the whole loop and
+return zero rows. Measured on this machine: the naive glob form dies at the first such marketplace,
+while the form above returns 112 rows across two marketplaces.
 
 ## Rule 2: prefer the official marketplace, fall back explicitly
 
@@ -50,9 +70,12 @@ plugins whose `extensionToLanguage` sets intersect silently disables one of them
 probe still passes because the survivor answers, hiding the failure.
 
 Before proposing a set of plugins, diff their extension sets pairwise. Refuse the proposal, or drop
-to a single candidate per extension, when any two intersect. `vtsls` and the eslint server inside
-`vscode-langservers` both claim `.ts` and `.tsx` in the `claude-code-lsps` marketplace; that pair
-must never be proposed together. Two candidates for one language (for example `basedpyright` and
+to a single candidate per extension, when any two intersect. Measured on this machine, `.ts` has
+three claimants across the two installed marketplaces: `typescript-lsp@claude-plugins-official`,
+`vtsls@claude-code-lsps`, and the eslint server inside `vscode-langservers@claude-code-lsps`. At
+most one of those may be proposed, and Rule 2 decides which: the official one. An enumeration that
+misses the official marketplace does not merely under-report, it proposes a third-party server for a
+language the official marketplace already covers, and the `hover` probe passes either way. Two candidates for one language (for example `basedpyright` and
 `pyright` for Python) is a legitimate choice to hand to the user, not a detection result to resolve
 silently.
 

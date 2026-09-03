@@ -177,7 +177,7 @@ If a rule file grows past 30 lines, it is probably covering multiple topics. Spl
 
 Walk these in order.
 
-**1. Identify the universal core.** What does EVERY session need? Stack, build/test commands, off-limits paths, repo etiquette, architectural decisions. This stays in CLAUDE.md. Aim for 40 to 80 lines.
+**1. Identify the universal core.** What does EVERY session need? Stack, build/test commands, off-limits paths, repo etiquette, architectural decisions. This stays in CLAUDE.md. Aim for 60 to 120 lines.
 
 **2. Group remaining content by topic.** Common topics:
 
@@ -305,7 +305,9 @@ Do NOT use user-level rules for project-specific or team-specific content. That 
 | Boris Cherny team file | ~83 | Private repo; cited in Boris's posts |
 | Cloudflare templates | 230 | Enterprise monorepo; too long for most projects |
 | Anthropic's `/init` example | ~10 | Deliberately tiny: just code style + workflow |
-| Community sweet spot | 40 to 80 | Target unless you have a specific reason to go longer |
+| Community sweet spot | 40 to 80 | The older benchmark, kept for the three files above |
+| Measured production median | 105 to 110 | Eight repositories read at a pinned commit SHA; six sit above 80 |
+| Target | 60 to 120 | Covers the measured median; 200 stays the hard cap |
 
 For rule files: 3 to 5 files total per project, each under 30 lines. This is conservative; many projects can do with 2 or even 0 rule files. If you find yourself at 6+ rule files or 50+ lines per file, audit which lines actually pass the "would Claude make a mistake without this?" test.
 
