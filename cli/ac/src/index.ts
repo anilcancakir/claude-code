@@ -1,7 +1,8 @@
 import { Command } from "commander";
 import { runMcpProxy } from "./mcp.ts";
 import { scaffoldPlan } from "./plan-scaffold.ts";
-import { runReviewCounters } from "./review-counters.ts";
+import { collectPlanStats, formatPlanStats } from "./plan-stats.ts";
+import { resolveTranscriptPath, runRunStats } from "./run-stats.ts";
 import {
     HISTORY_HEAD_LIMIT_DEFAULT,
     HISTORY_HEAD_LIMIT_MAX,
@@ -43,39 +44,6 @@ program
     });
 
 program
-    .command("review-counters <log>")
-    .description(
-        "Print the review-loop counters derived from an append-only log: "
-            + "ITER=<n> PREV=<v> GATE=<OK|MAX_ITER> NEW=<count>.",
-    )
-    .option(
-        "--run-prefix <value>",
-        "Heading that scopes counters to one run (for example '## Run ').",
-        "## Run ",
-    )
-    .option(
-        "--iter-prefix <value>",
-        "Heading that marks one logged pass (for example '## Phase 3d Iteration').",
-        "## Phase 3d Iteration",
-    )
-    .option("--cap <value>", "Iteration cap; GATE reads MAX_ITER once ITER exceeds it.", "3")
-    .action(
-        (
-            log: string,
-            opts: { cap: string; iterPrefix: string; runPrefix: string },
-        ): void => {
-            const cap = Number.parseInt(opts.cap, 10);
-            process.stdout.write(
-                runReviewCounters(log, {
-                    cap: Number.isNaN(cap) ? 3 : cap,
-                    iterPrefix: opts.iterPrefix,
-                    runPrefix: opts.runPrefix,
-                }) + "\n",
-            );
-        },
-    );
-
-program
     .command("plan-scaffold <slug>")
     .description(
         "Create .ac/plans/<slug>/ with research/ and evidence/, and write a plan.md skeleton "
@@ -86,6 +54,31 @@ program
         const result = scaffoldPlan(slug, { dir: opts.dir });
         const state = result.created ? "created" : "exists, left untouched";
         process.stdout.write(`${result.planPath} (${state})\n`);
+    });
+
+program
+    .command("run-stats <session>")
+    .description(
+        "Print the cost anatomy of one run from its session transcript: turns, output tokens, "
+            + "cache-read, average and peak resident context, compactions, the tool mix and the "
+            + "per-agent-type subagent rollup. Accepts a session id or a path to the .jsonl.",
+    )
+    .action((session: string): void => {
+        const path = resolveTranscriptPath(session, resolveProjectsRoot());
+        process.stdout.write(runRunStats(path) + "\n");
+    });
+
+program
+    .command("plan-stats")
+    .description(
+        "Scan a directory tree for `.ac/plans/<slug>/plan.md` files and print the tier and "
+            + "codebase-state distributions across them, plus complexity for plans old enough to "
+            + "carry that retired field. Use it to measure what the plan-time tier rules actually "
+            + "produce, before and after a rule change.",
+    )
+    .option("--dir <value>", "Root to scan.", process.cwd())
+    .action((opts: { dir: string }): void => {
+        process.stdout.write(formatPlanStats(collectPlanStats(opts.dir)) + "\n");
     });
 
 const history = program

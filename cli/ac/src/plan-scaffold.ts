@@ -26,7 +26,6 @@ export function buildSkeleton(slug: string): string {
     const lines: string[] = [
         `# Plan: ${slug}`,
         "",
-        "**Complexity**: <standard | complex>",
         "**Steps**: <N>",
         "**Waves**: <N>",
         "**Codebase State**: <disciplined | transitional | legacy | chaotic | greenfield>",

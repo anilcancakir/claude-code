@@ -66,11 +66,14 @@ test("the skeleton emits the template's H2 sections in order", () => {
 
 test("the skeleton carries every frontmatter field the executor parses", () => {
     const skeleton = buildSkeleton("demo-slug");
-    for (const field of ["**Complexity**", "**Steps**", "**Waves**", "**Codebase State**", "**Generated**"]) {
+    for (const field of ["**Steps**", "**Waves**", "**Codebase State**", "**Generated**"]) {
         expect(skeleton).toContain(field);
     }
 });
 
-test("the skeleton offers only the two live complexity values", () => {
-    expect(buildSkeleton("demo-slug")).toContain("<standard | complex>");
+test("the skeleton carries no complexity field", () => {
+    // The field was deleted once its three consumers went: reviewer-tier routing, the oracle default,
+    // and the wave-commit gate. Measured across 106 plans it had also stopped classifying anything,
+    // with 84% of them landing on the same value.
+    expect(buildSkeleton("demo-slug")).not.toContain("Complexity");
 });
