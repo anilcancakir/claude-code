@@ -180,7 +180,7 @@ Goal: ground the request in evidence before asking the user anything. Two-step: 
 The main agent runs the directory survey itself; it is not delegated. Subagents launch with shallower context, so
 you build the map and pass it down through the briefs. Write it to `RESEARCH_DIR/00-directory-survey.md`.
 
-Read `${CLAUDE_SKILL_DIR}/references/research-fanout.md` for the survey command block, the reuse-bias clause, the
+Read `${CLAUDE_SKILL_DIR}/references/research-fanout.md` for the survey command block, the dedicated reuse explore brief, and the brief shape every spawn follows.
 dedicated reuse explore brief, and the brief shape every spawn follows.
 
 Counts policy, which governs the fan-out and stays here:
@@ -191,8 +191,9 @@ Counts policy, which governs the fan-out and stays here:
   bugs and version-combo breakage, brief 3 adds OSS reference examples or a second library.
 - `ac:oracle`: 1, only when the request signals architecture intent. Advisory and non-blocking; do not gate on it.
 
-Every brief carries the reuse-bias clause, and every brief lifts the worker's own retrieval budget explicitly, or it
-returns a thin single-pass answer. Issue all spawns in ONE assistant message with `run_in_background: true`.
+Every brief carries a `DEPTH` and a `BUDGET`, or the agent falls back to its own default and searches wider than
+the angle needs. The reuse angle is one dedicated brief, not a clause added to the others. Issue all spawns in ONE
+assistant message with `run_in_background: true`.
 ### 1e. Wait, archive, checkpoint
 
 A subagent returning empty or malformed output gets one re-spawn with a format reminder; a second failure is a

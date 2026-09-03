@@ -11,6 +11,8 @@ Read in Stage 1d before spawning the librarian cohort. Spawn Brief 1 and Brief 2
 ```
 CONTEXT: planning <topic>. Recommended stack: <list libraries with major versions>. Directory survey at RESEARCH_DIR/00-directory-survey.md identified <relevant configs and framework version markers>.
 GOAL: verify the idiomatic patterns this plan will adopt against official vendor docs for the pinned versions, as of <current date>.
+DEPTH: quick | medium | thorough
+BUDGET: <number of web searches; five is the working ceiling>
 DOWNSTREAM: feeds the plan's Codebase Conventions section and External References list. The planner cites these doc quotes when locking pattern decisions with the user.
 REQUEST:
 0. Idiomatic-pattern verification: when citing an API or pattern as "idiomatic", "recommended", or "the canonical way", verify the claim against official vendor docs for the version pinned in this brief. Quote the exact line from the docs that supports each claim. Blog posts, tutorials, and forum threads are signal but not authority; the vendor docs settle semantics. For composable chains (`.X()->Y()->Z()`), test each method's effect independently in your reasoning. A chain reads idiomatic but may compose into a no-op or the opposite of the intent. Example pitfall: Laravel's `middlewareFor` ASSIGNS middleware to methods, it does not EXEMPT them; `middlewareFor(['index','show'], [])` is a no-op rather than a public-route opener, and the correct API for exemption is `withoutMiddlewareFor`. Flag any claim you cannot back with a docs quote.
@@ -24,6 +26,8 @@ Return URL/permalink citations with short code-snippet evidence. Skip toy implem
 ```
 CONTEXT: planning <topic>. Recommended stack: <list libraries with major versions>. Directory survey at RESEARCH_DIR/00-directory-survey.md identified <relevant configs and framework version markers>.
 GOAL: surface toolchain pitfalls and version-combo failures for this exact stack as of <current date>. Pre-empt issues the per-library docs miss.
+DEPTH: quick | medium | thorough
+BUDGET: <number of web searches; five is the working ceiling>
 DOWNSTREAM: feeds the plan's Risks Accepted section (known issues without clean workarounds) and the planner's decision-tree weighting (avoid options that combine into broken toolchains).
 REQUEST:
 3. Known incompatibilities, deprecations, and breaking default values for the recommended stack as of <current date>. Cite GitHub issue numbers, npm deprecation notices, official upgrade-guide caveats, and forum threads from the last 12 months. Examples of what catches: a plugin that defaults to cookie storage with a 4 KB cap when the user expects localStorage; a test-utils API that broke against the current test-runner version; a CSS framework's dev-server bug in combination with another flag.
@@ -40,6 +44,8 @@ Spawn when 1d's librarian target = 3. Pick one framing per spawn based on the st
 ```
 CONTEXT: planning <topic>. The plan introduces <specific shape: SSR-aware auth, optimistic-update mutation, streaming response handler, etc.>. Directory survey at RESEARCH_DIR/00-directory-survey.md confirms the codebase has no prior example.
 GOAL: find 2 to 3 production-quality OSS implementations of <specific shape> in <stack>.
+DEPTH: quick | medium | thorough
+BUDGET: <number of web searches; five is the working ceiling>
 DOWNSTREAM: feeds the plan's External References. Pattern adoption is subject to Brief 1's item 0 verification clause.
 REQUEST: locate production-quality OSS examples that solve <specific shape>. Each finding includes the repo, the relevant file path, a GitHub permalink anchored at the commit SHA, and a 1 to 2 line description of what makes the implementation production-quality. Skip toy implementations, examples already in docs (covered by Brief 1), and abandoned forks.
 ```
@@ -49,6 +55,8 @@ REQUEST: locate production-quality OSS examples that solve <specific shape>. Eac
 ```
 CONTEXT: planning <topic>. Brief 1 and Brief 2 covered <library A>; this brief covers <library B> on the same dimensions. Directory survey at RESEARCH_DIR/00-directory-survey.md identified <library B configs / version markers>.
 GOAL: verify idiomatic patterns + surface known bugs for <library B> at version <X.Y> as of <current date>.
+DEPTH: quick | medium | thorough
+BUDGET: <number of web searches; five is the working ceiling>
 DOWNSTREAM: same as Brief 1 + Brief 2 but for <library B>.
 REQUEST: run items 0-4 from the canonical brief structure (items 0-2 from Brief 1, items 3-4 from Brief 2) against <library B>. Same return format and skip rules.
 ```

@@ -33,13 +33,12 @@ Write the survey to `RESEARCH_DIR/00-directory-survey.md` with sections:
 
 The survey is working memory for the main agent AND a referenceable artifact for subagent briefs. Subagent briefs in 1c-1d MUST anchor their REQUEST to survey-identified paths, not generic guesses.
 
-### 1b. Reuse-bias clause (concatenate to every ac:explore brief)
+### 1b. Reuse-bias is one brief, not a clause on every brief
 
-Every `ac:explore` invocation in this stage carries this clause in addition to its task-specific brief:
-
-<reuse_bias_clause>
-As part of your search, surface existing utilities, modules, functions, and patterns in this codebase that could solve problems similar to the user's request. For each candidate, return absolute `file_path:line_number` and one line on what it provides. Prefix any candidate that could be reused INSTEAD OF writing new code with `REUSE:`. This feeds the plan's Reuse Map.
-</reuse_bias_clause>
+The dedicated reuse explore at 1c is the reuse angle. Do not concatenate a reuse-bias paragraph
+onto the other explores as well: it hands every one of them a second search dimension on top of
+the angle it was spawned for, which is open-endedness by construction and shows up as tool calls
+nobody asked for. One brief, one angle.
 
 ### 1c. Dedicated reuse-focused explore (counts toward 1d's explore total)
 
@@ -72,16 +71,25 @@ In the same assistant turn that issues 1c, spawn the rest of the cohort. Use 1a'
   - Brief 3 (when target = 3): production-quality OSS reference examples for the specific shape this plan introduces, OR a second library / framework not covered by briefs 1-2. Brief shape in the same file under `## Brief 3`, framings (a) or (b).
 - `ac:oracle`: **1 only when the request signals architecture intent** (system design, infrastructure, non-trivial trade-offs). Advisory; non-blocking; do not gate on its return. Unchanged from prior behavior.
 
-Each explore brief carries the reuse-bias clause from 1b. Each librarian brief targets a NAMED angle (one brief = one angle); do not bundle three different libraries into one brief.
+Each brief targets ONE named angle and carries its own `DEPTH` and `BUDGET`. Do not bundle three libraries into one librarian brief, and do not add the reuse dimension to an explore spawned for something else.
 
 All agents launched with `run_in_background: true` so you can collect results as they complete. Issue all calls in ONE assistant message with multiple Agent tool-use blocks for true parallelism. Reaching the target (7 + 3) is preferable when the topic supports it; the floor exists so trivial plans do not pay maximum token cost.
 
 <brief_shape>
 CONTEXT: [why this research, in 1-2 sentences; cite the survey-anchored path]
 GOAL: [specific question to answer]
+DEPTH: [quick | medium | thorough]
+BUDGET: [explore: a pass count. librarian: a number of web searches, five is the working ceiling]
 DOWNSTREAM: [how the planner will use the result]
 REQUEST: [what to return, format, what to skip]
 </brief_shape>
+
+`DEPTH` and `BUDGET` are not optional and not decorative. Both agents define what the depth words
+mean and neither can apply one you did not send; measured across every shipped brief, none carried
+either field, so every run used the agent's own default and explore averaged 36.6 tool calls
+against a body that asks for two to three passes. A blank field in a template gets filled. A
+sentence elsewhere telling you to say how deep to go does not, and one has been in the global
+CLAUDE.md the whole time.
 
 ## Stage 3.5 oracle brief shape
 
