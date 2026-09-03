@@ -41,7 +41,7 @@ Apply to every step, not just the first.
 2. Mechanical or contextual? Mechanical (literal edit, no surrounding-code understanding) is quick. Contextual (apply pattern, follow conventions) is junior. Cross-layer or architectural is senior.
 3. Is the surrounding codebase disciplined? If chaotic or legacy, escalate quick to junior. Haiku cannot reliably navigate inconsistent style, and it has no effort lever to compensate.
 4. Detail check: can the step be described in 2-3 sentences with an outcome and a reference? If yes, the tier is well-matched. If the description balloons into line-by-line prescription, either the tier is too low or you are doing the work in the plan.
-5. Criticality check: does the step touch a security-critical surface? **The list is closed.** The six surfaces:
+5. Criticality check: does the step DECIDE security-relevant behaviour? **The list is closed.** The six surfaces:
    - Authentication / authorization (login, password reset, session, token issuance, RBAC, RLS, Policy / Gate, OAuth flow).
    - Payment / billing / financial calculation (currency math, charge, refund, invoice, ledger).
    - Cryptographic operations (hash, sign, verify, encrypt, decrypt, JWT, HMAC, password hashing).
@@ -49,28 +49,42 @@ Apply to every step, not just the first.
    - File upload / deserialization (RCE surface).
    - Migration with destructive operations (DROP, TRUNCATE, schema rename with data loss).
 
-   If the step touches one of these, escalate the tier by one level: `quick` to `junior`, `junior` to `senior`, and `junior-high` to `senior` as well. Every criticality escalation lands on `senior`; none lands on `junior-high`.
+   **Decides, not touches.** Escalate only when the step CHANGES the decision one of those surfaces makes. Adding a field to a login form touches authentication; changing which requests get through decides it. Rendering an invoice touches billing; computing the charged amount decides it. Reading a token touches crypto; choosing the signing algorithm or the verification path decides it.
+
+   The test is a before-and-after, written into `Why this tier` as `rule-5-criticality: before <X>, after <Y>`, and both halves have to be concrete. "before: any member can cancel, after: owner only" fires the rule. "before: encrypted cast, after: encrypted cast" does not, and neither does a half you cannot fill in. Keying the test off the step's `Done when` alone is weaker, because the planner writes that field in the same breath and can satisfy it with an adjective.
+
+   When it does fire, escalate the tier by one level: `quick` to `junior`, `junior` to `senior`, and `junior-high` to `senior` as well. Every criticality escalation lands on `senior`; none lands on `junior-high`.
 
    A step whose failure would merely be expensive to detect does not qualify. Authoring or restructuring prompt, instruction, agent-body, or documentation text is not a criticality surface, however load-bearing that text is. The rule protects surfaces where a defect ships silently and is exploited or loses money, not surfaces where a defect is merely annoying to find.
 
-   Treat the escalation as a cost-asymmetry judgment rather than a measured one: no published benchmark isolates self-verification on security-critical code. The senior premium is 1.67x input cost scoped to the 1-3 critical steps a typical plan carries. This rule applies on top of rules 1-4, and codebase-state escalation (rule 3) stacks with it.
+   Treat the escalation as a cost-asymmetry judgment rather than a measured one: no published benchmark isolates self-verification on security-critical code. What IS measured is the premium, and an earlier version of this rule had it wrong. It cited 1.67x, which is the input-price ratio between the two models, and assumed the rule would fire on the 1-3 critical steps a typical plan carries. Across 367 worker runs the real premium is **5.9x junior per step**, and across the 68 most recent plans criticality vocabulary was the largest single family behind senior assignment, with those plans putting half of all steps on senior against 35.7% before. The asymmetry is real but it is three to ten times more expensive than the rule assumed, which is what the "decides, not touches" test above exists to correct.
+
+   This rule applies on top of rules 1-4, and codebase-state escalation (rule 3) stacks with it.
+
+**Name the rule in `Why this tier`.** Use the vocabulary `rule-1-cross-layer`, `rule-2-context`, `rule-3-codebase-state`, `rule-4-detail`, `rule-5-criticality`, `rule-none`, so tier assignment can be audited by grep instead of by reading prose.
+
+**`rule-none`: the residual category.** The five rules are closed as written and known to be incomplete. Measured across 289 senior justifications in the 68 most recent plans, 55% name no word from any of them, and the two largest families outside the set are irreversibility (21 mentions of "irreversible", "unrecoverable", "does not roll back") and atomicity or idempotency (13 for "idempotent", plus concurrency and races). Independent classification of a 23-step sample left 17% unresolvable by the six criticality surfaces: an entitlement quota that is neither authorization nor currency math, a recurring destructive delete that is not a migration, an untrusted-input merge that may or may not be deserialization.
+
+Those are real reasons to reach for a higher tier, and inventing an attribution to a rule that does not fit is worse than admitting the gap. So when a step needs more than `junior` for a reason no numbered rule covers, write `rule-none: <one sentence naming the actual risk>` and assign **`junior-high`**, not `senior`.
+
+Routing the residual to `junior-high` is deliberate: it is 3.2x cheaper than `senior` per step and still a real step up from `junior`, so an unmodelled risk parks somewhere proportionate instead of defaulting to the most expensive tier in the ladder. `senior` stays reserved for what the numbered rules actually name. If one family keeps recurring under `rule-none`, that is the signal to add a rule rather than to keep paying for the ambiguity.
 
 ## Tier-to-worker routing (used by /ac:execute)
 
-| Tier | Worker subagent | Model | Effort | Measured per step |
-|---|---|---|---|---|
-| `quick` | `ac:plan-worker-quick` | `claude-haiku-4-5-20251001` | not supported (Haiku 4.5 has no effort parameter) | 16 turns, 0.9M cache read, ctx 59k |
-| `junior` | `ac:plan-worker-junior` | `claude-sonnet-5` | medium | 26 turns, 2.1M cache read, ctx 83k |
-| `junior-high` | `ac:plan-worker-junior-high` | `claude-sonnet-5` | high | 61 turns, 10.1M cache read, ctx 167k |
-| `senior` | `ac:plan-worker-senior` | `claude-opus-5` | high | 54 turns, 8.3M cache read, ctx 155k |
+| Tier | Worker subagent | Model | Effort | Runs | Turns | Output | Cache read | Cost per step |
+|---|---|---|---|---|---|---|---|---|
+| `quick` | `ac:plan-worker-quick` | `claude-haiku-4-5-20251001` | not supported (Haiku 4.5 has no effort parameter) | 7 | 14.3 | 5,858 | 0.6M | ~$0.09 |
+| `junior` | `ac:plan-worker-junior` | `claude-sonnet-5` | medium | 113 | 27.7 | 16,276 | 2.6M | ~$1.02 |
+| `junior-high` | `ac:plan-worker-junior-high` | `claude-sonnet-5` | high | 40 | 36.1 | 27,846 | 4.9M | ~$1.89 |
+| `senior` | `ac:plan-worker-senior` | `claude-opus-5` | high | 207 | 58.7 | 51,981 | 9.5M | ~$6.05 |
 
-The `Measured per step` column comes from one 14-step complex plan run on 2026-08-04 (1 quick, 4 junior, 5 junior-high, 4 senior worker spawns), averaged per spawn. Read it with its confound: junior-high drew the harder steps in that plan, so the column mixes tier effect with work difficulty and is not a controlled comparison. Two things in it are still worth planning around.
+Measured across 367 real worker runs on 2026-09-03, from every `subagents/*.meta.json` on this machine, averaged per run. Cost per step applies published pricing to the measured output and cache read. Read it as an observational average rather than a controlled comparison: tiers draw different work by construction, so the column mixes tier effect with step difficulty.
 
-First, `junior-high` cost MORE per step than `senior` on both turns and cache read. Effort at `high` on Sonnet 5 bought a longer loop, not a shorter one, so treat `junior-high` as a real cost step up rather than as "junior with a bit more care".
+The ladder is monotonic in cost, and the steps between rungs are large: junior-high is 1.9x junior, and senior is 3.2x junior-high and **5.9x junior**. That last ratio is the one to plan around, because it is the price of every unnecessary escalation to senior.
 
-Second, the cheapest lever is not the tier at all. Before assigning `junior-high`, try `junior` with a tighter briefing: name the exact pattern reference at `file:line` and the exact test paths for the step's `Verify`. Reach for the effort knob when the briefing genuinely cannot narrow the work, not when the work merely looks heavier than the last step.
+An earlier version of this table reported the opposite, that junior-high cost more per step than senior, and built guidance on it ("before assigning junior-high, try junior with a tighter briefing"). That came from a single 14-step plan in which junior-high happened to draw the harder steps. The 367-run measurement reverses it: junior-high sits where the ladder says it should, between junior and senior, at roughly a third of senior's cost. Prefer it over senior for work that is heavier than junior but not cross-layer.
 
-`junior-high` is sourced from rules 1 through 3 only: borderline coupling, borderline contextual work, and codebase-state escalation. It is where "this is heavier than junior but not cross-layer" goes, and it is what makes the effort-before-model guidance actionable, because without it the only knob a planner has is the tier.
+`junior-high` is sourced from rules 1 through 3: borderline coupling, borderline contextual work, and codebase-state escalation. It is where "this is heavier than junior but not cross-layer" goes, and it is what makes the effort-before-model guidance actionable, because without it the only knob a planner has is the tier.
 
 The criticality rule (rule 5) does not route here. It escalates `junior` to `senior`, never to `junior-high`. Effort moves Opus from 39% to 44.4% on FrontierBench v0.1, about 5 points, while the Opus-to-Sonnet gap on that same harness is 27 points. Effort is a within-model lever and cannot substitute for a cross-model gap on the surfaces rule 5 protects.
 
