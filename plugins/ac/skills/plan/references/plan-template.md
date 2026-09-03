@@ -6,29 +6,17 @@ Copy-paste-ready markdown structure the planner writes to `.ac/plans/<slug>/plan
 
 Read in Stage 5 (Plan Write). Stage 5 opens by running `plan-scaffold`, which writes the skeleton below with every section heading already in order, so the planner fills it in with `Edit` rather than `Write`. A `Write` on `PLAN_PATH` would erase the scaffolded skeleton, and a second `Write` erases the first call's output as well; `Edit` is the only safe verb here. Fill placeholders with concrete content and remove the placeholder text inside angle brackets. For plans with more than 10 steps, insert step bodies in batches of 2 to 4 rather than one enormous edit.
 
-## Complexity classification (sets the plan's `Complexity` field)
-
-Before writing the plan, pick a value for the `Complexity` field in the plan's frontmatter. Stage 5.5 uses this value to route the review tier; the planner is the authoritative source.
-
-- `complex` when ANY hold: 7 or more steps, 3 or more modules crossed, codebase state is `legacy` or `chaotic`, the plan carries a destructive migration, or any step touches one of the six closed criticality surfaces. That last predicate matters because review tier routes off complexity alone: without it a two-step auth change classifies `standard` and gets the four-check reviewer for the whole cycle, rather than the eight-dimension adversarial one that stress-tests references, wave ordering, QA specificity, and real-seam reachability.
-- `standard` otherwise. This is the default.
-
-There is no `simple` value. It was retired because it was dead by construction: it required ALL of five narrow conditions while `complex` needed ANY of five broad ones, and across 13 historical plans it was never once produced. The `complex` predicates above are the narrowed set; the old ones ("cross-cutting concerns", "architecture impact") fired on nearly every plan worth planning, which routed both reviewers to their Opus variants by default rather than by need.
-
-Record the value in the plan frontmatter (`**Complexity**: <value>`). Stage 5.5a reads this field directly.
-
 ## When a plan is too large to be one plan
 
-The plan FILE has no size budget and does not need one. Token cost and worker context are both non-binding: every worker reads the plan into its own separate context, and the largest plan written to date is about 15,700 tokens, which is 7.5% of the smallest worker's window. Do not add a line or byte limit to a plan file.
+The plan file's size stopped being free at the moment the worker stopped reading it. Workers now receive an assembled briefing rather than the file, so plan size no longer multiplies across every spawn, but it is still admitted once into the executor's context and read by the reviewer. Keep the per-step Description targets above and the file follows.
 
-The binding constraint is review coverage, because the reviewer's blocking-issue cap is finite. So: when a plan would exceed 20 steps or 6 waves, split it into a sequence of independently executable plans rather than writing one oversized plan. Each plan in the sequence carries its own Definition of Done, its own verification wave, and its own review cycle, and the sequence order is recorded in each plan's Dependency Notes so the operator knows what runs next. Splitting is about reviewability and run length, never about file size.
+The binding constraint is review coverage, because the reviewer runs once and caps its report at 25 findings. So: when a plan would exceed 20 steps or 6 waves, split it into a sequence of independently executable plans rather than writing one oversized plan. Each plan in the sequence carries its own Definition of Done, its own verification wave, and its own review cycle, and the sequence order is recorded in each plan's Dependency Notes so the operator knows what runs next. Splitting is about reviewability and run length, never about file size.
 
 ## Template
 
 ```markdown
 # Plan: <Title>
 
-**Complexity**: <standard | complex>
 **Steps**: <N>
 **Waves**: <N>
 **Codebase State**: <disciplined | transitional | legacy | chaotic | greenfield>
@@ -109,15 +97,11 @@ Rule of detail: write each step with enough context for the assigned model to ac
 
 Gap note: Opus 5 leads Sonnet 5 by about 16 points on SWE-bench Pro and 27 points on FrontierBench v0.1, both measured on the same harness in Opus 5's system card. An earlier revision of this template treated Sonnet as near-Opus, which was true against Opus 4.8 (a ~6-point Pro gap) and is no longer true. Terminal-Bench is absent from this table on purpose: the harness changed twice in one generation, so cross-model Terminal-Bench comparisons are invalid. Full provenance in `model-tiers.md`.
 
-Codebase state escalation: when `Codebase State` is `legacy` or `chaotic`, escalate every `quick` step to `junior` and record the escalation in `## Research Summary`. Mechanical work in a chaotic codebase is not mechanical; context is required.
+The five numbered assignment rules and the two escalation rules live in `model-tiers.md` and are not restated here, because two copies drift and the copy in this file was the one that drifted: it said criticality fires when a step "touches" a security surface, which is the wording that put half of every recent plan's steps on senior. Read `model-tiers.md` before assigning tiers, and record any escalation in `## Research Summary`.
 
-Criticality escalation: when a step touches a security-critical surface, escalate the tier by one level (quick to junior, junior to senior). The list is closed, and it is exactly six surfaces: authentication / authorization (login, password reset, session, token, RBAC, RLS, Policy / Gate, OAuth); payment / billing / financial calculation (currency math, charge, refund, ledger); cryptographic operations (hash, sign, verify, encrypt, JWT, HMAC, password hashing); user-input to SQL / shell / file path (injection or traversal surface); file upload / deserialization (RCE surface); migration with destructive operations (DROP, TRUNCATE, schema rename with data loss).
+The one thing worth repeating, because it is the most expensive decision in the file: senior costs **5.9x junior per step**, measured across 367 worker runs. Criticality escalation fires when a step DECIDES security-relevant behaviour, not when it touches a file in that area. A step that can satisfy its own `Done when` without altering a security-relevant decision does not qualify.
 
-A step whose failure would merely be expensive to detect does not qualify. Authoring or restructuring prompt, instruction, agent-body, or documentation text is not a criticality surface, however load-bearing that text is. The rule protects surfaces where a defect ships silently and is exploited or loses money.
-
-The escalation target is `senior`, never `junior-high`: effort is a within-model lever worth about 5 points on FrontierBench v0.1, while the Opus-to-Sonnet gap on that same harness is 27 points. No published benchmark isolates self-verification on security-critical code, so treat the escalation as a cost-asymmetry judgment rather than a measured one. Codebase-state escalation and criticality escalation stack independently. Record any criticality escalation in `## Research Summary` alongside any codebase-state escalation. Full provenance in `model-tiers.md`.
-
-Nyquist rule (per-step `Verify` sub-field): each non-verification step SHOULD carry a runnable verify command under 60 seconds, so a worker or reviewer can confirm the step's done-ness by executing one command instead of reading prose. When no such command exists (no test file, no build target, no lint rule covering the surface), set `Verify: MISSING` and add a Wave-0 scaffold step that creates the missing harness (test file, fixture, build target) before this step's wave runs. This is advisory, not a hard block: a reviewer flags a missing `Verify` as IMPORTANT, it does not alone trigger REJECT.
+Every non-verification step's `Done when` carries at least one criterion a single sub-60-second command can prove, so the wave barrier confirms it by running something rather than by reading prose. When the surface has no such command (no test file, no build target, no lint rule), say so in `Done when` and add a Wave-0 step that creates the harness before that step's wave runs. The reviewer flags a step with no provable criterion as IMPORTANT and the orchestrator decides.
 
 Anti-patterns per tier (each example is a bad step; the rewrite shows the correct shape):
 
@@ -131,9 +115,9 @@ Anti-patterns per tier (each example is a bad step; the rewrite shows the correc
 
 Each wave completes before the next begins. Sensible parallelism within a wave: steps share NO files, NO in-flight type contracts, NO behavioral coupling, AND each step is a meaningful unit of work. Do not split a conceptually-tight unit (a model + its tests, a config + its sole consumer in the same file) into multiple steps just to inflate wave size; coherence beats arbitrary parallelism. A 1-step wave is correct when the step is genuinely the only thing at its depth (e.g., a foundation Step 1 that downstream depends on). A 6+ step wave is correct when N truly independent tracks exist (e.g., N independent UI components). Target efficient parallelism, not maximum parallelism.
 
-Single-file chain check, applied before you commit to the wave list: when three or more consecutive steps write the SAME file and each depends on the one before it, that is one unit somebody split, not a wave. Merge them into a single step at the higher tier and let the worker sequence the work internally. A wave whose steps must run in a declared order is a chain wearing a wave's name, and it pays the spawn, the cold re-read of the plan and the file, and the full 4-layer verification once per link. Measured on one plan: three senior steps chained on one 900-line class took 72 minutes, 32% of the whole execution, with 17 of those minutes spent between the steps rather than inside them. The rule against splitting a conceptually-tight unit is above; this is the same rule pointed at a unit that is already split.
+Single-file chain check, applied before you commit to the wave list: when three or more consecutive steps write the SAME file and each depends on the one before it, that is one unit somebody split, not a wave. Merge them into a single step at the highest tier among the merged links, and let the worker sequence the work internally. Merging does not itself raise the tier: three `quick` links merge into one `quick` step, because the merged step is the same mechanical work in one place rather than three. Re-apply the tier rules to the merged step only if merging genuinely changed its shape. A wave whose steps must run in a declared order is a chain wearing a wave's name, and it pays the spawn, the cold re-read of the plan and the file, and the full 4-layer verification once per link. Measured on one plan: three senior steps chained on one 900-line class took 72 minutes, 32% of the whole execution, with 17 of those minutes spent between the steps rather than inside them. The rule against splitting a conceptually-tight unit is above; this is the same rule pointed at a unit that is already split.
 
-- Wave 0 (optional, ahead of Wave 1): scaffold steps created solely to satisfy the Nyquist rule (see `## Tier Calibration`) when a later step's `Verify` sub-field would otherwise be `MISSING`, e.g. creating an empty test file with the harness wired so a downstream step has a real command to run.
+- Wave 0 (optional, ahead of Wave 1): scaffold steps that exist so a later step's `Done when` has a real command to run, for example an empty test file with the harness wired.
 - Wave 0 or Wave 1, required when the plan's core mechanism is a network, IO, subprocess, or multi-row data seam: a real-seam harness step. It stands up the actual instrument the later steps' QA runs against, a loopback listener that asserts on the wire, a fixture seeded with the production row count, a temp server the client really connects to. `Http::fake` and a one-row fixture cannot reach the class of defect these seams produce, and deferring the proof to the final verification wave finds it after every step is already committed. Measured on one plan: four CRITICAL defects survived 14 steps of per-step 4-layer verification and surfaced only at the final code review, and every one of them needed either a real socket or a multi-row seeded catalog to see. One of them, a proxy's `CONNECT` reply being read as the target's response, would have published "we reached it normally" for every HTTPS check while sending the target zero bytes.
 - Wave 1: foundation and scaffolding (types, schemas, shared utilities, configs). Often a small wave of 1-3 foundational steps that downstream depends on; install/dependency steps belong here AND downstream Wave 1 step QAs must not depend on their output (run independent checks instead, or move install to a dedicated Wave 0).
 - Wave 2+: implementation building on Wave 1 outputs. Group by independence, not by step count.
@@ -161,16 +145,22 @@ Step types (the `Type:` field per step):
 - [ ] **Step 1**: <imperative title>
     - **Type**: code | infra | verification
     - **Tier**: quick | junior | senior (omit when Type is verification)
-    - **Why this tier**: <one sentence> (omit when Type is verification)
+    - **Why this tier**: <`rule-1-cross-layer` | `rule-2-context` | `rule-3-codebase-state` | `rule-4-detail` | `rule-5-criticality` | `rule-none`, then a colon and one sentence. `rule-5-criticality` takes the before-and-after form: `before <X>, after <Y>`, both halves concrete. `rule-none` names a risk no numbered rule covers and routes to `junior-high`, never `senior`. See `model-tiers.md`.> (omit when Type is verification)
     - **Files**: <absolute paths, one per line; for verification: "(no source edits; runs commands)">
-    - **Description**: <what to do and why, grounded in research>
+    - **Description**: <what to do and why, grounded in research. Must stand alone: the worker receives this
+      field and never sees another step, so name a path or a `file:line` rather than "Step 4's parser".
+      Target 400 characters for `quick`, 450 for `junior` and `junior-high`, 800 for `senior`. Name the change and the
+      reason, cite the pattern by `file:line`, and stop. Measured, Descriptions averaged 1,100 characters and were
+      39% of the whole plan file; the worker needs the spec, not the narration.>
     - **References**:
         - file_path:line_number, <pattern to follow>
         - <Reuse Map entry>: <how this step uses it>
     - **Commands**: <verification steps only: explicit command list to run, one per line>
     - **Done when**:
-        - <executable criterion: greppable, testable, or LSP-checkable>
-    - **Verify**: <one runnable command that completes in under 60s and proves Done when (Nyquist rule; see `## Tier Calibration`); when no such command exists, write `MISSING` and add a Wave-0 scaffold step that creates the missing harness before this step's wave runs. Omit this field only when Type is verification (its `Commands` field already covers this).>
+        - <executable criterion: greppable, testable, or LSP-checkable. At least one criterion per step must be
+          provable by a single command that completes in under 60 seconds, so the wave barrier can confirm the step
+          without reading prose. When no such command exists for the surface, say so here and add a Wave-0 step that
+          creates the harness before this step's wave runs.>
     - **QA**: <tool + concrete steps (named selectors/endpoints/commands/data) + exact expected assertion; reproducer-validity where applicable: one command, fails on HEAD, deterministic>
     - **Evidence**: <verification steps only: paths under `.ac/plans/<slug>/evidence/<step-id>-<scenario>.<ext>` to capture output to>
     - **Must NOT**:
