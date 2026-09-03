@@ -57,7 +57,7 @@ Six further skills are internal authoring tools the plan chain calls on its own:
 
 ## Agents
 
-Eleven subagents back the workflow. Advisory agents answer questions; plan-chain workers execute steps; reviewers gate the plan and the implementation.
+Nine subagents back the workflow. Advisory agents answer questions, plan-chain workers execute steps, and two reviewers report findings on the plan and on the implementation for the orchestrator to act on.
 
 | Agent | Model | Role |
 |-------|-------|------|
@@ -68,10 +68,8 @@ Eleven subagents back the workflow. Advisory agents answer questions; plan-chain
 | `ac:plan-worker-junior` | sonnet | Standard step executor: 1-3 file changes, business logic, pattern and framework-idiom application. |
 | `ac:plan-worker-junior-high` | sonnet | Junior's model at high effort, for work at the borderline of coupling or context depth. Never the target of a criticality escalation. |
 | `ac:plan-worker-senior` | opus | Senior step executor: cross-layer changes, migrations, and complex edges with caller-impact checks. |
-| `ac:plan-reviewer` | sonnet | Independent second-eye reviewer for `standard` plans; returns OKAY or REJECT with a step-scaled blocker cap. |
-| `ac:plan-reviewer-deep` | opus | Adversarial two-pass reviewer for `complex` plans; stress-tests across seven dimensions. |
-| `ac:plan-code-review` | sonnet | 4-stage post-implementation reviewer for `standard` plans; returns APPROVED or BLOCKED. |
-| `ac:plan-code-deep-review` | opus | 6-stage post-implementation reviewer for `complex` plans, including cross-layer integration and Reuse Map enforcement. |
+| `ac:plan-reviewer` | opus | Single advisory second-eye pass over the written plan; returns findings tagged CRITICAL or IMPORTANT, no verdict. |
+| `ac:plan-code-review` | opus | Single post-implementation pass: compliance, spec, quality, simplify and cross-layer integration; returns findings, no verdict. |
 
 ## Plugin structure
 

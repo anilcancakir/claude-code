@@ -117,7 +117,7 @@ fi
 if [ "$source_kind" = "compact" ]; then
     context="$context
 - This session resumed from a compaction. Compaction is a routine event in the ac workflow and does not end a run: older turns are summarized and work continues from the plan file.
-- A re-attached skill keeps only its first 5,000 tokens. The ac:plan body is roughly 16,000 tokens and ac:execute roughly 14,000, so each one's later sections (loop bounds, terminal branches, error handling, deliver phase) are no longer in context. Re-invoking the relevant skill restores its full body."
+- A re-attached skill keeps only its first 5,000 tokens, and both the ac:plan and ac:execute bodies run well past that, so each one's later sections (loop bounds, terminal branches, error handling, deliver phase) are no longer in context. Their opening Standing rules block is written to fit inside the surviving 5,000 and is the part you can still rely on. Re-invoking the relevant skill restores its full body."
 fi
 
 jq -cn --arg c "$context" '{
