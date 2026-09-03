@@ -36,7 +36,7 @@ If the working tree is clean (status output empty), stop with the message `Nothi
 
 **Goal**: Catch obvious breakage before writing history.
 
-Skip this phase when `SKIP_PREFLIGHT = true`. `/ac:execute` Phase 4 sets this flag because it already ran the Final Verification Wave; running typecheck and tests a second time wastes time.
+Skip this phase when `SKIP_PREFLIGHT = true`. `/ac:execute` Phase 4 sets this flag because Phase 2d already ran typecheck, build, the full suite and the linter at every wave barrier, and Phase 3a ran them again across the whole project; a third pass here would be the same commands on the same tree.
 
 When `SKIP_PREFLIGHT = false`:
 
@@ -114,4 +114,4 @@ When `/ac:commit` was invoked from `/ac:execute` Phase 4, the report block is th
 - The `ac:git-master` skill drives the actual commit planning and message writing. Phase 3 of this command is the entry point; do not duplicate its style-detection or splitting logic in the command body.
 - Apply the split rule to every change set, not only the first. One commit from 3+ unrelated files is a planning bug.
 - Use `--force-with-lease` when rewriting history. Plain `--force` is not used by this command.
-- `/ac:execute` always invokes with `--skip-preflight` because the Final Verification Wave (F1-F4) and Phase 3 review already covered the verification ground.
+- `/ac:execute` always invokes with `--skip-preflight` because Phase 2d's per-wave 4-layer check and the Phase 3 review already covered the same ground.

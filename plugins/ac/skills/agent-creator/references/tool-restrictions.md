@@ -48,7 +48,7 @@ Pick based on what reads cleanest. For most agents, one or the other suffices.
 
 ## The `Agent(x, y)` spawn restriction
 
-The Agent tool is itself a tool, so listing or omitting it in `tools` controls subagent spawning, and it controls it for subagents too. Measured on Claude Code 2.1.221 with `USER_TYPE` unset: an agent declaring only a `disallowedTools` denylist inherits `Agent` and does spawn children (`ac:oracle` spawned `ac:explore`; `ac:plan-code-deep-review` spawned two `general-purpose` agents). An agent whose `tools:` allowlist omits `Agent` spawned nothing across every observed run. The pinned source's `constants/tools.ts:41` gate suggests otherwise; it no longer matches the shipped binary, so decide nesting per agent rather than assuming the host decides it for you.
+The Agent tool is itself a tool, so listing or omitting it in `tools` controls subagent spawning, and it controls it for subagents too. Measured on Claude Code 2.1.221 with `USER_TYPE` unset: an agent declaring only a `disallowedTools` denylist inherits `Agent` and does spawn children (`ac:oracle` spawned `ac:explore`; the then-current deep code reviewer spawned two `general-purpose` agents). An agent whose `tools:` allowlist omits `Agent` spawned nothing across every observed run. The pinned source's `constants/tools.ts:41` gate suggests otherwise; it no longer matches the shipped binary, so decide nesting per agent rather than assuming the host decides it for you.
 
 | Frontmatter | Behavior |
 |-------------|----------|
