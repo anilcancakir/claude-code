@@ -119,6 +119,10 @@ content summarize each section to two sentences and link the full text from `LOG
 - Type discipline: <level>
 - File organization: <pattern>
 - Import convention: <pattern>
+- Path aliases: <mapping, or "n/a">
+- TDD: <tdd | tests-after | none>
+- LSP false-positive whitelist: <symbols and patterns, or "n/a">
+- Test mount discipline: <canonical pattern and banned APIs, or "n/a">
 
 ### Reuse Map (existing code to leverage)
 - file_path:line_number, what it provides, which decision uses it

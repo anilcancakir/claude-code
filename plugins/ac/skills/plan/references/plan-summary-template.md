@@ -12,7 +12,6 @@ Read in Stage 6 after deleting `CHECKPOINT_PATH`. Render the summary inline to t
 ## Plan Generated: <title>
 
 **Path**: .ac/plans/<slug>/plan.md
-**Complexity**: <standard | complex>
 **Steps**: <N> | **Waves**: <N>
 **Tiers**: <N quick / N junior / N junior-high / N senior>
 **Codebase State**: <classification>
@@ -27,11 +26,9 @@ Read in Stage 6 after deleting `CHECKPOINT_PATH`. Render the summary inline to t
 ### Reuse Map
 - <N existing utilities and patterns to leverage>; full map in plan.md
 
-### Review Verdict (Stage 5.5)
-- Tier: <standard | complex | skipped>
-- Iterations: <N, or "N/A" if skipped>
-- Final verdict: <OKAY | proceed-with-noted-issues>
-- Issues addressed: <count, or "None">
+### Review (Stage 5.5)
+- Findings: <N CRITICAL fixed, N IMPORTANT deferred, or `none`>
+- Fixed: <count, or "None">
 - Issues noted in Risks Accepted: <count, or "None">
 
 ### Cross-Project Observations (omit when zero)
@@ -43,5 +40,5 @@ Read in Stage 6 after deleting `CHECKPOINT_PATH`. Render the summary inline to t
 - Research: .ac/plans/<slug>/research/ (<N> files)
 
 ### Next Step
-Run `/ac:execute <slug>` to execute the plan. For complex plans, the deep code-review runs in parallel with `ac:oracle` by default; opt out with `/ac:execute <slug> --no-oracle`. For complex plans where wave-after checkpoint commits are unwanted, use `--no-checkpoint-commits`.
+Run `/ac:execute <slug>` to execute the plan. `ac:oracle` runs beside the code review only when the change touches a criticality surface; opt out with `/ac:execute <slug> --no-oracle`. To skip the wave-after checkpoint commits, pass `--no-checkpoint-commits`.
 ```

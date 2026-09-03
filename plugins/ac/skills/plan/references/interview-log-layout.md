@@ -47,10 +47,10 @@ Read when writing or appending to `LOG_PATH`. The log is append-only across stag
 - Steps: <N>
 - Tier distribution: <N quick / N junior / N senior>
 
-## Stage 5.5 Iteration <N>
-- Reviewer verdict: REJECT
-- Issue count: <N>
-- Issues addressed: <list of section/step references>
+## Stage 5.5 Review
+- Findings: <N CRITICAL, N IMPORTANT>
+- Fixed: <list of section/step references>
+- Deferred: <list, with where each went>
 - Notes: <freeform>
 ```
 
@@ -59,5 +59,5 @@ Read when writing or appending to `LOG_PATH`. The log is append-only across stag
 - Stage 3 per-node: append after every resolved AskUserQuestion turn (or auto-resolved node in auto mode), including the question text, the options presented, the user's selection (or `Auto mode: (Recommended) → <chosen option>`), and any freeform notes.
 - Stage 4: append the rendered Synthesis Preview.
 - Stage 5: append a one-paragraph wrap-up with wave / step / tier distribution.
-- Stage 5.5: append one `## Stage 5.5 Iteration <N>` block per reviewer turn.
+- Stage 5.5: append one `## Stage 5.5 Review` block. The review runs once, so there is one block per run.
 - Auto mode: the log records the same content as interactive mode; the `User selection:` line reads `Auto mode: (Recommended) → <chosen option>` and emits a heartbeat line per resolution.
