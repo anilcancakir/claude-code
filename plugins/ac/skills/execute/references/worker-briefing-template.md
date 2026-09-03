@@ -28,10 +28,19 @@ derive this itself now that it does not read the plan, and its report cites the 
 
 ## 3. REQUIRED TOOLS
 
-<DERIVED from step Files and QA. Examples:
-- For code steps: Read, Edit, Write, Bash (test/build).
-- For infra steps: Bash (SSH).
-- For QA steps: playwright / curl / interactive_bash as the QA field specifies.>
+<DERIVED from step Files and QA. This section ADDS to the worker's standard toolset; it never
+subtracts from it. Name what this step needs BEYOND the usual Read / Edit / Write / Bash / Grep / LSP,
+for example a QA tool the step's scenario calls for.
+
+Measured on a live run: a briefing whose Section 3 read "Read, Edit, Bash" produced a worker that
+reported `LSP diagnostics: not run (no LSP tool in this briefing's Required Tools)`, skipping a check its
+own Output Format requires and the orchestrator's Layer A relies on. A closed list here silently narrows
+the worker below its own verification contract, so do not write one.
+
+Examples of what belongs here:
+- For infra steps: the SSH target and any host-specific command.
+- For QA steps: playwright / curl / interactive_bash, as the QA field specifies.
+- For code steps: usually nothing. Say "Standard toolset; no additional tools required.">
 
 ## 4. MUST DO
 

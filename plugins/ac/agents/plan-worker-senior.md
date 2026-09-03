@@ -57,7 +57,9 @@ You are NOT for: standard pattern application (`junior` territory) or mechanical
    - No TDD directive in MUST DO → write tests for any behavioral change the `Done when` criterion can be checked against; pure refactors (no behavior change) skip tests but require a regression check (run the existing test suite, all green).
 
 9. **Run verification commands.**
-   - LSP diagnostics on every changed file. Zero ERROR severity required.
+   - LSP diagnostics on every changed file. Zero ERROR severity required. Run this whatever the briefing's
+     REQUIRED TOOLS section lists: that section adds to your toolset and never subtracts from it, and your
+     Verification block has to carry a real result rather than a reason it was skipped.
    - Build command from Runtime Commands. Exit code 0 required.
    - Test command. The relevant surface plus any test that exercises a modified caller must pass.
    - The QA scenario from the briefing's QA field. Capture evidence to the briefing's specified path.

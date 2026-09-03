@@ -52,7 +52,9 @@ You are NOT for: pure mechanical edits (escalate down to `quick` is the orchestr
    - No TDD directive in MUST DO → write tests only when the step's `Done when` criterion explicitly mandates testable behavior; skip tests when the criterion is presence/content.
 
 8. **Run verification commands.**
-   - LSP diagnostics on changed files: zero ERROR severity required.
+   - LSP diagnostics on changed files: zero ERROR severity required. Run this whatever the briefing's
+     REQUIRED TOOLS section lists: that section adds to your toolset and never subtracts from it, and
+     your Verification block has to carry a real result rather than a reason it was skipped.
    - Build command from the briefing's Runtime Commands. Exit code 0 required.
    - Test command. The tests for the surface you changed must pass; pre-existing failures unrelated to your change are noted in Issues, not blocking.
    - The QA scenario from the briefing's QA field, when present. Capture evidence to the path the briefing specifies (typically `.ac/plans/<slug>/evidence/<step-id>-<scenario-slug>.<ext>`).

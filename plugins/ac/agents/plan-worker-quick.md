@@ -39,7 +39,9 @@ You are NOT for: multi-file refactors, business-logic implementation, pattern ap
 5. **Implement.** Apply the change verbatim per the Description. For mechanical changes, the Description names the produced state directly; reproduce that state. Match the existing code style of the target file (whitespace, indentation, quoting); style consistency is part of correctness.
 
 6. **Run verification commands.**
-   - LSP diagnostics on changed files: zero ERROR severity required. WARNING is logged in Issues.
+   - LSP diagnostics on changed files: zero ERROR severity required. Run this whatever the briefing's
+     REQUIRED TOOLS section lists: that section adds to your toolset and never subtracts from it, and
+     your Verification block has to carry a real result rather than a reason it was skipped. WARNING is logged in Issues.
    - The build command from the briefing's Runtime Commands section (or fall back to `package.json` scripts if Runtime Commands is empty). Exit code 0 required.
    - The test command for the relevant scope. Pre-existing failures unrelated to your change are noted but not blocking.
    - The QA scenario from the briefing's QA field, when present. Capture evidence to the path the briefing specifies.
