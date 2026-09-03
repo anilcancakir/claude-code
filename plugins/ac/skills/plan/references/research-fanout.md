@@ -89,14 +89,15 @@ Spawn one `ac:oracle` with `run_in_background: true`. Build the brief by selecti
 
 ```
 CONTEXT: planning <topic>. Codebase state: <state>. Locked stack: <stack snapshot>. Scope IN: <list>. Scope OUT: <list>.
+SOURCES: <every `file:line` and URL the locked decisions rest on, plus `RESEARCH_DIR` so the raw subagent reports are reachable>. The oracle tests these before it answers; a brief that names conclusions and no sources turns its premise check into an open-ended search.
 
 GOAL (only include the bullets for triggers that fired in 3.5a):
 - (Trigger 1) Spot risks and subtle bugs in the locked <auth | payment | crypto | input-handling | file-upload> design. Locked decisions: <list with rationale>. Patterns the plan adopts: <file:line refs to codebase + librarian citations>.
-- (Trigger 2) Verify the semantics of <chain>. Quote vendor docs lines that support each method's claimed behavior. Flag any ASSIGN-vs-EXEMPT, opt-in-vs-opt-out, or default-value pitfalls.
-- (Trigger 3) Tie-break: between <option A> and <option B>, which fits the codebase state <state> at <file:line> patterns. Reason about trade-offs.
-- (Trigger 4) Spot risks in this migration plan for production safety, rollback path, downtime.
+- (Trigger 2) Verify the semantics of <chain>, from the vendor docs at <URL>. Quote the lines that support each method's claimed behavior. Flag any ASSIGN-vs-EXEMPT, opt-in-vs-opt-out, or default-value pitfalls.
+- (Trigger 3) Tie-break: between <option A> and <option B>, which fits the codebase state <state> at <file:line> patterns. Name the research that produced each option, at `RESEARCH_DIR/<file>`, since a tie-break inherits whatever the two branches were built on.
+- (Trigger 4) Spot risks in this migration plan for production safety, rollback path, downtime. Migration shape and current schema at <file:line>.
 
-DOWNSTREAM: findings inline into the plan's Stage 4 Synthesis Preview under `### Oracle Sanity-Check Findings`. CRITICAL findings flip a Stage 3.5 BLOCKER for user judgment; IMPORTANT findings are listed and the plan proceeds.
+DOWNSTREAM: findings inline into the plan's Stage 4 Synthesis Preview under `### Oracle Sanity-Check Findings`. CRITICAL findings flip a Stage 3.5 BLOCKER for user judgment; IMPORTANT findings are listed and the plan proceeds. A REFUTED premise is its own branch, not a finding: it means the research under a locked decision does not hold, so it surfaces to the user whatever else the oracle returned.
 
 REQUEST: return findings tagged CRITICAL or IMPORTANT. Each finding includes the trigger it speaks to, the specific concern, evidence (docs URL or file:line), and a recommended action (revise / accept-as-risk / no-action). Cap at 5 findings; rank by impact. If nothing surfaces, return "No significant findings."
 ```

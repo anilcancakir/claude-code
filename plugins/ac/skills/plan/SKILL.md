@@ -360,6 +360,16 @@ Any CRITICAL finding is a BLOCKER: surface it before Stage 4 even under auto mod
 `Oracle CRIT?`, options `Revise plan (Recommended)` back to Stage 3 at the affected decision / `Accept as Risk`,
 which locks the concern into `## Risks Accepted` / `Abandon`, which writes `abandoned.md` and exits).
 
+**A REFUTED premise is its own branch, and it outranks the finding severities.** The oracle returns a `**Premises**`
+block classifying the claims your brief rested on. A premise it marks REFUTED, with a quote from the source that
+contradicts it, is not a finding about the plan: it is evidence that the research under a locked decision does not
+hold, so every decision downstream of it is now unsupported whatever else the oracle said. Surface it before
+anything else, naming the premise and the quote, then `AskUserQuestion` (header `Premise failed?`, options
+`Re-research and re-decide (Recommended)` back to Stage 1 for that angle only / `Revise the decision without new
+research`, when the refutation itself tells you enough / `Accept as Risk`, which locks it into `## Risks Accepted`
+with the refutation quoted). A premise marked UNSUPPORTED does not halt; carry it into the Stage 4 preview so the
+user sees which claims nobody could source.
+
 IMPORTANT findings do not halt: inline them into the Stage 4 preview under `### Oracle Sanity-Check Findings`. No
 findings means that subsection is omitted entirely.
 

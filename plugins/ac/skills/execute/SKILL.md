@@ -597,9 +597,12 @@ what it was standing in for anyway.
 Agent({ subagent_type: "ac:oracle", description: "Oracle strategic review for <plan title>",
         prompt: "Self-review category. Plan: <PLAN_PATH>
 Modified files: <MODIFIED_FILES>
+Research the plan was built on: <.ac/plans/<slug>/research/>
+Wisdom from the run: <.ac/plans/<slug>/wisdom.md>
 The change touches <the surfaces that fired>. Verify skeptically: bugs, missing edge cases, unhandled
-errors, scope drift, architectural concerns the structural review might miss. Return Bottom line +
-Action plan + Effort + Confidence." })
+errors, scope drift, architectural concerns the structural review might miss. The plan's own claims
+about what the code does are premises, not findings; the sources above are what settles them. Return
+Bottom line + Action plan + Effort + Confidence." })
 ```
 
 ### 3c. Act on the findings
