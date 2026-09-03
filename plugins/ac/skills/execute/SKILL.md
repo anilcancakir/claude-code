@@ -23,7 +23,7 @@ Every branch that terminates the run deletes `.ac/state/active-execution.json` f
 
 **A stop needs a name.** "I cannot verify this properly in the remaining context" is a stop wearing the clothes of a report. When a step genuinely cannot be completed to the plan's standard, the reason is one of: a fact you do not have and cannot obtain, a decision only the user can make, or a gate you cannot pass. Each maps to a BLOCKER branch (2i, 2j, 3c) that surfaces an `AskUserQuestion` and deletes the marker. Name the class, take the branch, report what did land. Never substitute a capacity limit for the real reason.
 
-**No review loop needs bounding.** Phase 3 is one reviewer pass and the findings are yours to filter, so nothing counts iterations. The bounded loops that remain are the one retry per step at 2e and the three-failures-across-two-waves halt at 2j, and both read their state from `STEP_FAILURES` rather than from a remembered number.
+**No review loop needs bounding.** Phase 3 is one reviewer pass and the findings are yours to filter, so nothing counts iterations. Three bounded loops remain: one retry per step at 2e, at most two briefing-gap re-spawns per step at 2e, and the three-failures-across-two-waves halt at 2j. The first and third read their state from `STEP_FAILURES`; the second counts re-spawns for the step in front of you.
 
 **Progress surface.** Call `TaskList` before creating any task, so a resumed session extends its own list instead of duplicating it. The list holds exactly `WAVES + 3` entries: one per wave, plus Phase 1, Phase 3 and Phase 4. That number comes off the plan's `Waves` frontmatter field, so compute it once at Phase 1g and treat it as the cap. If you are about to create the `WAVES + 4`th task you are creating one per step, which is the rule this replaces; the plan file's checkboxes are the per-step record and Phase 2h prints the per-step table. One `TaskUpdate` on entry and one on verified exit per entry, no interim status churn. Measured on one 24-step run, this surface cost 104 calls where the shape above needs about 20.
 
@@ -247,20 +247,24 @@ pass for the wave, however many steps it held. The step-level record is Layer D'
 per-step QA evidence in Layer C, both of which stay per-step because they are cheap and because
 something downstream reads them.
 
-**Confirm no mutation survived, before you take the diff.** Run `git status --porcelain`. A worker
-proving its test really fails may temporarily patch a source file (`cp x /tmp/x.bak && perl -0pi -e ...
-&& <test> && cp /tmp/x.bak x`), which is a technique worth keeping: it is what turns "the test passed"
-into "the test would have caught this". What must not survive is the patch.
+**Confirm no mutation survived.** Run `git status --porcelain` in the same message as the diff and the
+Layer A commands; it does not depend on their results and they do not depend on its.
 
 The allowed set is `wave_files` (this wave's declared union, from 2c) plus `MODIFIED_FILES` (earlier
 waves) plus anything under `.ac/`. A dirty path outside all three is an unreverted mutation or an
-out-of-scope edit: restore it from git first, and record it as a `[REMEDIATION]` wisdom line naming the
-step. Compare against `wave_files`, NOT against `MODIFIED_FILES` alone: that list is only appended at
-2e, after this check, so at this point it holds the previous waves and none of the current one. Compare
-against it alone and every file this wave legitimately changed reads as a mutation to be reverted.
+out-of-scope edit: restore it from git, and record it as a `[REMEDIATION]` wisdom line naming the step.
+Compare against `wave_files`, NOT against `MODIFIED_FILES` alone: that list is only appended at 2e, after
+this check, so at this point it holds the previous waves and none of the current one. Compare against it
+alone and every file this wave legitimately changed reads as a mutation to be reverted.
 
-The file-scope hook cannot catch this class, because it gates `Edit` and `Write` while a mutation
-arrives through `Bash`. Doing it before the diff also keeps a stray patch out of what Layer B reads.
+What this catches is an out-of-scope mutation arriving through `Bash`, which the file-scope hook cannot
+see because it gates `Edit` and `Write`. It does NOT catch the temporary patch a worker uses to prove
+its test really fails (`cp x /tmp/x.bak && perl -0pi -e ... && <test> && cp /tmp/x.bak x`): that file is
+inside the step's own `Files`, hence inside the allowed set. That technique is worth keeping anyway, and
+the diff is what shows whether the patch survived it.
+
+Ordering does not matter here, which is why it is batched. The diff is taken with a pathspec limited to
+`wave_files`, so an out-of-scope mutation cannot enter it whether this check ran first or not.
 
 Then take the wave diff, which is Layer B's input:
 
@@ -423,7 +427,13 @@ scoped test used to provide, and it is why Layer B's hunk-to-claim match is not 
 **Worker reported `[BRIEFING GAP]`**: it could not proceed because something Section 6 should have carried
 was missing. Re-assemble the missing block and re-spawn at the SAME tier. Never escalate for this: the
 tier is not what failed, and a bigger model reading the same absent block costs 5.9x for the same nothing.
-This retry does not count against the one-retry-per-step budget.
+
+**Bounded at two.** The re-spawn does not count against the one-retry-per-step budget, so it needs its
+own bound or it is an unbounded loop: when the PLAN lacks the block rather than the assembly missing it,
+re-assembly produces the same absent block and the worker reports the same gap, at $1 to $6 a spawn. On
+the third report for one step, stop re-spawning and take the plan-spec BLOCKER branch in 3c: name it,
+then `AskUserQuestion` (`Edit plan to fill the gap and re-verify` / `Accept as Risk and proceed` /
+`Stop`). Two failed re-assemblies is the plan telling you it does not carry what the step needs.
 
 **First failure, attributed to one step**: retry once at the next tier up (`quick` to `junior`, `junior` to `senior`; senior does not
 escalate), except a malformed report with no `### Changes Made` or `### Verification`, which re-spawns at the
