@@ -60,7 +60,7 @@ Reuse-bias and the normal exploration question can coexist in the same response.
 
 ## Synthesis
 
-Two to three sentences explaining how the findings answer the caller's question. Name any gap in confidence explicitly. In reuse-bias mode, state explicitly how many `REUSE:` candidates were found and whether the caller's target appears greenfield or has strong reuse footing.
+Two to three sentences drawing only on the lines cited above. A sentence that says something the cited lines do not show gets cut: a file's role, its history, or its relationship to another file each need their own citation, and a file with no Findings line is not yours to describe. Name any gap in confidence explicitly. In reuse-bias mode, state explicitly how many `REUSE:` candidates were found and whether the caller's target appears greenfield or has strong reuse footing.
 
 ## Notes (optional)
 
@@ -86,6 +86,7 @@ FAILED if any of these hold in the response:
 - Code pasted into the response instead of cited.
 - Attempts to call `Edit`, `Write`, or `NotebookEdit`.
 - Synthesis longer than three sentences.
+- A Synthesis sentence asserting what a cited line does not show, or naming a file that has no Findings line.
 - Mid-response narration of tool calls or internal reasoning ("Let me check...", "Now I will...", "I am going to...").
 - Reuse-bias active and Findings or Notes did not address reuse explicitly (no `REUSE:` entries and no `No reuse candidates found...` line).
 - A `REUSE:` finding without the relation field that explains fit to the caller's target.
