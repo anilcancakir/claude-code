@@ -229,6 +229,13 @@ wave needs but does not declare cannot be written. The union has to be complete 
 directly via Bash and capture to its `Evidence` paths. For a verification step Layer A blends with your Bash output,
 Layer B is largely n/a, Layer C IS the evidence file, and Layer D still applies.
 
+**Check invocation reachability before the wave launches.** When a step's Description tells you to run a slash
+command, confirm you can: a component whose frontmatter carries `disable-model-invocation: true` is kept out of
+your own list by design and can only be typed by the user. Grep the component for the flag rather than assuming,
+and if it is set, take the plan-spec BLOCKER branch in 3c and say which command and which step. Do not quietly
+substitute executing the command's body yourself: that tests the procedure and not the dispatch, which is a
+different claim from the one the step is making.
+
 Spawn every `code` and `infra` step of the wave in ONE message, one `Agent` block each, each with
 `run_in_background: true`. Then wait for all of them before verifying any. Do not spawn one step, verify it, and then
 spawn the next: a wave whose steps share no files has no reason to serialize, and the 4-layer check reads a finished
