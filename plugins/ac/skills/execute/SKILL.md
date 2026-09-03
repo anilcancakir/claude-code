@@ -180,10 +180,18 @@ No list to register. Read `Waves` and `Steps` from the plan frontmatter and hold
 Layer D count gets compared against, and `WAVES` is how many barriers the run will pass. State both in the
 Phase 2a render so the shape of the run is visible from the start.
 
-Then run `grep -c '^- \[ \]' <PLAN_PATH>` once. On a fresh run it equals `Steps`; on a resume it is smaller and
-the difference is what earlier runs completed. A plan whose count is zero when nothing has run carries no
-checkboxes at all, which silently retires both Layer D and the `Stop` guard: say so and stop, because the plan
-is malformed rather than finished.
+Then run `grep -c '^- \[ \]' <PLAN_PATH>` once and compare it against `Steps`. Three outcomes, and only one of
+them continues:
+
+- Equal, or smaller with the difference explained by ticks already in the file: continue. On a resume the
+  difference is what earlier runs completed.
+- Zero while steps remain unrun: the plan carries no checkboxes at all. Say so and stop. Layer D would have
+  nothing to tick and the `Stop` guard would read a permanently satisfied count, so both controls retire
+  silently and the run loses its only per-step record. The plan is malformed, not finished.
+- Greater than `Steps`, or smaller by a number the ticks do not account for: the frontmatter and the body
+  disagree about how many steps exist. Say which two numbers you got and stop; every later Layer D comparison
+  rests on this one, and a count compared against a wrong total confirms nothing.
+
 ## Phase 2: Execute Wave-by-Wave
 
 Goal: run each step to verified completion, wave by wave, on auto-continue. The user sees progress through the plan file's checkboxes and the Phase 2h table; they do not approve each step.
@@ -231,8 +239,9 @@ Layer B is largely n/a, Layer C IS the evidence file, and Layer D still applies.
 
 **Check invocation reachability before the wave launches.** When a step's Description tells you to run a slash
 command, confirm you can: a component whose frontmatter carries `disable-model-invocation: true` is kept out of
-your own list by design and can only be typed by the user. Grep the component for the flag rather than assuming,
-and if it is set, take the plan-spec BLOCKER branch in 3c and say which command and which step. Do not quietly
+your own list by design and can only be typed by the user. Read the component's frontmatter rather than grepping
+the whole file, since several skills discuss the flag without setting it, and if it is set there, take the
+plan-spec BLOCKER branch in 3c and say which command and which step. Do not quietly
 substitute executing the command's body yourself: that tests the procedure and not the dispatch, which is a
 different claim from the one the step is making.
 
@@ -513,6 +522,7 @@ dependent steps and continue`). The first two delete the marker before halting; 
 the run continues. Procedure at `${CLAUDE_SKILL_DIR}/references/wave-orchestration.md`.
 
 If nothing hard failed, the next wave launches automatically. Auto-continue is the default between waves.
+
 ### 2j. 3-strike rule
 
 When `STEP_FAILURES` holds 3 entries **spanning two or more distinct waves**, emit one line naming the
@@ -639,6 +649,7 @@ severity, what was fixed, what was deferred. The log is a record now, not a loop
 ### 3d. Convergence
 
 CRITICAL findings fixed and re-verified, or none returned. Advance to Phase 4.
+
 ## Phase 4: Deliver
 
 Goal: commit the work, generate the dev report, render the execution summary.

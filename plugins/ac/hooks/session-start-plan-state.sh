@@ -90,7 +90,7 @@ next_step="$(grep -m1 '^- \[ \] ' "$plan_file" 2>/dev/null | sed -E 's/^- \[ \] 
 
 context="ac plan state for this repository:
 - Active plan: $slug ($checked of $total steps checked, $unchecked unchecked).
-- Authoritative step state lives in .ac/plans/$slug/plan.md; the session task list mirrors it."
+- Authoritative step state lives in .ac/plans/$slug/plan.md, in its \`- [ ]\` checkboxes."
 
 [ -n "$wave" ] && context="$context
 - Marker .ac/state/active-execution.json reports wave $wave, so an /ac:execute run was in flight."

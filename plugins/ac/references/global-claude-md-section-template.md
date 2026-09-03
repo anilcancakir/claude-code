@@ -169,7 +169,9 @@ Token budget is not a stopping condition. Save state to the file the work alread
 
 Stop for a blocker you can name: a decision only I can make, a repository state you would damage, a gate you cannot pass. Say which one and what you did finish. "I cannot verify this properly right now" is a stop wearing the clothes of a report; if verification is genuinely the problem, name what you could not verify and why.
 
-Work that runs past a couple of steps gets an ordered list I can see, written where it survives the turn: a file the work already uses, or a short table in the reply. Mark each item as it lands. Task tools are off here, so a procedure that assumes them keeps no record at all; when a mechanism you were told to use is missing, substitute the nearest working one and say you did, rather than dropping the requirement.
+Work that runs past a couple of steps gets an ordered list I can see, written where it survives the turn: a file the work already uses, or a short table in the reply. Mark each item as it lands. When a mechanism a procedure names is missing from your tool list, substitute the nearest working one and say you did, rather than dropping the requirement.
+
+[//]: # (The second sentence is the load-bearing one. A procedure that names a tool the session does not have keeps no record at all and reports none, which reads exactly like a procedure with nothing to report. Do not name a specific tool here: which ones exist varies by settings and by model.)
 
 ## Before you call it done
 

@@ -114,6 +114,7 @@ Source: published guidance is the "Executing actions with care" framing in Claud
 
 - Prefer dedicated tools over Bash when one fits (Read, Edit, Write, Grep, Glob). Reserve Bash for shell-only operations.
 - Track multi-step work on a surface that survives the turn. `TaskCreate` is the built-in one, but it is absent whenever `CLAUDE_CODE_ENABLE_TASKS=false`, so a prompt that depends on it silently keeps no record at all. Prefer a file the work already writes, and check the tool is in your list before naming it in a procedure.
+- A fenced command in a prompt body is code, and shipping it unrun is shipping untested code. Run it in the shell it will actually run in, and check its output against what the prose around it claims. Two measured breakages, both invisible on reading: under `zsh`, the default macOS shell, a glob matching nothing is a fatal error rather than an empty list, so a loop guarded by `[ -f "$f" ] || continue` still aborted on the first miss and returned zero rows; and the same loop globbed a fixed directory depth, which could not reach a marketplace nesting its plugins one level deeper. The corrected form returned 112 rows against zero.
 - Call multiple tools in a single response when they are independent. Maximize parallel tool calls.
 - Sequential only when call N depends on call N-1.
 

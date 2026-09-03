@@ -189,6 +189,7 @@ Counts policy, which governs the fan-out and stays here:
 Every brief carries a `DEPTH` and a `BUDGET`, or the agent falls back to its own default and searches wider than
 the angle needs. The reuse angle is one dedicated brief, not a clause added to the others. Issue all spawns in ONE
 assistant message with `run_in_background: true`.
+
 ### 1e. Wait, archive, checkpoint
 
 A subagent returning empty or malformed output gets one re-spawn with a format reminder; a second failure is a
@@ -308,6 +309,7 @@ Three bounds hold whatever that file says, because they govern the whole stage r
 - **Every resolved node writes a checkpoint** with `last_stage: "3"`, so a compaction mid-interview resumes instead
   of restarting.
 - **Every question and answer appends to `LOG_PATH`.** The log is the record; working memory is not.
+
 ### 3d. Stall handling
 
 If three consecutive `AskUserQuestion` turns produce no decision-tree progress (user picks "Other" with hedging, or your follow-up keeps surfacing the same node), call `AskUserQuestion` (header `Stalled?`, options `Continue (Recommended)` / `Force-finalize with recommended defaults` / `Abandon`). On Continue: keep going, no further limit. On Force-finalize: lock all remaining unresolved nodes with their recommended options, list them in the plan's `## Risks Accepted` section. On Abandon: write `.ac/plans/<slug>/abandoned.md` with the synthesis and last state, exit.
@@ -418,6 +420,8 @@ Fill placeholders with concrete content; remove placeholder text inside angle br
 **Write the plan as if no reviewer will look at it.** Stage 5.5 is a single advisory pass now, not a loop that will grind a draft into shape, so a plan that arrives there needing work simply ships with the findings deferred. Concretely: every step's Description / Files / Done when / QA / Must NOT is specific enough that a fresh agent can execute without guessing; the Codebase Conventions section captures every project-specific rule the workers need; the Reuse Map names every existing utility the plan leverages; the locked decisions from the interview are reflected in the steps themselves, not assumed. The Stage 5.5 reviewer caps at 3 passes with a stall test; plans that converge in 0-1 are the goal.
 
 **Test-driven literal-pattern audit (Stage 5 quality discipline)**: when a step's Description names a literal regex pattern, a literal config snippet (package.json fragment, tsconfig field, command-line invocation), or a literal API chain (`.X().Y().Z()`), AND the same step's QA or Done when field lists concrete test inputs that exercise it, execute the pattern against each of those inputs in your head BEFORE plan write. If any listed input would fail the literal as written, either fix the literal in the plan or flag the gap in the step's Description as `regex-needs-validation`, `snippet-needs-validation`, or `chain-needs-validation`. The worker's TDD red phase is the safety net for what this misses; catching it at planning time is cheaper. The template reference carries a worked example of the class of bug this finds.
+
+**Negative-test audit (Stage 5 quality discipline)**: for every `Done when` criterion that names a shell command, answer one question before plan write: what input would make this report a failure. Run the command in your head against that input. Two shapes cannot answer it and both get flagged in the step's `Done when` as `criterion-needs-negative-test`. A flag the tool does not support, where the shell exits non-zero with empty stdout and "returns nothing" reads as clean: `grep -P` on macOS is the measured case, and `rg` is the replacement. A pipeline that truncates before the asserted value appears, `head` being the usual culprit. Then, for any criterion naming a number, read that number against the fixture the same step sets up; when the step's own inputs cannot reach it, the criterion is wrong rather than unmet, so fix the criterion. The template reference carries both failures with their measurements.
 
 Stage 5 complete.
 

@@ -231,7 +231,7 @@ reason="An /ac:execute run for '$slug' is still in flight, so this turn must not
 
 State from disk: wave $wave, $checked of $total steps checked, $unchecked unchecked.
 Next unchecked step: $next_step
-Authoritative step state: .ac/plans/$slug/plan.md (the task list is a mirror of it).
+Authoritative step state: .ac/plans/$slug/plan.md, in its \`- [ ]\` checkboxes.
 $progress_note
 Context pressure is not a stopping condition. Auto-compaction summarizes older turns and the run continues; do not announce a context or token-budget concern in place of finishing, and do not hand the remainder back as a next step for a new session. If a compaction just happened, only the first 5,000 tokens of the ac:execute body survived it: re-invoke the ac:execute skill to restore the full body, then continue from the plan file.
 
