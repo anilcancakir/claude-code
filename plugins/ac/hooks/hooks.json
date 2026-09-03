@@ -1,5 +1,5 @@
 {
-  "description": "ac plan-execution hooks: SessionStart surfaces active plan state (and, after a compaction, what compaction did to the skill bodies); Stop blocks a turn-ending attempt while an execute run is still in flight; PreToolUse scopes subagent file edits to the active wave and steers native plan mode to /ac:plan. Every hook fails open.",
+  "description": "ac plan-execution hooks: SessionStart surfaces active plan state (and, after a compaction, what compaction did to the skill bodies); Stop blocks a turn-ending attempt while an execute run is still in flight and guards autonomous mode completion (stop-guard-auto.sh); PreToolUse scopes subagent file edits to the active wave and steers native plan mode to /ac:plan, and guards Bash tool access in autonomous mode (pretooluse-bash-guard.sh). Every hook fails open.",
   "hooks": {
     "SessionStart": [
       {
@@ -20,6 +20,14 @@
             "command": "\"${CLAUDE_PLUGIN_ROOT}\"/hooks/stop-guard.sh"
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/hooks/stop-guard-auto.sh"
+          }
+        ]
       }
     ],
     "PreToolUse": [
@@ -38,6 +46,15 @@
           {
             "type": "command",
             "command": "\"${CLAUDE_PLUGIN_ROOT}\"/hooks/pretooluse-plan-mode-block.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/hooks/pretooluse-bash-guard.sh"
           }
         ]
       }
