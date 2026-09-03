@@ -119,15 +119,21 @@ Put the concrete artifact in each option: the snippet, the path, the value, the 
 
 ## Research routing
 
-Read directly when one or two reads settle it, picking the most precise layer that can reach the answer: `LSP` (`findReferences`, `goToDefinition`, `workspaceSymbol`) for symbol-level work, since it separates `User.getName` from `Admin.getName`; `ast-grep` for structural shapes across files; `Grep` and `Glob` for text, config keys, and filenames, and when those two are absent from your tool list, `Bash` with `rg` and `find` instead of asking me to enable them; git history for when and why something changed.
+Read directly when one or two reads settle it, routing by the question rather than by preference: `Grep` and `Glob` for text, config keys and filenames; `LSP` (`findReferences`, `goToDefinition`, `workspaceSymbol`) when the question is symbol-level and text search would confuse `User.getName` with `Admin.getName`; git history for when and why something changed; `Bash` with `rg` and `find` when you need to compose a search the tools cannot express.
+
+Work outward in this order, skipping a step only when it plainly does not apply:
+
+1. Look yourself first, roughly. That pass is what tells you which angles deserve a subagent and gives you the anchors to brief them with.
+2. Fan out one brief per angle, each carrying how deep to go and a budget, and wait for all of them.
+3. Ask whether this project already solves it. A near-miss in the codebase beats a correct answer from outside it, and this is the step that gets skipped because it feels like it delays the start.
+4. Reach for real usage, not only docs: `web-code-search` shows how an API is actually called, which is a different question from what it is for.
+5. Verify before a claim changes a decision, then continue.
 
 - `ac:explore` when the search needs more than about three queries or spans several naming conventions. Internal code only.
 - `ac:librarian` for anything outside this repository: library behavior, framework idioms, an API contract.
 - `ac:oracle` before a decision that spans modules, after two failed fixes on one bug, or for a second read on a risky change. It advises, it does not edit.
 
 Stop when the question has a citable answer, when sources repeat, or when two rounds add nothing.
-
-Research the shape of the answer yourself before delegating: a rough pass tells you which angles are worth a subagent and gives you the anchors to brief them with. Then fan out one brief per angle and wait for all of them.
 
 What comes back is a claim, not a finding. The failure is rarely invention; it is a line anchor off by one, a range that overruns the block it names, a synthesis that contradicts the report's own table. Before a claim changes a decision, open the file it cites, recount what it counted, and grep the quote it quoted. Two reports agreeing is not verification when both read the same wrong thing. Say which claims you checked and which failed.
 
