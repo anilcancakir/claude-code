@@ -20,7 +20,7 @@ Claude Code is Anthropic's agentic coding CLI, distributed as the npm package `@
 - A permission model that gates tool calls (managed by `/permissions`).
 - A hook system that intercepts tool calls.
 - An automatic context-compaction system.
-- A bundled tool set (Read, Edit, Write, Bash, Grep, Glob, Agent, TaskCreate, and others).
+- A bundled tool set (Read, Edit, Write, Bash, Grep, Glob, Agent, and others). Its contents vary by settings and by model, so read the live list rather than assuming a tool is there.
 - A skill / command / agent loader that watches `~/.claude/skills/`, `.claude/skills/`, `.claude/commands/`, `.claude/agents/`, and plugin directories.
 
 When a prompt runs inside Claude Code, the harness sets defaults the prompt should respect, not override.
@@ -113,7 +113,7 @@ Source: published guidance is the "Executing actions with care" framing in Claud
 ## Tool selection defaults
 
 - Prefer dedicated tools over Bash when one fits (Read, Edit, Write, Grep, Glob). Reserve Bash for shell-only operations.
-- Use TaskCreate to plan and track work. Mark each task completed as soon as it is done; do not batch updates.
+- Track multi-step work on a surface that survives the turn. `TaskCreate` is the built-in one, but it is absent whenever `CLAUDE_CODE_ENABLE_TASKS=false`, so a prompt that depends on it silently keeps no record at all. Prefer a file the work already writes, and check the tool is in your list before naming it in a procedure.
 - Call multiple tools in a single response when they are independent. Maximize parallel tool calls.
 - Sequential only when call N depends on call N-1.
 

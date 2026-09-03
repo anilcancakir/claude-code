@@ -1,31 +1,31 @@
-# Wave Orchestration: Task Registration and the Dependency Gate
+# Wave Orchestration: the Progress Surface and the Dependency Gate
 
 Read at Phase 1g and again at the first wave barrier. The skill body carries the rules and the gate conditions; this file carries the procedure.
 
-### 1g. Register the pipeline as a TaskCreate task list
+### 1g. Confirm the progress surface
 
-Call `TaskList` first. The list is session-scoped and persists on disk across `--resume` (`utils/tasks.ts:199-231`), so a long-lived session already holds the tasks of every earlier run in it. Two consequences: a resumed run of THIS slug extends its own entries instead of creating a second set, and you never delete or rewrite an entry you did not create.
+There is no task list to register. This setup runs with `CLAUDE_CODE_ENABLE_TASKS=false` in
+`~/.claude/settings.json`, a deliberate trade: the task tools' schemas cost roughly 2,500 tokens of context on
+every turn, which buys nothing the two surfaces below do not already carry.
 
-Then register the pipeline. TaskCreate accepts ONE task per call (`{ subject, description, activeForm }`), so invoke it sequentially. Prefix every subject with the slug, which is what makes your own entries identifiable in a list you did not fully create:
+The two surfaces:
 
-```
-// Phase 1 just finished: create, then TaskUpdate it to `completed`.
-TaskCreate({ subject: "[<slug>] Phase 1: Load plan", description: "Parse plan, tier routing, init state", activeForm: "Loading plan" });
+- **The plan file's checkboxes** are the per-step record. Layer D ticks one per verified step, and
+  `grep -c '^- \[ \]' <PLAN_PATH>` is the count. The `Stop` guard reads the same number and derives "no progress"
+  from it failing to fall between blocks, so the ticks are load-bearing rather than decorative.
+- **The Phase 2h table** is the per-wave orientation, printed after each barrier with step, tier, result and files.
 
-// One task per WAVE, not per step:
-TaskCreate({ subject: "[<slug>] Wave 1: <n> steps", description: "<step titles, comma-separated>", activeForm: "Running wave 1" });
-TaskCreate({ subject: "[<slug>] Wave 2: <n> steps", description: "<step titles, comma-separated>", activeForm: "Running wave 2" });
-// ... one TaskCreate per wave ...
+At Phase 1g, do three things and none of them is a tool call:
 
-TaskCreate({ subject: "[<slug>] Phase 3: Final code-review", description: "Spawn ac:plan-code-review (+ oracle on a criticality surface)", activeForm: "Spawning code-review" });
-TaskCreate({ subject: "[<slug>] Phase 4: Deliver", description: "/ac:commit + report.md + summary", activeForm: "Delivering" });
+1. Read `Steps` and `Waves` from the plan frontmatter and hold both. `Steps` is what every later Layer D count is
+   compared against; a count you do not compare against anything confirms nothing.
+2. Run `grep -c '^- \[ \]' <PLAN_PATH>` once. On a fresh run it equals `Steps`. On a resume it is smaller, and the
+   difference is what earlier runs finished.
+3. If it returns zero while steps remain unrun, the plan carries no checkboxes at all. Say so and stop rather than
+   proceeding: Layer D would have nothing to tick and the `Stop` guard would see a permanently satisfied count, so
+   both controls retire silently and the run loses its only per-step record. The plan is malformed, not finished.
 
-// Then TaskUpdate the Wave 1 task to `in_progress` (Phase 2 starts after this call).
-```
-
-Wave granularity is deliberate. Per-step entries put the same information in three places (the task list, the plan file's checkboxes, and the Phase 2h progress table) and turn a ten-step plan into twelve list entries, which is how a multi-day session accumulates dozens of stale-looking rows. The plan file is the per-step record; this list is orientation.
-
-Update each task to `in_progress` on entry and `completed` on verified exit, and never leave one `in_progress` past its wave. At Phase 4 every `[<slug>]` task is `completed`; if a wave ended with failed steps, the wave task still completes and the failures are reported in `report.md`, because a task left open forever is worse signal than a closed one with a caveat.
+State the step and wave totals in the Phase 2a render so the shape of the run is visible from the start.
 
 
 ### 2i. Wave dependency check (before launching the next wave)

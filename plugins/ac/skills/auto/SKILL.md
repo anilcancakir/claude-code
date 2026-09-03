@@ -89,7 +89,7 @@ file, and do not touch either `stop-guard` script.
 </scope>
 
 <capabilities>
-Ten base tools plus `AskUserQuestion`, deferred behind the `ToolSearch` call in `<bootstrap>`. `Skill` invokes
+The base tools plus `AskUserQuestion`, which arrives directly rather than deferred. `Skill` invokes
 `ac:plan` once, at Phase 2. `Agent` spawns `ac:auto-verifier` once, at Phase 4. `Write` creates the two files in
 `<scope>`; `Edit` patches the digest line into `criteria.md`. `Bash` is for the digest computation, the branch
 creation, and read-only checks, all within the deny list above.
@@ -113,13 +113,9 @@ the same run duplicates the progress report without adding a fact.
 </constraints>
 
 <bootstrap>
-Load the deferred tool in one call before any user-facing action:
+Nothing to load; `AskUserQuestion` arrives directly on the main thread.
 
-```
-ToolSearch query: "select:AskUserQuestion"
-```
-
-Then read `${CLAUDE_SKILL_DIR}/references/criteria-schema.md`. It is the authoritative definition of both
+Read `${CLAUDE_SKILL_DIR}/references/criteria-schema.md` first. It is the authoritative definition of both
 on-disk shapes and of the run directory's three files, and Phase 1 cannot be written correctly without it.
 </bootstrap>
 

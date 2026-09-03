@@ -32,4 +32,4 @@ Failed steps (accepted via 3-strike):
 Plan complete.
 ```
 
-After rendering, TaskUpdate Phase 4 to `completed` and end the turn.
+After rendering, end the turn.

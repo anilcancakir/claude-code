@@ -21,7 +21,9 @@ These hold for the whole run, including after a compaction. Everything below thi
 
 **No loop needs bounding here.** Stage 5.5 is one advisory reviewer pass, so nothing on the plan side counts iterations. The only bounded loops left are Stage 3d's stall check, which fires after three non-progress interview turns, and the Stage 1e re-spawn, which allows one retry per subagent.
 
-**Progress surface.** Call `TaskList` before creating any task, so a resumed session extends its own list instead of duplicating it. One task per stage, never one per decision.
+**Progress surface.** The files are the surface, and there is no task list. `LOG_PATH` records every question and answer as it resolves, `CHECKPOINT_PATH` carries `last_stage` so a compaction or a restart resumes rather than restarts, and one short line per stage transition is what the user sees live.
+
+This setup runs with `CLAUDE_CODE_ENABLE_TASKS=false` in `~/.claude/settings.json`, a deliberate choice: the task tools' schemas cost roughly 2,500 tokens of context on every turn, which is more than a stage-transition line is worth. Do not write a procedure that depends on them.
 
 **Output length.** Per-turn user-facing prose: at most 3 lines. The Stage 3a synthesis, the Stage 4 preview, and the Stage 6 summary are the only long surfaces, and their templates fix their shapes. Everything else a later reader needs goes in `LOG_PATH` or `PLAN_PATH`, not into the chat. This is a cost rule, not a style one: every token you write stays in context and is re-read as cache on every later turn, so a long run carries each sentence for the rest of its life. A file is read on demand; a sentence in the chat is read hundreds of times.
 
@@ -39,8 +41,8 @@ Source code is never modified here. Execution is `/ac:execute <slug>`, run by th
 </scope>
 
 <capabilities>
-Ten base tools plus `AskUserQuestion`, `TaskCreate`, `TaskUpdate`, and `TaskList`, which are deferred and need the
-`ToolSearch` round-trip in `<bootstrap>` first. `Agent` spawns `ac:explore`, `ac:librarian`, and `ac:oracle`.
+The base tools plus `AskUserQuestion`, which arrives directly rather than deferred.
+`Agent` spawns `ac:explore`, `ac:librarian`, and `ac:oracle`.
 `Write` and `Edit` are for the artifacts in `<scope>` and nothing else. `Bash` is for read-only checks, the one-shot
 `.gitignore` append, and the `ac` CLI calls this body names.
 
@@ -98,15 +100,8 @@ the chat.
 </auto_mode>
 
 <bootstrap>
-Load the deferred tools in one call before any user-facing action:
-
-```
-ToolSearch query: "select:AskUserQuestion,TaskCreate,TaskUpdate,TaskList"
-```
-
-Then call `TaskList` before creating anything, so a resumed session extends its own entries instead of opening a
-second set. Register one task per stage with `TaskCreate` (one call per task), prefix each subject with the slug,
-and `TaskUpdate` each to `in_progress` on entry and `completed` on verified exit.
+Nothing to load. `AskUserQuestion` arrives directly on the main thread, and this setup runs with the task tools
+switched off (see Progress surface). Begin at Stage 0a.
 </bootstrap>
 
 ## Stage 0: Setup
@@ -169,7 +164,7 @@ If `PLAN_PATH` already exists and no checkpoint was just consumed:
 - When `AUTO_MODE = false`: call `AskUserQuestion` (header `Exists?`, options `Overwrite` / `Append suffix (<slug>-2)` / `Cancel`). Apply the choice.
 - When `AUTO_MODE = true`: auto-pick `Append suffix (<slug>-2)` (NOT the literal first option `Overwrite`; auto mode's safer default differs from interactive mode per the `<auto_mode>` policy). If `<slug>-2` also exists, increment to `-3`, `-4`, etc. until a free slug is found. Update `SLUG` and all derived paths. Emit one line: `Auto mode: collision detected, appended suffix; new slug = <new slug>.`
 
-TaskUpdate Stage 0 to `completed`, Stage 1 to `in_progress`.
+Stage 0 complete.
 
 ## Stage 1: Codebase Survey + Parallel Research
 
@@ -202,7 +197,7 @@ surfaced even under auto mode, because dropping a research angle silently leaves
 
 Wait for all spawned agents (collect BackgroundTask outputs or wait for foreground returns). Write each agent's output to `RESEARCH_DIR/<agent-type>-<short-slug>.md`. The directory survey at `RESEARCH_DIR/00-directory-survey.md` is already on disk from 1a. Write a checkpoint with `last_stage: "1"` and the gathered research summary.
 
-TaskUpdate Stage 1 to `completed`, Stage 2 to `in_progress`.
+Stage 1 complete.
 
 ## Stage 2: Main-Agent Deep Read
 
@@ -294,7 +289,7 @@ Synthesize internally, not yet shown to the user: what exists today (`file:line`
 Reuse Map draft, the delta the request needs that does not exist, codebase fit (High / Medium / Low with a reason),
 effort (Small 1-2 files / Medium 3-5 / Large 5+ cross-module), prerequisites, and the risks research surfaced.
 
-Write a checkpoint with `last_stage: "2"`. TaskUpdate Stage 2 to `completed`, Stage 3 to `in_progress`.
+Write a checkpoint with `last_stage: "2"`. Stage 2 complete.
 
 ## Stage 3: Grill-me Interview
 
@@ -327,7 +322,7 @@ The interview is complete when:
 
 Plan files contain zero open questions. If a decision could not be locked, it is either deferred (out of scope, captured in `## Deferred Ideas`) or risk-accepted (kept in scope with the recommended default and a note in `## Risks Accepted`).
 
-Write a checkpoint with `last_stage: "3-complete"`. TaskUpdate Stage 3 to `completed`, Stage 3.5 to `in_progress`.
+Write a checkpoint with `last_stage: "3-complete"`. Stage 3 complete.
 
 ## Stage 3.5: Oracle Sanity Check (trigger-based)
 
@@ -345,7 +340,7 @@ Evaluate each trigger against the locked decisions, scope, and conventions from 
 
 4. **Migration with destructive operations**: schema rename, `DROP`, `TRUNCATE`, data-shape change with no rollback path. Production-safety review.
 
-Trigger evaluation is mechanical, match locked decisions and conventions against the surface lists above. If zero triggers fire: TaskUpdate Stage 3.5 to `completed`, Stage 4 to `in_progress`, proceed silently. If one or more triggers fire: assemble ONE oracle brief targeting the fired triggers and proceed to 3.5b.
+Trigger evaluation is mechanical, match locked decisions and conventions against the surface lists above. If zero triggers fire: proceed silently to Stage 4. If one or more triggers fire: assemble ONE oracle brief targeting the fired triggers and proceed to 3.5b.
 
 ### 3.5b. Oracle brief shape
 
@@ -381,7 +376,7 @@ sibling fix is a separate plan with its own interview and review. Never silently
 Append the outcome to `LOG_PATH` under `## Stage 3.5 Oracle Sanity Check` (triggers fired, findings count, routing
 if the BLOCKER fired) and write a checkpoint with `last_stage: "3.5"`.
 
-TaskUpdate Stage 3.5 to `completed`, Stage 4 to `in_progress`.
+Stage 3.5 complete.
 
 ## Stage 4: Synthesis Preview
 
@@ -402,7 +397,7 @@ Then call `AskUserQuestion` (header `Lock all?`):
 This is the only gate where the user sees whether the rest of the run is autonomous, so it fires whenever `--auto`
 was absent; auto mode skips it and proceeds as if option 1 were picked.
 
-TaskUpdate Stage 4 to `completed`, Stage 5 to `in_progress`.
+Stage 4 complete.
 
 ## Stage 5: Plan Write
 
@@ -424,7 +419,7 @@ Fill placeholders with concrete content; remove placeholder text inside angle br
 
 **Test-driven literal-pattern audit (Stage 5 quality discipline)**: when a step's Description names a literal regex pattern, a literal config snippet (package.json fragment, tsconfig field, command-line invocation), or a literal API chain (`.X().Y().Z()`), AND the same step's QA or Done when field lists concrete test inputs that exercise it, execute the pattern against each of those inputs in your head BEFORE plan write. If any listed input would fail the literal as written, either fix the literal in the plan or flag the gap in the step's Description as `regex-needs-validation`, `snippet-needs-validation`, or `chain-needs-validation`. The worker's TDD red phase is the safety net for what this misses; catching it at planning time is cheaper. The template reference carries a worked example of the class of bug this finds.
 
-TaskUpdate Stage 5 to `completed`, Stage 5.5 to `in_progress`.
+Stage 5 complete.
 
 ## Stage 5.5: Independent Review
 
@@ -488,7 +483,7 @@ Delete `CHECKPOINT_PATH`. The plan is locked and reviewed.
 
 Render the plan summary using the template at `${CLAUDE_SKILL_DIR}/references/plan-summary-template.md`. Fill concrete values from the plan file.
 
-TaskUpdate Stage 6 to `completed`.
+Stage 6 complete.
 
 ### 6a. Auto-mode chain
 

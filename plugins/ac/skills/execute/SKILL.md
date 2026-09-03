@@ -25,7 +25,9 @@ Every branch that terminates the run deletes `.ac/state/active-execution.json` f
 
 **No review loop needs bounding.** Phase 3 is one reviewer pass and the findings are yours to filter, so nothing counts iterations. Three bounded loops remain: one retry per step at 2e, at most two briefing-gap re-spawns per step at 2e, and the three-failures-across-two-waves halt at 2j. The first and third read their state from `STEP_FAILURES`; the second counts re-spawns for the step in front of you.
 
-**Progress surface.** Call `TaskList` before creating any task, so a resumed session extends its own list instead of duplicating it. The list holds exactly `WAVES + 3` entries: one per wave, plus Phase 1, Phase 3 and Phase 4. That number comes off the plan's `Waves` frontmatter field, so compute it once at Phase 1g and treat it as the cap. If you are about to create the `WAVES + 4`th task you are creating one per step, which is the rule this replaces; the plan file's checkboxes are the per-step record and Phase 2h prints the per-step table. One `TaskUpdate` on entry and one on verified exit per entry, no interim status churn. Measured on one 24-step run, this surface cost 104 calls where the shape above needs about 20.
+**Progress surface.** Two surfaces carry it and neither is a tool. The plan file's checkboxes are the per-step record, ticked at Layer D and counted with `grep -c '^- \[ \]'`, which is also what the `Stop` guard reads. Phase 2h prints the per-step table after each wave. Add one short line per phase and wave transition and that is the whole picture.
+
+This setup runs with `CLAUDE_CODE_ENABLE_TASKS=false` in `~/.claude/settings.json`, deliberately: the task tools' schemas cost roughly 2,500 tokens of context on every turn, and the two surfaces above already say everything a task list would. Do not write a procedure that depends on them.
 
 **Output length.** Per-turn user-facing prose: at most 3 lines. The wave summary at 2f: at most 3 lines. Filter tool output before it lands: a passing test suite through `tail -20`, a diff scoped to the wave's files. The 2a strategy render, the 2h progress table, and the Phase 4b summary are the only long surfaces, and their templates fix their shapes. Anything a later reader needs goes in `wisdom.md` or `report.md`, not into the chat. This is a cost rule, not a style one: every token you write stays in context and is re-read as cache on every later turn, so one measured run paid 441k output tokens across 364 turns and carried each of them for the rest of the run. A file is read on demand; a sentence in the chat is read hundreds of times.
 
@@ -44,8 +46,8 @@ wrong, report and stop. Source outside a step's declared Files is out of scope; 
 </scope>
 
 <capabilities>
-Ten base tools plus `AskUserQuestion`, `TaskCreate`, `TaskUpdate`, and `TaskList`, deferred behind the `ToolSearch`
-call in `<bootstrap>`. `Agent` spawns the four worker tiers, `ac:plan-code-review`, and `ac:oracle`. `Bash` takes the wave diff, which is Layer B's
+The base tools plus `AskUserQuestion`, which arrives directly rather than deferred.
+`Agent` spawns the four worker tiers, `ac:plan-code-review`, and `ac:oracle`. `Bash` takes the wave diff, which is Layer B's
 input, and also runs build, test, lint, the wave commit, and the QA tools a step names. `Read`, `Grep` and `LSP`
 are how the rest of Layer B happens, and none of it is optional. `Skill` invokes `/ac:commit` once, at Phase 4.
 
@@ -99,13 +101,7 @@ Heartbeat: one short line per phase, wave, and iteration transition, and per aut
 </auto_mode>
 
 <bootstrap>
-Before any user-facing action, load deferred tools in one ToolSearch call:
-
-```
-ToolSearch query: "select:AskUserQuestion,TaskCreate,TaskUpdate,TaskList"
-```
-
-The task list is built later, at the end of Phase 1, once the plan is parsed and the wave breakdown is known. Until then the user sees no list. Phase 1g carries the shape, including the `TaskList`-before-`TaskCreate` rule.
+Nothing to load. `AskUserQuestion` arrives directly on the main thread, and this setup runs with the task tools switched off (see Progress surface). Begin at Phase 1a.
 </bootstrap>
 
 ## Phase 1: Load Plan
@@ -178,19 +174,19 @@ in the Phase 4 report. The value is injected into every worker briefing.
 Read project `CLAUDE.md` and `CLAUDE.local.md` for build, test, and lint commands as `RUNTIME_CONTEXT`. Workers
 receive `CLAUDE.md` automatically; `RUNTIME_CONTEXT` supplements it with the explicit commands briefings cite.
 
-### 1g. Register the pipeline as a TaskCreate task list
+### 1g. Confirm the progress surface
 
-Call `TaskList` first: the list persists on disk across `--resume`, so a resumed run of this slug extends its own
-entries instead of opening a second set, and you never rewrite an entry you did not create.
+No list to register. Read `Waves` and `Steps` from the plan frontmatter and hold both: `Steps` is what every
+Layer D count gets compared against, and `WAVES` is how many barriers the run will pass. State both in the
+Phase 2a render so the shape of the run is visible from the start.
 
-Read `Waves` from the plan frontmatter and register exactly `WAVES + 3` tasks: Phase 1, one per wave, Phase 3,
-Phase 4, prefixing every subject with the slug. Say the number out loud in the Phase 2a render so the cap is
-visible for the rest of the run. Update each task to `in_progress` on entry and `completed` on verified exit,
-and nothing in between; a wave's live detail belongs in its `activeForm`, which costs no call. Shape at
-`${CLAUDE_SKILL_DIR}/references/wave-orchestration.md`.
+Then run `grep -c '^- \[ \]' <PLAN_PATH>` once. On a fresh run it equals `Steps`; on a resume it is smaller and
+the difference is what earlier runs completed. A plan whose count is zero when nothing has run carries no
+checkboxes at all, which silently retires both Layer D and the `Stop` guard: say so and stop, because the plan
+is malformed rather than finished.
 ## Phase 2: Execute Wave-by-Wave
 
-Goal: run each step to verified completion, wave by wave, on auto-continue. The user sees progress via the TaskCreate task list and inline status tables; they do not approve each step.
+Goal: run each step to verified completion, wave by wave, on auto-continue. The user sees progress through the plan file's checkboxes and the Phase 2h table; they do not approve each step.
 
 ### 2a. Present execution strategy
 
@@ -529,7 +525,7 @@ run early and often. Three failures across two waves is the signal the rule was 
 ### 2k. Loop until all waves complete
 
 Run 2b through 2j for each wave in sequence, auto-continuing between them; only 2i and 2j pause the loop. When the
-final implementation wave completes, TaskUpdate Phase 3 to `in_progress` and advance.
+final implementation wave completes, advance to Phase 3.
 
 ## Phase 3: Final code-review
 
@@ -635,8 +631,7 @@ severity, what was fixed, what was deferred. The log is a record now, not a loop
 
 ### 3d. Convergence
 
-CRITICAL findings fixed and re-verified, or none returned. TaskUpdate Phase 3 to `completed`, Phase 4 to
-`in_progress`.
+CRITICAL findings fixed and re-verified, or none returned. Advance to Phase 4.
 ## Phase 4: Deliver
 
 Goal: commit the work, generate the dev report, render the execution summary.
@@ -666,4 +661,4 @@ retry also fails, so the work is not lost in chat history.
 Then render the closing summary inline from `${CLAUDE_SKILL_DIR}/references/execution-summary-template.md`. The
 summary is chat output; `report.md` is the file artifact.
 
-TaskUpdate Phase 4 to `completed`. End the turn.
+End the turn.

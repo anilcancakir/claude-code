@@ -349,7 +349,7 @@ AskUserQuestion({
       options: [
         {label: "Unused built-ins", description: "Denies NotebookEdit, PushNotification, EndConversation and the three MCP resource tools. Skip it if you edit Jupyter notebooks or your MCP servers expose resources."},
         {label: "Scheduling stack", description: "Denies CronCreate/CronDelete/CronList, ScheduleWakeup, RemoteTrigger and TaskOutput, and turns the loop and schedule skills off. Monitor survives and covers polling and log-watching; take this only if you do not use in-session reminders or claude.ai cloud routines."},
-        {label: "Task tools off", description: "env.CLAUDE_CODE_ENABLE_TASKS=false. Drops TaskCreate/TaskGet/TaskList/TaskUpdate and restores the lighter TodoWrite, which still splits work into steps and marks them completed."}
+        {label: "Task tools off", description: "env.CLAUDE_CODE_ENABLE_TASKS=false. Drops TaskCreate/TaskGet/TaskList/TaskUpdate, worth about 2,500 tokens of schema on every turn. Verified on 2.1.259: nothing replaces them, TodoWrite included, so multi-step work needs a file or a rendered table to keep its record. The ac plan and execute skills already work this way."}
       ]
     },
     {
