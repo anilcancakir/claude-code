@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-09-03
+
+Rebuilds `/ac:plan` and `/ac:execute` around the wave. The old pipeline was designed step by step and priced nowhere, so this release starts from measurement instead: one real end-to-end run at 389 turns and 415k average resident context, 367 worker runs behind the tier table, 88 reviewer runs behind the decision to drop the review loop, and 1,914 plan steps behind the field set.
+
+The measuring found four rules that had never once executed and a fifth that contradicted itself, which is the part worth keeping in mind when reading the entries below. A review loop with a 94% reject rate was not catching bad plans, it was told to report everything and then blocked on the total. An explore floor of four spawned nothing. A re-read layer read nothing. Two escalation rules had no qualifying input in the whole corpus. None of that is visible from the prompt text; it is only visible from the transcripts, which is why `run-stats` and `plan-stats` ship in the same release as the redesign they were built to check.
+
+
 ### Changed
 
 - `/ac:plan` and `/ac:execute` are rebuilt around the wave rather than the step, after measuring one real end-to-end run at 389 turns, 161.7M cache-read tokens and 415k average resident context. The orchestrator now takes one diff, one typecheck, one build, one test run and one commit per wave, issued as a single message. Per-step scoped tests are gone: the wave suite is a strict superset, and the same tests were running scoped per step, again at the barrier, and a third time in Phase 3. The QA scenario and the plan checkbox stay per-step, because the first is the only proof anything ran and the second is what the `Stop` guard reads as its progress signal.
@@ -471,6 +478,7 @@ The lesson driving this release: a limit written in prose is not a limit. The ca
 - `subagent-monitor` plugin removed from the marketplace; functionality superseded by
   the plan-chain agent reviewers.
 
+[0.12.0]: https://github.com/anilcancakir/claude-code/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/anilcancakir/claude-code/compare/v0.10.1...v0.11.0
 [0.10.1]: https://github.com/anilcancakir/claude-code/compare/v0.10.0...v0.10.1
 [0.10.0]: https://github.com/anilcancakir/claude-code/compare/v0.9.3...v0.10.0
