@@ -44,7 +44,7 @@ Run these as slash commands inside Claude Code:
 | `/ac:execute` | Runs an approved plan wave by wave on the main thread, spawning tier-routed workers, with per-step 4-layer verification and a final code review. (Skill.) |
 | `/ac:auto` | Autonomous mode for a request whose completion criteria can be enumerated before work starts: freezes those criteria under a digest, chains `/ac:plan --auto` into `/ac:execute`, then hands the run to a read-only gate for a verdict. Never pushes, auto-answers no BLOCKER. (Skill.) |
 | `/ac:install` | Interactive post-install setup: `my-coding` / `my-language` skills, global `CLAUDE.md` delegation, and `settings.json` parity. |
-| `/ac:init-project` | Deep project initialization: parallel `ac:explore` agents, a scored subdirectory-rule matrix, and drafted `CLAUDE.md` / `CLAUDE.local.md` / `.claude/rules/*.md`. |
+| `/ac:init-project` | Deep project initialization: parallel `ac:explore` agents, a two-question rule-placement test, and drafted `CLAUDE.md` / `CLAUDE.local.md` / `.claude/rules/*.md`, plus a linter hook and a language server that are each verified to work. |
 | `/ac:commit` | Atomic commits with style detection from recent history, multi-file splitting, test pairing, optional preflight, and push when an upstream exists. |
 
 ## Skills
