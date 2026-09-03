@@ -45,10 +45,10 @@ gaps: []
 overrides: []
 ---
 
-Free-form notes on the request go here, below the closing frontmatter delimiter. This body is
-what `criteria_sha256` hashes: anything written above the delimiter is the machine-read contract,
-anything below is prose for a human or a later agent to read, and neither can silently drift
-against the other without the hash catching it.
+Free-form notes on the request go here, below the closing frontmatter delimiter. Everything above
+the delimiter is the machine-read contract and is covered by `criteria_sha256`; everything below is
+prose for a human or a later agent, and is not. Editing these notes does not invalidate the digest.
+Editing a criterion does.
 ```
 
 ### Field reference
@@ -70,7 +70,11 @@ against the other without the hash catching it.
 - `overrides`: list of `{criterion_id, reason, accepted_by, accepted_at}`, adapted from `references/get-shit-done/gsd-core/references/verification-overrides.md:9-38`. An override marks one specific criterion as intentionally not met, with a reason, and moves it out of the failing count. Empty at write time. See the invariant below; the gate can read this list but only a real user answer can add to it.
 - `turn_budget`: an integer turn count. When the run's turn counter reaches this number without reaching a verdict, the run stops and asks the user how to proceed (extend the budget, accept partial progress, abort) rather than continuing silently past the number the user agreed to at the start.
 - `failure_budget`: a fraction between 0 and 1, applied to total step count across the run (not to `criteria` count). When the proportion of failed steps exceeds this fraction, the run hard-stops before reaching the gate, on the reasoning that a run already failing this often will not self-correct by continuing; a `0.2` value tolerates one failing step in five before it stops.
-- `criteria_sha256`: the sha256 hex digest of the document body strictly after the closing `---` frontmatter delimiter (the free-form notes section, byte-for-byte including its leading newline convention, hashed as UTF-8). Computing it over the body rather than the frontmatter lets the field live inside the block it protects: hashing the frontmatter would require hashing a document that also contains its own hash, which is circular. The gate recomputes this digest before reading the body and treats a mismatch as tamper evidence, not as a trust signal; nothing here is cryptographically signed, this is a tamper CHECK, and a mismatch means "something edited the body after the criteria were fixed", not "this file is authentic".
+- `criteria_sha256`: the sha256 hex digest of the frontmatter, taken over every line between the two `---` delimiters EXCEPT the `criteria_sha256` line itself, joined with newlines and hashed as UTF-8. Dropping that one line is what resolves the circularity of digesting a block that contains its own digest; it is ordinary checksum-line practice, the same trick a checksum embedded in the file it describes has always used.
+
+  The digest deliberately covers the frontmatter and not the prose body. The criteria are the thing worth protecting, and they live in the frontmatter: a digest taken over the body after the delimiter would detect an edit to the notes while leaving every `command`, `expected_exit_code` and `prohibition` free to change unnoticed, which is the exact inversion this field exists to prevent. The body is unprotected on purpose, because prose drifting has no consequence the gate acts on.
+
+  The gate recomputes this digest before it reads a single criterion and refuses to proceed on a mismatch. Treat it as tamper evidence, not as a trust signal: nothing here is cryptographically signed, so a mismatch means "the contract changed after it was fixed", and a match means only "it did not", never "this file is authentic". The threat it addresses is narrow and real: the session that writes the criteria is the session that then runs the work, so without this the run could quietly rewrite its own passing conditions.
 
 ### Invariants
 
