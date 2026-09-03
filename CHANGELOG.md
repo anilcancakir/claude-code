@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+`/ac:install` now generates the whole global CLAUDE.md rather than one section of it. The prompt for this was finding that the section template's entire design argument was pinned to a system prompt shape the current Opus models no longer receive.
+
+### Changed
+
+- The `ac:delegation` fence covers the whole generated `~/.claude/CLAUDE.md`: role, core principles, identity and coding anti-patterns as well as the working discipline. Those four used to be left to the operator, which meant a new machine never got them. Phase 3's interview grows to four rounds to fill them, and two sections are optional: extra anti-patterns, and a fallback for pages a WAF blocks.
+- The section template is rewritten against the system prompt that actually renders. Claude Code assembles the main-thread prompt in a lean shape or a classic one and picks per model, from a capability roster that on 2.1.259 names five models for lean. The lean shape does not build `# Doing tasks` at all, so the OWASP bullet and the dev-server bullet the template defended as conditional duplicates are simply absent, and six further rules go with them. The maintainer notes now argue against the lean shape, carry a four-part keep test in place of the old omit-what-the-built-in-carries rule, and cite the shipped string plus a grep recipe rather than a minified symbol that will not survive a release.
+- Every maintainer note is an HTML comment. The memory loader strips those before injecting a CLAUDE.md, so they cost nothing; the `[//]: # (...)` form the template used is a Markdown link-reference definition and ships as visible text.
+- Three rules the lean shape drops are recovered at one line each: no guessed URLs, prefer an edit to an existing file, and do not refuse a request for being large. Prompt-injection flagging was considered and left out.
+- The pair-programming rule stops contradicting the built-in. It said to push back and wait for approval where `# Delivering work` says to state the concern and keep building. It now splits by risk: stop on hard-to-reverse or outward-facing work, elsewhere name the assumption and finish.
+- The security rule is a write-time constraint rather than a re-read instruction, because explicit verification instructions are documented to cause over-verification on the current Opus generation at no quality gain.
+
+### Fixed
+
+- The CLAUDE.md merge no longer duplicates the headings it now generates. An operator's own role and anti-patterns sections sit outside the fence, where a marker-to-marker replace never touches them, so an upgrade left the file carrying both copies and saying opposite things. The heading-collision report runs in both writing cases, and matches level-one headings as well as level-two, because the block now opens with one.
+- A file with one stray fence marker stops the merge instead of appending beside it. Appending left the marker in place, so the next run read a start before an end and swallowed whatever the operator had written between them.
+- The generated `my-coding` skill gets the three anti-patterns the style interview keeps missing. One run produced a thirteen-row table with none of them; they are seed rows now, written whatever the interview surfaced. The language template gains the matching rule in reverse: no author or identity section, because that is a one-line rule belonging in the file that arrives every turn.
+- `ac:librarian` may not cite a URL it did not retrieve. No subagent receives either prompt shape, so the rule against guessing URLs reached the agent whose whole output is citations through neither.
+
 ## [0.14.2] - 2026-09-04
 
 A pass over the workflow's own instructions, prompted by finding that several of them had been doing nothing for a while. The theme is that a rule which cannot be executed reads exactly like a rule that is being followed.
