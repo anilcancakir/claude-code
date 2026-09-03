@@ -165,6 +165,9 @@ per-field reasoning at `${CLAUDE_SKILL_DIR}/references/execution-state.md`.
 Lifecycle: written here, refreshed at 2c and 2f, deleted at 4a and on every branch that ends the run early. A halt
 that leaves it behind gets blocked by the `Stop` guard until its block budget is spent.
 
+`.ac/state/active-auto.json` may coexist beside it. That marker belongs to `ac:auto`, not to this skill: never
+delete it, and treat its presence only as the signal read at Phase 4a.
+
 ### 1f. TDD mode
 
 Read the plan's `## Codebase Conventions` for `**TDD**` and set `TDD_MODE`: `"tdd"` directs each worker to write the
@@ -644,8 +647,11 @@ Goal: commit the work, generate the dev report, render the execution summary.
 commit would snapshot it as this plan's deliverable. Skip it, say so in one line, and record it in the report under
 `## Commits` with the path and the count. The plan's `Git context:` field is a hint; git state is authoritative.
 
-Otherwise invoke `/ac:commit --skip-preflight`. No `--no-push`: this is the final commit. Phase 2d and Phase 3
-already covered the verification `--skip-preflight` refers to. A clean tree exits silently, which is fine.
+Otherwise invoke `/ac:commit --skip-preflight`, plus `--no-push` when `.ac/state/active-auto.json` exists: an
+unattended run has nobody present to approve an outward-facing action, so the final commit stays local and
+`/ac:commit`'s branch guard, which only asks before pushing on `main` or `master`, never gets the chance to run.
+Without that marker this is the final commit and pushes as before. Phase 2d and Phase 3 already covered the
+verification `--skip-preflight` refers to. A clean tree exits silently, which is fine.
 
 ### 4b. Report and summary
 
