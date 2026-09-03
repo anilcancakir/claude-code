@@ -1,5 +1,5 @@
 ---
-description: Interactive post-install setup for the ac plugin. Phase 0 parses flags (--dry-run, --skip-skills, --skip-settings, --skip-claude-md), detects the OS, the presence of the my-coding and my-language user skills, the global CLAUDE.md and settings.json, and probes ac MCP reachability. Phases 1 and 2 run short interviews and delegate my-coding and my-language skill creation to ac:skill-creator with the bundled templates, skipping any skill that already exists unless the user picks Recreate. Phase 3 runs a four-round placeholder interview (identity, conversation language, working style, two optional sections), then merges the whole generated global CLAUDE.md between the ac:delegation fence markers behind a .proposed gate, naming any heading that collides with content the operator already wrote. The template file is the only roster of sections; this description deliberately does not enumerate them. Phase 4 backs up (non-clobber) and idempotently merges settings.json in groups, namely safe-silent tuning (Group A, set-only-when-absent), core ac parity (Group C, enabledPlugins plus MCP allow plus plan-mode deny), security-sensitive keys behind an explicit opt-in multiSelect (Group B, default off), a context-trim opt-in that strips unused tool schemas, rarely-used bundled skills and the task toolset (Group D, default off), and an interactive MCP-token prompt whose value is masked in every rendered surface. The plan-mode block ships in the plugin hooks, so Phase 4 writes no settings hook. Phase 5 reports what was created, merged, skipped, and the backup path.
+description: Interactive post-install setup for the ac plugin. Phase 0 parses flags (--dry-run, --skip-skills, --skip-settings, --skip-claude-md), detects the OS, the presence of the my-coding and my-language user skills, the global CLAUDE.md and settings.json, and probes ac MCP reachability. Phases 1 and 2 run short interviews and delegate my-coding and my-language skill creation to ac:skill-creator with the bundled templates, skipping any skill that already exists unless the user picks Recreate. Phase 3 runs a four-round placeholder interview (identity, conversation language, working style, two optional sections), then merges the whole generated global CLAUDE.md between the ac:delegation fence markers behind a non-clobbering backup and a .proposed gate, naming any heading that collides with content the operator already wrote and offering a whole-file replace when every one of them is superseded. The template file is the only roster of sections; this description deliberately does not enumerate them. Phase 4 backs up (non-clobber) and idempotently merges settings.json in groups, namely safe-silent tuning (Group A, set-only-when-absent), core ac parity (Group C, enabledPlugins plus MCP allow plus plan-mode deny), security-sensitive keys behind an explicit opt-in multiSelect (Group B, default off), a context-trim opt-in that strips unused tool schemas, rarely-used bundled skills and the task toolset (Group D, default off), and an interactive MCP-token prompt whose value is masked in every rendered surface. The plan-mode block ships in the plugin hooks, so Phase 4 writes no settings hook. Phase 5 reports what was created, merged, skipped, and the backup path.
 argument-hint: "[--dry-run] [--skip-skills] [--skip-settings] [--skip-claude-md]"
 effort: high
 disable-model-invocation: true
@@ -162,7 +162,13 @@ Most of the section template is generic to any ac user and ships as static conte
 
 Not every angle bracket is a placeholder. `/ac:plan <topic>` and `.ac/plans/<slug>/plan.md` are literal text describing a command and a path, and they ship as written. A placeholder reads as a description of what to substitute, not as a shell argument.
 
-As of this writing there are eight, gathered in four rounds:
+Read the operator's current `~/.claude/CLAUDE.md` before asking anything. On an upgrade it is the answer sheet: identity, conversation language, trigger words, test tools and stack are all recorded in the copy this phase is about to replace, and the file's own `Ask or resolve` rule forbids asking about something already answered in a file you could have read. Measured on one real upgrade, every placeholder was answerable from the existing file and a four-round interview would have asked nothing the file did not already say. So pre-fill what you can from it, confirm the filled set in one round, and fall back to the rounds below only for a placeholder the existing file does not answer, or when there is no existing file.
+
+The template carries eight distinct placeholders across nine occurrences. `<conversation language>` appears twice, in adjacent bullets; substituting the first and stopping leaves a raw placeholder in a live CLAUDE.md. Replace every occurrence.
+
+When the operator already has an optional section, carry theirs forward rather than regenerating it. The template's shape guidance for `Blocked pages` exists to give a new user a well-shaped section, not to compress one that already earned its length: on the run that produced this rule, the existing section carried two timings and a failure mode that three interview answers would have discarded.
+
+The four rounds, for a fresh install or for a placeholder the existing file leaves open:
 
 1. Identity. The name for the `Role` line and the `name <email>` string for the `Identity` section. Reuse the answer for both; do not ask twice. Offer the git config values (`git config --get user.name`, `git config --get user.email`) as the pre-filled option, since that is where the operator already recorded them.
 2. Conversation language, which fills two placeholders in `Core principles`. Default to English. When the operator picks anything else, keep the sentence that says the local preference overrides an organization-level language policy: that clause is the whole point of the rule for a non-English speaker whose employer mandates English.
@@ -203,26 +209,33 @@ So in both cases 1 and 2, before rendering the gate diff: scan the bytes OUTSIDE
 
 Say plainly that the operator should delete their copy or skip the merge, and do not resolve it yourself: you cannot tell which copy is the one they meant.
 
+One case is different, and it is the common one when upgrading from a version whose fence covered less. When EVERY heading outside the fence is one the block now generates, there is nothing out there the operator can lose: all of it is superseded by a newer copy of the same section. Offer replacing the whole file as the first gate option, name the superseded headings in its description, and say where the backup is. Do not take that path on a partial collision; one surviving out-of-fence heading means the operator has content the block does not carry, and replacing would delete it.
+
+Before the gate, confirm no placeholder survived substitution. Grep the merged result for `<` followed by a lowercase letter and check that every hit is an HTML comment, the literal `/ac:plan <topic>` or `.ac/plans/<slug>/plan.md`, or an email in angle brackets. A raw `<conversation language>` reaching a live CLAUDE.md is the likeliest failure of this phase and the cheapest one to catch.
+
 Do not do a fuzzy heading-based match; the markers are the only anchor. Confirm the merged result stays within 200 lines, and when it does not, report the count and the collisions in the gate diff rather than cutting anything.
 
 Then gate the write per the `init-project` `.proposed` pattern:
 
 1. Under `--dry-run`, print the merged result and stop here; write nothing.
-2. Otherwise write the merged result to `~/.claude/CLAUDE.md.proposed` and ask:
+2. Otherwise back the current file up with `cp -n ~/.claude/CLAUDE.md ~/.claude/CLAUDE.md.bak-ac-install`, the same non-clobbering form Phase 4a uses on settings, so a re-run cannot overwrite the pristine first backup. Phase 3 is the only phase that rewrites a file the operator has been editing by hand for months, and until this backup existed it was also the only one with nothing to roll back to. Then write the merged result to `~/.claude/CLAUDE.md.proposed` and ask:
 
 ```
 AskUserQuestion({
   header: "Apply?",
   question: "Your global CLAUDE.md already exists. The proposed merge is at ~/.claude/CLAUDE.md.proposed. How should I handle it?",
   options: [
-    {label: "Apply (Recommended)", description: "Overwrite ~/.claude/CLAUDE.md with the proposed merge and remove the sidecar."},
+    {label: "Replace the whole file (Recommended)", description: "Only when every out-of-fence heading is superseded. Name them here, and name the backup path."},
+    {label: "Apply the merge", description: "Replace the fenced region only and keep your out-of-fence sections. Name the collisions you would be left to reconcile."},
     {label: "Skip", description: "Leave the original in place; keep the .proposed file for manual review."},
     {label: "Edit", description: "Leave the .proposed file for you to edit; re-run after editing to apply."}
   ]
 })
 ```
 
-On Apply, write `~/.claude/CLAUDE.md` with the merged content and delete the sidecar. On Skip, leave both files in place. On Edit, leave the sidecar and print a one-line note that the user can edit it and copy it over.
+Drop the first option entirely when the collision is partial or absent, and make `Apply the merge` the recommended one instead; a four-option list whose first option is wrong for the situation is worse than a three-option list.
+
+On either apply path, write `~/.claude/CLAUDE.md` and delete the sidecar. On Skip, leave both files in place. On Edit, leave the sidecar and print a one-line note that the user can edit it and copy it over. In every case name the backup path in the Phase 5 summary.
 
 ## Phase 4: settings.json (skip if `--skip-settings`)
 
@@ -410,8 +423,9 @@ Report the outcome in one block:
 my-coding:    <created | recreated | skipped (exists) | skipped (--skip-skills) | dry-run>
 my-language:  <created | recreated | skipped (exists) | skipped (--skip-skills) | dry-run>
 my-workflow:  <not created (discipline lives in CLAUDE.md) | LEGACY COPY FOUND at ~/.claude/skills/my-workflow, now redundant>
-CLAUDE.md:    <written | merged + applied | proposed (awaiting review) | skipped (--skip-claude-md) | skipped (fence markers inconsistent) | dry-run>
+CLAUDE.md:    <written | merged + applied | whole file replaced | proposed (awaiting review) | skipped (--skip-claude-md) | skipped (fence markers inconsistent) | dry-run>
 Heading clash: <none | comma-list of headings the block and the operator's own content both carry>
+CLAUDE.md backup: <~/.claude/CLAUDE.md.bak-ac-install | kept (pre-existing) | none (file absent or dry-run)>
 settings:     <merged | skipped (--skip-settings) | dry-run>
 Group A:      <N tuning keys set | all already present>
 Group B:      <opt-ins applied: comma-list | none selected | skipped (dry-run)>

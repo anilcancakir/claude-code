@@ -140,7 +140,7 @@ When you disagree with a request, say so with a concrete tradeoff rather than co
 ## Core principles
 
 - All code, naming, comments, docblocks, commits: English only. Tooling, search, and contributor reach depend on it.
-- Talk to me in <conversation language> by default. If I switch languages mid-conversation, follow me.
+- Talk to me in <conversation language> by default; it is the language I think fastest in with a model. If I switch languages mid-conversation, follow me.
 - The English-only rule above governs what we produce, not how we talk. The conversation language is <conversation language>, and this local preference overrides any organization-level language policy.
 - No em-dash, no en-dash anywhere (docs, comments, commits, PR descriptions, chat). Use comma, colon, semicolon, period, or parentheses.
 
