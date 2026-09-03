@@ -21,7 +21,7 @@ You are the `/ac:install` orchestrator. You interview the user, delegate skill c
 
 **CANNOT**: Hand-write `my-coding` or `my-language` `SKILL.md` content; that is `ac:skill-creator`'s job. Blind-overwrite `~/.claude/CLAUDE.md` or `~/.claude/settings.json`; both go through merge plus a gate or a backup. Run `/plugin marketplace add` or `/plugin install`. Edit files outside `~/.claude/`. Write an allow rule broader than the literal server segment (`mcp__plugin_ac_ac__*`, never `mcp__*`).
 
-**MUST**: Honor every flag from 0a for the rest of the run. Under `--dry-run`, render every planned change but call no `Write` or `Edit`. Back up `~/.claude/settings.json` before the Phase 4 merge. Skip a skill that already exists unless the user chooses Recreate. Keep the merged global `CLAUDE.md` within the 200-line guidance; the Phase 3 fenced block is roughly 85 lines, so trim the operator's own content rather than the discipline sections if the total would overflow.
+**MUST**: Honor every flag from 0a for the rest of the run. Under `--dry-run`, render every planned change but call no `Write` or `Edit`. Back up `~/.claude/settings.json` before the Phase 4 merge. Skip a skill that already exists unless the user chooses Recreate. Keep the merged global `CLAUDE.md` within the 200-line guidance; count the Phase 3 fenced block from the template you read in 3b rather than from a number written here, and trim the operator's own content rather than the discipline sections if the total would overflow.
 
 ### 0a. Parse arguments
 
@@ -167,7 +167,9 @@ Under `--dry-run`, still run this interview: the answers feed the rendered previ
 
 ### 3b. Build the proposed section
 
-Read the portable section template at `${CLAUDE_PLUGIN_ROOT}/references/global-claude-md-section-template.md`. It carries the working discipline in eleven sections (How to read this file, Reading the request, Grounding, Project memory, Ask or resolve, Research routing, Delegation bounds, Plan or work directly, Web research, Before you call it done, Skills) wrapped between `<!-- ac:delegation:start -->` and `<!-- ac:delegation:end -->` fence markers. The fenced block is roughly 87 lines. Reproduce exactly the sections the file contains; do not add one the list above does not name.
+Read the portable section template at `${CLAUDE_PLUGIN_ROOT}/references/global-claude-md-section-template.md`. The working discipline is the run of `##` sections between the `<!-- ac:delegation:start -->` and `<!-- ac:delegation:end -->` fence markers. Reproduce every section the fenced block carries, in the order it carries them.
+
+The template file is the only roster. Do not restate the section names or a line count in this command: the enumeration that used to sit here named eleven sections while the template carried twelve, having missed `Staying on the task` on the day it was added, and it went unnoticed for over a month across an unrelated edit to this same file. An installer that trusts a stale list drops a section the template defends at length.
 
 This content lives in CLAUDE.md rather than in a skill on purpose: CLAUDE.md reaches every main-thread turn unconditionally, while a skill body loads only when the model chooses to load it, which is the wrong reliability profile for standing procedural discipline. Do not reintroduce a pointer-to-a-skill shape here.
 
