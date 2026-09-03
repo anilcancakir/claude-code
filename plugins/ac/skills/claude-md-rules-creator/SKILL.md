@@ -341,7 +341,7 @@ Always check:
 - [ ] Right scope (managed / user-global / project-team / project-personal).
 - [ ] Right shape (`CLAUDE.md` / `CLAUDE.local.md` / `.claude/rules/<topic>.md`).
 - [ ] File at the right path (user rules: `~/.claude/rules/` not `~/.claude/.claude/rules/`; project rules: `<dir>/.claude/rules/`).
-- [ ] Under 200 lines (soft cap, adherence cliff). Hard cap 40,000 characters. Sweet spot 40 to 80 lines for project-team CLAUDE.md per community benchmarks (HumanLayer 57, ChrisWiles 80, Boris Cherny team ~83).
+- [ ] Under 200 lines (soft cap, adherence cliff). Hard cap 40,000 characters. Sweet spot 60 to 120 lines for project-team CLAUDE.md, measured across eight production repositories at a pinned commit SHA: median 105 to 110 lines, six of eight above 80 (`redpanda-data/connect` 174, `alibaba/spring-ai-alibaba` 150, `archtechx/tenancy` 129, `jrnl-org/jrnl` 108, `reidmorrison/semantic_logger` 103, `confluentinc/vscode` 84). The short ones stay short by pointing one line at a deeper document, not by carrying less content.
 - [ ] Every line passes the "removing this would cause mistakes" test.
 - [ ] Specific, verifiable rules; no vague verbs.
 - [ ] No aspirations ("we aim for X"); state what is actually enforced.
@@ -359,6 +359,10 @@ Check the items that apply to your file's shape:
 - [ ] (Imports) `@path` references resolve; no chain deeper than four hops; external imports approved if needed.
 - [ ] (HTML comments) Maintainer notes wrapped in `<!-- ... -->` are block-level (own line); inline comments survive injection.
 - [ ] (Run `/memory`) The file appears in the loaded list. If not, the path is wrong, the scope source is disabled, or `claudeMdExcludes` is filtering it.
+- [ ] (Hook command) No secret or credential appears in the hook command string.
+- [ ] (Hook script) A path-containment guard is present, rejecting any target outside the intended directory.
+- [ ] (Settings merge) A timestamped backup of the settings file was taken before the merge.
+- [ ] (Post-write) `claude doctor` runs clean in the target directory after the write.
 
 ## References
 
@@ -372,6 +376,8 @@ Check the items that apply to your file's shape:
 | `${CLAUDE_SKILL_DIR}/references/content-rules.md` | Comprehensive INCLUDE / EXCLUDE list with examples per category, the five-question framework, specificity examples, the canonical `# CLAUDE.md` preface, what `/init` includes by default. |
 | `${CLAUDE_SKILL_DIR}/references/anti-patterns.md` | Failure modes specific to CLAUDE.md and rules: aspiration, drift, secrets, oversize, scope leakage, vague rules, compact misunderstanding, conflicting hierarchies. Quick audit checklist. |
 | `${CLAUDE_SKILL_DIR}/references/examples.md` | Four full annotated examples: global (`~/.claude/CLAUDE.md`), project-team (`./CLAUDE.md`), project-personal (`./CLAUDE.local.md`), path-scoped rule (`.claude/rules/api.md` with `paths:`). |
+| `${CLAUDE_SKILL_DIR}/references/hook-wiring.md` | Constructing a linter hook for a target project and proving it fires: the seven-step procedure. |
+| `${CLAUDE_SKILL_DIR}/references/lsp-wiring.md` | Detecting, proposing, and verifying a language server for a target project. |
 | `${CLAUDE_SKILL_DIR}/assets/CLAUDE.template.md` | Starting a project-team `./CLAUDE.md` from a blank template with the canonical preface. |
 | `${CLAUDE_SKILL_DIR}/assets/CLAUDE.local.template.md` | Starting a project-personal `./CLAUDE.local.md` from a blank template. |
 | `${CLAUDE_SKILL_DIR}/assets/global-CLAUDE.template.md` | Starting a user-global `~/.claude/CLAUDE.md` from a blank template. |

@@ -35,6 +35,27 @@ After every change, run in this order:
 - [Specific convention 2, e.g., "Use Zod for input validation."]
 - [Specific convention 3, e.g., "Co-locate tests next to source: Foo.tsx + Foo.test.tsx."]
 
+## Golden Rules
+
+1. [Rule verifiable by grep or review, e.g., "All event listeners extend DisposableCollection; initialize through superclass."]
+2. [Rule, e.g., "Input validation in constructors; throw on invalid state rather than silent failure."]
+3. [Rule, e.g., "Enums for status values, never string constants."]
+
+<!--
+Block-level HTML comments are stripped before injection: zero token cost.
+This section appeared in 3 of 8 sampled repositories; projects with no Golden Rules leave this section out rather than inventing filler.
+Checkable rule (good): "All event listeners extend DisposableCollection; grep '^class.*Listener.*extends DisposableCollection' to verify."
+Vague rule (rejected): "Write clean code."
+Checkable rule (good): "No database queries outside repository layer; enforced via code review."
+Vague rule (rejected): "Keep separation of concerns."
+-->
+
+## Testing
+
+- Test command: `[your test command]`
+- Run a single test: `[how to run one test file or one test case]`
+- [Quirk or prerequisite, e.g., "Tests require .env.test file"; e.g., "PostgreSQL server must be running"]
+
 ## Off-limits
 
 - [Anti-pattern 1 + what to do instead, e.g., "Don't edit prisma/migrations/* directly; generate via pnpm prisma migrate dev."]
