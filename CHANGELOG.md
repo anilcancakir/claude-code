@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Three rules the lean shape drops are recovered at one line each: no guessed URLs, prefer an edit to an existing file, and do not refuse a request for being large. Prompt-injection flagging was considered and left out.
 - The pair-programming rule stops contradicting the built-in. It said to push back and wait for approval where `# Delivering work` says to state the concern and keep building. It now splits by risk: stop on hard-to-reverse or outward-facing work, elsewhere name the assumption and finish.
 - The security rule is a write-time constraint rather than a re-read instruction, because explicit verification instructions are documented to cause over-verification on the current Opus generation at no quality gain.
+- `/ac:install` is half the size. A slash command body renders into the user prompt rather than the system prompt, so it competes with the request the operator actually typed; this one had reached 464 lines and 41KB, of which 175 lines were settings key tables. It is now 282 lines, with every key in a new `references/install-settings.md` that loads only when Phase 4 runs and costs nothing under `--skip-settings`. Nothing behavioural moved: the identifiers that appear to vanish are key-equals-value spans collapsed into table columns.
 
 ### Fixed
 
@@ -29,6 +30,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Phase 3 no longer interviews for answers the operator's current file already holds. On an upgrade, identity, language, trigger words, tools and stack are all recorded in the copy about to be replaced, and asking again breaks the generated file's own rule against asking what a readable file already answers. It reads that file first and confirms in one round.
 - A placeholder can no longer survive into a live CLAUDE.md. One of the eight occurs twice, so a first-occurrence substitution shipped a raw angle bracket, and nothing checked. A grep now runs before the gate, with the literal `<topic>`, `<slug>` and angle-bracketed email as the expected non-matches.
 - An operator's existing optional section is carried forward rather than regenerated. Rebuilding `Blocked pages` from three interview answers would have discarded two measured timings and a failure mode from the section already there.
+- Pre-filling the Phase 3 placeholders no longer skips the confirmation. A live run filled the name from two different lines of the same source file and shipped `Anilcan` in `Role` beside `Anılcan` in `Identity`; both sections now come from one string, on either branch, and the confirmation round has a stated shape rather than only a requirement to exist.
+- Phase 3 drops the ac MCP fallback sentences when the Phase 0 probe failed. Phase 0 has always promised that and no later step performed it, because the template names those tools as static text with no placeholder to leave empty.
+- The stray-marker branch names its two remedies again, and the summary stops carrying an MCP URL that the settings reference owns.
 
 ## [0.14.2] - 2026-09-04
 
