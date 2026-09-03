@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-09-03
+
+Adds `/ac:auto`. The plugin could already plan and execute; what it could not do is be left alone, because nothing decided when a run was finished except the model doing the work.
+
+The design came out of finding that Claude Code already ships a first-party answer, `/goal`, whose evaluator judges a condition after every turn. That is not wired in, because `ProposeGoal` is the tool that would let a plugin arm one and it is not exposed at runtime, verified by listing a clean session's tools on 2.1.259. So this ships its own Stop hook and pairs it with the one that already existed, which turns out to be the stronger arrangement: one guard reads plan checkboxes off disk and cannot be talked out of them, the other asks only whether a verdict file exists and never reads whether the work succeeded. Neither is the actor. The literature on autonomous loops is unanimous that an actor authoring its own check produces work that passes with the defects still in it, and every mechanism surveyed still bottoms out in a human-authored check or an iteration cap.
+
+The refusals are the interesting part. It takes no request whose criteria cannot be listed before work starts, because criteria written afterwards are written knowing what got built. It auto-answers no BLOCKER. It never pushes. And the gate holds no tool that can change what it judges.
+
+
 ### Added
 
 - `/ac:auto`, an autonomous mode for the ac plugin that runs a request to completion with a verdict delivered by a read-only gate. The orchestrator (`ac:auto` skill) freezes criteria to `.ac/auto/<slug>/criteria.md` under a sha256 digest before handing work to `ac:plan --auto`, which chains `ac:execute` itself rather than invoking it separately. The gate (`ac:auto-verifier`) runs in a separate subagent with a tool allowlist carrying `Read, Grep, Glob, Bash` and no `Edit`, `Write`, or `Agent`, so it holds no tool that can change what it judges. Two independent `Stop` hooks fire on every turn end and their predicates are deliberately disjoint: `plugins/ac/hooks/stop-guard.sh` asks whether the plan is finished, read from the plan file's step checkboxes on disk, and `plugins/ac/hooks/stop-guard-auto.sh` asks only whether `.ac/auto/<slug>/verdict.md` exists, never reading whether any criterion is met. A block from either beats an allow from the other, and when both block the model receives both reasons. `turn_budget` (default 40) and `failure_budget` (default 0.2, a fraction of total plan steps) both live in the run's `criteria.md`, not in the environment: the run continues while `failed_steps / total_steps` stays within the budget and hard-stops once it exceeds it, so on a 15-step plan three failures (3/15 = 0.20) continue and a fourth (4/15 = 0.27) stops the run. v1 accepts only requests whose success and failure criteria are enumerable before work starts; open-ended audits and multi-phase exploration are refused at Phase 0. The run never pushes: `/ac:execute` Phase 4 now passes `--no-push` to `/ac:commit` whenever `.ac/state/active-auto.json` exists, since an unattended run has nobody present to approve an outward-facing action and `/ac:commit`'s branch guard only asks before pushing on `main` or `master` in the first place. While a run is live, a new `PreToolUse` hook on the `Bash` matcher denies twelve irreversible verbs, among them `git push`, `git reset --hard`, `git clean` and `rm -rf`, and it does not exempt the orchestrator. It is inert whenever no auto marker this session owns is present, so an ordinary session is unaffected. It is a speed bump rather than a boundary and its header says so: quoting defeats it, and everything it denies lands on files a wave checkpoint commit already captured. A BLOCKER is never auto-answered: every interview gate in `ac:plan` Stage 3 and every BLOCKER in either chained skill reaches the user exactly as it would in a supervised run, and `overrides[].accepted_by` is never written by the model.
@@ -482,6 +491,7 @@ The lesson driving this release: a limit written in prose is not a limit. The ca
 - `subagent-monitor` plugin removed from the marketplace; functionality superseded by
   the plan-chain agent reviewers.
 
+[0.13.0]: https://github.com/anilcancakir/claude-code/compare/v0.12.0...v0.13.0
 [0.12.0]: https://github.com/anilcancakir/claude-code/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/anilcancakir/claude-code/compare/v0.10.1...v0.11.0
 [0.10.1]: https://github.com/anilcancakir/claude-code/compare/v0.10.0...v0.10.1
