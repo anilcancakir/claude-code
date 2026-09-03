@@ -12,6 +12,7 @@ import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
 import { HISTORY_TOOL_DEFINITION, HISTORY_TOOL_NAME, runHistoryTool } from "./history-tool.ts";
 import { LOCAL_WEB_FETCH_TOOL_DEFINITION, runLocalFetch } from "./local-fetch.ts";
 import { raceWebFetch } from "./web-fetch-race.ts";
+import { AC_VERSION } from "./version.ts";
 
 /**
  * Default kodizm MCP endpoint.
@@ -177,7 +178,7 @@ export async function runMcpProxy(options: { token?: string; url?: string }): Pr
     let cachedTools: Tool[] | undefined;
 
     const server = new Server(
-        { name: "ac", version: "0.9.1" },
+        { name: "ac", version: AC_VERSION },
         { capabilities: { tools: {} }, instructions: SERVER_INSTRUCTIONS },
     );
 
@@ -318,7 +319,7 @@ export async function runMcpProxy(options: { token?: string; url?: string }): Pr
  */
 function buildRemoteHandle(url: string, token: string): RemoteHandle {
     const client = new Client(
-        { name: "ac", version: "0.9.1" },
+        { name: "ac", version: AC_VERSION },
         { capabilities: {} },
     );
     const transport = new StreamableHTTPClientTransport(

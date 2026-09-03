@@ -1,5 +1,6 @@
 import { Command } from "commander";
 import { runMcpProxy } from "./mcp.ts";
+import { AC_VERSION } from "./version.ts";
 import { scaffoldPlan } from "./plan-scaffold.ts";
 import { collectPlanStats, formatPlanStats } from "./plan-stats.ts";
 import { resolveTranscriptPath, runRunStats } from "./run-stats.ts";
@@ -20,7 +21,7 @@ const program = new Command();
 program
     .name("ac")
     .description("ac CLI. Companion runtime for the ac Claude Code plugin.")
-    .version("0.11.0");
+    .version(AC_VERSION);
 
 program
     .command("mcp")
