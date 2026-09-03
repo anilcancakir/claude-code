@@ -38621,7 +38621,6 @@ function buildSkeleton(slug) {
   const lines = [
     `# Plan: ${slug}`,
     "",
-    "**Complexity**: <standard | complex>",
     "**Steps**: <N>",
     "**Waves**: <N>",
     "**Codebase State**: <disciplined | transitional | legacy | chaotic | greenfield>",
@@ -38646,79 +38645,369 @@ function scaffoldPlan(slug, opts) {
   return { created: true, planPath };
 }
 
-// src/review-counters.ts
-import { readFileSync } from "node:fs";
-var MISSING_LOG_LINE = "ITER=1 PREV=none GATE=OK NEW=none";
-var ISSUE_COUNT_PREFIX = "- Issue count:";
-var FINGERPRINTS_PREFIX = "- Fingerprints:";
-function parseFingerprints(line) {
-  const payload = line.slice(FINGERPRINTS_PREFIX.length);
-  const parts = payload.split(",");
-  const out = new Set;
-  for (const part of parts) {
-    const trimmed = part.trim().replace(/[`\\]/g, "");
-    if (trimmed !== "") {
-      out.add(trimmed);
+// src/plan-stats.ts
+import { readdirSync, readFileSync, statSync } from "node:fs";
+import { join as join5 } from "node:path";
+var STEP_TIER = /^\s*(?:-\s+)?\*\*Tier\*\*:\s*([a-z-]+)/;
+var NOT_A_TIER = new Set(["n"]);
+var COMPLEXITY = /^\*\*Complexity\*\*:\s*([a-z]+)/;
+var CODEBASE_STATE = /^\*\*Codebase State\*\*:\s*([a-z]+)/;
+function summarisePlan(text) {
+  let complexity;
+  let codebaseState;
+  const tiers = [];
+  for (const line of text.split(`
+`)) {
+    const tier = STEP_TIER.exec(line);
+    if (tier?.[1] !== undefined) {
+      if (!NOT_A_TIER.has(tier[1])) {
+        tiers.push(tier[1]);
+      }
+      continue;
     }
+    if (complexity === undefined) {
+      complexity = COMPLEXITY.exec(line)?.[1];
+    }
+    if (codebaseState === undefined) {
+      codebaseState = CODEBASE_STATE.exec(line)?.[1];
+    }
+  }
+  return { codebaseState, complexity, tiers };
+}
+function toSortedCounts(counts) {
+  return [...counts.entries()].map(([name, count]) => ({ count, name })).sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+}
+var SKIP_DIRS = new Set(["node_modules", ".git", "dist", "build", "vendor", "target", ".next"]);
+function findPlanFiles(root, out, depth) {
+  if (depth > 6) {
+    return;
+  }
+  let entries2;
+  try {
+    entries2 = readdirSync(root);
+  } catch {
+    return;
+  }
+  for (const entry of entries2) {
+    if (SKIP_DIRS.has(entry)) {
+      continue;
+    }
+    const path = join5(root, entry);
+    let isDirectory;
+    try {
+      isDirectory = statSync(path).isDirectory();
+    } catch {
+      continue;
+    }
+    if (isDirectory) {
+      findPlanFiles(path, out, depth + 1);
+    } else if (entry === "plan.md" && path.includes(`${join5(".ac", "plans")}`)) {
+      out.push(path);
+    }
+  }
+}
+function collectPlanStats(root) {
+  const files = [];
+  findPlanFiles(root, files, 0);
+  const tiers = new Map;
+  const complexity = new Map;
+  const codebaseState = new Map;
+  let steps = 0;
+  for (const file of files) {
+    let text;
+    try {
+      text = readFileSync(file, "utf8");
+    } catch {
+      continue;
+    }
+    const summary = summarisePlan(text);
+    for (const tier of summary.tiers) {
+      tiers.set(tier, (tiers.get(tier) ?? 0) + 1);
+      steps += 1;
+    }
+    if (summary.complexity !== undefined) {
+      complexity.set(summary.complexity, (complexity.get(summary.complexity) ?? 0) + 1);
+    }
+    if (summary.codebaseState !== undefined) {
+      codebaseState.set(summary.codebaseState, (codebaseState.get(summary.codebaseState) ?? 0) + 1);
+    }
+  }
+  return {
+    codebaseState: toSortedCounts(codebaseState),
+    complexity: toSortedCounts(complexity),
+    plans: files.length,
+    steps,
+    tiers: toSortedCounts(tiers)
+  };
+}
+function renderSection(title, entries2, total) {
+  if (entries2.length === 0) {
+    return [];
+  }
+  const width = entries2.reduce((max, entry) => Math.max(max, entry.name.length), 0);
+  return [
+    title,
+    ...entries2.map((entry) => {
+      const share = total === 0 ? 0 : 100 * entry.count / total;
+      return `  ${entry.name.padEnd(width)}  ${String(entry.count).padStart(5)}  ${share.toFixed(1)}%`;
+    })
+  ];
+}
+function formatPlanStats(stats) {
+  const planTotal = stats.complexity.reduce((sum, entry) => sum + entry.count, 0);
+  const stateTotal = stats.codebaseState.reduce((sum, entry) => sum + entry.count, 0);
+  return [
+    `Plans: ${stats.plans}`,
+    `Steps: ${stats.steps}`,
+    ...renderSection("Tier distribution:", stats.tiers, stats.steps),
+    ...renderSection("Complexity:", stats.complexity, planTotal),
+    ...renderSection("Codebase state:", stats.codebaseState, stateTotal)
+  ].join(`
+`);
+}
+
+// src/run-stats.ts
+import { existsSync as existsSync2, readdirSync as readdirSync2, readFileSync as readFileSync2 } from "node:fs";
+import { basename as basename3, dirname as dirname2, join as join6 } from "node:path";
+var COMPACTION_FLOOR = 1e5;
+var COMPACTION_WINDOW = 6;
+function toSortedCounts2(counts) {
+  return [...counts.entries()].map(([name, count]) => ({ count, name })).sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+}
+function bump(counts, key2) {
+  counts.set(key2, (counts.get(key2) ?? 0) + 1);
+}
+function computeRunStats(lines) {
+  const usageById = new Map;
+  const contextSeries = [];
+  const toolCounts = new Map;
+  const agentCounts = new Map;
+  for (const line of lines) {
+    const record3 = parseRecord(line);
+    if (record3 === undefined) {
+      continue;
+    }
+    const id = record3.id;
+    if (id !== undefined && !usageById.has(id) && record3.usage !== undefined) {
+      usageById.set(id, record3.usage);
+      contextSeries.push(record3.usage.cacheRead);
+    } else if (id !== undefined && !usageById.has(id)) {
+      usageById.set(id, { cacheRead: 0, output: 0 });
+    }
+    for (const block of record3.toolUses) {
+      bump(toolCounts, block.name);
+      if (block.name === "Agent" && block.subagentType !== undefined) {
+        bump(agentCounts, block.subagentType);
+      }
+    }
+  }
+  let outputTokens = 0;
+  let cacheReadTokens = 0;
+  let peakContext = 0;
+  for (const usage of usageById.values()) {
+    outputTokens += usage.output;
+    cacheReadTokens += usage.cacheRead;
+    peakContext = Math.max(peakContext, usage.cacheRead);
+  }
+  let compactions = 0;
+  for (let i = 1;i < contextSeries.length; i += 1) {
+    const previous = contextSeries[i - 1] ?? 0;
+    const current = contextSeries[i] ?? 0;
+    if (previous < COMPACTION_FLOOR || current >= previous / 2) {
+      continue;
+    }
+    let windowMax = 0;
+    const end = Math.min(i + COMPACTION_WINDOW, contextSeries.length);
+    for (let j = i;j < end; j += 1) {
+      windowMax = Math.max(windowMax, contextSeries[j] ?? 0);
+    }
+    if (windowMax < previous / 2) {
+      compactions += 1;
+    }
+  }
+  const turns = usageById.size;
+  const toolCalls = toSortedCounts2(toolCounts);
+  return {
+    agentSpawns: toSortedCounts2(agentCounts),
+    avgContext: turns === 0 ? 0 : Math.round(cacheReadTokens / turns),
+    cacheReadTokens,
+    compactions,
+    outputTokens,
+    peakContext,
+    toolCalls,
+    totalToolCalls: toolCalls.reduce((sum, entry) => sum + entry.count, 0),
+    turns
+  };
+}
+function parseRecord(line) {
+  if (line.trim() === "") {
+    return;
+  }
+  let parsed;
+  try {
+    parsed = JSON.parse(line);
+  } catch {
+    return;
+  }
+  if (typeof parsed !== "object" || parsed === null) {
+    return;
+  }
+  const record3 = parsed;
+  if (record3["type"] !== "assistant") {
+    return;
+  }
+  const message = record3["message"];
+  if (typeof message !== "object" || message === null) {
+    return;
+  }
+  const messageRecord = message;
+  const rawId = messageRecord["id"];
+  const id = typeof rawId === "string" ? rawId : undefined;
+  return {
+    id,
+    toolUses: readToolUses(messageRecord["content"]),
+    usage: readUsage(messageRecord["usage"])
+  };
+}
+function readUsage(raw) {
+  if (typeof raw !== "object" || raw === null) {
+    return;
+  }
+  const usage = raw;
+  const output = usage["output_tokens"];
+  const cacheRead = usage["cache_read_input_tokens"];
+  return {
+    cacheRead: typeof cacheRead === "number" ? cacheRead : 0,
+    output: typeof output === "number" ? output : 0
+  };
+}
+function readToolUses(raw) {
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+  const out = [];
+  for (const entry of raw) {
+    if (typeof entry !== "object" || entry === null) {
+      continue;
+    }
+    const block = entry;
+    if (block["type"] !== "tool_use" || typeof block["name"] !== "string") {
+      continue;
+    }
+    const input = block["input"];
+    const subagentType = typeof input === "object" && input !== null ? input["subagent_type"] : undefined;
+    out.push({
+      name: block["name"],
+      subagentType: typeof subagentType === "string" ? subagentType : undefined
+    });
   }
   return out;
 }
-function computeCounters(text, opts) {
-  let iter = 0;
-  let prev = "";
-  let fingerprintSets = [];
-  for (const rawLine of text.split(`
-`)) {
-    const line = rawLine.trimStart();
-    if (line.startsWith(opts.runPrefix)) {
-      iter = 0;
-      prev = "";
-      fingerprintSets = [];
-    } else if (line.startsWith(opts.iterPrefix)) {
-      iter += 1;
-    } else if (line.startsWith(ISSUE_COUNT_PREFIX)) {
-      const field = line.split(/\s+/)[3];
-      prev = field ?? "";
-    } else if (line.startsWith(FINGERPRINTS_PREFIX)) {
-      fingerprintSets.push(parseFingerprints(line));
+function formatCounts(entries2, indent) {
+  const width = entries2.reduce((max, entry) => Math.max(max, entry.name.length), 0);
+  return entries2.map((entry) => `${indent}${entry.name.padEnd(width)}  ${entry.count}`);
+}
+function formatRunStats(stats, rollup = []) {
+  const lines = [
+    `Turns: ${stats.turns}`,
+    `Output tokens: ${stats.outputTokens}`,
+    `Cache-read tokens: ${stats.cacheReadTokens}`,
+    `Average context: ${stats.avgContext}`,
+    `Peak context: ${stats.peakContext}`,
+    `Compactions: ${stats.compactions}`,
+    `Tool calls: ${stats.totalToolCalls}`,
+    ...formatCounts(stats.toolCalls, "  ")
+  ];
+  if (stats.agentSpawns.length > 0) {
+    lines.push("Agent spawns:", ...formatCounts(stats.agentSpawns, "  "));
+  }
+  if (rollup.length > 0) {
+    lines.push("Subagent rollup (runs / avg turns / avg output / avg cache-read):");
+    for (const entry of rollup) {
+      lines.push(`  ${entry.agentType}  ${entry.runs}  ${entry.avgTurns}  ` + `${entry.avgOutputTokens}  ${entry.avgCacheReadTokens}`);
     }
   }
-  const next = iter + 1;
-  return {
-    gate: next > opts.cap ? "MAX_ITER" : "OK",
-    iter: next,
-    newCount: countNewFingerprints(fingerprintSets),
-    prev: prev === "" ? "none" : prev
-  };
+  return lines.join(`
+`);
 }
-function countNewFingerprints(sets) {
-  if (sets.length < 2) {
-    return "none";
-  }
-  const latest = sets[sets.length - 1];
-  const previous = sets[sets.length - 2];
-  if (latest === undefined || previous === undefined || latest.size === 0) {
-    return "none";
-  }
-  let added = 0;
-  for (const item of latest) {
-    if (!previous.has(item)) {
-      added += 1;
-    }
-  }
-  return String(added);
-}
-function formatCounters(counters) {
-  return `ITER=${counters.iter} PREV=${counters.prev} GATE=${counters.gate} NEW=${counters.newCount}`;
-}
-function runReviewCounters(logPath, opts) {
-  let text;
+function computeAgentRollup(transcriptPath) {
+  const sessionId = basename3(transcriptPath).replace(/\.jsonl$/, "");
+  const subagentsDir = join6(dirname2(transcriptPath), sessionId, "subagents");
+  let entries2;
   try {
-    text = readFileSync(logPath, "utf8");
+    entries2 = readdirSync2(subagentsDir);
   } catch {
-    return MISSING_LOG_LINE;
+    return [];
   }
-  return formatCounters(computeCounters(text, opts));
+  const byType = new Map;
+  for (const entry of entries2) {
+    if (!entry.endsWith(".meta.json")) {
+      continue;
+    }
+    const agentType = readAgentType(join6(subagentsDir, entry));
+    if (agentType === undefined) {
+      continue;
+    }
+    const transcript = join6(subagentsDir, entry.replace(/\.meta\.json$/, ".jsonl"));
+    let stats;
+    try {
+      stats = computeRunStats(readFileSync2(transcript, "utf8").split(`
+`));
+    } catch {
+      continue;
+    }
+    const bucket = byType.get(agentType) ?? { cacheRead: 0, output: 0, runs: 0, turns: 0 };
+    byType.set(agentType, {
+      cacheRead: bucket.cacheRead + stats.cacheReadTokens,
+      output: bucket.output + stats.outputTokens,
+      runs: bucket.runs + 1,
+      turns: bucket.turns + stats.turns
+    });
+  }
+  return [...byType.entries()].map(([agentType, bucket]) => ({
+    agentType,
+    avgCacheReadTokens: Math.round(bucket.cacheRead / bucket.runs),
+    avgOutputTokens: Math.round(bucket.output / bucket.runs),
+    avgTurns: Math.round(bucket.turns / bucket.runs * 10) / 10,
+    runs: bucket.runs
+  })).sort((a, b) => b.runs - a.runs);
+}
+function readAgentType(metaPath) {
+  try {
+    const parsed = JSON.parse(readFileSync2(metaPath, "utf8"));
+    if (typeof parsed !== "object" || parsed === null) {
+      return;
+    }
+    const agentType = parsed["agentType"];
+    return typeof agentType === "string" ? agentType : undefined;
+  } catch {
+    return;
+  }
+}
+function resolveTranscriptPath(sessionOrPath, projectsRoot) {
+  if (sessionOrPath.includes("/")) {
+    return sessionOrPath;
+  }
+  const id = sessionOrPath.replace(/\.jsonl$/, "");
+  let projects;
+  try {
+    projects = readdirSync2(projectsRoot);
+  } catch {
+    throw new Error(`Projects root is not readable: ${projectsRoot}`);
+  }
+  for (const project of projects) {
+    const candidate = join6(projectsRoot, project, `${id}.jsonl`);
+    if (existsSync2(candidate)) {
+      return candidate;
+    }
+  }
+  throw new Error(`No transcript found for session ${id} under ${projectsRoot}`);
+}
+function runRunStats(transcriptPath) {
+  const text = readFileSync2(transcriptPath, "utf8");
+  const stats = computeRunStats(text.split(`
+`));
+  return formatRunStats(stats, computeAgentRollup(transcriptPath));
 }
 
 // src/index.ts
@@ -38730,19 +39019,19 @@ program2.command("mcp").description("Run the ac stdio MCP server (proxies tools 
     url: opts.url
   });
 });
-program2.command("review-counters <log>").description("Print the review-loop counters derived from an append-only log: " + "ITER=<n> PREV=<v> GATE=<OK|MAX_ITER> NEW=<count>.").option("--run-prefix <value>", "Heading that scopes counters to one run (for example '## Run ').", "## Run ").option("--iter-prefix <value>", "Heading that marks one logged pass (for example '## Phase 3d Iteration').", "## Phase 3d Iteration").option("--cap <value>", "Iteration cap; GATE reads MAX_ITER once ITER exceeds it.", "3").action((log, opts) => {
-  const cap = Number.parseInt(opts.cap, 10);
-  process.stdout.write(runReviewCounters(log, {
-    cap: Number.isNaN(cap) ? 3 : cap,
-    iterPrefix: opts.iterPrefix,
-    runPrefix: opts.runPrefix
-  }) + `
-`);
-});
 program2.command("plan-scaffold <slug>").description("Create .ac/plans/<slug>/ with research/ and evidence/, and write a plan.md skeleton " + "carrying the template's sections in order. Leaves an existing plan.md untouched.").option("--dir <value>", "Project root to scaffold under.", process.cwd()).action((slug, opts) => {
   const result = scaffoldPlan(slug, { dir: opts.dir });
   const state = result.created ? "created" : "exists, left untouched";
   process.stdout.write(`${result.planPath} (${state})
+`);
+});
+program2.command("run-stats <session>").description("Print the cost anatomy of one run from its session transcript: turns, output tokens, " + "cache-read, average and peak resident context, compactions, the tool mix and the " + "per-agent-type subagent rollup. Accepts a session id or a path to the .jsonl.").action((session) => {
+  const path = resolveTranscriptPath(session, resolveProjectsRoot());
+  process.stdout.write(runRunStats(path) + `
+`);
+});
+program2.command("plan-stats").description("Scan a directory tree for `.ac/plans/<slug>/plan.md` files and print the tier and " + "codebase-state distributions across them, plus complexity for plans old enough to " + "carry that retired field. Use it to measure what the plan-time tier rules actually " + "produce, before and after a rule change.").option("--dir <value>", "Root to scan.", process.cwd()).action((opts) => {
+  process.stdout.write(formatPlanStats(collectPlanStats(opts.dir)) + `
 `);
 });
 var history = program2.command("history").description("Debugging and warming surface for the local Claude Code history archive that backs the " + "search-history MCP tool.");
@@ -38829,4 +39118,4 @@ function formatSyncReport(report) {
 }
 await program2.parseAsync(process.argv);
 
-//# debugId=38301304455EA9A664756E2164756E21
+//# debugId=E2AD924DB0E2D00764756E2164756E21
