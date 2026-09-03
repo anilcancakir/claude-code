@@ -29,6 +29,9 @@
 #     one repository leave the second owning the marker and the first unguarded.
 #   - A bare `Stop` registration never fires for subagents; utils/hooks.ts:3654 routes those
 #     to SubagentStop. Blast radius is the main thread only.
+#   - The no-progress test needs `transcript_path` in the payload to read tool activity. Without
+#     it the test cannot fire at all and only the block budget bounds the run. That is the
+#     deliberate direction: an unreadable transcript is not evidence of a stall.
 
 set -u
 
@@ -74,6 +77,7 @@ jq -e . "$marker" >/dev/null 2>&1 || exit 0
 #    either still matches (services/compact/compact.ts:591-592 only fires the SessionStart
 #    hooks; utils/sessionRestore.ts:436-446 reuses the resumed id).
 hook_session="$(printf '%s' "$input" | jq -r '.session_id // empty' 2>/dev/null)"
+transcript_path="$(printf '%s' "$input" | jq -r '.transcript_path // empty' 2>/dev/null)"
 marker_session="$(jq -r '.session_id // empty' "$marker" 2>/dev/null)"
 [ -n "$hook_session" ] || exit 0
 [ -n "$marker_session" ] || exit 0
@@ -125,14 +129,17 @@ wave="$(jq -r '.current_wave // empty' "$marker" 2>/dev/null)"
 counter="$project_dir/.ac/state/stop-guard.json"
 blocks=0
 prev_unchecked=""
+prev_tpos=""
 if [ -f "$counter" ] && jq -e . "$counter" >/dev/null 2>&1; then
     prev_run="$(jq -r '.run // empty' "$counter" 2>/dev/null)"
     if [ "$prev_run" = "$started_at" ]; then
         [ "$(jq -r '.spent // false' "$counter" 2>/dev/null)" = "true" ] && exit 0
         blocks="$(jq -r '.blocks // 0' "$counter" 2>/dev/null)"
         prev_unchecked="$(jq -r '.unchecked // empty' "$counter" 2>/dev/null)"
+        prev_tpos="$(jq -r '.tpos // empty' "$counter" 2>/dev/null)"
         case "$blocks" in '' | *[!0-9]*) blocks=0 ;; esac
         case "$prev_unchecked" in *[!0-9]*) prev_unchecked="" ;; esac
+        case "$prev_tpos" in '' | *[!0-9]*) prev_tpos="" ;; esac
     fi
 fi
 
@@ -146,8 +153,31 @@ fi
 #    long context-heavy stretch it exists to cover. Past that point the block budget is the
 #    only bound, which is the correct one: there are no checkboxes left to measure.
 stop_hook_active="$(printf '%s' "$input" | jq -r '.stop_hook_active // false' 2>/dev/null)"
+
+# Did the model actually use the turn the last block bought? The checkbox count alone cannot answer
+# that, and assuming it could is what made this test fire on healthy runs. A wave's steps are verified
+# together at the barrier, so from the first spawn until that barrier ticks, `unchecked` is pinned by
+# design while several workers are mid-flight. Measured on a real run: this latched at wave 1 of 4
+# after a single block, and the guard was then inert for the remaining three waves and the whole
+# review phase, which is the opposite of what it exists to do.
+#
+# So the progress signal is tool activity, the same one the first-party `/goal` loop uses for its stall
+# detector. The counter stores the transcript's byte size at each block; the next block scans only the
+# bytes added since, which costs about 10ms on a 14MB transcript because it never reads the head.
+tool_used="unknown"
+if [ -n "$transcript_path" ] && [ -f "$transcript_path" ] && [ -n "$prev_tpos" ]; then
+    if tail -c "+$prev_tpos" "$transcript_path" 2>/dev/null | grep -q '"type":"tool_use"'; then
+        tool_used="yes"
+    else
+        tool_used="no"
+    fi
+fi
+
+# `unknown` deliberately does NOT latch. Being unable to read a transcript is not evidence that the
+# model is spinning, and the block budget above still bounds the run either way.
 no_progress="false"
-if [ "$unchecked" -gt 0 ] && [ -n "$prev_unchecked" ] && [ "$unchecked" -ge "$prev_unchecked" ]; then
+if [ "$unchecked" -gt 0 ] && [ -n "$prev_unchecked" ] && [ "$unchecked" -ge "$prev_unchecked" ] \
+    && [ "$tool_used" = "no" ]; then
     no_progress="true"
 fi
 
@@ -163,8 +193,13 @@ fi
 
 write_counter() {
     _tmp="$counter.tmp.$$"
+    _tpos=1
+    [ -n "$transcript_path" ] && [ -f "$transcript_path" ] \
+        && _tpos="$(wc -c < "$transcript_path" 2>/dev/null | tr -d ' ')"
+    case "$_tpos" in '' | *[!0-9]*) _tpos=1 ;; esac
     if jq -cn --arg run "$started_at" --argjson b "$1" --argjson u "$unchecked" --argjson s "$2" \
-        '{run: $run, blocks: $b, unchecked: $u, spent: $s}' > "$_tmp" 2>/dev/null; then
+        --argjson t "$_tpos" \
+        '{run: $run, blocks: $b, unchecked: $u, tpos: $t, spent: $s}' > "$_tmp" 2>/dev/null; then
         mv "$_tmp" "$counter" 2>/dev/null && return 0
     fi
     rm -f "$_tmp" 2>/dev/null
@@ -189,7 +224,7 @@ write_counter "$blocks" false || exit 0
 progress_note=""
 if [ "$no_progress" = "true" ]; then
     progress_note="
-This turn was handed back to you before and the unchecked count has not moved since. Blocking is not a substitute for progress: either complete the next step or take a terminal branch. This guard stops blocking once the budget is spent, and the run will simply be left unfinished."
+This turn was handed back to you before, and since then the unchecked count has not moved AND you made no tool call. Blocking is not a substitute for progress: either complete the next step or take a terminal branch. This guard stops blocking once the budget is spent, and the run will simply be left unfinished."
 fi
 
 reason="An /ac:execute run for '$slug' is still in flight, so this turn must not end yet.

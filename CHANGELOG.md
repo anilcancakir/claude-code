@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- The plan `Stop` guard retired itself at the first parallel wave. Its no-progress test compared the plan's unchecked-checkbox count between blocks, and a wave verifies its steps together at the barrier, so from the first spawn until that barrier the count is pinned by design while several workers are mid-flight. Caught from disk after a real run: the counter read `{"blocks":1,"unchecked":9,"spent":true}` with a budget of 10, meaning it latched on the no-progress branch after a single block at wave 1 of 4 and was inert for the remaining three waves and the whole review phase. The progress signal is now tool activity rather than checkbox movement, which is what the first-party `/goal` loop uses for its own stall detector: the counter stores the transcript's byte size at each block and the next block scans only the bytes added since, costing about 10ms on a 14MB transcript. A payload with no `transcript_path` cannot fire the test at all, deliberately, because an unreadable transcript is not evidence of a stall and the block budget still bounds the run.
+
+
 ## [0.13.0] - 2026-09-03
 
 Adds `/ac:auto`. The plugin could already plan and execute; what it could not do is be left alone, because nothing decided when a run was finished except the model doing the work.
