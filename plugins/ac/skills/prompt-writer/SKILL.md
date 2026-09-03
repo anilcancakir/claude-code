@@ -298,6 +298,7 @@ Before shipping a prompt:
 - [ ] Effort level set via `output_config={"effort": ...}` and matches task complexity.
 - [ ] Thinking parameter shape matches the model: default-on adaptive on Opus 5, Sonnet 5, and Fable 5 (manual `enabled` + `budget_tokens` returns a 400 error on all three; `disabled` returns 400 above effort `high` on Opus 5); manual `enabled` + `budget_tokens` only on Haiku 4.5, which rejects adaptive.
 - [ ] No `effort` set for Haiku 4.5 (the parameter is unsupported on that model).
+- [ ] Every fenced command in the body has been executed, on this machine, in the shell it will actually run in. A recipe you ship is code, and shipping it unrun is shipping untested code. Two real breakages, both invisible on reading: under `zsh`, the default macOS shell, a glob that matches nothing is a fatal error rather than an empty list, so a loop guarded by `[ -f "$f" ] || continue` still aborted on the first miss and returned zero rows; and the same loop globbed one directory level, which could not reach a marketplace that nests its plugins deeper. Run it, and check the output is what the surrounding prose claims it is.
 - [ ] Length controlled by an explicit target, not by lowering effort.
 - [ ] Scope boundary named, not just scope span.
 - [ ] Output shape lock uses `output_config.format` (Structured Outputs), tool call with enum, or XML wrap; not the deprecated top-level `output_format` or last-assistant prefill.
