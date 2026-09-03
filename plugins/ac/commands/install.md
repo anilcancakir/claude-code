@@ -1,5 +1,5 @@
 ---
-description: Interactive post-install setup for the ac plugin. Phase 0 parses flags (--dry-run, --skip-skills, --skip-settings, --skip-claude-md), detects the OS, the presence of the my-coding and my-language user skills, the global CLAUDE.md and settings.json, and probes ac MCP reachability. Phases 1 and 2 run short interviews and delegate my-coding and my-language skill creation to ac:skill-creator with the bundled templates, skipping any skill that already exists unless the user picks Recreate. Phase 3 runs a three-question placeholder interview, then merges the full workflow-discipline section (operating mode, code-lookup ladder, investigation, verification, delegation, web tools) into the global CLAUDE.md between the ac:delegation fence markers behind a .proposed gate. Phase 4 backs up (non-clobber) and idempotently merges settings.json in groups, namely safe-silent tuning (Group A, set-only-when-absent), core ac parity (Group C, enabledPlugins plus MCP allow plus plan-mode deny), security-sensitive keys behind an explicit opt-in multiSelect (Group B, default off), a context-trim opt-in that strips unused tool schemas, rarely-used bundled skills and the task toolset (Group D, default off), and an interactive MCP-token prompt whose value is masked in every rendered surface. The plan-mode block ships in the plugin hooks, so Phase 4 writes no settings hook. Phase 5 reports what was created, merged, skipped, and the backup path.
+description: Interactive post-install setup for the ac plugin. Phase 0 parses flags (--dry-run, --skip-skills, --skip-settings, --skip-claude-md), detects the OS, the presence of the my-coding and my-language user skills, the global CLAUDE.md and settings.json, and probes ac MCP reachability. Phases 1 and 2 run short interviews and delegate my-coding and my-language skill creation to ac:skill-creator with the bundled templates, skipping any skill that already exists unless the user picks Recreate. Phase 3 runs a four-round placeholder interview (identity, conversation language, working style, two optional sections), then merges the whole generated global CLAUDE.md between the ac:delegation fence markers behind a .proposed gate, naming any heading that collides with content the operator already wrote. The template file is the only roster of sections; this description deliberately does not enumerate them. Phase 4 backs up (non-clobber) and idempotently merges settings.json in groups, namely safe-silent tuning (Group A, set-only-when-absent), core ac parity (Group C, enabledPlugins plus MCP allow plus plan-mode deny), security-sensitive keys behind an explicit opt-in multiSelect (Group B, default off), a context-trim opt-in that strips unused tool schemas, rarely-used bundled skills and the task toolset (Group D, default off), and an interactive MCP-token prompt whose value is masked in every rendered surface. The plan-mode block ships in the plugin hooks, so Phase 4 writes no settings hook. Phase 5 reports what was created, merged, skipped, and the backup path.
 argument-hint: "[--dry-run] [--skip-skills] [--skip-settings] [--skip-claude-md]"
 effort: high
 disable-model-invocation: true
@@ -7,7 +7,7 @@ disable-model-invocation: true
 
 # /ac:install
 
-Interactive setup for a machine that already has the ac plugin installed. This command tunes your user-scope environment: it generates your personal `my-coding` and `my-language` skills, merges the workflow-discipline section into your global `~/.claude/CLAUDE.md`, and configures `~/.claude/settings.json` so the ac workflow replaces the matching Claude Code built-ins. Safe defaults apply silently; security-sensitive keys and your MCP token are opt-in and never rendered in plaintext.
+Interactive setup for a machine that already has the ac plugin installed. This command tunes your user-scope environment: it generates your personal `my-coding` and `my-language` skills, writes your global `~/.claude/CLAUDE.md`, and configures `~/.claude/settings.json` so the ac workflow replaces the matching Claude Code built-ins. Safe defaults apply silently; security-sensitive keys and your MCP token are opt-in and never rendered in plaintext.
 
 Request: $ARGUMENTS
 
@@ -21,7 +21,7 @@ You are the `/ac:install` orchestrator. You interview the user, delegate skill c
 
 **CANNOT**: Hand-write `my-coding` or `my-language` `SKILL.md` content; that is `ac:skill-creator`'s job. Blind-overwrite `~/.claude/CLAUDE.md` or `~/.claude/settings.json`; both go through merge plus a gate or a backup. Run `/plugin marketplace add` or `/plugin install`. Edit files outside `~/.claude/`. Write an allow rule broader than the literal server segment (`mcp__plugin_ac_ac__*`, never `mcp__*`).
 
-**MUST**: Honor every flag from 0a for the rest of the run. Under `--dry-run`, render every planned change but call no `Write` or `Edit`. Back up `~/.claude/settings.json` before the Phase 4 merge. Skip a skill that already exists unless the user chooses Recreate. Keep the merged global `CLAUDE.md` within the 200-line guidance; count the Phase 3 fenced block from the template you read in 3b rather than from a number written here, and trim the operator's own content rather than the discipline sections if the total would overflow.
+**MUST**: Honor every flag from 0a for the rest of the run. Under `--dry-run`, render every planned change but call no `Write` or `Edit`. Back up `~/.claude/settings.json` before the Phase 4 merge. Skip a skill that already exists unless the user chooses Recreate. Keep the merged global `CLAUDE.md` within the 200-line guidance; count the Phase 3 fenced block from the template you read in 3b rather than from a number written here. The fenced block covers the whole generated file, so there is no operator content sitting beside it to trim first: if the merged total would overflow, say so in the gate diff and let the operator decide, rather than cutting a section the template defends at length.
 
 ### 0a. Parse arguments
 
@@ -99,6 +99,7 @@ Hand it the brief plus the bundled template path, and instruct it to create the 
 - Create the `my-coding` skill at `~/.claude/skills/my-coding/`.
 - Read the structural template at `${CLAUDE_PLUGIN_ROOT}/references/coding-style-template.md` and fill its angle-bracket placeholders from the brief.
 - Author one `references/<language>.md` per primary stack from the brief; keep the SKILL.md body lean and push language detail into those references.
+- Author `references/anti-patterns.md`, and carry the template's required seed entries into it whatever the 1b interview surfaced. Say this in the brief explicitly rather than trusting the skill-creator to read the template section: a previous run produced a thirteen-row anti-patterns table from a free-form interview and landed none of the three.
 
 Do not write the SKILL.md yourself. The skill-creator owns the file content; this command only supplies the brief and the template path.
 
@@ -157,25 +158,32 @@ Skip this entire phase when `SKIP_CLAUDE_MD = true`.
 
 ### 3a. Placeholder interview
 
-The workflow discipline in the section template is generic to any ac user and ships as static content. Three angle-bracket placeholders are personal; fill them through `AskUserQuestion` in tight rounds before building the section:
+Most of the section template is generic to any ac user and ships as static content. The angle-bracket placeholders are personal; fill every one through `AskUserQuestion` in tight rounds before building the section. Read the template first and interview against the placeholders it actually carries, not against this list, which can drift the way the section roster in 3b once did.
 
-1. End-to-end trigger words: the phrases that mean "verify it through actual use, do not stop at compiles" (default examples: "ship it", "make it work").
-2. Real-world-test tools: how the operator runs a live check (multiSelect with defaults SSH, browser automation, HTTP client, REPL, plus an "Add your own" free-text option).
-3. Primary stack, for the optional stack-specific verification line (free text, or "skip" to drop the line).
+Not every angle bracket is a placeholder. `/ac:plan <topic>` and `.ac/plans/<slug>/plan.md` are literal text describing a command and a path, and they ship as written. A placeholder reads as a description of what to substitute, not as a shell argument.
+
+As of this writing there are eight, gathered in four rounds:
+
+1. Identity. The name for the `Role` line and the `name <email>` string for the `Identity` section. Reuse the answer for both; do not ask twice. Offer the git config values (`git config --get user.name`, `git config --get user.email`) as the pre-filled option, since that is where the operator already recorded them.
+2. Conversation language, which fills two placeholders in `Core principles`. Default to English. When the operator picks anything else, keep the sentence that says the local preference overrides an organization-level language policy: that clause is the whole point of the rule for a non-English speaker whose employer mandates English.
+3. Working style, in one multi-question call: the end-to-end trigger words that mean "verify through actual use, do not stop at a green build" (defaults "ship it", "make it work"); the real-world-test tools (multiSelect, defaults SSH, browser automation, HTTP client, REPL, plus a free-text option); and the primary stack for the optional stack-specific verification line (free text, or "skip" to drop the line).
+4. Two optional sections. Ask whether the operator has coding anti-patterns beyond the five the template ships, and append one bullet each in the same voice, or write nothing. Then ask whether they have a third fetch path for pages a WAF blocks, after the built-in and the ac MCP fallback both fail; when they do, collect the tool name, the conditions that hand off to it, and the one thing that is easy to get wrong, and write the optional `Blocked pages` section from those three. When they do not, drop the placeholder line entirely rather than emitting an empty heading.
 
 Under `--dry-run`, still run this interview: the answers feed the rendered preview, and skipping them would show a preview that does not match what a live run would write.
 
 ### 3b. Build the proposed section
 
-Read the portable section template at `${CLAUDE_PLUGIN_ROOT}/references/global-claude-md-section-template.md`. The working discipline is the run of `##` sections between the `<!-- ac:delegation:start -->` and `<!-- ac:delegation:end -->` fence markers. Reproduce every section the fenced block carries, in the order it carries them.
+Read the portable section template at `${CLAUDE_PLUGIN_ROOT}/references/global-claude-md-section-template.md`. The generated file is everything between the `<!-- ac:delegation:start -->` and `<!-- ac:delegation:end -->` fence markers. Reproduce every heading the block carries, `#` and `##` alike, in the order it carries them: the first one is a level-one `# Role`, so a scan written for `##` alone drops it.
 
 The template file is the only roster. Do not restate the section names or a line count in this command: the enumeration that used to sit here named eleven sections while the template carried twelve, having missed `Staying on the task` on the day it was added, and it went unnoticed for over a month across an unrelated edit to this same file. An installer that trusts a stale list drops a section the template defends at length.
 
 This content lives in CLAUDE.md rather than in a skill on purpose: CLAUDE.md reaches every main-thread turn unconditionally, while a skill body loads only when the model chooses to load it, which is the wrong reliability profile for standing procedural discipline. Do not reintroduce a pointer-to-a-skill shape here.
 
-Two things in the template are deliberate and should survive editing. It contains no "verify your work" or "double-check" instruction, because the current Opus generation self-verifies and explicit verification instructions are documented to cause over-verification at no quality gain; the grounding section covers the real requirement instead. And it does not restate what the Claude Code built-in system prompt already carries, so it omits reversibility, parallel tool calls, `file:line` citations, dedicated-tools-over-shell, faithful reporting, and scope fidelity, while it does keep security review and user-visible verification even though a conditional built-in slot may also carry them, because that slot is skippable and a missing safety rule costs more than a duplicated line. The Project memory section is scoped the same way: the built-in already carries duplicate-checking, path-verification, and the do-not-save list, so the template states only the two things it does not, which are to open the topic file behind a relevant pointer instead of acting on its summary, and to record the durable lesson rather than the patch. It deliberately describes memory as behavior rather than naming which files reach context, because a feature flag can move the index out of the system prompt and replace it with prefetched attachments.
+What is in the template and what is deliberately left out is argued inside the template's own HTML-comment header, which carries the keep test, the list of what the built-in prompt reaches, and the grep recipe for re-auditing any of it against a shipped binary. Read that header before changing a section; do not re-derive its reasoning here, and do not restate its conclusions in this command where they would drift out of sync.
 
-Keep every static section verbatim. Substitute only the three placeholders from 3a, and drop the stack-specific verification bullet entirely when the operator answered "skip". Light tuning of the Skills routing wording from the Phase 1 and 2 answers is fine; do not add new sections.
+Two consequences of that header do belong here, because they change what this phase writes. Those comments are HTML comments rather than `[//]: # (...)` link-reference definitions on purpose: the memory loader strips block-level HTML comments before injecting a CLAUDE.md, so a note in that form costs nothing at runtime while the link-reference form ships as visible text. And the template carries no "verify your work" or "double-check" instruction, because explicit verification instructions are documented to cause over-verification on the current Opus generation at no quality gain; if an interview answer tempts you to add one, put the requirement in the success check instead.
+
+Keep every static section verbatim. Substitute only the placeholders from 3a. Drop the stack-specific verification bullet entirely when the operator answered "skip", and drop the optional `Blocked pages` placeholder line entirely when they reported no third fetch path; an empty heading is worse than a missing one. Light tuning of the Skills routing wording from the Phase 1 and 2 answers is fine; do not add new sections.
 
 ### 3c. Merge via the fence markers, do not overwrite
 
@@ -186,10 +194,16 @@ When `CLAUDE_MD_EXISTS` is false, write the template's fenced block directly to 
 When `CLAUDE_MD_EXISTS` is true, merge instead of replacing. Read the current file:
 
 1. If both fence markers are present in order (start before end), replace everything between them (inclusive of the markers) with the template's fenced block, and preserve every byte outside the fenced region verbatim.
-2. If neither marker is present, append the template's fenced block (including the leading HTML-comment header) after the user's content.
-3. If exactly one marker is present, or the two appear out of order, do not guess the boundary: append a fresh fenced block as in case 2, leave the stray marker untouched (ADD-only), and flag the anomaly in the gate diff so the user can reconcile the duplicate by hand.
+2. If neither marker is present, append the template's fenced block after the user's content.
+3. If exactly one marker is present, or the two appear out of order, stop. Do not append, and do not guess the boundary. Appending is what builds the trap: it leaves the stray marker where it was, so the next run sees a start before an end, treats everything between them as ac-managed, and a case-1 replace swallows whatever the operator wrote in the middle. Report which marker was found and at which line, say what would fix it (delete the stray marker, or add its partner around the block it was meant to fence), leave `~/.claude/CLAUDE.md` untouched, and continue to Phase 4.
 
-Do not do a fuzzy heading-based match; the markers are the only anchor. Confirm the merged result stays within 200 lines; trim the pointer wording before the user's own content if it would overflow.
+Both writing cases need a heading-collision check, and case 1 needs it most. The fenced block now generates `Role`, `Core principles`, `Identity` and `Anti-patterns`, which are exactly the sections an operator is most likely to have hand-written already, and on an upgrade those copies sit OUTSIDE the fence where a case-1 replace never touches them. The result is a file that says the same thing twice in two voices, and a contradiction between two copies is worse than either alone: the docs are explicit that when two rules conflict, the model may pick one arbitrarily. Case 1 is the upgrade path, so it is every existing ac user.
+
+So in both cases 1 and 2, before rendering the gate diff: scan the bytes OUTSIDE the fenced region for headings, compare them against the headings the block carries, and list every collision by name. Match `^#{1,2} `, not `##` alone. The block's first heading is `# Role` at level one, so a `##`-only scan misses the section most likely to collide and most likely to contradict. Include the optional `Blocked pages` section in the comparison whenever the 3a interview produced one, since an operator who wrote that section by hand will have it trailing after the end marker.
+
+Say plainly that the operator should delete their copy or skip the merge, and do not resolve it yourself: you cannot tell which copy is the one they meant.
+
+Do not do a fuzzy heading-based match; the markers are the only anchor. Confirm the merged result stays within 200 lines, and when it does not, report the count and the collisions in the gate diff rather than cutting anything.
 
 Then gate the write per the `init-project` `.proposed` pattern:
 
@@ -396,7 +410,8 @@ Report the outcome in one block:
 my-coding:    <created | recreated | skipped (exists) | skipped (--skip-skills) | dry-run>
 my-language:  <created | recreated | skipped (exists) | skipped (--skip-skills) | dry-run>
 my-workflow:  <not created (discipline lives in CLAUDE.md) | LEGACY COPY FOUND at ~/.claude/skills/my-workflow, now redundant>
-CLAUDE.md:    <written | merged + applied | proposed (awaiting review) | skipped (--skip-claude-md) | dry-run>
+CLAUDE.md:    <written | merged + applied | proposed (awaiting review) | skipped (--skip-claude-md) | skipped (fence markers inconsistent) | dry-run>
+Heading clash: <none | comma-list of headings the block and the operator's own content both carry>
 settings:     <merged | skipped (--skip-settings) | dry-run>
 Group A:      <N tuning keys set | all already present>
 Group B:      <opt-ins applied: comma-list | none selected | skipped (dry-run)>
@@ -411,7 +426,7 @@ Never print the token value in this block: `MCP token` shows only `<set>`, `<unc
 
 Notes to print when relevant:
 
-- Workflow discipline (operating mode, code-lookup ladder, investigation, verification, delegation, web tools) lives in the global CLAUDE.md section this command merges, not in a skill. CLAUDE.md reaches every main-thread turn unconditionally; a skill body loads only when the model chooses to. If `LEGACY_MY_WORKFLOW` was detected, say so and note that `rm -rf ~/.claude/skills/my-workflow` removes the now-duplicated copy.
+- Standing discipline lives in the global CLAUDE.md this command writes, not in a skill. CLAUDE.md reaches every main-thread turn unconditionally; a skill body loads only when the model chooses to. That is also why the short unconditional rules (identity, conversation language, the dash rule, the suppression ban) sit in CLAUDE.md while `my-coding` and `my-language` carry the depth behind them: name the rule once in the file that always arrives, explain it once in the file that arrives on trigger. If `LEGACY_MY_WORKFLOW` was detected, say so and note that `rm -rf ~/.claude/skills/my-workflow` removes the now-duplicated copy.
 - If a Group B opt-in was applied, restate its tradeoff. `skipWebFetchPreflight` skips the Anthropic domain-safety blocklist preflight (a hang source; Claude Code has no tool-scoped web timeout, tracked as anthropics/claude-code#34565). `permissions.skipDangerousModePermissionPrompt` and `acceptEdits` reduce confirmation friction.
 - `statusLine` uses `bunx -y ccstatusline@latest`; it needs `bun`/`npx` on PATH to render.
 - Plan-mode block: the plugin ships the PreToolUse hook and `permissions.deny` covers `EnterPlanMode` and `ExitPlanMode`. Verify it live: try entering native plan mode and confirm it is blocked with the `/ac:plan` steer.
@@ -431,5 +446,5 @@ Anchors this command body relies on. Cross-check before editing. Sibling files a
 - `ac:skill-creator` (delegated my-coding and my-language authoring at user scope).
 - `${CLAUDE_PLUGIN_ROOT}/references/coding-style-template.md` (Phase 1 my-coding seed template).
 - `${CLAUDE_PLUGIN_ROOT}/references/language-style-template.md` (Phase 2 my-language seed template).
-- `${CLAUDE_PLUGIN_ROOT}/references/global-claude-md-section-template.md` (Phase 3 full workflow-discipline section, wrapped in the `<!-- ac:delegation:start -->` / `<!-- ac:delegation:end -->` fence markers used for the deterministic merge; carries three angle-bracket placeholders the 3a interview fills).
+- `${CLAUDE_PLUGIN_ROOT}/references/global-claude-md-section-template.md` (Phase 3 generated file, wrapped in the `<!-- ac:delegation:start -->` / `<!-- ac:delegation:end -->` fence markers used for the deterministic merge. Its HTML-comment header carries the keep test, what the built-in prompt reaches, and the grep recipe for re-auditing either against a shipped binary. Read that header before changing a section here; the roster of angle-bracket placeholders lives in the template, not in this command).
 - `${CLAUDE_PLUGIN_ROOT}/hooks/hooks.json` (ships all four ac hooks: plan-mode PreToolUse block, worker file-scope PreToolUse guard, SessionStart plan state, and the `Stop` guard for in-flight execute runs; Phase 4 writes no settings hook).
