@@ -1,5 +1,5 @@
 ---
-description: Interactive post-install setup for the ac plugin. Phase 0 parses flags (--dry-run, --skip-skills, --skip-settings, --skip-claude-md), detects the OS, the presence of the my-coding and my-language user skills, the global CLAUDE.md and settings.json, and probes ac MCP reachability. Phases 1 and 2 run short interviews and delegate my-coding and my-language skill creation to ac:skill-creator with the bundled templates, skipping any skill that already exists unless the user picks Recreate. Phase 3 runs a four-round placeholder interview (identity, conversation language, working style, two optional sections), then merges the whole generated global CLAUDE.md between the ac:delegation fence markers behind a non-clobbering backup and a .proposed gate, naming any heading that collides with content the operator already wrote and offering a whole-file replace when every one of them is superseded. The template file is the only roster of sections; this description deliberately does not enumerate them. Phase 4 backs up (non-clobber) and idempotently merges settings.json in groups, namely safe-silent tuning (Group A, set-only-when-absent), core ac parity (Group C, enabledPlugins plus MCP allow plus plan-mode deny), security-sensitive keys behind an explicit opt-in multiSelect (Group B, default off), a context-trim opt-in that strips unused tool schemas, rarely-used bundled skills and the task toolset (Group D, default off), and an interactive MCP-token prompt whose value is masked in every rendered surface. The plan-mode block ships in the plugin hooks, so Phase 4 writes no settings hook. Phase 5 reports what was created, merged, skipped, and the backup path.
+description: Interactive user-scope setup for a machine that already has the ac plugin. Generates your my-coding and my-language skills, writes your global CLAUDE.md, and merges ~/.claude/settings.json. Every write is backed up or gated; security-sensitive keys and your MCP token are opt-in and never rendered in plaintext.
 argument-hint: "[--dry-run] [--skip-skills] [--skip-settings] [--skip-claude-md]"
 effort: high
 disable-model-invocation: true
@@ -7,56 +7,60 @@ disable-model-invocation: true
 
 # /ac:install
 
-Interactive setup for a machine that already has the ac plugin installed. This command tunes your user-scope environment: it generates your personal `my-coding` and `my-language` skills, writes your global `~/.claude/CLAUDE.md`, and configures `~/.claude/settings.json` so the ac workflow replaces the matching Claude Code built-ins. Safe defaults apply silently; security-sensitive keys and your MCP token are opt-in and never rendered in plaintext.
+Tunes your user-scope environment so the ac workflow replaces the matching Claude Code built-ins. Safe defaults apply silently; anything that loosens a gate or touches a secret is opt-in.
 
 Request: $ARGUMENTS
 
-Precondition: the ac plugin is already installed and loaded (you are running this as `/ac:install`). This command does not bootstrap the install. It never calls `/plugin marketplace add` or `/plugin install`. It writes only under `~/.claude/` and only the files each phase names.
+Precondition: the ac plugin is already installed and loaded. This command does not bootstrap the install and never calls `/plugin marketplace add` or `/plugin install`. It writes only under `~/.claude/`, and only the files each phase names.
 
-## Phase 0: Identity, Arguments, and Preflight
+## Phase 0: Identity, arguments, preflight
 
-You are the `/ac:install` orchestrator. You interview the user, delegate skill creation to `ac:skill-creator`, and write user-scope config files behind explicit gates.
+You are the `/ac:install` orchestrator. You interview the operator, delegate skill authoring to `ac:skill-creator`, and write user-scope config behind explicit gates.
 
-**CAN**: Use `Read`, `Write`, `Edit`, `Bash`, `AskUserQuestion`. Invoke `ac:skill-creator` via the `Skill` tool (Phases 1 and 2). Probe the ac MCP server by calling `mcp__plugin_ac_ac__resolve-library`. Write a `~/.claude/CLAUDE.md.proposed` sidecar and a `~/.claude/settings.json.bak-ac-install` backup.
+**CAN**: Use `Read`, `Write`, `Edit`, `Bash`, `AskUserQuestion`. Invoke `ac:skill-creator` through the `Skill` tool. Probe the ac MCP server with `mcp__plugin_ac_ac__resolve-library`. Write the `.proposed` sidecar and the two `.bak-ac-install` backups.
 
-**CANNOT**: Hand-write `my-coding` or `my-language` `SKILL.md` content; that is `ac:skill-creator`'s job. Blind-overwrite `~/.claude/CLAUDE.md` or `~/.claude/settings.json`; both go through merge plus a gate or a backup. Run `/plugin marketplace add` or `/plugin install`. Edit files outside `~/.claude/`. Write an allow rule broader than the literal server segment (`mcp__plugin_ac_ac__*`, never `mcp__*`).
+**CANNOT**: Hand-write `my-coding` or `my-language` SKILL.md content; that is `ac:skill-creator`'s job. Blind-overwrite `~/.claude/CLAUDE.md` or `~/.claude/settings.json`; both go through a backup plus a gate. Write settings keys from memory; the Phase 4 reference is the only source. Edit anything outside `~/.claude/`. Widen an allow rule past the literal server segment (`mcp__plugin_ac_ac__*`, never `mcp__*`).
 
-**MUST**: Honor every flag from 0a for the rest of the run. Under `--dry-run`, render every planned change but call no `Write` or `Edit`. Back up `~/.claude/settings.json` before the Phase 4 merge. Skip a skill that already exists unless the user chooses Recreate. Keep the merged global `CLAUDE.md` within the 200-line guidance; count the Phase 3 fenced block from the template you read in 3b rather than from a number written here. The fenced block covers the whole generated file, so there is no operator content sitting beside it to trim first: if the merged total would overflow, say so in the gate diff and let the operator decide, rather than cutting a section the template defends at length.
+**MUST**: Honour every flag from 0a for the whole run. Under `--dry-run`, render every planned change and call no `Write` or `Edit`. Back up each file before rewriting it. Leave an existing skill alone unless the operator picks Recreate. Read the Phase 3 template and the Phase 4 reference rather than reproducing either from this body: both have drifted from a restated copy before, and a stale copy fails silently.
 
 ### 0a. Parse arguments
 
-Mirror the `commit.md` Phase 0 flag scan. Read `$ARGUMENTS` once and set each flag:
+Mirror the `commit.md` Phase 0 flag scan. Read `$ARGUMENTS` once:
 
-1. `--dry-run`: set `DRY_RUN = true` if present, else `false`. When true, every phase plans and prints but writes nothing.
-2. `--skip-skills`: set `SKIP_SKILLS = true` if present, else `false`. When true, skip Phases 1 and 2 entirely.
-3. `--skip-settings`: set `SKIP_SETTINGS = true` if present, else `false`. When true, skip Phase 4.
-4. `--skip-claude-md`: set `SKIP_CLAUDE_MD = true` if present, else `false`. When true, skip Phase 3.
-5. Ignore any other tokens.
+1. `--dry-run` sets `DRY_RUN`. Every phase plans and prints, nothing is written.
+2. `--skip-skills` sets `SKIP_SKILLS`. Skips Phases 1 and 2.
+3. `--skip-claude-md` sets `SKIP_CLAUDE_MD`. Skips Phase 3.
+4. `--skip-settings` sets `SKIP_SETTINGS`. Skips Phase 4.
+5. Ignore any other token.
 
 ### 0b. Detect the environment
 
-Run these detections and record the result. On any failure, note it and continue; detection failure never blocks the run.
+Record each result. A failed detection is noted and never blocks the run.
 
-1. OS: `uname -ms`.
-2. Existing `my-coding` skill: `test -d ~/.claude/skills/my-coding` (record `MY_CODING_EXISTS`).
-3. Existing `my-language` skill: `test -d ~/.claude/skills/my-language` (record `MY_LANGUAGE_EXISTS`).
-4. Existing global CLAUDE.md: `test -f ~/.claude/CLAUDE.md` (record `CLAUDE_MD_EXISTS`).
-5. Existing settings: `test -f ~/.claude/settings.json` (record `SETTINGS_EXISTS`).
-6. Legacy `my-workflow` skill: `test -d ~/.claude/skills/my-workflow` (record `LEGACY_MY_WORKFLOW`). Earlier versions of this command scaffolded a `my-workflow` skill; the discipline now ships inside the Phase 3 CLAUDE.md section, so a surviving copy duplicates it. Do not delete it, but surface it in the Phase 5 summary so the operator can remove it.
+| Check | Records |
+|---|---|
+| `uname -ms` | OS |
+| `test -d ~/.claude/skills/my-coding` | `MY_CODING_EXISTS` |
+| `test -d ~/.claude/skills/my-language` | `MY_LANGUAGE_EXISTS` |
+| `test -f ~/.claude/CLAUDE.md` | `CLAUDE_MD_EXISTS` |
+| `test -f ~/.claude/settings.json` | `SETTINGS_EXISTS` |
+| `test -d ~/.claude/skills/my-workflow` | `LEGACY_MY_WORKFLOW` |
+
+Earlier versions scaffolded a `my-workflow` skill. The discipline now ships inside the Phase 3 CLAUDE.md, so a surviving copy duplicates it. Do not delete it; surface it in Phase 5 so the operator can.
 
 ### 0c. Probe ac MCP reachability
 
-Call `mcp__plugin_ac_ac__resolve-library` with a trivial query (for example `react`). Record `MCP_REACHABLE = true` when it returns a result, `false` on error, timeout, or tool-not-available. This gates whether Phase 3's CLAUDE.md section names the ac MCP fallback tools: include the fallback steering text only when `MCP_REACHABLE` is true, so the delegation section does not point at tools the user cannot reach.
+Call `mcp__plugin_ac_ac__resolve-library` with a trivial query such as `react`. Record `MCP_REACHABLE` true on a result, false on error, timeout, or tool-not-available. Phase 3 names the ac MCP fallback tools only when it is true, so the generated file never points at a tool the operator cannot reach.
 
-If the probe path does not resolve, tell the user they can run `/mcp` to confirm the exact server name and re-run. The bundled server is keyed `ac` in `.mcp.json` and the host namespaces it as `plugin_ac_ac`, so the runtime tools are `mcp__plugin_ac_ac__*`.
+If the tool path does not resolve, say that `/mcp` confirms the exact server name. The bundled server is keyed `ac` in `.mcp.json` and the host namespaces it as `plugin_ac_ac`, so the runtime tools are `mcp__plugin_ac_ac__*`.
 
-## Phase 1: my-coding skill (skip if `--skip-skills`)
+## Phase 1: my-coding skill
 
-Skip this entire phase when `SKIP_SKILLS = true`.
+Skip when `SKIP_SKILLS`.
 
 ### 1a. Skip-if-present gate
 
-When `MY_CODING_EXISTS` is true, ask before touching it:
+When `MY_CODING_EXISTS`, ask before touching it:
 
 ```
 AskUserQuestion({
@@ -69,47 +73,39 @@ AskUserQuestion({
 })
 ```
 
-On Skip, continue to Phase 2. On Recreate, run 1b and 1c.
+On Skip, go to Phase 2. Otherwise run 1b and 1c, which is also the path when the skill is absent.
 
-When `MY_CODING_EXISTS` is false, run 1b and 1c directly.
+### 1b. Style interview
 
-### 1b. Short style interview
-
-Gather the user's coding profile through `AskUserQuestion` in tight rounds. Keep each round focused; one decision per question. Cover, in order:
+Through `AskUserQuestion`, one decision per question:
 
 1. Primary stack and the language versions in play.
-2. Non-negotiable rules (multiSelect: type everything, English-only identifiers, TDD, zero linter suppressions, minimal-diff, plus an "Add your own" free-text option).
-3. Architecture philosophy (how business logic is organized).
-4. Formatting (line width, indentation, trailing commas, import order).
-5. Testing discipline (test-first, test-alongside, post-implementation).
-6. Pet peeves and anything the rounds above missed (free text).
+2. Non-negotiable rules (multiSelect: type everything, English-only identifiers, TDD, zero linter suppressions, minimal diff, plus a free-text option).
+3. Architecture philosophy: how business logic is organised.
+4. Formatting: line width, indentation, trailing commas, import order.
+5. Testing discipline: test-first, test-alongside, or post-implementation.
+6. Pet peeves and anything the rounds above missed.
 
-Compile the answers into a short brief: stack and versions, the rules with a one-line rationale each, the architecture stance, the formatting table, the testing stance, the pet peeves.
+Compile a brief: stack and versions, each rule with a one-line reason, the architecture stance, the formatting table, the testing stance, the pet peeves.
 
 ### 1c. Delegate to ac:skill-creator
 
-Under `--dry-run`, print the compiled brief and the target path, then skip the invocation. Otherwise invoke the skill:
+Under `--dry-run`, print the brief and the target path and skip the invocation. Otherwise `Skill({skill: "ac:skill-creator"})`, handing it the brief plus these instructions:
 
-```
-Skill({skill: "ac:skill-creator"})
-```
+- Create `my-coding` at `~/.claude/skills/my-coding/`.
+- Fill `${CLAUDE_PLUGIN_ROOT}/references/coding-style-template.md` from the brief.
+- Author one `references/<language>.md` per primary stack. Keep the SKILL.md body lean and push language detail into those files.
+- Author `references/anti-patterns.md` carrying the template's required seed entries, whatever the interview surfaced. State this in the brief rather than trusting the creator to find it in the template: one run produced a thirteen-row table and landed none of the seeds.
 
-Hand it the brief plus the bundled template path, and instruct it to create the skill at user scope:
+Do not write the SKILL.md yourself. The creator owns file content; this command supplies the brief and the template path.
 
-- Create the `my-coding` skill at `~/.claude/skills/my-coding/`.
-- Read the structural template at `${CLAUDE_PLUGIN_ROOT}/references/coding-style-template.md` and fill its angle-bracket placeholders from the brief.
-- Author one `references/<language>.md` per primary stack from the brief; keep the SKILL.md body lean and push language detail into those references.
-- Author `references/anti-patterns.md`, and carry the template's required seed entries into it whatever the 1b interview surfaced. Say this in the brief explicitly rather than trusting the skill-creator to read the template section: a previous run produced a thirteen-row anti-patterns table from a free-form interview and landed none of the three.
+## Phase 2: my-language skill
 
-Do not write the SKILL.md yourself. The skill-creator owns the file content; this command only supplies the brief and the template path.
-
-## Phase 2: my-language skill (skip if `--skip-skills`)
-
-Skip this entire phase when `SKIP_SKILLS = true`. Same shape as Phase 1.
+Skip when `SKIP_SKILLS`. Same shape as Phase 1.
 
 ### 2a. Skip-if-present gate
 
-When `MY_LANGUAGE_EXISTS` is true, ask before touching it:
+When `MY_LANGUAGE_EXISTS`:
 
 ```
 AskUserQuestion({
@@ -122,110 +118,95 @@ AskUserQuestion({
 })
 ```
 
-On Skip, continue to Phase 3. On Recreate, run 2b and 2c. When `MY_LANGUAGE_EXISTS` is false, run 2b and 2c directly.
+On Skip, go to Phase 3. Otherwise run 2b and 2c, which is also the path when the skill is absent.
 
-### 2b. Short voice interview
+### 2b. Voice interview
 
-Gather the user's writing profile through `AskUserQuestion` in tight rounds:
+1. Which modes matter: documentation, article, commit message, code comment, PR description.
+2. How formality shifts across those modes.
+3. The traits that make their writing recognisable.
+4. Signature phrases, or none.
+5. Whether they supply writing samples; if so, collect the excerpts or a path.
 
-1. Mode preferences (which modes matter: documentation, article, commit message, code comment, PR description).
-2. Tone (how formality shifts across those modes).
-3. Voice characteristics (the traits that make their writing recognizable).
-4. Signature phrases (recurring constructions, or "none").
-5. Whether the user supplies writing samples for `references/examples.md`; if yes, collect the excerpts or a path.
-
-Compile the answers into a short brief: the active modes with opening and closing patterns, the tone spectrum, the voice traits, the signature phrases, and any supplied samples.
+Compile a brief: active modes with opening and closing patterns, the tone spectrum, the voice traits, the signature phrases, any samples.
 
 ### 2c. Delegate to ac:skill-creator
 
-Under `--dry-run`, print the compiled brief and the target path, then skip the invocation. Otherwise invoke the skill:
+Same gating as 1c. Instructions:
 
-```
-Skill({skill: "ac:skill-creator"})
-```
+- Create `my-language` at `~/.claude/skills/my-language/`.
+- Fill `${CLAUDE_PLUGIN_ROOT}/references/language-style-template.md` from the brief.
+- Write any supplied samples to `references/examples.md` and point the SKILL.md at it.
 
-Hand it the brief plus the bundled template path, and instruct it to create the skill at user scope:
+## Phase 3: global CLAUDE.md
 
-- Create the `my-language` skill at `~/.claude/skills/my-language/`.
-- Read the structural template at `${CLAUDE_PLUGIN_ROOT}/references/language-style-template.md` and fill its angle-bracket placeholders from the brief.
-- When the user supplied samples, write them to `references/examples.md` and point the SKILL.md at that file.
+Skip when `SKIP_CLAUDE_MD`.
 
-Do not write the SKILL.md yourself. The skill-creator owns the file content.
+### 3a. Fill the placeholders
 
-## Phase 3: global CLAUDE.md (skip if `--skip-claude-md`)
+Read `${CLAUDE_PLUGIN_ROOT}/references/global-claude-md-section-template.md` and the operator's current `~/.claude/CLAUDE.md`, in that order, before asking anything.
 
-Skip this entire phase when `SKIP_CLAUDE_MD = true`.
+On an upgrade the current file is the answer sheet. Identity, conversation language, trigger words, test tools and stack are all recorded in the copy this phase is about to replace, and asking again breaks the rule the generated file itself carries against asking what a readable file already answers. Measured on one real upgrade, every placeholder was answerable and a full interview would have asked nothing new. Pre-fill what you can, then fall back to the rounds below only for what the current file leaves open, or when there is no current file. Fill `Identity` and `Role` from one string whichever branch you are on: take the full `name <email>` once and derive `Role`'s given name from that same value, never from a second line of the source.
 
-### 3a. Placeholder interview
+Pre-filling replaces the rounds; it does not replace the confirmation. Render the filled values as a list inside the `question` text of one `AskUserQuestion`, with options `Correct` / `Fix identity` / `Fix language` / `Fix working style`, and let the operator answer before you build anything, however obvious the values look. Skipping this is not a shortcut, it is the failure: on the run that produced this rule the name was pre-filled from two different lines of the same source file and shipped as `Anilcan` in `Role` and `Anılcan` in `Identity`, an inconsistency a single confirmation round would have caught and which nothing downstream checks. A source file that disagrees with itself is the normal case, not the exception, because the sections were written months apart.
 
-Most of the section template is generic to any ac user and ships as static content. The angle-bracket placeholders are personal; fill every one through `AskUserQuestion` in tight rounds before building the section. Read the template first and interview against the placeholders it actually carries, not against this list, which can drift the way the section roster in 3b once did.
+Interview against the placeholders the template actually carries, not against the count below; a restated roster is exactly what 3b warns about. Three things about them:
 
-Not every angle bracket is a placeholder. `/ac:plan <topic>` and `.ac/plans/<slug>/plan.md` are literal text describing a command and a path, and they ship as written. A placeholder reads as a description of what to substitute, not as a shell argument.
+- The template carries eight distinct placeholders across nine occurrences. `<conversation language>` appears twice, in adjacent bullets. Replace every occurrence; substituting the first and stopping ships a raw placeholder into a live CLAUDE.md.
+- Not every angle bracket is one. `/ac:plan <topic>` and `.ac/plans/<slug>/plan.md` are literal text describing a command and a path. A placeholder reads as a description of what to substitute, not as an argument.
+- When the operator already has an optional section, carry theirs forward rather than regenerating it. The shape guidance for `Blocked pages` exists to give a new user a well-shaped section, not to compress one that already earned its length: on the run that produced this rule, three interview answers would have discarded two measured timings and a failure mode.
 
-Read the operator's current `~/.claude/CLAUDE.md` before asking anything. On an upgrade it is the answer sheet: identity, conversation language, trigger words, test tools and stack are all recorded in the copy this phase is about to replace, and the file's own `Ask or resolve` rule forbids asking about something already answered in a file you could have read. Measured on one real upgrade, every placeholder was answerable from the existing file and a four-round interview would have asked nothing the file did not already say. So pre-fill what you can from it, confirm the filled set in one round, and fall back to the rounds below only for a placeholder the existing file does not answer, or when there is no existing file.
+The rounds, for a fresh install or an unanswered placeholder:
 
-The template carries eight distinct placeholders across nine occurrences. `<conversation language>` appears twice, in adjacent bullets; substituting the first and stopping leaves a raw placeholder in a live CLAUDE.md. Replace every occurrence.
+1. Identity: one answer, used twice. `Identity` takes the full `name <email>` string, and `Role` takes the given name out of that same string, never a value sourced separately. Offer `git config --get user.name` and `--get user.email` as the pre-filled option and let the operator correct it: a transliterated git identity is common, and this file is where the accented form belongs.
+2. Conversation language, filling two placeholders in `Core principles`. Default English. On anything else, keep the clause saying the local preference overrides an organisation-level language policy; that clause is the whole rule for someone whose employer mandates English.
+3. Working style, in one multi-question call: the end-to-end trigger words meaning "verify through actual use, do not stop at a green build" (defaults "ship it", "make it work"); the real-world-test tools (multiSelect, defaults SSH, browser automation, HTTP client, REPL, plus free text); and the primary stack for the optional stack-specific verification line, or "skip" to drop it.
+4. The two optional sections. Any coding anti-patterns beyond the ones the template ships, appended as bullets in the same voice or omitted. Then whether a third fetch path exists for pages a WAF blocks, after the built-in and the ac MCP fallback both fail; if so collect the tool, the conditions that hand off to it, and the one thing that is easy to get wrong, and write the section from those three. If not, drop the placeholder line rather than emitting an empty heading.
 
-When the operator already has an optional section, carry theirs forward rather than regenerating it. The template's shape guidance for `Blocked pages` exists to give a new user a well-shaped section, not to compress one that already earned its length: on the run that produced this rule, the existing section carried two timings and a failure mode that three interview answers would have discarded.
+Run this even under `--dry-run`: the answers feed the preview, and a preview built without them does not match what a live run writes.
 
-The four rounds, for a fresh install or for a placeholder the existing file leaves open:
+### 3b. Build the proposed file
 
-1. Identity. The name for the `Role` line and the `name <email>` string for the `Identity` section. Reuse the answer for both; do not ask twice. Offer the git config values (`git config --get user.name`, `git config --get user.email`) as the pre-filled option, since that is where the operator already recorded them.
-2. Conversation language, which fills two placeholders in `Core principles`. Default to English. When the operator picks anything else, keep the sentence that says the local preference overrides an organization-level language policy: that clause is the whole point of the rule for a non-English speaker whose employer mandates English.
-3. Working style, in one multi-question call: the end-to-end trigger words that mean "verify through actual use, do not stop at a green build" (defaults "ship it", "make it work"); the real-world-test tools (multiSelect, defaults SSH, browser automation, HTTP client, REPL, plus a free-text option); and the primary stack for the optional stack-specific verification line (free text, or "skip" to drop the line).
-4. Two optional sections. Ask whether the operator has coding anti-patterns beyond the five the template ships, and append one bullet each in the same voice, or write nothing. Then ask whether they have a third fetch path for pages a WAF blocks, after the built-in and the ac MCP fallback both fail; when they do, collect the tool name, the conditions that hand off to it, and the one thing that is easy to get wrong, and write the optional `Blocked pages` section from those three. When they do not, drop the placeholder line entirely rather than emitting an empty heading.
+The generated file is everything between the `<!-- ac:delegation:start -->` and `<!-- ac:delegation:end -->` markers. Reproduce every heading it carries, `#` and `##` alike, in the order it carries them; the first is a level-one `# Role`, so a scan written for `##` drops it.
 
-Under `--dry-run`, still run this interview: the answers feed the rendered preview, and skipping them would show a preview that does not match what a live run would write.
+The template is the only roster. Do not restate the section names or a line count here: an enumeration that once sat in this command named eleven sections against the template's twelve, and went unnoticed for over a month.
 
-### 3b. Build the proposed section
+The template's HTML-comment header argues what is in the file and what is deliberately left out, and carries the keep test plus the grep recipe for re-auditing either against a shipped binary. Read it before changing a section. Do not re-derive its reasoning in this command, where the two copies would drift apart.
 
-Read the portable section template at `${CLAUDE_PLUGIN_ROOT}/references/global-claude-md-section-template.md`. The generated file is everything between the `<!-- ac:delegation:start -->` and `<!-- ac:delegation:end -->` fence markers. Reproduce every heading the block carries, `#` and `##` alike, in the order it carries them: the first one is a level-one `# Role`, so a scan written for `##` alone drops it.
+Two of its conclusions change what this phase writes. Its notes are HTML comments rather than `[//]: # (...)` link-reference definitions because the memory loader strips block-level HTML comments before injection, so that form costs nothing while the other ships as visible text. And it carries no "verify your work" instruction, because explicit verification instructions cause over-verification on the current Opus generation at no quality gain; if an answer tempts you to add one, put the requirement in the success check instead.
 
-The template file is the only roster. Do not restate the section names or a line count in this command: the enumeration that used to sit here named eleven sections while the template carried twelve, having missed `Staying on the task` on the day it was added, and it went unnoticed for over a month across an unrelated edit to this same file. An installer that trusts a stale list drops a section the template defends at length.
+Keep every static section verbatim and substitute only the placeholders. Drop the stack-specific verification line when the operator answered "skip", the `Blocked pages` line when they reported no third fetch path, and the `mcp__plugin_ac_ac__` fallback sentences from `Web research` when `MCP_REACHABLE` is false: those name tools as static text with no placeholder, so nothing else in this phase would remove them. Light tuning of the Skills wording from the Phase 1 and 2 answers is fine. Do not add sections.
 
-This content lives in CLAUDE.md rather than in a skill on purpose: CLAUDE.md reaches every main-thread turn unconditionally, while a skill body loads only when the model chooses to load it, which is the wrong reliability profile for standing procedural discipline. Do not reintroduce a pointer-to-a-skill shape here.
+This content lives in CLAUDE.md rather than a skill because CLAUDE.md reaches every main-thread turn unconditionally while a skill body loads only when the model elects to. Do not reintroduce a pointer-to-a-skill shape.
 
-What is in the template and what is deliberately left out is argued inside the template's own HTML-comment header, which carries the keep test, the list of what the built-in prompt reaches, and the grep recipe for re-auditing any of it against a shipped binary. Read that header before changing a section; do not re-derive its reasoning here, and do not restate its conclusions in this command where they would drift out of sync.
+### 3c. Merge on the fence markers
 
-Two consequences of that header do belong here, because they change what this phase writes. Those comments are HTML comments rather than `[//]: # (...)` link-reference definitions on purpose: the memory loader strips block-level HTML comments before injecting a CLAUDE.md, so a note in that form costs nothing at runtime while the link-reference form ships as visible text. And the template carries no "verify your work" or "double-check" instruction, because explicit verification instructions are documented to cause over-verification on the current Opus generation at no quality gain; if an interview answer tempts you to add one, put the requirement in the success check instead.
+The markers are the only anchor. Never fuzzy-match on headings.
 
-Keep every static section verbatim. Substitute only the placeholders from 3a. Drop the stack-specific verification bullet entirely when the operator answered "skip", and drop the optional `Blocked pages` placeholder line entirely when they reported no third fetch path; an empty heading is worse than a missing one. Light tuning of the Skills routing wording from the Phase 1 and 2 answers is fine; do not add new sections.
+When `CLAUDE_MD_EXISTS` is false, write the block straight to `~/.claude/CLAUDE.md`, or print it under `--dry-run`.
 
-### 3c. Merge via the fence markers, do not overwrite
+Otherwise read the current file and take one of three paths:
 
-The fence markers make the merge deterministic. Treat the whole block from `<!-- ac:delegation:start -->` through `<!-- ac:delegation:end -->` (inclusive) as the ac-managed region.
+1. **Both markers, in order.** Replace everything between them inclusive, and preserve every byte outside verbatim.
+2. **Neither marker.** Append the block after the operator's content.
+3. **One marker, or the two out of order.** Stop. Do not append and do not guess the boundary. Appending is what builds the trap: the stray marker stays, so the next run sees a start before an end and a case-1 replace swallows whatever sits between them. Report which marker was found and at which line, name the two fixes (delete the stray marker, or add its partner around the block it was meant to fence), leave the file untouched, and go to Phase 4.
 
-When `CLAUDE_MD_EXISTS` is false, write the template's fenced block directly to `~/.claude/CLAUDE.md` (skip under `--dry-run`, print the planned content instead).
+**The collision check, in cases 1 and 2.** Scan the bytes outside the fenced region for headings matching `^#{1,2} ` and list every one the block also carries. Case 1 needs this most and is the upgrade path, so it is every existing ac user: the block generates `Role`, `Core principles`, `Identity` and `Anti-patterns`, exactly the sections an operator has already hand-written, and on an upgrade those copies sit outside the fence where a case-1 replace never reaches them. The result says everything twice in two voices, and two rules that conflict are worse than either alone, because the model may then pick one arbitrarily. Include `Blocked pages` in the comparison whenever 3a produced one.
 
-When `CLAUDE_MD_EXISTS` is true, merge instead of replacing. Read the current file:
+Name the collisions and let the operator resolve them. You cannot tell which copy they meant.
 
-1. If both fence markers are present in order (start before end), replace everything between them (inclusive of the markers) with the template's fenced block, and preserve every byte outside the fenced region verbatim.
-2. If neither marker is present, append the template's fenced block after the user's content.
-3. If exactly one marker is present, or the two appear out of order, stop. Do not append, and do not guess the boundary. Appending is what builds the trap: it leaves the stray marker where it was, so the next run sees a start before an end, treats everything between them as ac-managed, and a case-1 replace swallows whatever the operator wrote in the middle. Report which marker was found and at which line, say what would fix it (delete the stray marker, or add its partner around the block it was meant to fence), leave `~/.claude/CLAUDE.md` untouched, and continue to Phase 4.
+**The exception.** When every out-of-fence heading is one the block now generates, nothing out there is losable; all of it is superseded. Offer replacing the whole file as the first gate option, naming the superseded headings and the backup path. Do not offer it on a partial collision, where a surviving heading means content the block does not carry.
 
-Both writing cases need a heading-collision check, and case 1 needs it most. The fenced block now generates `Role`, `Core principles`, `Identity` and `Anti-patterns`, which are exactly the sections an operator is most likely to have hand-written already, and on an upgrade those copies sit OUTSIDE the fence where a case-1 replace never touches them. The result is a file that says the same thing twice in two voices, and a contradiction between two copies is worse than either alone: the docs are explicit that when two rules conflict, the model may pick one arbitrarily. Case 1 is the upgrade path, so it is every existing ac user.
+**Before the gate**, confirm the substitution completed: grep the result for `<` followed by a lowercase letter and check every hit is an HTML comment, the literal `<topic>` or `<slug>`, or an email in angle brackets. A raw `<conversation language>` reaching a live file is this phase's likeliest failure and its cheapest to catch. Then confirm the result stays under 200 lines, and if it does not, report the count rather than cutting anything.
 
-So in both cases 1 and 2, before rendering the gate diff: scan the bytes OUTSIDE the fenced region for headings, compare them against the headings the block carries, and list every collision by name. Match `^#{1,2} `, not `##` alone. The block's first heading is `# Role` at level one, so a `##`-only scan misses the section most likely to collide and most likely to contradict. Include the optional `Blocked pages` section in the comparison whenever the 3a interview produced one, since an operator who wrote that section by hand will have it trailing after the end marker.
-
-Say plainly that the operator should delete their copy or skip the merge, and do not resolve it yourself: you cannot tell which copy is the one they meant.
-
-One case is different, and it is the common one when upgrading from a version whose fence covered less. When EVERY heading outside the fence is one the block now generates, there is nothing out there the operator can lose: all of it is superseded by a newer copy of the same section. Offer replacing the whole file as the first gate option, name the superseded headings in its description, and say where the backup is. Do not take that path on a partial collision; one surviving out-of-fence heading means the operator has content the block does not carry, and replacing would delete it.
-
-Before the gate, confirm no placeholder survived substitution. Grep the merged result for `<` followed by a lowercase letter and check that every hit is an HTML comment, the literal `/ac:plan <topic>` or `.ac/plans/<slug>/plan.md`, or an email in angle brackets. A raw `<conversation language>` reaching a live CLAUDE.md is the likeliest failure of this phase and the cheapest one to catch.
-
-Do not do a fuzzy heading-based match; the markers are the only anchor. Confirm the merged result stays within 200 lines, and when it does not, report the count and the collisions in the gate diff rather than cutting anything.
-
-Then gate the write per the `init-project` `.proposed` pattern:
-
-1. Under `--dry-run`, print the merged result and stop here; write nothing.
-2. Otherwise back the current file up with `cp -n ~/.claude/CLAUDE.md ~/.claude/CLAUDE.md.bak-ac-install`, the same non-clobbering form Phase 4a uses on settings, so a re-run cannot overwrite the pristine first backup. Phase 3 is the only phase that rewrites a file the operator has been editing by hand for months, and until this backup existed it was also the only one with nothing to roll back to. Then write the merged result to `~/.claude/CLAUDE.md.proposed` and ask:
+**Then gate the write.** Under `--dry-run`, print the result and stop. Otherwise back the file up with `cp -n ~/.claude/CLAUDE.md ~/.claude/CLAUDE.md.bak-ac-install`, the same non-clobbering form Phase 4 uses, so a re-run cannot overwrite the pristine first backup. This is the only phase that rewrites a file the operator has been hand-editing for months. Write the result to `~/.claude/CLAUDE.md.proposed` and ask:
 
 ```
 AskUserQuestion({
   header: "Apply?",
   question: "Your global CLAUDE.md already exists. The proposed merge is at ~/.claude/CLAUDE.md.proposed. How should I handle it?",
   options: [
-    {label: "Replace the whole file (Recommended)", description: "Only when every out-of-fence heading is superseded. Name them here, and name the backup path."},
+    {label: "Replace the whole file (Recommended)", description: "Only offered when every out-of-fence heading is superseded. Name them here, and name the backup path."},
     {label: "Apply the merge", description: "Replace the fenced region only and keep your out-of-fence sections. Name the collisions you would be left to reconcile."},
     {label: "Skip", description: "Leave the original in place; keep the .proposed file for manual review."},
     {label: "Edit", description: "Leave the .proposed file for you to edit; re-run after editing to apply."}
@@ -233,189 +214,24 @@ AskUserQuestion({
 })
 ```
 
-Drop the first option entirely when the collision is partial or absent, and make `Apply the merge` the recommended one instead; a four-option list whose first option is wrong for the situation is worse than a three-option list.
+Drop the first option when the collision is partial or absent and recommend `Apply the merge` instead. A four-option list whose first option is wrong for the situation is worse than a three-option list.
 
-On either apply path, write `~/.claude/CLAUDE.md` and delete the sidecar. On Skip, leave both files in place. On Edit, leave the sidecar and print a one-line note that the user can edit it and copy it over. In every case name the backup path in the Phase 5 summary.
+On either apply path, write the file and delete the sidecar. On Skip, leave both. On Edit, leave the sidecar and say the operator can edit it and copy it over. Name the backup path in Phase 5 either way.
 
-## Phase 4: settings.json (skip if `--skip-settings`)
+## Phase 4: settings.json
 
-Skip this entire phase when `SKIP_SETTINGS = true`.
+Skip when `SKIP_SETTINGS`.
 
-The values in this phase are authored from the ac install spec, not read out of any existing profile. Every write is ADD-only: never strip, downgrade, or overwrite a key the user already set. "Set only when absent" means if the key exists at all, even with a different value, leave it untouched. For arrays, append the missing entries and skip any already present.
+Read `${CLAUDE_PLUGIN_ROOT}/references/install-settings.md`. It is the only source for every key below; this command deliberately carries none of them, and writing one from memory is how a wrong key ships. It also states the ADD-only rule that governs the whole phase.
 
-### 4a. Read and back up
-
-Read `~/.claude/settings.json`. When `SETTINGS_EXISTS` is false, start from `{}`. Before any write, back the file up with `cp -n ~/.claude/settings.json ~/.claude/settings.json.bak-ac-install` (only when the file exists). The `-n` flag is deliberate: a re-run must not clobber the pristine first backup. Under `--dry-run`, skip the backup; you write nothing.
-
-### 4b. Group A: safe-silent tuning (set only when absent)
-
-These are non-secret performance and workflow defaults. Set each only when its key is absent; no prompt, no override.
-
-Top-level keys:
-
-1. `disableWorkflows = true` (setting key, not an env duplicate; do not also write `CLAUDE_CODE_DISABLE_WORKFLOWS`).
-2. `disableArtifact = true`.
-3. `effortLevel = "xhigh"`.
-4. `alwaysThinkingEnabled = true`.
-5. `statusLine = {"type": "command", "command": "bunx -y ccstatusline@latest", "padding": 0}` (assumes `bun`/`npx` on PATH; note this in the Phase 5 summary).
-
-Under `env` (string values), each set only when absent:
-
-6. `MAX_MCP_OUTPUT_TOKENS = "50000"`.
-7. `MCP_TIMEOUT = "30000"`.
-8. `MCP_TOOL_TIMEOUT = "60000"`.
-9. `API_TIMEOUT_MS = "30000"`.
-10. `BASH_DEFAULT_TIMEOUT_MS = "180000"`.
-11. `BASH_MAX_TIMEOUT_MS = "900000"`.
-12. `BASH_MAX_OUTPUT_LENGTH = "50000"`.
-13. `CLAUDE_CODE_FILE_READ_MAX_OUTPUT_TOKENS = "30000"`.
-14. `CLAUDE_CODE_MAX_RETRIES = "15"` (clamped at 15; do not raise it).
-
-### 4c. Group C: core ac parity (always merged)
-
-The ac wiring is not security-sensitive, so it merges without a prompt. All ADD-only:
-
-1. `enabledPlugins["ac@ac"] = true`.
-2. Add `mcp__plugin_ac_ac__*`, `WebSearch`, and `WebFetch` to `permissions.allow` (create the array if missing, skip any entry already present). Never widen to `mcp__*`.
-3. Add to `permissions.deny`: `EnterPlanMode`, `ExitPlanMode`, `Agent(Plan)`, `Agent(Explore)`. These are the load-bearing plan-mode block.
-4. Idempotent migration strip for prior install versions. This removes artifacts a previous run of THIS command wrote. The hook entries below carry an install-specific fingerprint (matcher plus command), so their removal never touches user config; the deny-string entry cannot be fingerprinted, so it is stripped on the assumption a prior install wrote it (see the caveat):
-   - Remove any `WebSearch` or `WebFetch` entry from `permissions.deny`. Caveat: these plain strings are indistinguishable from a user-authored deny, so a user who intentionally denies `WebSearch`/`WebFetch` will see it removed on re-run and must re-add it. Surface this removal in the gate diff so the user can catch it.
-   - Remove any `hooks.PreToolUse` entry whose matcher equals `WebSearch|WebFetch`.
-   - Remove the `hooks.PreToolUse` entry a prior install wrote for plan mode: matcher `EnterPlanMode` whose command echoes the `use /ac:plan` steer and exits 2. The plan-mode block now ships in the plugin's `hooks.json`, so this command writes NO settings hook.
-
-This command writes no `hooks.*` entry of its own. Every ac hook is delivered by the plugin through `${CLAUDE_PLUGIN_ROOT}/hooks/hooks.json` and needs no settings entry: the plan-mode PreToolUse block (matcher `EnterPlanMode|ExitPlanMode`), the worker file-scope PreToolUse guard (matcher `Edit|Write|MultiEdit`), the SessionStart plan-state hook (matcher `startup|resume|compact`), and the `Stop` guard that keeps an `/ac:execute` run from ending its turn mid-plan. For plan mode, `permissions.deny` above is the load-bearing guard either way.
-
-When `MCP_REACHABLE` is false, the CLAUDE.md fallback steering section (Phase 3) simply omits the mention of the ac web-fetch and web-search tools; the built-in WebSearch and WebFetch remain primary either way.
-
-The allow array entries (bundled MCP surface plus the built-in web tools):
-
-```json
-{
-  "permissions": {
-    "allow": [
-      "mcp__plugin_ac_ac__*",
-      "WebSearch",
-      "WebFetch"
-    ]
-  }
-}
-```
-
-The deny array (plan-mode entries only):
-
-```json
-{
-  "permissions": {
-    "deny": [
-      "EnterPlanMode",
-      "ExitPlanMode",
-      "Agent(Plan)",
-      "Agent(Explore)"
-    ]
-  }
-}
-```
-
-### 4d. Group B: security-sensitive keys (explicit opt-in, default off)
-
-These change permission or telemetry behavior, so they are never silent. Present them as `AskUserQuestion` multiSelects with every option unchecked by default. Write only the keys the operator checks; each is ADD-only (set only when absent, and do not extend the 4c migration strip to these keys). Under `--dry-run`, skip this prompt and note that no security-sensitive keys would be set.
-
-`AskUserQuestion` caps each question at four options, so these seven split across two questions in one call.
-
-```
-AskUserQuestion({
-  questions: [
-    {
-      header: "Permissions?",
-      question: "These loosen a permission gate and are off by default. Each is added only when the key is absent; nothing you already set is changed.",
-      multiSelect: true,
-      options: [
-        {label: "Auto-accept edits", description: "permissions.defaultMode=acceptEdits. Edits apply without a per-edit prompt."},
-        {label: "Skip dangerous prompt", description: "permissions.skipDangerousModePermissionPrompt=true. No confirmation when entering bypass mode."},
-        {label: "All project MCP", description: "enableAllProjectMcpServers=true. Every project-scoped MCP server loads without asking."},
-        {label: "Skip fetch preflight", description: "skipWebFetchPreflight=true. Drops the per-fetch domain-safety blocklist preflight (a hang source) at the cost of that safety check."}
-      ]
-    },
-    {
-      header: "Env keys?",
-      question: "These set environment keys that change timeout, team and telemetry behavior. Same ADD-only rule.",
-      multiSelect: true,
-      options: [
-        {label: "AFK timeout 10m", description: "env.CLAUDE_AFK_TIMEOUT_MS=600000."},
-        {label: "Disable agent teams", description: "env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=0."},
-        {label: "OTEL telemetry", description: "env.CLAUDE_CODE_ENABLE_TELEMETRY=1 plus OTEL_METRICS_EXPORTER=otlp, OTEL_EXPORTER_OTLP_PROTOCOL=grpc, OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317. Exports metrics to a local collector."}
-      ]
-    }
-  ]
-})
-```
-
-Map each checked option to its keys, writing each only when absent. Unchecked options write nothing:
-
-- Auto-accept edits: `permissions.defaultMode = "acceptEdits"`.
-- Skip dangerous prompt: `permissions.skipDangerousModePermissionPrompt = true`.
-- All project MCP: `enableAllProjectMcpServers = true`.
-- Skip fetch preflight: `skipWebFetchPreflight = true`.
-- AFK timeout 10m: `env.CLAUDE_AFK_TIMEOUT_MS = "600000"`.
-- Disable agent teams: `env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS = "0"`.
-- OTEL telemetry: `env.CLAUDE_CODE_ENABLE_TELEMETRY = "1"`, `env.OTEL_METRICS_EXPORTER = "otlp"`, `env.OTEL_EXPORTER_OTLP_PROTOCOL = "grpc"`, `env.OTEL_EXPORTER_OTLP_ENDPOINT = "http://localhost:4317"`.
-
-### 4e. Group D: context trim (explicit opt-in, default off)
-
-Every session pays for tool schemas, bundled skill descriptions and the task toolset whether or not they get used, because `permissions.deny` strips a tool's SCHEMA rather than only blocking the call. The options below take that cost off the baseline, and each one takes a capability away with it, so none of them is silent. How much each saves is not stated here: a tool that already defers costs its name rather than its schema, so the figure moves with the build and with whether tool search is on. Measure it on the operator's own machine with `claude -p "ok" --output-format json` before and after if the number matters to the decision. Present one `AskUserQuestion` multiSelect with every option unchecked by default. Under `--dry-run`, skip this prompt and note that no trim would be applied.
-
-`AskUserQuestion` caps each question at four options, so this gate asks two questions in one call rather than one list of five.
-
-```
-AskUserQuestion({
-  questions: [
-    {
-      header: "Trim tools?",
-      question: "These strip tool schemas out of every session's baseline. Each one removes a capability, so all are off by default.",
-      multiSelect: true,
-      options: [
-        {label: "Unused built-ins", description: "Denies NotebookEdit, PushNotification, EndConversation and the three MCP resource tools. Skip it if you edit Jupyter notebooks or your MCP servers expose resources."},
-        {label: "Scheduling stack", description: "Denies CronCreate/CronDelete/CronList, ScheduleWakeup, RemoteTrigger and TaskOutput, and turns the loop and schedule skills off. Monitor survives and covers polling and log-watching; take this only if you do not use in-session reminders or claude.ai cloud routines."},
-        {label: "Task tools off", description: "env.CLAUDE_CODE_ENABLE_TASKS=false. Drops TaskCreate/TaskGet/TaskList/TaskUpdate, worth about 2,500 tokens of schema on every turn. Verified on 2.1.259: nothing replaces them, TodoWrite included, so multi-step work needs a file or a rendered table to keep its record. The ac plan and execute skills already work this way."}
-      ]
-    },
-    {
-      header: "Trim skills?",
-      question: "These hide rarely-used surfaces from the model without uninstalling them.",
-      multiSelect: true,
-      options: [
-        {label: "Rarely-used bundled skills", description: "Hides run, keybindings-help, fewer-permission-prompts, simplify, init, claude-api and update-config from the model. Every one stays reachable by typing /name."},
-        {label: "Auto-mode classifier off", description: "env.CLAUDE_CODE_ENABLE_AUTO_MODE=0. Stops the separate model call that classifies every permission decision under permissions.defaultMode=auto. Saves no context; removes latency and per-call cost."}
-      ]
-    }
-  ]
-})
-```
-
-Map each checked option to its keys, writing each only when absent. Unchecked options write nothing:
-
-- Unused built-ins: add `NotebookEdit`, `PushNotification`, `EndConversation`, `ListMcpResourcesTool`, `ReadMcpResourceTool` and `ReadMcpResourceDirTool` to `permissions.deny`, skipping any already present.
-- Scheduling stack: add `CronCreate`, `CronDelete`, `CronList`, `ScheduleWakeup`, `RemoteTrigger` and `TaskOutput` to `permissions.deny`, and set `skillOverrides.loop` plus `skillOverrides.schedule` to `"off"`. Deny and override travel together: a skill whose tools are denied is a dead entry that still costs its description.
-- Task tools off: `env.CLAUDE_CODE_ENABLE_TASKS = "false"`. Report in the Phase 5 summary that a `CLAUDE_CODE_ENABLE_TODO_TOOLS` key, if the operator already has one, re-adds the four tools and should be removed by hand.
-- Rarely-used bundled skills: merge into `skillOverrides` with `run`, `keybindings-help`, `fewer-permission-prompts`, `simplify`, `init`, `claude-api` and `update-config` all set to `"user-invocable-only"`. Not `"off"`: that value hides a skill from `/name` as well, which is not what this option promises.
-- Auto-mode classifier off: `env.CLAUDE_CODE_ENABLE_AUTO_MODE = "0"`.
-
-`skillOverrides` takes a string enum (`"on"`, `"name-only"`, `"user-invocable-only"`, `"off"`); writing an object value there raises a settings validation error per key. The four differ in what they hide: `"name-only"` lists the skill without its description, `"user-invocable-only"` hides it from the model but keeps `/name`, and `"off"` hides it from both. Anything the operator should still be able to type stays on `"user-invocable-only"`.
-
-### 4f. MCP token (interactive, masked)
-
-The ac MCP token is a secret; it is never bundled and never rendered. Two keys:
-
-1. `env.KODIZM_MCP_URL = "https://mcp.kodizm.com"` (set only when absent; this is the public default, safe to write).
-2. Prompt the operator to paste their `kdz-` MCP token, or leave it blank to skip. Under `--dry-run`, skip this prompt. Write `env.KODIZM_MCP_TOKEN` ONLY when the operator supplies a non-empty value; a blank or skipped answer leaves the key untouched. Never echo the pasted value, and never write it to a log, the diff, or the summary.
-
-### 4g. Show the diff and write (mask secrets)
-
-Render the merged result as a diff against the original: which keys, deny entries, allow entries and `skillOverrides` entries were newly added versus already present, grouped as Group A / Group C / Group B (opt-in) / Group D (opt-in) / token. Mask every secret-pattern value: render `env.KODIZM_MCP_TOKEN` as `<set>` when newly written, `<unchanged>` when it was already present and left as-is, and omit it entirely when skipped. Never print the token value or any `kdz-` string in the diff. Under `--dry-run`, stop here; write nothing. Otherwise write the merged object back to `~/.claude/settings.json` and report the newly-added versus already-present breakdown, with the token still masked.
+1. **Read and back up.** Read `~/.claude/settings.json`, starting from `{}` when absent. Back it up with `cp -n ~/.claude/settings.json ~/.claude/settings.json.bak-ac-install` before any write, only when it exists. Skip the backup under `--dry-run`, where nothing is written.
+2. **Group A**, safe-silent tuning. Apply silently, each key only when absent.
+3. **Group C**, core ac parity. Apply without a prompt, including the migration strip for keys a prior install wrote. Surface any strip in the gate diff, since one of its entries cannot be distinguished from an operator-authored deny.
+4. **Groups B and D**, opt-in and default off. Present each through the `AskUserQuestion` block the reference defines, with every option unchecked, and write only what the operator checks. Skip both prompts under `--dry-run` and say no key would be set.
+5. **The MCP token.** Follow the reference exactly. The value is never echoed, logged, or rendered.
+6. **Show the diff and write.** Render newly-added against already-present, grouped A / C / B / D / token, with the token masked. Under `--dry-run`, stop here. Otherwise write the merged object back and report the same breakdown.
 
 ## Phase 5: Summary
-
-Report the outcome in one block:
 
 ```
 ## /ac:install Complete
@@ -424,41 +240,43 @@ my-coding:    <created | recreated | skipped (exists) | skipped (--skip-skills) 
 my-language:  <created | recreated | skipped (exists) | skipped (--skip-skills) | dry-run>
 my-workflow:  <not created (discipline lives in CLAUDE.md) | LEGACY COPY FOUND at ~/.claude/skills/my-workflow, now redundant>
 CLAUDE.md:    <written | merged + applied | whole file replaced | proposed (awaiting review) | skipped (--skip-claude-md) | skipped (fence markers inconsistent) | dry-run>
-Heading clash: <none | comma-list of headings the block and the operator's own content both carry>
+Heading clash: <none | comma-list of headings both the block and the operator's own content carry>
 CLAUDE.md backup: <~/.claude/CLAUDE.md.bak-ac-install | kept (pre-existing) | none (file absent or dry-run)>
 settings:     <merged | skipped (--skip-settings) | dry-run>
 Group A:      <N tuning keys set | all already present>
 Group B:      <opt-ins applied: comma-list | none selected | skipped (dry-run)>
 Group D:      <trims applied: comma-list | none selected | skipped (dry-run)>
 MCP token:    <set | unchanged | skipped>
-MCP URL:      <set to https://mcp.kodizm.com | unchanged>
-Backup:       <~/.claude/settings.json.bak-ac-install | kept (pre-existing) | none (settings absent or dry-run)>
+MCP URL:      <set | unchanged>
+settings backup: <~/.claude/settings.json.bak-ac-install | kept (pre-existing) | none (settings absent or dry-run)>
 MCP probe:    <reachable | unreachable (CLAUDE.md fallback steering omitted)>
 ```
 
-Never print the token value in this block: `MCP token` shows only `<set>`, `<unchanged>`, or `<skipped>`.
+The token line shows only `<set>`, `<unchanged>` or `<skipped>`, never a value.
 
-Notes to print when relevant:
+Print these when they apply:
 
-- Standing discipline lives in the global CLAUDE.md this command writes, not in a skill. CLAUDE.md reaches every main-thread turn unconditionally; a skill body loads only when the model chooses to. That is also why the short unconditional rules (identity, conversation language, the dash rule, the suppression ban) sit in CLAUDE.md while `my-coding` and `my-language` carry the depth behind them: name the rule once in the file that always arrives, explain it once in the file that arrives on trigger. If `LEGACY_MY_WORKFLOW` was detected, say so and note that `rm -rf ~/.claude/skills/my-workflow` removes the now-duplicated copy.
-- If a Group B opt-in was applied, restate its tradeoff. `skipWebFetchPreflight` skips the Anthropic domain-safety blocklist preflight (a hang source; Claude Code has no tool-scoped web timeout, tracked as anthropics/claude-code#34565). `permissions.skipDangerousModePermissionPrompt` and `acceptEdits` reduce confirmation friction.
-- `statusLine` uses `bunx -y ccstatusline@latest`; it needs `bun`/`npx` on PATH to render.
-- Plan-mode block: the plugin ships the PreToolUse hook and `permissions.deny` covers `EnterPlanMode` and `ExitPlanMode`. Verify it live: try entering native plan mode and confirm it is blocked with the `/ac:plan` steer.
+- Standing discipline lives in the global CLAUDE.md, not in a skill, because CLAUDE.md arrives on every main-thread turn and a skill body arrives only when the model elects to load it. The same split puts the short unconditional rules (identity, conversation language, the dash rule, the suppression ban) in CLAUDE.md and the depth behind them in `my-coding` and `my-language`: name the rule once where it always arrives, explain it once where it arrives on trigger.
+- When `LEGACY_MY_WORKFLOW` was found, say `rm -rf ~/.claude/skills/my-workflow` removes the now-duplicated copy.
+- Restate the tradeoff of any Group B opt-in that was applied. `skipWebFetchPreflight` drops the Anthropic domain-safety blocklist preflight, a known hang source tracked as anthropics/claude-code#34565. `skipDangerousModePermissionPrompt` and `acceptEdits` reduce confirmation friction by removing a confirmation.
+- `statusLine` needs `bun` or `npx` on PATH to render.
 
-Next steps to print:
+Next steps:
 
-- Restart Claude Code for the settings.json changes to take effect.
+- Restart Claude Code so the settings.json changes take effect.
 - Run `/mcp` to verify the ac MCP tools are reachable.
-- The `my-coding` and `my-language` skills load automatically in every session; no restart needed for those.
+- Try entering native plan mode and confirm it is blocked with the `/ac:plan` steer.
+- The two skills load in every session with no restart.
 
 ## References
 
-Anchors this command body relies on. Cross-check before editing. Sibling files are named without line numbers on purpose: the previous set drifted the moment those files were edited, and every entry below names the section it means.
+Named without line numbers on purpose: an earlier set drifted the moment those files were edited. Each entry names the section it means.
 
-- `${CLAUDE_PLUGIN_ROOT}/commands/init-project.md`, its `**CAN**` / `**CANNOT**` / `**MUST**` block for the orchestrator shape, the `Skill({skill: "ac:claude-md-rules-creator"})` line in section 3a for the bare-invocation form, and step 4 of section 3e for the `.proposed` sidecar plus AskUserQuestion write-gate.
-- `${CLAUDE_PLUGIN_ROOT}/commands/commit.md`, its Phase 0 for the `$ARGUMENTS` flag-parsing shape.
-- `ac:skill-creator` (delegated my-coding and my-language authoring at user scope).
-- `${CLAUDE_PLUGIN_ROOT}/references/coding-style-template.md` (Phase 1 my-coding seed template).
-- `${CLAUDE_PLUGIN_ROOT}/references/language-style-template.md` (Phase 2 my-language seed template).
-- `${CLAUDE_PLUGIN_ROOT}/references/global-claude-md-section-template.md` (Phase 3 generated file, wrapped in the `<!-- ac:delegation:start -->` / `<!-- ac:delegation:end -->` fence markers used for the deterministic merge. Its HTML-comment header carries the keep test, what the built-in prompt reaches, and the grep recipe for re-auditing either against a shipped binary. Read that header before changing a section here; the roster of angle-bracket placeholders lives in the template, not in this command).
-- `${CLAUDE_PLUGIN_ROOT}/hooks/hooks.json` (ships all four ac hooks: plan-mode PreToolUse block, worker file-scope PreToolUse guard, SessionStart plan state, and the `Stop` guard for in-flight execute runs; Phase 4 writes no settings hook).
+- `${CLAUDE_PLUGIN_ROOT}/references/global-claude-md-section-template.md`, the Phase 3 generated file inside its fence markers. Its HTML-comment header carries the keep test, what the built-in prompt reaches, and the grep recipe for re-auditing either against a shipped binary. The placeholder roster lives there, not here.
+- `${CLAUDE_PLUGIN_ROOT}/references/install-settings.md`, every Phase 4 key, both opt-in gates, and the ADD-only rule.
+- `${CLAUDE_PLUGIN_ROOT}/references/coding-style-template.md`, the Phase 1 seed including the required anti-pattern entries.
+- `${CLAUDE_PLUGIN_ROOT}/references/language-style-template.md`, the Phase 2 seed.
+- `${CLAUDE_PLUGIN_ROOT}/commands/init-project.md`, its CAN / CANNOT / MUST block for the orchestrator shape and its `.proposed` sidecar gate.
+- `${CLAUDE_PLUGIN_ROOT}/commands/commit.md`, its Phase 0 for the `$ARGUMENTS` flag scan.
+- `${CLAUDE_PLUGIN_ROOT}/hooks/hooks.json`, which ships every ac hook, so Phase 4 writes none.
+- `ac:skill-creator`, which owns the content of both generated skills.
