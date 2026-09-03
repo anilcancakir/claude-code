@@ -36,6 +36,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The three advisory agents, which are 62% of all subagent runs, carried three defects the pipeline redesign never touched. `ac:librarian` and `ac:oracle` still told themselves not to invoke `CallExternalAgent`, a tool removed from the CLI several releases ago. `omitClaudeMd: true` on `ac:explore` and `ac:librarian` did nothing: verified against the shipped 2.1.258 binary, the flag is only ever set on built-in agent definitions and the markdown frontmatter parser never reads it, so both agents were receiving the full CLAUDE.md hierarchy while their own frontmatter said otherwise. And the built-in-web-tools-first fallback rule, with its five failure conditions spelled out in full, appeared three times in one body and twice in another.
+- `ac:librarian` and `ac:oracle` named three ac MCP tools in a form the server does not register (`ResolveLibrary` against `resolve-library`), while spelling two others out in full in the same sentences. There is no alias in either direction.
+- `/ac:commit`, the most-invoked component on this machine at 822 runs, justified `--skip-preflight` in two places by pointing at a "Final Verification Wave (F1-F4)" in `/ac:execute`. No such phase exists, and none existed before the redesign either.
+- The MCP server advertised version `0.9.1` to every client while both manifests read `0.11.0`. The number was typed into three places and bumped in none; it now reads `package.json`, with a test that walks the source for hardcoded version literals so the drift cannot recur.
+
 - Group B in `/ac:install` presented seven options in a single flat `AskUserQuestion` call. The schema caps a question at four options and expects a `questions` array, so the prompt would have failed at the point where the operator opts into permission and telemetry keys. It now asks two questions, permissions and env keys, in one call.
 - Group D set five bundled skills to `skillOverrides: "off"` under an option promising "Every one stays reachable by typing /name". Per the shipped 2.1.258 field documentation, `"off"` hides a skill from `/name` as well; only `"user-invocable-only"` keeps it. All seven entries now use `"user-invocable-only"`, and the section records what each of the four enum values hides so the next edit cannot repeat the swap.
 
