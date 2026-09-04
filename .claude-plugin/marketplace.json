@@ -1,7 +1,7 @@
 {
-    "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+    "$schema": "https://json.schemastore.org/claude-code-marketplace.json",
     "name": "ac",
-    "description": "Anilcan Cakir's Claude Code marketplace. Main `ac` plugin plus auxiliary plugins.",
+    "description": "Home of the ac plugin: a plan-then-execute workflow for Claude Code with model-tiered steps and four-layer verification.",
     "owner": {
         "name": "Anilcan Cakir",
         "email": "anilcan.cakir@gmail.com"
@@ -10,25 +10,30 @@
         {
             "name": "ac",
             "source": "./plugins/ac",
-            "description": "Structured development partner for Claude Code. Plans before coding, investigates bugs with hypothesis discipline, delegates to specialized agents.",
-            "version": "0.14.2",
+            "description": "Plans before it edits, routes each step to haiku, sonnet or opus by cost, and verifies four ways per wave. Ships tiered subagents, authoring skills, local MCP tools, and gated fail-open hooks.",
+            "version": "0.20.0",
             "author": {
                 "name": "Anilcan Cakir",
                 "email": "anilcan.cakir@gmail.com"
             },
             "homepage": "https://github.com/anilcancakir/claude-code",
-            "category": "developer-tools",
+            "license": "MIT",
+            "category": "development",
             "tags": [
                 "planning",
-                "agents",
-                "orchestration"
+                "code-review",
+                "subagents",
+                "spec-driven"
             ],
             "keywords": [
-                "planning",
-                "agents",
-                "developer-tools",
                 "claude-code",
-                "multi-agent"
+                "plan-then-execute",
+                "spec-driven",
+                "subagents",
+                "multi-agent",
+                "code-review",
+                "hooks",
+                "mcp"
             ]
         }
     ]
