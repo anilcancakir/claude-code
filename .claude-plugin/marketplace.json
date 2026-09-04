@@ -11,7 +11,7 @@
             "name": "ac",
             "source": "./plugins/ac",
             "description": "Plans before it edits, routes each step to haiku, sonnet or opus by cost, and verifies four ways per wave. Ships tiered subagents, authoring skills, local MCP tools, and gated fail-open hooks.",
-            "version": "0.22.0",
+            "version": "0.23.0",
             "author": {
                 "name": "Anilcan Cakir",
                 "email": "anilcan.cakir@gmail.com"

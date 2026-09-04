@@ -38449,7 +38449,7 @@ function errorMessage(error2) {
 // package.json
 var package_default = {
   name: "@anilcancakir/ac-cli",
-  version: "0.22.0",
+  version: "0.23.0",
   description: "Companion CLI runtime for the ac Claude Code plugin. Hosts MCP servers, proxies kodizm, runs other AI CLIs.",
   private: true,
   type: "module",
@@ -38652,18 +38652,50 @@ var PLAN_SECTIONS = [
   "Cross-Project Observations",
   "Deferred Ideas"
 ];
-function buildSkeleton(slug) {
+var STEPS_STUB = `<!-- Keep this shape and delete this stub once the real steps are written.
+
+     The \`- [ ] **Step N**:\` line is the executor's per-step record: Layer D ticks it and the Stop
+     hook counts it, so a step written without one is invisible to both and the run loses its only
+     progress signal.
+
+     \`Type\` is one of these three and nothing else. The executor routes on it and has no branch for
+     another value:
+       code          source edits in the project; takes Tier and Why-this-tier, spawns a worker.
+       infra         server ops, SSH, deployment; takes Tier and Why-this-tier, spawns a worker.
+       verification  runs commands and captures evidence, no source edits. Omits Tier and
+                     Why-this-tier, takes Commands and Evidence, runs orchestrator-direct.
+
+     Field-by-field reference, including the per-tier Description budgets: plan-template.md under
+     \`## Steps\`. Validate the finished section with \`ac plan-check <slug>\`. -->
+
+- [ ] **Step 1**: <imperative title>
+    - **Type**: code | infra | verification
+    - **Tier**: quick | junior | junior-high | senior (omit when Type is verification)
+    - **Why this tier**: <rule-1-cross-layer | rule-2-context | rule-3-codebase-state | rule-4-detail | rule-5-criticality | rule-none, then a colon and one sentence> (omit when Type is verification)
+    - **Files**: <absolute paths, one per line; for verification: "(no source edits; runs commands)">
+    - **Description**: <what to do and why, grounded in research. Stands alone: the worker sees this field and no other step, so name a path or a file:line rather than "Step 4's parser".>
+    - **References**:
+        - <file_path:line_number>, <pattern to follow>
+    - **Commands**: <verification steps only: explicit command list, one per line>
+    - **Done when**:
+        - <executable criterion: greppable, testable, or LSP-checkable, provable by one command under 60 seconds>
+    - **QA**: <tool + concrete steps + exact expected assertion>
+    - **Evidence**: <verification steps only: paths under .ac/plans/<slug>/evidence/<step-id>-<scenario>.<ext>>
+    - **Must NOT**:
+        - <step-specific scope exclusion>`;
+function buildSkeleton(slug, autoMode) {
   const lines = [
     `# Plan: ${slug}`,
     "",
     "**Steps**: <N>",
     "**Waves**: <N>",
     "**Codebase State**: <disciplined | transitional | legacy | chaotic | greenfield>",
+    `**Auto mode**: ${autoMode}`,
     "**Generated**: <ISO timestamp>",
     ""
   ];
   for (const section of PLAN_SECTIONS) {
-    lines.push(`## ${section}`, "", "<fill>", "");
+    lines.push(`## ${section}`, "", section === "Steps" ? STEPS_STUB : "<fill>", "");
   }
   return lines.join(`
 `);
@@ -38676,13 +38708,251 @@ function scaffoldPlan(slug, opts) {
   if (existsSync(planPath)) {
     return { created: false, planPath };
   }
-  writeFileSync(planPath, buildSkeleton(slug), "utf8");
+  writeFileSync(planPath, buildSkeleton(slug, opts.autoMode), "utf8");
   return { created: true, planPath };
 }
 
-// src/plan-stats.ts
-import { readdirSync, readFileSync, statSync } from "node:fs";
+// src/plan-check.ts
+import { existsSync as existsSync2, readFileSync } from "node:fs";
 import { join as join5 } from "node:path";
+var STEP_TYPES = ["code", "infra", "verification"];
+var STEP_TIERS = ["quick", "junior", "junior-high", "senior"];
+var WORKER_FIELDS = ["Files", "Description", "Done when", "QA", "Must NOT"];
+var VERIFICATION_FIELDS = ["Commands", "Done when", "Evidence"];
+var STEP_LINE = /^- \[([ xX])\] (.*)$/;
+var FIELD_LINE = /^\s*(?:-\s*)?\*\*([^*]+)\*\*\s*:\s*(.*)$/;
+var STEP_HEADING = /^#{2,6}\s+Step\s+\d+\b/;
+var WAVE_HEADING = /^#{2,6}\s+Wave\s+\d+\b/;
+function readFrontmatterNumber(source, field) {
+  const match = new RegExp(`^\\*\\*${field}\\*\\*\\s*:\\s*(.*)$`, "m").exec(source);
+  if (match === null || match[1] === undefined) {
+    return null;
+  }
+  const value = match[1].trim();
+  return /^\d+$/.test(value) ? Number.parseInt(value, 10) : "placeholder";
+}
+function parseSteps(lines) {
+  const steps = [];
+  let current = null;
+  for (const line of lines) {
+    const stepMatch = STEP_LINE.exec(line);
+    if (stepMatch !== null) {
+      const raw = (stepMatch[2] ?? "").trim();
+      const titleMatch = /^\*{0,2}Step\s+(\S+?)\*{0,2}\s*:\s*(.*)$/.exec(raw);
+      current = {
+        label: titleMatch === null ? raw.slice(0, 40) : `Step ${(titleMatch[1] ?? "").trim()}`,
+        title: titleMatch === null ? raw : (titleMatch[2] ?? "").trim(),
+        checked: (stepMatch[1] ?? " ") !== " ",
+        fields: new Map
+      };
+      steps.push(current);
+      continue;
+    }
+    if (current === null) {
+      continue;
+    }
+    if (line.startsWith("#")) {
+      current = null;
+      continue;
+    }
+    const fieldMatch = FIELD_LINE.exec(line);
+    if (fieldMatch !== null && fieldMatch[1] !== undefined) {
+      current.fields.set(fieldMatch[1].trim(), (fieldMatch[2] ?? "").trim());
+    }
+  }
+  return steps;
+}
+function isPlaceholder(value) {
+  return value === "" || value.startsWith("<") && value.endsWith(">");
+}
+function checkCounts(source, lines, steps, findings) {
+  const declaredSteps = readFrontmatterNumber(source, "Steps");
+  if (declaredSteps === null || declaredSteps === "placeholder") {
+    findings.push({
+      severity: "error",
+      scope: "frontmatter",
+      message: declaredSteps === null ? "no `**Steps**:` line. The executor compares every checkbox count against it." : "`**Steps**:` still holds the scaffold placeholder; it must be the step count."
+    });
+  } else if (steps.length !== declaredSteps) {
+    const headings = lines.filter((line) => STEP_HEADING.test(line)).length;
+    let hint = "";
+    if (steps.length === 0 && headings === declaredSteps) {
+      hint = ` All ${headings} \`Step N\` headings are present, so the step lines are missing their \`- [ ] \` prefix.`;
+    } else if (steps.length === 0 && headings > 0) {
+      hint = ` Only ${headings} \`Step N\` heading(s) are present, so ${declaredSteps - headings} step(s) are absent from the body rather than merely unticked. The plan is truncated; do not repair the count.`;
+    }
+    findings.push({
+      severity: "error",
+      scope: "steps",
+      message: `frontmatter says ${declaredSteps}, found ${steps.length} checkbox lines.${hint}`
+    });
+  }
+  const declaredWaves = readFrontmatterNumber(source, "Waves");
+  const waveHeadings = lines.filter((line) => WAVE_HEADING.test(line)).length;
+  if (declaredWaves === null || declaredWaves === "placeholder") {
+    findings.push({
+      severity: "error",
+      scope: "frontmatter",
+      message: declaredWaves === null ? "no `**Waves**:` line." : "`**Waves**:` still holds the scaffold placeholder; it must be the wave count."
+    });
+  } else if (waveHeadings !== declaredWaves) {
+    findings.push({
+      severity: "warning",
+      scope: "waves",
+      message: `frontmatter says ${declaredWaves}, found ${waveHeadings} \`Wave N\` headings.`
+    });
+  }
+}
+function checkStep(step, findings) {
+  if (isPlaceholder(step.title)) {
+    findings.push({
+      severity: "error",
+      scope: step.label,
+      message: "the title is still the scaffold placeholder. Delete the stub or fill it in."
+    });
+  }
+  const type = step.fields.get("Type") ?? "";
+  const isVerification = type === "verification";
+  if (!STEP_TYPES.includes(type)) {
+    findings.push({
+      severity: "error",
+      scope: step.label,
+      message: type === "" ? "no `Type` field. `/ac:execute` routes on it and cannot spawn without one." : `Type is \`${type}\`; must be one of ${STEP_TYPES.join(", ")}.`
+    });
+  }
+  const required2 = isVerification ? VERIFICATION_FIELDS : WORKER_FIELDS;
+  for (const field of required2) {
+    const value = step.fields.get(field);
+    if (value === undefined) {
+      findings.push({ severity: "error", scope: step.label, message: `no \`${field}\` field.` });
+      continue;
+    }
+    if (value.startsWith("<") && value.endsWith(">")) {
+      findings.push({
+        severity: "warning",
+        scope: step.label,
+        message: `\`${field}\` is still a placeholder.`
+      });
+    }
+  }
+  if (isVerification) {
+    if (!step.fields.has("Description")) {
+      findings.push({
+        severity: "warning",
+        scope: step.label,
+        message: "no `Description` field. The Phase 2a render and the final report show the title alone."
+      });
+    }
+    if (step.fields.has("Tier")) {
+      findings.push({
+        severity: "warning",
+        scope: step.label,
+        message: "verification steps spawn no worker, so `Tier` has no effect. Drop it."
+      });
+    }
+    return;
+  }
+  const tier = step.fields.get("Tier") ?? "";
+  if (!STEP_TIERS.includes(tier)) {
+    findings.push({
+      severity: "error",
+      scope: step.label,
+      message: tier === "" ? "no `Tier` field. A code or infra step spawns a tier-routed worker." : `Tier is \`${tier}\`; must be one of ${STEP_TIERS.join(", ")}.`
+    });
+  }
+  if (!step.fields.has("Why this tier")) {
+    findings.push({ severity: "warning", scope: step.label, message: "no `Why this tier` field." });
+  }
+  if (!step.fields.has("References")) {
+    findings.push({
+      severity: "warning",
+      scope: step.label,
+      message: "no `References` field. The worker briefing inlines it, so the worker gets no pattern to follow."
+    });
+  }
+}
+function checkPlan(source) {
+  const findings = [];
+  const lines = source.split(`
+`);
+  const steps = parseSteps(lines);
+  checkCounts(source, lines, steps, findings);
+  for (const step of steps) {
+    checkStep(step, findings);
+  }
+  if (lines.some((line) => line.trim() === "<fill>")) {
+    findings.push({
+      severity: "error",
+      scope: "sections",
+      message: "at least one section is still the scaffold's `<fill>` placeholder."
+    });
+  }
+  if (lines.some((line) => line.includes("<!-- Keep this shape"))) {
+    findings.push({
+      severity: "warning",
+      scope: "sections",
+      message: "the scaffold's step-shape comment is still in the file. Delete it."
+    });
+  }
+  const autoMode = /^\*\*Auto mode\*\*\s*:\s*(.*)$/m.exec(source)?.[1]?.trim();
+  if (autoMode === undefined) {
+    findings.push({
+      severity: "error",
+      scope: "frontmatter",
+      message: "no `**Auto mode**:` line. Stage 6a reads it to decide whether to chain into /ac:execute."
+    });
+  } else if (autoMode !== "true" && autoMode !== "false") {
+    findings.push({
+      severity: "error",
+      scope: "frontmatter",
+      message: `\`**Auto mode**\` is \`${autoMode}\`; must be true or false.`
+    });
+  }
+  return findings;
+}
+function countSteps(source) {
+  const steps = parseSteps(source.split(`
+`));
+  return {
+    checkedCount: steps.filter((step) => step.checked).length,
+    stepCount: steps.length
+  };
+}
+function runPlanCheck(target, opts) {
+  const planPath = target.includes("/") ? target : join5(opts.dir, ".ac", "plans", target, "plan.md");
+  if (!existsSync2(planPath)) {
+    throw new Error(`Plan not found at ${planPath}`);
+  }
+  const source = readFileSync(planPath, "utf8");
+  const findings = checkPlan(source);
+  return {
+    planPath,
+    findings,
+    errorCount: findings.filter((finding) => finding.severity === "error").length,
+    warningCount: findings.filter((finding) => finding.severity === "warning").length,
+    ...countSteps(source)
+  };
+}
+function formatCheckResult(result) {
+  const lines = [`plan-check: ${result.planPath}`, ""];
+  for (const finding of result.findings) {
+    const tag = finding.severity === "error" ? "ERROR" : "WARN ";
+    lines.push(`${tag}  ${finding.scope}: ${finding.message}`);
+  }
+  if (result.findings.length > 0) {
+    lines.push("");
+  } else {
+    lines.push("OK. Shape matches what /ac:execute parses.", "");
+  }
+  const unchecked = result.stepCount - result.checkedCount;
+  lines.push(`${result.stepCount} steps, ${result.checkedCount} checked, ${unchecked} unchecked` + ` | ${result.errorCount} error(s), ${result.warningCount} warning(s)`);
+  return lines.join(`
+`);
+}
+
+// src/plan-stats.ts
+import { readdirSync, readFileSync as readFileSync2, statSync } from "node:fs";
+import { join as join6 } from "node:path";
 var STEP_TIER = /^\s*(?:-\s+)?\*\*Tier\*\*:\s*([a-z-]+)/;
 var NOT_A_TIER = new Set(["n"]);
 var COMPLEXITY = /^\*\*Complexity\*\*:\s*([a-z]+)/;
@@ -38727,7 +38997,7 @@ function findPlanFiles(root, out, depth) {
     if (SKIP_DIRS.has(entry)) {
       continue;
     }
-    const path = join5(root, entry);
+    const path = join6(root, entry);
     let isDirectory;
     try {
       isDirectory = statSync(path).isDirectory();
@@ -38736,7 +39006,7 @@ function findPlanFiles(root, out, depth) {
     }
     if (isDirectory) {
       findPlanFiles(path, out, depth + 1);
-    } else if (entry === "plan.md" && path.includes(`${join5(".ac", "plans")}`)) {
+    } else if (entry === "plan.md" && path.includes(`${join6(".ac", "plans")}`)) {
       out.push(path);
     }
   }
@@ -38751,7 +39021,7 @@ function collectPlanStats(root) {
   for (const file of files) {
     let text;
     try {
-      text = readFileSync(file, "utf8");
+      text = readFileSync2(file, "utf8");
     } catch {
       continue;
     }
@@ -38802,8 +39072,8 @@ function formatPlanStats(stats) {
 }
 
 // src/run-stats.ts
-import { existsSync as existsSync2, readdirSync as readdirSync2, readFileSync as readFileSync2 } from "node:fs";
-import { basename as basename3, dirname as dirname2, join as join6 } from "node:path";
+import { existsSync as existsSync3, readdirSync as readdirSync2, readFileSync as readFileSync3 } from "node:fs";
+import { basename as basename3, dirname as dirname2, join as join7 } from "node:path";
 var COMPACTION_FLOOR = 1e5;
 var COMPACTION_WINDOW = 6;
 function toSortedCounts2(counts) {
@@ -38967,7 +39237,7 @@ function formatRunStats(stats, rollup = []) {
 }
 function computeAgentRollup(transcriptPath) {
   const sessionId = basename3(transcriptPath).replace(/\.jsonl$/, "");
-  const subagentsDir = join6(dirname2(transcriptPath), sessionId, "subagents");
+  const subagentsDir = join7(dirname2(transcriptPath), sessionId, "subagents");
   let entries2;
   try {
     entries2 = readdirSync2(subagentsDir);
@@ -38979,14 +39249,14 @@ function computeAgentRollup(transcriptPath) {
     if (!entry.endsWith(".meta.json")) {
       continue;
     }
-    const agentType = readAgentType(join6(subagentsDir, entry));
+    const agentType = readAgentType(join7(subagentsDir, entry));
     if (agentType === undefined) {
       continue;
     }
-    const transcript = join6(subagentsDir, entry.replace(/\.meta\.json$/, ".jsonl"));
+    const transcript = join7(subagentsDir, entry.replace(/\.meta\.json$/, ".jsonl"));
     let stats;
     try {
-      stats = computeRunStats(readFileSync2(transcript, "utf8").split(`
+      stats = computeRunStats(readFileSync3(transcript, "utf8").split(`
 `));
     } catch {
       continue;
@@ -39009,7 +39279,7 @@ function computeAgentRollup(transcriptPath) {
 }
 function readAgentType(metaPath) {
   try {
-    const parsed = JSON.parse(readFileSync2(metaPath, "utf8"));
+    const parsed = JSON.parse(readFileSync3(metaPath, "utf8"));
     if (typeof parsed !== "object" || parsed === null) {
       return;
     }
@@ -39031,15 +39301,15 @@ function resolveTranscriptPath(sessionOrPath, projectsRoot) {
     throw new Error(`Projects root is not readable: ${projectsRoot}`);
   }
   for (const project of projects) {
-    const candidate = join6(projectsRoot, project, `${id}.jsonl`);
-    if (existsSync2(candidate)) {
+    const candidate = join7(projectsRoot, project, `${id}.jsonl`);
+    if (existsSync3(candidate)) {
       return candidate;
     }
   }
   throw new Error(`No transcript found for session ${id} under ${projectsRoot}`);
 }
 function runRunStats(transcriptPath) {
-  const text = readFileSync2(transcriptPath, "utf8");
+  const text = readFileSync3(transcriptPath, "utf8");
   const stats = computeRunStats(text.split(`
 `));
   return formatRunStats(stats, computeAgentRollup(transcriptPath));
@@ -39054,11 +39324,33 @@ program2.command("mcp").description("Run the ac stdio MCP server (proxies tools 
     url: opts.url
   });
 });
-program2.command("plan-scaffold <slug>").description("Create .ac/plans/<slug>/ with research/ and evidence/, and write a plan.md skeleton " + "carrying the template's sections in order. Leaves an existing plan.md untouched.").option("--dir <value>", "Project root to scaffold under.", process.cwd()).action((slug, opts) => {
-  const result = scaffoldPlan(slug, { dir: opts.dir });
+program2.command("plan-scaffold <slug>").description("Create .ac/plans/<slug>/ with research/ and evidence/, and write a plan.md skeleton " + "carrying the template's sections in order. Leaves an existing plan.md untouched.").requiredOption("--auto-mode <true|false>", "The Stage 4 `Lock all?` answer, recorded in the plan frontmatter. Required: a run that " + "skipped Stage 4 has no value to pass here, which is the point.").option("--dir <value>", "Project root to scaffold under.", process.cwd()).action((slug, opts) => {
+  if (opts.autoMode !== "true" && opts.autoMode !== "false") {
+    process.stderr.write(`--auto-mode must be true or false, got "${opts.autoMode}"
+`);
+    process.exitCode = 1;
+    return;
+  }
+  const result = scaffoldPlan(slug, { autoMode: opts.autoMode === "true", dir: opts.dir });
   const state = result.created ? "created" : "exists, left untouched";
   process.stdout.write(`${result.planPath} (${state})
 `);
+});
+program2.command("plan-check <slug>").description("Validate a plan file's machine-readable shape: one `- [ ]` checkbox per step matching the " + "frontmatter count, a Type from code/infra/verification, a Tier on every worker step, " + "Commands and Evidence on every verification step. Exits 1 on any error. Accepts a slug " + "or a path to the plan.md.").option("--dir <value>", "Project root holding .ac/plans/.", process.cwd()).action((slug, opts) => {
+  let result;
+  try {
+    result = runPlanCheck(slug, { dir: opts.dir });
+  } catch (error2) {
+    process.stderr.write(`${error2 instanceof Error ? error2.message : String(error2)}
+`);
+    process.exitCode = 2;
+    return;
+  }
+  process.stdout.write(formatCheckResult(result) + `
+`);
+  if (result.errorCount > 0) {
+    process.exitCode = 1;
+  }
 });
 program2.command("run-stats <session>").description("Print the cost anatomy of one run from its session transcript: turns, output tokens, " + "cache-read, average and peak resident context, compactions, the tool mix and the " + "per-agent-type subagent rollup. Accepts a session id or a path to the .jsonl.").action((session) => {
   const path = resolveTranscriptPath(session, resolveProjectsRoot());
@@ -39153,4 +39445,4 @@ function formatSyncReport(report) {
 }
 await program2.parseAsync(process.argv);
 
-//# debugId=BA2600F7C709CBB564756E2164756E21
+//# debugId=714554C42A9C446364756E2164756E21

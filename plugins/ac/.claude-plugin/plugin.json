@@ -1,7 +1,7 @@
 {
     "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
     "name": "ac",
-    "version": "0.22.0",
+    "version": "0.23.0",
     "description": "Plans before it edits, routes each step to haiku, sonnet or opus by cost, and verifies four ways per wave. Ships tiered subagents, authoring skills, local MCP tools, and gated fail-open hooks.",
     "author": {
         "name": "Anilcan Cakir",
