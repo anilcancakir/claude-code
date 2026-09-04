@@ -15,15 +15,23 @@ The two surfaces:
   from it failing to fall between blocks, so the ticks are load-bearing rather than decorative.
 - **The Phase 2h table** is the per-wave orientation, printed after each barrier with step, tier, result and files.
 
-At Phase 1g, do three things and none of them is a tool call:
+At Phase 1g:
 
 1. Read `Steps` and `Waves` from the plan frontmatter and hold both. `Steps` is what every later Layer D count is
    compared against; a count you do not compare against anything confirms nothing.
-2. Run `grep -c '^- \[ \]' <PLAN_PATH>` once. On a fresh run it equals `Steps`. On a resume it is smaller, and the
-   difference is what earlier runs finished.
-3. If it returns zero while steps remain unrun, the plan carries no checkboxes at all. Say so and stop rather than
-   proceeding: Layer D would have nothing to tick and the `Stop` guard would see a permanently satisfied count, so
-   both controls retire silently and the run loses its only per-step record. The plan is malformed, not finished.
+2. Run the `plan-check` command the skill body gives at Phase 1g, copying it from there rather than from here.
+   This file is read raw by the `Read` tool, so a plugin-root token written here would reach Bash unexpanded and
+   the command would fail; the skill body is substituted at injection and its copy resolves.
+3. Hold the step counts it prints. On a fresh run the unchecked number equals `Steps`. On a resume it is smaller,
+   and the difference is what earlier runs finished. Both numbers print on a clean exit too, so there is nothing
+   to derive by hand.
+
+A plan with zero checkboxes is repaired rather than refused, because the count is derivable from the step headings
+and the plan is gaining a record it should already have rather than changing its spec. Without the repair Layer D
+has nothing to tick and the `Stop` guard sees a permanently satisfied count, so both controls retire silently and
+the run loses its only per-step record. Measured once on an 18-step plan: the repair took a user gate and 18
+separate `Edit` calls before the first worker spawned, which is what `plan-check` at `/ac:plan` Stage 5 exists to
+prevent from recurring.
 
 State the step and wave totals in the Phase 2a render so the shape of the run is visible from the start.
 

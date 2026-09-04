@@ -180,17 +180,51 @@ No list to register. Read `Waves` and `Steps` from the plan frontmatter and hold
 Layer D count gets compared against, and `WAVES` is how many barriers the run will pass. State both in the
 Phase 2a render so the shape of the run is visible from the start.
 
-Then run `grep -c '^- \[ \]' <PLAN_PATH>` once and compare it against `Steps`. Three outcomes, and only one of
-them continues:
+Then run the shape gate once:
 
-- Equal, or smaller with the difference explained by ticks already in the file: continue. On a resume the
-  difference is what earlier runs completed.
-- Zero while steps remain unrun: the plan carries no checkboxes at all. Say so and stop. Layer D would have
-  nothing to tick and the `Stop` guard would read a permanently satisfied count, so both controls retire
-  silently and the run loses its only per-step record. The plan is malformed, not finished.
-- Greater than `Steps`, or smaller by a number the ticks do not account for: the frontmatter and the body
-  disagree about how many steps exist. Say which two numbers you got and stop; every later Layer D comparison
-  rests on this one, and a count compared against a wrong total confirms nothing.
+```
+Bash: node "${CLAUDE_PLUGIN_ROOT}/cli/ac.js" plan-check <PLAN_PATH>
+```
+
+It prints the step counts on every exit and, when the plan deviates from what the rest of this body parses, one
+line per deviation. `/ac:plan` runs the same command at Stage 5, so a clean exit here is the normal case and a
+dirty one means the plan was written by hand, written by an older version of the planner, or edited since. Route
+by what it reports, taking the FIRST route below that matches, except that a BLOCKER route always wins over a
+continue route on the same step:
+
+- **Exit 2**: the plan file is not where you looked, which is a different problem from a malformed plan and has a
+  different fix. Re-derive `PLAN_PATH` from the argument and try once; if it still fails, say the path you tried
+  and stop.
+- **Exit 0**: continue. Hold the step counts it printed for Layer D; on a resume the unchecked number is what is
+  left to run.
+- **`All <N> Step N headings are present, so the step lines are missing their prefix`**: repair, do not stop.
+  Every step is in the file and only its checkbox is absent, so the plan is gaining a record it should already
+  have rather than changing its spec. Insert one `- [ ] **Step N**: <the heading's own title>` line per step with
+  `Edit`, keeping the space after the bracket because the `Stop` guard greps for it, then re-run `plan-check` and
+  say in one line that you repaired it and how many lines you added. Layer D would otherwise have nothing to tick
+  and the guard would read a permanently satisfied count, so both controls would retire silently.
+- **`step(s) are absent from the body rather than merely unticked`**: the plan is truncated, not unticked. Do not
+  invent checkboxes and do not correct the frontmatter down to what survived: either edit runs a plan that is
+  missing most of its work while reporting success. Say how many steps are missing and stop.
+- **A worker step with no `Tier`, or a verification step with no `Commands` or `Evidence`**: a plan-spec defect
+  rather than a formatting one. There is nothing to spawn or nothing to run, and picking a tier yourself
+  substitutes your judgment for the planner's on a cost decision the plan was supposed to make. Take the 3c
+  plan-spec BLOCKER branch, naming the steps and what each is missing. **This wins over the next route.** A step
+  can report both an unrecognised `Type` and a missing `Tier`, and routing it on its fields first would read a
+  code step as a verification step, run its `Commands`, tick its box, and never write the code.
+- **A `Type` outside the three, on a step this list has not already blocked**: route on the step's fields instead
+  of its label, and say in one line which steps you re-read and as what. A step carrying a `Tier` is a worker
+  step, because `Tier` is meaningful on nothing else; a step carrying `Commands` and `Evidence` with no `Tier` is
+  a verification step. `implementation` is the value this actually produces and it maps to `code`.
+- **Any other ERROR** (a missing `Files`, `Description`, `QA` or `Must NOT`, a leftover placeholder, a missing
+  `Auto mode` line): a plan-spec defect. The worker briefing inlines four of those five fields verbatim, so a
+  step missing one sends a worker out with a hole in its contract. Take the 3c plan-spec BLOCKER branch and name
+  the steps and fields.
+- **A count mismatch the ticks do not account for**: the frontmatter and the body disagree about how many steps
+  exist. Say which two numbers you got and stop; every later Layer D comparison rests on this one, and a count
+  compared against a wrong total confirms nothing.
+
+WARN lines never gate the run. Say how many there were in one line and continue.
 
 ## Phase 2: Execute Wave-by-Wave
 
@@ -235,7 +269,8 @@ wave needs but does not declare cannot be written. The union has to be complete 
 
 **Route on `Type`**: `code` and `infra` spawn a tier-routed worker; `verification` does NOT spawn. Run its `Commands`
 directly via Bash and capture to its `Evidence` paths. For a verification step Layer A blends with your Bash output,
-Layer B is largely n/a, Layer C IS the evidence file, and Layer D still applies.
+Layer B is largely n/a, Layer C IS the evidence file, and Layer D still applies. A `Type` outside the three was
+resolved at Phase 1g by reading the step's fields; use what 1g decided rather than re-deciding per step.
 
 **Check invocation reachability before the wave launches.** When a step's Description tells you to run a slash
 command, confirm you can: a component whose frontmatter carries `disable-model-invocation: true` is kept out of
