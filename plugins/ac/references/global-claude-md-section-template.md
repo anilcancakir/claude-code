@@ -191,6 +191,45 @@ fabricated quotation; recounting a line range does not.
 NO subagent receives either prompt shape. A subagent's system prompt is assembled from its own
 body plus a few env blocks, so a rule an agent needs lives in that agent's file, not here.
 
+`Watching something over time` CARRIES ONLY WHAT ARRIVES BEFORE `ToolSearch`. That is the rule;
+do not measure it in lines, and do not grow it past that test.
+
+`Monitor` sets `shouldDefer: true` and is absent from the force-load roster, verified in the
+2.1.260 binary. The deferred-tools reminder lists bare names with no search hint, so the tool's
+own description, which is long and good, is unreachable until the model has already decided to
+reach for the tool. Everything the description covers (the three-way mechanism table, the
+unbounded-watch mistake, per-stage buffering, silence-is-not-success, WebSocket sources, volume)
+therefore belongs to the tool and not here. An earlier draft of `references/monitoring.md` had
+nine of ten sampled sentences verbatim in that description.
+
+What survives the test is exactly three things, which is the whole section: that watching is the
+shape of this work at all, that there is no cron route, and the one routing decision taken while
+`Monitor` is still just a name. That last one only goes one way. Routing TOWARD `Monitor` loads
+the description and the description takes over; routing AWAY from it, to `Bash` with
+`run_in_background`, is the branch where the description never loads, so it is the branch worth a
+line here.
+
+The cost of omitting the section, since the keep test wants one stated: Group D turns the
+`schedule` skill off, and that skill body is the only built-in that points cron work at `Monitor`
+("streams events as they happen; cron polls on a schedule"). The trim removes the pointer and
+leaves the operator with a tool they cannot see and no signpost to it.
+
+Two mechanism errors were shipped here and corrected; do not reintroduce either. `permissions.deny`
+strips a tool's SCHEMA, so a denied cron tool is ABSENT rather than present-and-refused: nothing is
+reached for and no turn is spent, which is why this section must not borrow the "costs a turn"
+clause that `Plan or work directly` uses correctly for `Agent(Explore)`, a rule on a tool that is
+still present. And a non-persistent `Monitor` is not armed forever: `timeout_ms` defaults to
+300000 and caps at 3600000, so it disarms on its own.
+
+The section is conditional because an operator who declined the Group D trim still has working
+cron, and the second sentence would be false for them. `references/monitoring.md` carries the two
+worked recipes, longer than a tool description carries and shorter than a section here could earn.
+
+One gate to know before blaming this section for silence: `Monitor` is behind a feature flag
+(`tengu_amber_sentinel`, default false), so an operator can receive this text and have no such
+tool. `Staying on the task` already tells the model to substitute the nearest working mechanism
+and say it did, which is the right degradation, so the section itself needs no hedge.
+
 WHY `Skills` NAMES SKILLS AT ALL, given each one already carries its own description. Claude Code
 loads a listing of every skill's `description` plus `when_to_use` on each main-thread turn, under a
 budget of 1% of the model's context window. When that listing overflows it is trimmed starting with
@@ -328,6 +367,14 @@ Switch to `mcp__plugin_ac_ac__web-fetch` when you need the page itself rather th
 Reach for `mcp__plugin_ac_ac__web-code-search` more often than feels necessary: docs say what an API is for, real repositories show how it is actually used.
 
 Reach GitHub with `gh` rather than any fetch tool when it is authenticated: you get the bytes instead of a small model's answer about them, private repositories, and a 5,000-per-hour budget instead of the shared `WebSearch` one. Use it for repository files, issues, pull requests, and releases, pinning `ref` to a commit SHA so the lines you cite stay the lines you read. Commands live in the `github-cli` skill. `gh search code` is capped at 30 an hour, so leave discovery on `web-code-search`. Fetch the rendered page instead when it carries what the API does not: a docs site built from the repo, a rendered notebook.
+
+<optional Watching something over time section, written only when 0b reports SCHEDULING_TRIMMED true. Emit exactly this, substituting nothing:
+
+"## Watching something over time
+
+Reach for `Monitor` when work runs past a single command: a deploy polled after shipping, a CI run followed to its verdict, a log tailed for errors. Cron and wakeup are denied in my settings, so there is no scheduled-job route; do not plan around one. One notification when a condition becomes true is `Bash` with `run_in_background`, not `Monitor`."
+
+Drop the whole section when SCHEDULING_TRIMMED is false: cron still works for that operator and the first sentence would be false.>
 
 ## Staying on the task
 
