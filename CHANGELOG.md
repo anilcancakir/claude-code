@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.22.0] - 2026-09-04
+
+The generated CLAUDE.md gains a conditional section routing long-running watches to `Monitor`. The section is three sentences because the `Monitor` tool's own description is long, good, and unreachable at the moment the decision is made: the tool sets `shouldDefer: true` and the deferred-tools reminder carries bare names with no search hint, so the description arrives only once the model has already decided to reach for the tool.
+
+### Added
+
+- `## Watching something over time` in the generated global CLAUDE.md, emitted only when the operator has taken the Group D scheduling trim. It carries what arrives before `ToolSearch` and nothing else: that watching is the shape of the work, that there is no cron route, and the one routing decision taken while `Monitor` is still just a name. That decision only goes one way, because routing toward `Monitor` loads its description while routing away to `Bash` with `run_in_background` is the branch where the description never loads.
+- `references/monitoring.md`, the depth behind that section: why cron is absent rather than denied, the two worked `Monitor` shapes with every schema-required field present, and the two gates that change what the section means (the `Monitor` feature flag, which defaults off, and the `backgroundTasksDisabled` branch in the tool's own description).
+- `/ac:install` Phase 0b detects the trim from `~/.claude/settings.json` rather than asking, testing one key from each of the three claims the section makes. It reads user scope only, because the file being written loads in every project, and it fails closed: a false sentence in a global CLAUDE.md costs more than a missing section.
+- Phase 4 gains a step that closes an ordering seam. Group D is answered after Phase 3 has written the CLAUDE.md, so an operator taking the trim in the same run would otherwise get no section; the step re-evaluates the conditional and re-merges through the existing fence markers instead of asking for a second run.
+
+### Fixed
+
+- Two mechanism errors caught in review before they shipped further than one file. `permissions.deny` strips a tool's schema, so a denied cron tool is absent rather than present-and-refused and no turn is spent reaching for it; the draft had borrowed the "costs a turn" clause that `Plan or work directly` uses correctly for `Agent(Explore)`, a rule on a tool that is still present. And a non-persistent `Monitor` is not armed forever: `timeout_ms` defaults to 300000 and caps at 3600000.
+
 ## [0.21.0] - 2026-09-04
 
 Two findings drove this release, both measured against the shipped 2.1.260 binary rather than inferred. The lean system prompt shape that Opus 5 receives builds no response-length guidance at all: `# Tone and style` is produced by the classic branch only, and the communication section, present in both shapes, branches internally on a capability Opus 5 does not carry and collapses to one sentence about matching surrounding code. So the plugin now ships an output style and the generated CLAUDE.md carries a one-line floor beneath it. Separately, the skill and agent listings were spending more per-turn context than they earned, and an overflowing listing drops whole entries silently, so every description in the plugin was rewritten as a retrieval surface rather than a summary of its own body.
@@ -603,6 +618,7 @@ The lesson driving this release: a limit written in prose is not a limit. The ca
 - `subagent-monitor` plugin removed from the marketplace; functionality superseded by
   the plan-chain agent reviewers.
 
+[0.22.0]: https://github.com/anilcancakir/claude-code/compare/v0.21.0...v0.22.0
 [0.21.0]: https://github.com/anilcancakir/claude-code/compare/v0.20.0...v0.21.0
 [0.20.0]: https://github.com/anilcancakir/claude-code/compare/v0.14.2...v0.20.0
 [0.14.2]: https://github.com/anilcancakir/claude-code/compare/v0.14.1...v0.14.2
