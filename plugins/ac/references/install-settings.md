@@ -178,6 +178,50 @@ without its description, `"user-invocable-only"` hides it from the model but kee
 `"off"` hides it from both. Anything the operator should still be able to type stays on
 `"user-invocable-only"`, which is why the rarely-used list does not use `"off"`.
 
+## Group E: output style, opt-in, default off
+
+The plugin ships one output style, at `plugins/ac/output-styles/concise.md`. It sets no
+`force-for-plugin`, so nothing applies it until the operator asks for it here or through
+`/config`. It is neither security-sensitive (Group B) nor a context trim (Group D), which is
+why it has its own gate rather than a home in either; it changes the shape of every answer, so
+it is never silent. No option is marked recommended: this is a preference, not a fact.
+
+```
+AskUserQuestion({
+  header: "Output style?",
+  question: "The ac plugin ships an output style, ac:concise. It leads with the result, keeps an answer to a few sentences, gives full depth the moment you ask, and never shortens error output or a security warning. Turn it on?",
+  options: [
+    {label: "Turn it on", description: "Sets outputStyle to ac:concise. Takes effect at the next session start, not this one."},
+    {label: "Leave it off", description: "Nothing is written. Your global CLAUDE.md still carries the one-line answer-shape floor, and /config turns the style on at any time."}
+  ]
+})
+```
+
+| Answer | Key written |
+|---|---|
+| Turn it on | `outputStyle = "ac:concise"` |
+| Leave it off | nothing |
+
+ADD-only like every other group. When `outputStyle` already holds any value other than
+`default`, including a built-in such as `Explanatory`, leave it untouched and report it as
+already present; do not ask, because the operator has already answered this question elsewhere.
+
+`default` is the one exception, because it is definitionally the no-style value: the runtime
+maps that name to null rather than to a style. Someone who opened `/config` once and picked
+Default has a key set and no style active, so counting it as an answer would withhold the
+question from exactly the person it exists for.
+
+Under `--dry-run`, skip the prompt and say the key would not be set.
+
+The value is the literal string `ac:concise`. A plugin-shipped style resolves as
+`<plugin name>:<style name>`, and a value that does not resolve returns null with no warning
+anywhere in the binary, so a wrong value is indistinguishable from the key being absent.
+Measured on 2.1.260: `ac:concise` resolves, bare `concise` does not, and neither does
+`concise@ac` or `ac@ac:concise`.
+
+That silent miss is why Phase 5 asks the operator to confirm the active style in `/config`
+rather than only reporting that the key was written.
+
 ## MCP token
 
 The ac MCP token is a secret. It is never bundled and never rendered.

@@ -13,7 +13,7 @@ Request: $ARGUMENTS
 
 Precondition: the ac plugin is already installed and loaded. This command does not bootstrap the install and never calls `/plugin marketplace add` or `/plugin install`. It writes only under `~/.claude/`, and only the files each phase names.
 
-## Phase 0: Identity, arguments, preflight
+## Phase 0: Identity, arguments, preflight, languages
 
 You are the `/ac:install` orchestrator. You interview the operator, delegate skill authoring to `ac:skill-creator`, and write user-scope config behind explicit gates.
 
@@ -54,6 +54,21 @@ Call `mcp__plugin_ac_ac__resolve-library` with a trivial query such as `react`. 
 
 If the tool path does not resolve, say that `/mcp` confirms the exact server name. The bundled server is keyed `ac` in `.mcp.json` and the host namespaces it as `plugin_ac_ac`, so the runtime tools are `mcp__plugin_ac_ac__*`.
 
+### 0d. The language pair
+
+Two answers, taken here rather than in Phase 3 because Phases 1 and 2 both need them and both run first. Skip this step entirely when `SKIP_SKILLS` and `SKIP_CLAUDE_MD` are both set, since nothing left to run consumes either value.
+
+Ask as two questions in one `AskUserQuestion` call:
+
+1. `CONVERSATION_LANGUAGE`, the language you and the operator talk in.
+2. `ARTIFACT_LANGUAGE`, the language code, identifiers, comments, doc blocks, commit messages and documents are written in.
+
+Default both to English and never infer the second from the first. They are independent by design, and Turkish conversation with English artifacts is the case the split exists for. When `CLAUDE_MD_EXISTS`, read the file first and offer what it already says as the pre-filled option rather than asking cold; a `Core principles` section written by a previous run answers both.
+
+Both values are consumed three times: the Phase 1 brief, the Phase 2 brief, and the Phase 3 placeholders. Collect them once here and pass the same strings to all three, so a generated skill cannot disagree with the generated CLAUDE.md about what language the project writes in.
+
+Run this even under `--dry-run`. Both briefs and the Phase 3 preview print these values, and a preview built without them does not match what a live run writes. This matches 3a rather than the Phase 4 gates: a question whose answer only feeds a preview still has to be asked, while a question whose only effect is a settings write does not.
+
 ## Phase 1: my-coding skill
 
 Skip when `SKIP_SKILLS`.
@@ -80,7 +95,7 @@ On Skip, go to Phase 2. Otherwise run 1b and 1c, which is also the path when the
 Through `AskUserQuestion`, one decision per question:
 
 1. Primary stack and the language versions in play.
-2. Non-negotiable rules (multiSelect: type everything, English-only identifiers, TDD, zero linter suppressions, minimal diff, plus a free-text option).
+2. Non-negotiable rules (multiSelect: type everything, identifiers and comments in `ARTIFACT_LANGUAGE` only, TDD, zero linter suppressions, minimal diff, plus a free-text option). Render the language option with the 0d answer substituted, so the operator is confirming a concrete rule rather than an abstract one.
 3. Architecture philosophy: how business logic is organised.
 4. Formatting: line width, indentation, trailing commas, import order.
 5. Testing discipline: test-first, test-alongside, or post-implementation.
@@ -93,7 +108,7 @@ Compile a brief: stack and versions, each rule with a one-line reason, the archi
 Under `--dry-run`, print the brief and the target path and skip the invocation. Otherwise `Skill({skill: "ac:skill-creator"})`, handing it the brief plus these instructions:
 
 - Create `my-coding` at `~/.claude/skills/my-coding/`.
-- Fill `${CLAUDE_PLUGIN_ROOT}/references/coding-style-template.md` from the brief.
+- Fill `${CLAUDE_PLUGIN_ROOT}/references/coding-style-template.md` from the brief. Its `<artifact language>` placeholder takes the 0d answer; state the value in the brief rather than leaving the creator to infer it from the stack. Rewrite both halves of that rule's example in the artifact language too: the shipped WRONG case is a Turkish identifier, so it silently becomes the CORRECT case for an operator whose artifact language is Turkish.
 - Author one `references/<language>.md` per primary stack. Keep the SKILL.md body lean and push language detail into those files.
 - Author `references/anti-patterns.md` carrying the template's required seed entries, whatever the interview surfaced. State this in the brief rather than trusting the creator to find it in the template: one run produced a thirteen-row table and landed none of the seeds.
 
@@ -135,7 +150,7 @@ Compile a brief: active modes with opening and closing patterns, the tone spectr
 Same gating as 1c. Instructions:
 
 - Create `my-language` at `~/.claude/skills/my-language/`.
-- Fill `${CLAUDE_PLUGIN_ROOT}/references/language-style-template.md` from the brief.
+- Fill `${CLAUDE_PLUGIN_ROOT}/references/language-style-template.md` from the brief. Its first two Writing Rules are fixed content, the scoped dash rule and the content-sets-length rule; keep both verbatim and fill only the numbered placeholders after them. Delete any numbered placeholder the interview did not fill rather than inventing a rule to fill it: 2b collects modes, formality, traits, phrases and samples, and no rules at all, so an unfilled slot is the normal case. Prose the operator writes for people is in `ARTIFACT_LANGUAGE`, which the brief states.
 - Write any supplied samples to `references/examples.md` and point the SKILL.md at it.
 
 ## Phase 3: global CLAUDE.md
@@ -148,20 +163,22 @@ Read `${CLAUDE_PLUGIN_ROOT}/references/global-claude-md-section-template.md` and
 
 On an upgrade the current file is the answer sheet. Identity, conversation language, trigger words, test tools and stack are all recorded in the copy this phase is about to replace, and asking again breaks the rule the generated file itself carries against asking what a readable file already answers. Measured on one real upgrade, every placeholder was answerable and a full interview would have asked nothing new. Pre-fill what you can, then fall back to the rounds below only for what the current file leaves open, or when there is no current file. Fill `Identity` and `Role` from one string whichever branch you are on: take the full `name <email>` once and derive `Role`'s given name from that same value, never from a second line of the source.
 
-Pre-filling replaces the rounds; it does not replace the confirmation. Render the filled values as a list inside the `question` text of one `AskUserQuestion`, with options `Correct` / `Fix identity` / `Fix language` / `Fix working style`, and let the operator answer before you build anything, however obvious the values look. Skipping this is not a shortcut, it is the failure: on the run that produced this rule the name was pre-filled from two different lines of the same source file and shipped as `Anilcan` in `Role` and `Anılcan` in `Identity`, an inconsistency a single confirmation round would have caught and which nothing downstream checks. A source file that disagrees with itself is the normal case, not the exception, because the sections were written months apart.
+Pre-filling replaces the rounds; it does not replace the confirmation. Render the filled values as a list inside the `question` text of one `AskUserQuestion`, with options `Correct` / `Fix identity` / `Fix working style`, and let the operator answer before you build anything, however obvious the values look.
+
+Language is deliberately not on that list. 0d already asked, and Phases 1 and 2 have been briefed with the answer and have written it into two skills, so a change accepted here would leave those skills disagreeing with the file this phase is about to write. If the operator raises it anyway, do not silently take the new value: name the skills that were built on the old one and offer a Recreate pass over Phases 1 and 2 alongside the corrected CLAUDE.md. Skipping this is not a shortcut, it is the failure: on the run that produced this rule the name was pre-filled from two different lines of the same source file and shipped as `Anilcan` in `Role` and `Anılcan` in `Identity`, an inconsistency a single confirmation round would have caught and which nothing downstream checks. A source file that disagrees with itself is the normal case, not the exception, because the sections were written months apart.
 
 Interview against the placeholders the template actually carries, not against the count below; a restated roster is exactly what 3b warns about. Three things about them:
 
-- The template carries eight distinct placeholders across nine occurrences. `<conversation language>` appears twice, in adjacent bullets. Replace every occurrence; substituting the first and stopping ships a raw placeholder into a live CLAUDE.md.
+- Several placeholders occur more than once, and several others are whole conditional lines that either render or vanish. Do not work from a count, in this body or in your head: an earlier count went stale the moment a placeholder was added. Count them in the template you just read, replace every occurrence, and treat a conditional line as handled only once you have decided which way it goes. Substituting the first occurrence of a repeated placeholder and stopping ships a raw placeholder into a live CLAUDE.md.
 - Not every angle bracket is one. `/ac:plan <topic>` and `.ac/plans/<slug>/plan.md` are literal text describing a command and a path. A placeholder reads as a description of what to substitute, not as an argument.
 - When the operator already has an optional section, carry theirs forward rather than regenerating it. The shape guidance for `Blocked pages` exists to give a new user a well-shaped section, not to compress one that already earned its length: on the run that produced this rule, three interview answers would have discarded two measured timings and a failure mode.
 
 The rounds, for a fresh install or an unanswered placeholder:
 
 1. Identity: one answer, used twice. `Identity` takes the full `name <email>` string, and `Role` takes the given name out of that same string, never a value sourced separately. Offer `git config --get user.name` and `--get user.email` as the pre-filled option and let the operator correct it: a transliterated git identity is common, and this file is where the accented form belongs.
-2. Conversation language, filling two placeholders in `Core principles`. Default English. On anything else, keep the clause saying the local preference overrides an organisation-level language policy; that clause is the whole rule for someone whose employer mandates English.
+2. Language. Both answers were taken in 0d, before Phase 1 needed them; do not ask again. Three things follow from the pair. Append the organisation-override sentence to the conversation-language bullet only when that answer is not English; it is the whole rule for someone whose employer mandates English and noise for everyone else. Emit the language-split bullet only when the two answers differ, because on a matching pair it explains a distinction that does not exist. And keep both values consistent with what Phases 1 and 2 were briefed with, since the generated skills state the artifact language too.
 3. Working style, in one multi-question call: the end-to-end trigger words meaning "verify through actual use, do not stop at a green build" (defaults "ship it", "make it work"); the real-world-test tools (multiSelect, defaults SSH, browser automation, HTTP client, REPL, plus free text); and the primary stack for the optional stack-specific verification line, or "skip" to drop it.
-4. The two optional sections. Any coding anti-patterns beyond the ones the template ships, appended as bullets in the same voice or omitted. Then whether a third fetch path exists for pages a WAF blocks, after the built-in and the ac MCP fallback both fail; if so collect the tool, the conditions that hand off to it, and the one thing that is easy to get wrong, and write the section from those three. If not, drop the placeholder line rather than emitting an empty heading.
+4. The optional sections. First, any skill beyond `my-coding` and `my-language` whose trigger has to hold even when its own listing entry is dropped, each becoming one line in `Skills`. Ask it as "which of your other skills would you not want to lose", list the ones on disk at `~/.claude/skills/` as options, and take none as a valid answer. The reason is mechanical: a skill's description is loaded every turn under a budget of 1% of the context window, and an overflowing listing is trimmed starting with the least-invoked skill, so the skill most likely to lose its description is the one the operator forgot they had. This file is not subject to that budget. Then any coding anti-patterns beyond the ones the template ships, appended as bullets in the same voice or omitted. Then whether a third fetch path exists for pages a WAF blocks, after the built-in and the ac MCP fallback both fail; if so collect the tool, the conditions that hand off to it, and the one thing that is easy to get wrong, and write the section from those three. If not, drop the placeholder line rather than emitting an empty heading.
 
 Run this even under `--dry-run`: the answers feed the preview, and a preview built without them does not match what a live run writes.
 
@@ -228,8 +245,9 @@ Read `${CLAUDE_PLUGIN_ROOT}/references/install-settings.md`. It is the only sour
 2. **Group A**, safe-silent tuning. Apply silently, each key only when absent.
 3. **Group C**, core ac parity. Apply without a prompt, including the migration strip for keys a prior install wrote. Surface any strip in the gate diff, since one of its entries cannot be distinguished from an operator-authored deny.
 4. **Groups B and D**, opt-in and default off. Present each through the `AskUserQuestion` block the reference defines, with every option unchecked, and write only what the operator checks. Skip both prompts under `--dry-run` and say no key would be set.
-5. **The MCP token.** Follow the reference exactly. The value is never echoed, logged, or rendered.
-6. **Show the diff and write.** Render newly-added against already-present, grouped A / C / B / D / token, with the token masked. Under `--dry-run`, stop here. Otherwise write the merged object back and report the same breakdown.
+5. **Group E**, the output style, opt-in and default off. Ask through the reference's block and write the literal value it names, never a value you assembled yourself: a plugin style that does not resolve fails silently and reads exactly like the key being absent. Skip the question when `outputStyle` already holds any value other than `default`, which the reference explains is the no-style value rather than an answer, and skip it under `--dry-run`.
+6. **The MCP token.** Follow the reference exactly. The value is never echoed, logged, or rendered.
+7. **Show the diff and write.** Render newly-added against already-present, grouped A / C / B / D / E / token, with the token masked. Under `--dry-run`, stop here. Otherwise write the merged object back and report the same breakdown.
 
 ## Phase 5: Summary
 
@@ -246,6 +264,7 @@ settings:     <merged | skipped (--skip-settings) | dry-run>
 Group A:      <N tuning keys set | all already present>
 Group B:      <opt-ins applied: comma-list | none selected | skipped (dry-run)>
 Group D:      <trims applied: comma-list | none selected | skipped (dry-run)>
+Output style: <set to ac:concise | left off | already set to <existing value>, untouched | skipped (dry-run)>
 MCP token:    <set | unchanged | skipped>
 MCP URL:      <set | unchanged>
 settings backup: <~/.claude/settings.json.bak-ac-install | kept (pre-existing) | none (settings absent or dry-run)>
@@ -256,15 +275,18 @@ The token line shows only `<set>`, `<unchanged>` or `<skipped>`, never a value.
 
 Print these when they apply:
 
-- Standing discipline lives in the global CLAUDE.md, not in a skill, because CLAUDE.md arrives on every main-thread turn and a skill body arrives only when the model elects to load it. The same split puts the short unconditional rules (identity, conversation language, the dash rule, the suppression ban) in CLAUDE.md and the depth behind them in `my-coding` and `my-language`: name the rule once where it always arrives, explain it once where it arrives on trigger.
+- Standing discipline lives in the global CLAUDE.md, not in a skill, because CLAUDE.md arrives on every main-thread turn and a skill body arrives only when the model elects to load it. The same split puts the short unconditional rules (identity, the two languages, the scoped dash rule, the answer-shape floor, the suppression ban) in CLAUDE.md and the depth behind them in `my-coding` and `my-language`: name the rule once where it always arrives, explain it once where it arrives on trigger.
+- The `ac:concise` output style is the third layer and the only one that reaches the system prompt itself. It carries the six answering rules in full; CLAUDE.md keeps a one-line floor because the style can be switched off or replaced at any time. Say which of the two the operator now has, so nobody reads the floor as the whole feature.
 - When `LEGACY_MY_WORKFLOW` was found, say `rm -rf ~/.claude/skills/my-workflow` removes the now-duplicated copy.
 - Restate the tradeoff of any Group B opt-in that was applied. `skipWebFetchPreflight` drops the Anthropic domain-safety blocklist preflight, a known hang source tracked as anthropics/claude-code#34565. `skipDangerousModePermissionPrompt` and `acceptEdits` reduce confirmation friction by removing a confirmation.
 - `statusLine` needs `bun` or `npx` on PATH to render.
+- Report the skill-listing cost, and write no setting for it. Claude Code loads every skill's `description` plus `when_to_use` on every main-thread turn under a budget of 1% of the model's context window, and an overflowing listing is trimmed starting with the skills the operator invokes least, silently. Say roughly what the operator's listing now costs, point at `/doctor` for the real figure and the biggest contributors, and name `skillListingBudgetFraction` as their lever if their own skills push them over. Raising that cap is a context tradeoff the operator owns, and the plugin cannot honestly widen a budget it is itself spending; Group D already refuses to make a context-cost change silently, and this is that decision inverted.
 
 Next steps:
 
 - Restart Claude Code so the settings.json changes take effect.
 - Run `/mcp` to verify the ac MCP tools are reachable.
+- When the output style was set, open `/config` after the restart and confirm the active style reads `ac:concise`. A value that does not resolve produces no warning, so the written key is not evidence that the style is live.
 - Try entering native plan mode and confirm it is blocked with the `/ac:plan` steer.
 - The two skills load in every session with no restart.
 
@@ -273,7 +295,8 @@ Next steps:
 Named without line numbers on purpose: an earlier set drifted the moment those files were edited. Each entry names the section it means.
 
 - `${CLAUDE_PLUGIN_ROOT}/references/global-claude-md-section-template.md`, the Phase 3 generated file inside its fence markers. Its HTML-comment header carries the keep test, what the built-in prompt reaches, and the grep recipe for re-auditing either against a shipped binary. The placeholder roster lives there, not here.
-- `${CLAUDE_PLUGIN_ROOT}/references/install-settings.md`, every Phase 4 key, both opt-in gates, and the ADD-only rule.
+- `${CLAUDE_PLUGIN_ROOT}/references/install-settings.md`, every Phase 4 key, all three opt-in gates including the Group E output style, and the ADD-only rule.
+- `${CLAUDE_PLUGIN_ROOT}/output-styles/concise.md`, the style Group E offers. Phase 4 writes its key and never its content; read it only to describe what the operator is turning on.
 - `${CLAUDE_PLUGIN_ROOT}/references/coding-style-template.md`, the Phase 1 seed including the required anti-pattern entries.
 - `${CLAUDE_PLUGIN_ROOT}/references/language-style-template.md`, the Phase 2 seed.
 - `${CLAUDE_PLUGIN_ROOT}/commands/init-project.md`, its CAN / CANNOT / MUST block for the orchestrator shape and its `.proposed` sidecar gate.
