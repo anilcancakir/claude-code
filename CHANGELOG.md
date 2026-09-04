@@ -5,7 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.21.0] - 2026-09-04
+
+Two findings drove this release, both measured against the shipped 2.1.260 binary rather than inferred. The lean system prompt shape that Opus 5 receives builds no response-length guidance at all: `# Tone and style` is produced by the classic branch only, and the communication section, present in both shapes, branches internally on a capability Opus 5 does not carry and collapses to one sentence about matching surrounding code. So the plugin now ships an output style and the generated CLAUDE.md carries a one-line floor beneath it. Separately, the skill and agent listings were spending more per-turn context than they earned, and an overflowing listing drops whole entries silently, so every description in the plugin was rewritten as a retrieval surface rather than a summary of its own body.
+
+### Added
+
+- An output style at `plugins/ac/output-styles/concise.md`, selectable as `ac:concise`. It leads with the result, holds a simple answer to one to three sentences, replaces a describing sentence with the artifact that settles the point, and carves out error output, failing tests, security warnings and destructive-action confirmations so brevity never costs correctness. It sets no `force-for-plugin`, so nothing applies it until the operator asks for it. `/ac:install` gains a Group E gate that writes the key, and Phase 5 tells the operator to confirm the result in `/config`: a style value that does not resolve returns null with no diagnostic anywhere in the binary and reads exactly like an unset key. Measured on 2.1.260, a plugin style is addressed as `<plugin>:<style name>`, so `ac:concise` resolves while bare `concise`, `concise@ac` and `ac@ac:concise` all silently do not.
+
+### Changed
+
+- The generated CLAUDE.md asks for two languages instead of one. The conversation language and the artifact language (code, identifiers, comments, doc blocks, commit messages, documents) are independent, which is the Turkish-conversation-with-English-artifacts case the old hardcoded English could not express. Both are collected in a new Phase 0d, before Phases 1 and 2 need them rather than in Phase 3 where they would have arrived too late for the two generated skills. The organisation-override sentence and the language-split bullet are each emitted only when their condition holds, so a matching pair does not ship a bullet explaining a distinction that does not exist.
+- The dash rule is scoped rather than absolute. It holds in a finished artifact, meaning a code comment or doc block, a commit message, a PR description, a document, an email, a message to a person, and is free in the conversation and in our own working files. Two clauses keep the carve-out from leaking: the rule follows the content rather than the channel, so a commit message drafted inside a chat reply still takes the hyphen, and anything the model cannot confidently place counts as an artifact. `references/language-style-template.md` is rescoped to match, because leaving it absolute would ship two rules that contradict each other.
+- Two `Core principles` bullets now cover answer shape and written-artifact length. On 2.1.260 an Opus 5 session with no output style selected receives no response-length guidance from any built-in block at all, which is wider than the earlier `# Tone and style` finding recorded. That block is built by the classic branch only, and its current four bullets no longer contain the "fewer than 4 lines" and "minimize output tokens" wording an audit would grep for. The communication section is present in both prompt shapes but branches internally on a capability Opus 5's roster does not carry, collapsing to one sentence about matching the surrounding code's style.
+- `references/coding-style-template.md` and `references/language-style-template.md` carry the depth behind the two new bullets: doc-block content in the first, document and commit and PR length in the second. The one-line rule stays in the file that always arrives and the explanation stays in the skill that arrives on trigger.
+- Every skill, agent and command description in the plugin is now a retrieval surface rather than a summary of its own body. Ten agent descriptions, eight skill descriptions and `/ac:commit`'s were rewritten to carry the trigger and the routing boundary and nothing else, because the listing is loaded on every main-thread turn under a budget of 1% of the context window and an overflow drops entries silently. The facts that left the frontmatter did not leave the plugin: tier routing lives in `skills/plan/references/model-tiers.md` and the `/ac:execute` routing table, the commit split thresholds in `ac:git-master`, and each worker's scope boundary in its own body. `/ac:install` Phase 5 now reports what the operator's listing costs and names `skillListingBudgetFraction` as their lever, and writes no setting for it.
+- Every frontmatter `description` and `when_to_use` that needed it is now quoted. A value carrying `": "` or opening with a backtick is not valid YAML; Claude Code's own parser tolerates both, but the documented failure mode for malformed frontmatter is loading the body with empty metadata, which is silent.
+
+### Fixed
+
+- `skills/claude-md-rules-creator/references/layered-context.md` no longer tells an author that "be concise" is already in effect and safe to cut. Five places said so, across the reference and the skill body: the built-in defaults list, the do-not-restate paragraph, the conflict-precedence table, the quick cheat sheet, and stage 9 of the skill itself. All five describe the classic prompt shape and are false on the models this plugin targets, and that reference is exactly what would talk a future maintainer out of the rule above. The cheat sheet carried three further entries with the same defect, so each of the four now reads `[classic only]`.
 
 ### Removed
 
@@ -584,6 +603,7 @@ The lesson driving this release: a limit written in prose is not a limit. The ca
 - `subagent-monitor` plugin removed from the marketplace; functionality superseded by
   the plan-chain agent reviewers.
 
+[0.21.0]: https://github.com/anilcancakir/claude-code/compare/v0.20.0...v0.21.0
 [0.20.0]: https://github.com/anilcancakir/claude-code/compare/v0.14.2...v0.20.0
 [0.14.2]: https://github.com/anilcancakir/claude-code/compare/v0.14.1...v0.14.2
 [0.14.1]: https://github.com/anilcancakir/claude-code/compare/v0.14.0...v0.14.1

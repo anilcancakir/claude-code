@@ -56,6 +56,7 @@ Plan-then-execute is a crowded category. Three things here are not common:
 | Skills | 9 | `ac:plan`, `ac:execute`, `ac:auto`, plus six authoring skills |
 | Agents | 10 | three advisory, four tiered workers, two reviewers, one verifier |
 | Hooks | 7 | three `PreToolUse`, two `Stop`, one `SessionStart` |
+| Output styles | 1 | `ac:concise`, opt-in and never forced |
 | MCP tools | 6 | docs lookup, code search, web fetch and search, local history search |
 
 **On the hooks**, since they run code on your machine. Each one is gated and fails open, meaning any condition it cannot evaluate lets the action through unchanged. The three `PreToolUse` hooks fire only on plan-mode entry, only while an `/ac:execute` run is active in the current project, and only inside an `ac:explore` subagent. The two `Stop` hooks keep an in-flight run from ending its turn mid-plan. `SessionStart` reports whether a plan is still open. None of them makes a network call. Read them at [`plugins/ac/hooks/`](plugins/ac/hooks/).
@@ -69,13 +70,13 @@ Plan-then-execute is a crowded category. Three things here are not common:
 | `/ac:plan` | Parallel research, an intent interview, a reuse and efficiency audit, then a tier-assigned plan at `.ac/plans/<slug>/plan.md`. Skill. |
 | `/ac:execute` | Runs an approved plan wave by wave with four-layer verification and a checkpoint commit per wave, closing with one code review. Skill. |
 | `/ac:auto` | Freezes completion criteria under a hash, chains plan into execute, then gates the result with a read-only verifier. Never pushes. Skill. |
-| `/ac:install` | Writes your global `CLAUDE.md`, generates the `my-coding` and `my-language` skills, merges `settings.json` parity. |
+| `/ac:install` | Writes your global `CLAUDE.md`, generates the `my-coding` and `my-language` skills, merges `settings.json` parity, and offers the opt-in `ac:concise` output style. |
 | `/ac:init-project` | Investigates a project with four parallel agents, then writes its `CLAUDE.md`, `CLAUDE.local.md` and path-scoped `.claude/rules/*.md`, plus a linter hook and a language server each proved to work. |
 | `/ac:commit` | Atomic commits with style detected from recent history, multi-file splitting and test pairing. |
 
 | Agent | Model | Role |
 |-------|-------|------|
-| `ac:explore` | haiku | Codebase research with `file:line` citations, LSP and ast-grep precision. |
+| `ac:explore` | haiku | Codebase research with `file:line` citations, at a `quick`, `medium` or `thorough` depth. |
 | `ac:librarian` | sonnet | External docs and OSS research with URL and permalink citations. |
 | `ac:oracle` | opus | Verifying advisor. Tests the premises a brief rests on before answering it. Advises, never edits. |
 | `ac:plan-worker-quick` | haiku | Mechanical single-file steps: config edits, renames, scaffolds. |
@@ -91,7 +92,7 @@ The six authoring skills (`ac:skill-creator`, `ac:command-creator`, `ac:agent-cr
 ## Repository layout
 
 ```
-plugins/ac/          The plugin: commands, skills, agents, hooks, references.
+plugins/ac/          The plugin: commands, skills, agents, hooks, output styles, references.
 plugins/ac/cli/      Bundled MCP runtime (ac.js), built from cli/ac/.
 cli/ac/              CLI source, TypeScript on Bun.
 .claude-plugin/      Marketplace manifest.
