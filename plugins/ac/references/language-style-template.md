@@ -2,6 +2,25 @@
 [//]: # (Angle-bracket markers are placeholders; the install interview fills them in.)
 [//]: # (Do not paste personal voice samples or signature phrases here.)
 
+## Frontmatter to emit
+
+Write this block at the top of the generated SKILL.md, before the heading below. Keep both values
+short: they are loaded on every main-thread turn under a shared budget, and an overflow drops the
+whole entry. Name only what this skill actually carries, so the description cannot promise a rule
+the body does not have.
+
+```yaml
+---
+name: my-language
+description: "<whose voice, plus the rules this body actually carries>"
+when_to_use: "<the prose surfaces that should trigger it>"
+allowed-tools: Read, Glob, Grep, Edit, Write
+---
+```
+
+Quote both values. A value carrying `": "` or opening with a backtick is not valid YAML, and
+malformed frontmatter loads the body with empty metadata rather than failing loudly.
+
 # Language Style Skill Template
 
 ## Tone Spectrum
@@ -161,15 +180,32 @@ Use these to match the author's voice. Vary them; do not stack.
 
 ## Writing Rules
 
-The operator's global CLAUDE.md already states the short unconditional rules, the dash ban among them, and it arrives on every main-thread turn where this skill body arrives only when the model elects to load it. So this section is the explanation and the worked alternatives, not the announcement. Do not add an author, name, or email section here for the same reason: identity is a one-line rule that belongs in the file that always arrives, and a second copy here is a copy that will drift.
+Prose the operator writes for people is in `<artifact language>`; this skill sets the voice, not the language.
 
-### 1. No em-dash, no en-dash
+The operator's global CLAUDE.md already states the short unconditional rules, the scoped dash rule and the one-line length rule among them, and it arrives on every main-thread turn where this skill body arrives only when the model elects to load it. So this section is the explanation and the worked alternatives, not the announcement. Do not add an author, name, or email section here for the same reason: identity is a one-line rule that belongs in the file that always arrives, and a second copy here is a copy that will drift.
 
-Em-dash (U+2014) and en-dash (U+2013) are banned in every output: docs, articles, commits, comments, PR bodies, and anything else that reaches a human reader. Use comma, colon, semicolon, period, parentheses, or plain conjunctions instead.
+<!-- Rules 1 and 2 are fixed content, not placeholders. Keep both verbatim: rule 1 is the scoped
+     half of a rule the global CLAUDE.md states in one line, and a copy here that is stricter
+     than that line ships two rules that contradict each other. The numbered rules after them
+     are placeholders; delete any the interview did not fill rather than inventing one. -->
 
-### 2. <rule-2-title>
+### 1. No em-dash, no en-dash in a finished artifact
 
-<rule-2-body>
+Em-dash (U+2014) and en-dash (U+2013) are out in anything a person reads as a finished artifact: a document, an article, a commit message, a PR body, a code comment or doc block, an email, a message the operator will pass on to someone else. Use comma, colon, semicolon, period, parentheses, or plain conjunctions instead.
+
+The conversation and our own working files (a plan, a report, session notes) are free. Two things keep that carve-out from turning into a leak. The rule follows the content and not the channel, so a commit message drafted inside a chat reply is still a commit message and still takes the hyphen. And anything you cannot confidently place counts as an artifact: a hyphen in a scratch file costs nothing, while an em-dash in a merged commit is exactly what the rule exists to prevent.
+
+### 2. Length is set by the content, not by the format
+
+Match the length of a document, a commit message or a PR body to what it actually carries. Cover the substance and stop.
+
+The three failures worth naming, because each one looks like diligence:
+
+- A summary section that repeats the section above it. If the reader just read it, they do not need it again.
+- A heading kept because the template had one, with a sentence written to fill it.
+- A caveat that does not change what the reader does next. Keep the ones that do.
+
+A commit subject says what changed; the body exists only when the why does not fit in the subject. A PR body earns its length from what a reviewer cannot get from the diff.
 
 ### 3. <rule-3-title>
 
@@ -178,6 +214,10 @@ Em-dash (U+2014) and en-dash (U+2013) are banned in every output: docs, articles
 ### 4. <rule-4-title>
 
 <rule-4-body>
+
+### 5. <rule-5-title>
+
+<rule-5-body>
 
 ## When to Read the References
 

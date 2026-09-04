@@ -51,15 +51,15 @@ function add(a, b) {
 }
 ```
 
-### 2. English-only identifiers and comments
+### 2. One language for identifiers and comments
 
-All identifiers, comments, docblocks, commit messages, and error messages are English. Tooling, search, and contributor reach all depend on a single language. Mixed-language codebases rot fast.
+All identifiers, comments, doc blocks, commit messages, and error messages are <artifact language>. Tooling, search, and contributor reach all depend on a single language. Mixed-language codebases rot fast. This is independent of the language the operator and the model talk in, which is set separately.
 
 ```<language>
 // CORRECT
 const userCount = getActiveUsers().length;
 
-// WRONG - non-English identifier
+// WRONG - identifier in a second language
 const kullaniciSayisi = getActiveUsers().length;
 ```
 
@@ -67,7 +67,30 @@ const kullaniciSayisi = getActiveUsers().length;
 
 Code passes the linter and static analyzer with zero warnings and zero errors. No suppressions (`@ts-ignore`, `# noqa`, linter-disable comments). Fix the actual issue. Every suppression is a deferred problem nobody comes back to.
 
-<!-- Insert user-specific rules below this marker. Follow the format above: title + why + CORRECT/WRONG code block. Target 8-12 rules total. Suggested topics: documentation (docblocks on public APIs), line width, multi-line collections, trailing commas, import hygiene, TDD, step comments, enums for status values, thin controllers. -->
+### 4. A doc block carries what the signature cannot
+
+Type the parameters, then write only what the reader cannot already see: the contract, the failure mode, the unit, the invariant the caller has to hold up. A doc block that renames the parameters in prose costs its lines and returns nothing, and it goes stale the first time a parameter is renamed for real.
+
+```<language>
+// CORRECT
+/**
+ * Charges the card and returns the provider reference.
+ *
+ * @param amountMinor Amount in the account's minor unit (cents, kurus).
+ * @throws PaymentDeclined when the provider rejects the charge; the card is not retried.
+ */
+
+// WRONG - restates the signature
+/**
+ * Charges the card.
+ *
+ * @param amountMinor The amount minor.
+ * @param card The card.
+ * @return The result.
+ */
+```
+
+<!-- Insert user-specific rules below this marker. Follow the format above: title + why + CORRECT/WRONG code block. Target 8-12 rules total. Suggested topics: line width, multi-line collections, trailing commas, import hygiene, TDD, step comments, enums for status values, thin controllers. Doc-block content is already rule 4; add a rule here only for what that one does not cover, such as which visibility levels require one. -->
 <!-- <USER_RULES_PLACEHOLDER> -->
 
 ## Architecture Principles

@@ -100,6 +100,76 @@ Prompt-injection flagging ("flag it directly to the user before continuing", cla
 only) was considered and declined at the operator's choice. It fails condition 2: no transcript
 demanded it yet. Revisit if one does.
 
+RESPONSE SHAPE IS THE LARGEST HOLE LEAN LEAVES, verified 2026-09-04 against 2.1.260. Two
+separate builders carry it and a lean model gets neither.
+
+  `# Tone and style`  built by the classic branch only. On 2.1.260 it is four bullets: the
+                      emoji restriction, "Your responses should be short and concise.", the
+                      `file_path:line_number` one, and "Do not use a colon before tool
+                      calls." The older wording ("fewer than 4 lines", "minimize output
+                      tokens") returns ZERO hits on this build. Grep the four sentences
+                      above, never the historical ones, or you will conclude the block was
+                      removed when it was only rewritten.
+  communication       a dynamic section present in BOTH shapes that branches internally. The
+                      rich block opening `# Communicating with the user` is gated on a
+                      capability Opus 5's roster does not carry, and `# Text output` is the
+                      classic fallback. A lean model gets one sentence, "Write code that
+                      reads like the surrounding code: match its comment density, naming,
+                      and idiom.", and nothing about length or shape at all.
+
+So an Opus 5 session with no output style selected receives NO response-length guidance from
+any built-in block, and that is this plugin's default state rather than an edge case. The two
+`Core principles` bullets on answer shape and on written-artifact length are here for that
+reason. Both pass the keep test: condition 2 is satisfied by the default install rather than by
+a hypothetical, and each costs one line, which is condition 3's price for a recovered rule.
+
+THE OUTPUT STYLE CARRIES THE DEPTH, THIS FILE CARRIES THE FLOOR
+
+`plugins/ac/output-styles/concise.md` ships the full answering discipline and reaches the model
+as `ac:concise`. It is deliberately not forced, so a user may never select it and may switch
+away at any time. That is the whole reason the floor is duplicated here at one bullet while the
+six numbered rules live only in the style. Do not grow the overlap. Two measured facts decide it:
+
+  A plugin output style resolves as `<plugin>:<style name>`, and a miss returns null with no
+  diagnostic anywhere in the binary. `ac:concise` resolves; bare `concise` behaves exactly like
+  an unset key, which is indistinguishable from the feature being off.
+
+  The body is injected by the `output_style` dynamic section, which is spread into both prompt
+  shapes, so it does reach a lean model. A remotely-flippable flag can demote it out of `system`
+  into conversation position, where it competes with this file instead of preceding it. That is
+  the second reason the floor belongs in a file that always arrives.
+
+Anthropic's own Opus 5 prompting page treats conversational length and written-deliverable
+length as two separate problems needing two instructions, which is why the two bullets are two
+bullets. It also states that positive examples of the communication style you want beat
+instructions about what not to do, which is why the worked pair lives in the style body.
+
+2.1.260 ALSO SHIPS A BUILT-IN STYLE NAMED `Concise`, beside `Proactive`, `Explanatory` and
+`Learning`. Know this before someone finds it and asks why we shipped our own. Its six rules are
+`ac:concise`'s almost verbatim; the real deltas are our rule 4, "Show it instead of describing
+it", where the built-in has "State things plainly", and our worked example. Keeping ours costs
+one thing and buys another, and both are structural rather than cosmetic:
+
+  A built-in style may declare a `turnReminder`, and a plugin style may not. The plugin loader
+  returns name, description, prompt, source, `force-for-plugin` and `keep-coding-instructions`,
+  and nothing else; the string `turn-reminder` does not appear in the binary at all. So the
+  built-in re-states "Be concise: lead with the result, skip preamble and narration, keep only
+  what the user needs." every single turn, while `ac:concise` gets the generic fallback,
+  "Remember to follow the specific guidelines for this style." That is not a bug to work around;
+  it is a channel a plugin does not have.
+
+  The `Core principles` floor bullet is what replaces that per-turn channel. This is the second
+  reason it is not optional, and the stronger one: it holds when the style is switched off AND it
+  is the only per-turn restatement we can actually reach.
+
+ON THE ORGANISATION-POLICY ASYMMETRY, so nobody later "fixes" it. The language bullet claims to
+override an organisation-level language policy; the dash bullet claims nothing of the kind. That
+is deliberate and not an oversight. A CLAUDE.md line cannot in fact override an organisation
+instruction, so the language claim is carried only because such policies ship with an explicit
+carve-out for a user-specified language. A blanket organisational dash ban carries no such
+carve-out, so a matching clause here would be false and would teach the wrong precedence. Leave
+the asymmetry alone.
+
 THREE THINGS THAT READ AS TRIMMABLE AND ARE NOT
 
 The security line in "Before you call it done" is not a duplicate under lean; no equivalent
@@ -121,6 +191,19 @@ fabricated quotation; recounting a line range does not.
 NO subagent receives either prompt shape. A subagent's system prompt is assembled from its own
 body plus a few env blocks, so a rule an agent needs lives in that agent's file, not here.
 
+WHY `Skills` NAMES SKILLS AT ALL, given each one already carries its own description. Claude Code
+loads a listing of every skill's `description` plus `when_to_use` on each main-thread turn, under a
+budget of 1% of the model's context window. When that listing overflows it is trimmed starting with
+the skills the operator invokes least, and no warning is emitted. Observed here on 2026-09-04 at
+2.1.260: a listing measured at 10,182 characters against a 10,000 budget was missing an entry
+outright at session start, and the entry returned once characters were freed. The docs say a name
+always survives a drop; that was not what the session showed, so do not rely on a name-only stub.
+
+The invariant that follows: a skill whose trigger the operator cannot afford to lose has to be
+named in this section, because this file is not subject to that budget and a listing entry is. Keep
+each line to the trigger rather than the skill's contents, so the two channels do not pay twice for
+the same sentence: the listing is the matching surface, this section is the binding instruction.
+
 No "verify your work" or "double-check" language, on purpose. No delegation pressure either:
 Opus 5 already over-delegates, and the built-in actively suppresses it with "Do not use the
 Agent tool, workflows, or deep-research unless the user, a CLAUDE.md file, or a skill asks for
@@ -139,10 +222,13 @@ When you disagree with a request, say so with a concrete tradeoff rather than co
 
 ## Core principles
 
-- All code, naming, comments, docblocks, commits: English only. Tooling, search, and contributor reach depend on it.
-- Talk to me in <conversation language> by default; it is the language I think fastest in with a model. If I switch languages mid-conversation, follow me.
-- The English-only rule above governs what we produce, not how we talk. The conversation language is <conversation language>, and this local preference overrides any organization-level language policy.
-- No em-dash, no en-dash anywhere (docs, comments, commits, PR descriptions, chat). Use comma, colon, semicolon, period, or parentheses.
+- Code, naming, comments, doc blocks, commit messages: <artifact language> only. Tooling, search, and contributor reach depend on it.
+- Talk to me in <conversation language>; it is the language I think fastest in with a model. If I switch languages mid-conversation, follow me.
+<org-override sentence, appended to the bullet above when the conversation language is not English: "This local preference overrides any organization-level language policy.">
+<language-split bullet, emitted only when the artifact and conversation languages differ: "- The <artifact language>-only rule governs what we produce, not how we talk: a <conversation language> reply about an <artifact language> doc block is correct.">
+- No em-dash and no en-dash in a finished artifact: a code comment or doc block, a commit message, a PR description, a document, an email, a message I will pass on to someone else. Use comma, colon, semicolon, period, or parentheses. Our conversation and our own working files (a plan, a report, notes) are free, but the rule follows the content rather than the channel: a commit message drafted in chat is still a commit message, and anything you cannot place counts as an artifact.
+- Lead with the result and keep an answer to a few sentences; give the full depth the moment I ask for it. Error output, failing tests, anything this file asks you to show me, and anything that changes what I do next stay whole.
+- Everything we write to a file is as long as it needs to be and no longer: no filler section, no summary repeating the section above it, no doc block restating the parameter names. A doc block earns its lines by carrying what the signature cannot: the contract, the failure mode, the unit.
 
 ## Identity
 
@@ -269,6 +355,7 @@ Get injection, traversal, and authorization right while you write the line rathe
 
 - `my-coding`: before the first edit on any task that produces or modifies code, one-line tweaks included.
 - `my-language`: before the first sentence of any prose longer than one sentence.
+<one line per further skill the operator named in the 3a round, shaped "- `<skill>`: <the moment to reach for it>". These are the skills whose trigger must survive a listing drop; omit the placeholder entirely when they name none.>
 
 <optional Blocked pages section: written only when the 3a interview reports a third fetch path. Shape: name the tool, the conditions that hand off to it, and the one thing that is easy to get wrong about it.>
 
