@@ -7,7 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-`/ac:install` now generates the whole global CLAUDE.md rather than one section of it. The prompt for this was finding that the section template's entire design argument was pinned to a system prompt shape the current Opus models no longer receive.
+## [0.20.0] - 2026-09-04
+
+`/ac:install` now generates the whole global CLAUDE.md rather than one section of it. The prompt for this was finding that the section template's entire design argument was pinned to a system prompt shape the current Opus models no longer receive. The release also runs `/ac:init-project` against this repository and rewrites every outward-facing surface against measured evidence.
 
 ### Changed
 
@@ -33,6 +35,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Pre-filling the Phase 3 placeholders no longer skips the confirmation. A live run filled the name from two different lines of the same source file and shipped `Anilcan` in `Role` beside `Anılcan` in `Identity`; both sections now come from one string, on either branch, and the confirmation round has a stated shape rather than only a requirement to exist.
 - Phase 3 drops the ac MCP fallback sentences when the Phase 0 probe failed. Phase 0 has always promised that and no later step performed it, because the template names those tools as static text with no placeholder to leave empty.
 - The stray-marker branch names its two remedies again, and the summary stops carrying an MCP URL that the settings reference owns.
+- The marketplace manifest declared a `$schema` that 404s. `https://anthropic.com/claude-code/marketplace.schema.json` does not resolve, so the manifest got no editor validation at all; it now points at the SchemaStore URL that `anthropics/claude-code` uses.
+- Both manifest descriptions promised bug investigation "with hypothesis discipline". No such surface ships, and the official directory's own review prompt fails a submission whose install description does not match its behaviour. The descriptions now state what is actually there, hooks included. They carry no component counts: a count in a description goes stale silently, which is how the README came to claim nine subagents, then eleven, against an actual ten.
+- The README carried five stale facts: a version badge pinned to 0.9.1, "nine subagents" and "11 subagents" against an actual ten, "8 skills" against nine, and a Node floor of 20 against the real 22.13.0. The hooks and the MCP tools were not mentioned at all.
+- `.claude/rules/ac-plugin.md` described frontmatter that had drifted. `allowed-tools` and `disable-model-invocation` were missing from the command shape, `name` was listed as universal on skills when `plan` and `execute` omit it, and `user-invocable` was undocumented. `disable-model-invocation` is the costly one: it keeps a command out of the model's own list, so a plan step that says "run `/ac:install`" cannot execute, and nothing recorded that.
+
+### Added
+
+- `## Golden Rules` in the repository's `CLAUDE.md`, carrying the three rules that have to hold unconditionally. The build-artifact rule moved here from `.claude/rules/cli-build.md` because a path-scoped rule loads only when Claude reads a matching file; `Edit` and `Write` do not trigger one, which is exactly the path where hand-editing the bundle silently loses work.
+- `.claude/rules/hooks.md`, scoped to `plugins/ac/hooks/**`. Seven shell scripts had no rule coverage: neither the markdown rule nor the CLI rule matches that directory. It records the `#!/bin/sh` plus `set -u` fail-open shape, the payload facts a gate depends on, and what a restart does and does not reload.
+- A required seed list in `coding-style-template.md`, so the three anti-patterns the lean system prompt drops reach every generated `my-coding` skill regardless of what the interview surfaced.
 
 ## [0.14.2] - 2026-09-04
 
@@ -568,6 +580,7 @@ The lesson driving this release: a limit written in prose is not a limit. The ca
 - `subagent-monitor` plugin removed from the marketplace; functionality superseded by
   the plan-chain agent reviewers.
 
+[0.20.0]: https://github.com/anilcancakir/claude-code/compare/v0.14.2...v0.20.0
 [0.14.2]: https://github.com/anilcancakir/claude-code/compare/v0.14.1...v0.14.2
 [0.14.1]: https://github.com/anilcancakir/claude-code/compare/v0.14.0...v0.14.1
 [0.14.0]: https://github.com/anilcancakir/claude-code/compare/v0.13.1...v0.14.0
