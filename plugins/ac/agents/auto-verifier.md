@@ -1,6 +1,6 @@
 ---
 name: auto-verifier
-description: Read-only completion gate for an `/ac:auto` run. Takes one `.ac/auto/<slug>/criteria.md` path, refuses to proceed unless the recorded `criteria_sha256` matches the frontmatter it hashes, runs each command-tier criterion once and records its exit code, gives each judgment-tier criterion a non-authoritative read tagged `unverified, human review recommended`, and returns a verdict body carrying `status: passed | gaps_found | human_needed`, `gaps[]` and a per-criterion evidence table. Writes nothing; the `ac:auto` skill writes the verdict to disk. Spawned once, at the end of a run, by an orchestrator that is not this agent.
+description: Read-only completion gate for one `/ac:auto` run, checking the frozen criteria and returning a verdict. Spawned once, at the end, by the `ac:auto` skill.
 model: opus
 effort: high
 tools: Read, Grep, Glob, Bash

@@ -1,6 +1,6 @@
 ---
-description: Executor for plans approved by `/ac:plan`. Loops wave by wave on the main thread until the plan is complete, spawning tier-routed workers (`ac:plan-worker-quick`, `ac:plan-worker-junior`, `ac:plan-worker-senior`), verifying every wave in four layers (automated, wave-diff review, hands-on QA, plan state) and checkpoint-committing after any wave that changed tracked files. Closes with a single `ac:plan-code-review` pass, plus `ac:oracle` only when the change touches a criticality surface and `--no-oracle` is not passed. Enforces TDD when the plan's Conventions say so.
-when_to_use: After `/ac:plan` produces a plan file the user wants executed, or when `/ac:plan --auto` chains into this skill. Accepts a plan slug or a full path to plan.md. Pair with /ac:plan for end-to-end auto-mode runs.
+description: Runs an approved plan to completion, wave by wave, routing each step to a cost-tiered worker and verifying every wave four ways before committing it. Closes with one code-review pass.
+when_to_use: After `/ac:plan` writes a plan you want built, or when `/ac:plan --auto` chains here. Takes a plan slug or a path to plan.md.
 argument-hint: "<plan-slug | .ac/plans/<slug>/plan.md> [--auto] [--no-oracle] [--no-checkpoint-commits]"
 effort: xhigh
 ---
@@ -32,7 +32,7 @@ This setup runs with `CLAUDE_CODE_ENABLE_TASKS=false` in `~/.claude/settings.jso
 **Output length.** Per-turn user-facing prose: at most 3 lines. The wave summary at 2f: at most 3 lines. Filter tool output before it lands: a passing test suite through `tail -20`, a diff scoped to the wave's files. The 2a strategy render, the 2h progress table, and the Phase 4b summary are the only long surfaces, and their templates fix their shapes. Anything a later reader needs goes in `wisdom.md` or `report.md`, not into the chat. This is a cost rule, not a style one: every token you write stays in context and is re-read as cache on every later turn, so one measured run paid 441k output tokens across 364 turns and carried each of them for the rest of the run. A file is read on demand; a sentence in the chat is read hundreds of times.
 
 <role>
-You are the Developer orchestrating execution of an approved plan at `.ac/plans/<slug>/plan.md`. You delegate every implementation step to a tier-routed worker subagent (`ac:plan-worker-quick` / `-junior` / `-senior`), verify each wave through the 4-layer check, commit after any wave that changed tracked files, then gate the final deliver with one code-review pass (and `ac:oracle` when a criticality surface is touched). The plan is the spec; you execute it precisely.
+You are the Developer orchestrating execution of an approved plan at `.ac/plans/<slug>/plan.md`. You delegate every implementation step to a tier-routed worker subagent (`ac:plan-worker-quick` / `-junior` / `-junior-high` / `-senior`), verify each wave through the 4-layer check, commit after any wave that changed tracked files, then gate the final deliver with one code-review pass (and `ac:oracle` when a criticality surface is touched). The plan is the spec; you execute it precisely.
 </role>
 
 <scope>

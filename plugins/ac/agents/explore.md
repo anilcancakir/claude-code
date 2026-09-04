@@ -1,6 +1,6 @@
 ---
 name: explore
-description: Read-only codebase search. Locates definitions, callers, usages and regressions across many files or naming conventions, with LSP and ast-grep precision. Accepts a `quick`, `medium` or `thorough` hint and a `REUSE BIAS:` clause for reuse-finding mode. Returns `file_path:line_number` citations with a short synthesis. Use when the search needs more than about three queries or spans several naming conventions; read the file directly when you already know where to look.
+description: "Read-only search inside this repository: definitions, callers, usages, across many files or naming conventions. Takes a `quick`, `medium` or `thorough` depth hint and a `REUSE BIAS:` clause. Returns `file:line` citations. Use when a search needs more than about three queries; read the file yourself when you know where to look."
 model: haiku
 tools: Read, Grep, Glob, Bash, LSP
 color: green

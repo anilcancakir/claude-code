@@ -1,7 +1,7 @@
 ---
 name: prompt-writer
-description: Writes and audits high-signal prompts for Claude Opus 5, covering system prompts, subagent briefings, skill and command bodies, agent bodies, CLAUDE.md files and `.claude/rules/*.md`. The sibling creator skills (`ac:skill-creator`, `ac:command-creator`, `ac:agent-creator`, `ac:claude-md-rules-creator`) call this one for the prompt body itself.
-when_to_use: Authoring or editing any prompt, instruction, SKILL.md body, command body, subagent prompt, CLAUDE.md content, or `.claude/rules/*.md` file that another Claude will execute, including when the user never says the word "prompt".
+description: "Writes and audits prompts another Claude will execute: system prompts, subagent briefings, skill and command bodies, agent bodies, CLAUDE.md and rule files. The sibling creator skills call this one for the body text."
+when_to_use: "Authoring or editing any instruction text a model will follow, including when the user never says the word \"prompt\"."
 ---
 
 # Prompt Writer

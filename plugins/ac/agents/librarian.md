@@ -1,6 +1,6 @@
 ---
 name: librarian
-description: Read-only research outside this repository, covering library behaviour, framework idioms, API contracts, OSS implementations and official documentation. Accepts a `quick`, `medium` or `thorough` hint and a `REUSE BIAS:` clause for adopt-vs-build framing. Returns URL and permalink citations with code-snippet evidence and a short synthesis. Internal code belongs to `ac:explore`; answer from a source you already hold when one or two reads settle it.
+description: "Read-only research outside this repository: library behaviour, framework idioms, API contracts, OSS code, official docs. Takes a `quick`, `medium` or `thorough` depth hint and a `REUSE BIAS:` clause. Returns URL citations with snippet evidence. Internal code belongs to `ac:explore`; answer from a source you already hold when one or two reads settle it."
 model: sonnet
 disallowedTools: Edit, Write, NotebookEdit, Agent
 color: blue

@@ -1,7 +1,7 @@
 ---
 name: auto
-description: Autonomous mode for a request whose completion criteria can be enumerated before work starts. Freezes those criteria to `.ac/auto/<slug>/criteria.md` under a sha256 digest, creates a working branch, chains `ac:plan --auto` (whose Stage 3 interview is this run's single question round and whose Stage 6a chains `ac:execute` on its own), then spawns the read-only gate `ac:auto-verifier` and writes its verdict to `.ac/auto/<slug>/verdict.md`. Never pushes, and auto-answers no BLOCKER.
-when_to_use: When the user wants a request carried end-to-end without supervision and can say up front what done means. Not for open-ended audits or exploration; a request whose criteria cannot be enumerated before work starts is refused at Phase 0.
+description: Autonomous end-to-end mode. Freezes the completion criteria under a hash, works on a branch, chains plan into execute, then gates the result with a read-only verifier. Never pushes.
+when_to_use: When you want a request carried through without supervision and can say up front what done means. Refuses open-ended audits and exploration, where the criteria cannot be written first.
 argument-hint: "<request description>"
 effort: xhigh
 ---

@@ -1,7 +1,7 @@
 ---
 name: command-creator
-description: Authors and audits Claude Code slash commands, covering argument design (full-argument, positional, and named forms), shell injection for live context, phase-structured bodies, approval gates before side effects, and the flat-file versus skill-directory choice. Pair with `ac:skill-creator` for file shape and `ac:prompt-writer` for the body.
-when_to_use: Creating, editing, auditing or debugging any Claude Code slash command, or wiring `/name` invocation with arguments and a context-gathering recipe.
+description: "Authors and audits Claude Code slash commands: argument design, shell injection for live context, phase-structured bodies, approval gates before side effects, and the flat-file versus directory choice."
+when_to_use: "Creating, editing, auditing or debugging a slash command, or wiring `/name` invocation with arguments."
 ---
 
 # Command Creator

@@ -1,7 +1,7 @@
 ---
 name: skill-creator
-description: Authors and audits Claude Code skills, covering `SKILL.md` frontmatter, directory layout, scope (project, user, plugin, managed), invocation control, and bundled `references/` or `scripts/`. Pair with `ac:prompt-writer` for the body text.
-when_to_use: Creating, editing, auditing or debugging any Claude Code skill at any scope, capturing a procedure the user keeps retyping, choosing `allowed-tools` or `paths:`, or diagnosing a skill that fails to fire.
+description: "Authors and audits Claude Code skills: frontmatter, directory layout, scope, invocation control, and bundled references or scripts."
+when_to_use: "Creating, editing, auditing or debugging a skill at any scope, capturing a procedure you keep retyping, or diagnosing one that fails to fire."
 ---
 
 # Skill Creator

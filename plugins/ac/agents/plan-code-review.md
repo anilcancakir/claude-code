@@ -1,6 +1,6 @@
 ---
 name: plan-code-review
-description: Single post-implementation reviewer. Reads a plan path plus the modified-files list, then runs compliance, spec, quality, simplify and cross-layer integration against the actual code. Returns findings tagged CRITICAL, IMPORTANT or MINOR with a confidence, and no verdict; the orchestrator filters and decides. Spawned once by `/ac:execute` Phase 3.
+description: Post-implementation code review against the plan, returning findings without a verdict. Spawned once by `/ac:execute` Phase 3.
 model: opus
 effort: xhigh
 skills: my-coding

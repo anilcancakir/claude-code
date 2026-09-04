@@ -1,6 +1,6 @@
 ---
 name: plan-worker-junior-high
-description: Executes `junior-high` tier plan steps, junior-shaped work at the borderline of coupling or context depth. Identical capabilities and reporting contract to `ac:plan-worker-junior`, run at high effort, so borderline work has a home other than senior. Never the destination of a criticality escalation; rule 5 in `model-tiers.md` sends those to `ac:plan-worker-senior`, because effort is a within-model lever and cannot close a cross-model gap.
+description: "`junior-high` tier worker: junior-shaped work at high effort, for borderline coupling or context depth. Spawned by `/ac:execute` from a plan step's tier."
 model: sonnet
 effort: high
 tools: Read, Write, Edit, Grep, Glob, Bash, LSP

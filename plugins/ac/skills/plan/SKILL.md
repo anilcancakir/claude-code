@@ -1,6 +1,6 @@
 ---
-description: Interactive planner for the Claude Code main thread. Spawns parallel research via `ac:explore` and `ac:librarian`, optionally `ac:oracle`, reads referenced files itself, interviews the user through AskUserQuestion, then audits for reuse, quality and efficiency before writing. Produces a tier-assigned plan at `.ac/plans/<slug>/plan.md` carrying Phase, Wave, Step, Tier (quick/junior/senior mapped to haiku/sonnet/opus) and per-step Must NOT guardrails. Planning only. `--auto` chains into `/ac:execute` and auto-resolves flow gates, but the Stage 3 interview still reaches the user.
-when_to_use: Before implementation work that crosses files or modules, on refactors, or when the user supplies a `.ac/tasks/*.yaml` task definition. Pair with `/ac:execute` for end-to-end runs.
+description: Interactive planner. Researches in parallel, interviews you on intent, audits for reuse and efficiency, then writes a tier-assigned plan to `.ac/plans/<slug>/plan.md`. Planning only; it writes no code.
+when_to_use: Before implementation work that crosses files or modules, on a refactor, or from a `.ac/tasks/*.yaml` task file. Hands off to `/ac:execute`.
 argument-hint: "[--auto] <topic description | .ac/tasks/*.yaml>"
 effort: xhigh
 ---

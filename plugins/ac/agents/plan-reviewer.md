@@ -1,6 +1,6 @@
 ---
 name: plan-reviewer
-description: Single advisory second-eye reviewer for plans. Reads a `.ac/plans/<slug>/plan.md` path and nothing else, then checks reference validity, executability including framework-shape completeness, internal consistency, tier fitness in both directions, cross-step dependency, QA specificity including real-seam reachability, wave ordering and a slop scan. Returns findings tagged CRITICAL or IMPORTANT with no verdict; the orchestrator filters and decides. Spawned once by `/ac:plan` Stage 5.5.
+description: Advisory second-eye pass over one plan file, returning findings without a verdict. Spawned once by `/ac:plan` Stage 5.5.
 model: opus
 effort: high
 disallowedTools: Edit, Write, NotebookEdit, Agent

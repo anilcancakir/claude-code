@@ -1,6 +1,6 @@
 ---
 name: plan-worker-junior
-description: Executes `junior` tier plan steps, the default worker tier, covering 1-3 file changes across business logic, pattern application and framework idiom. Reads callers, tests and imports around the change, applies the step in the codebase's own style, verifies with LSP, build, test and the QA scenario, reports Changes Made / Verification / Issues. Also receives `quick` steps that codebase-state escalation lifts.
+description: "`junior` tier worker and the default: 1 to 3 file changes in business logic or framework idiom. Spawned by `/ac:execute` from a plan step's tier."
 model: sonnet
 effort: medium
 tools: Read, Write, Edit, Grep, Glob, Bash, LSP

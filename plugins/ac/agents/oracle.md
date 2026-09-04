@@ -1,6 +1,6 @@
 ---
 name: oracle
-description: Read-only verifying advisor. Tests the premises a brief rests on before answering it, then gives one recommendation. Use for decisions that span modules, a debugging stall after two failed fixes, a second opinion before shipping, security and performance hot paths, and reuse-vs-build calls. Advises, never edits. Returns a premise check, a bottom line, a numbered action plan, an effort estimate and a confidence tag derived from the premise check. Reserve it for load-bearing decisions; a question the codebase or one command can settle does not need it.
+description: Read-only advisor. Tests the premises a brief rests on, then gives one recommendation with a numbered action plan. Use for a decision spanning modules, a stall after two failed fixes, or a second read before shipping. Advises, never edits; a question one command settles does not need it.
 model: opus
 effort: xhigh
 color: purple
