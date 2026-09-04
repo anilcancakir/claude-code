@@ -1,32 +1,20 @@
+<div align=right>Table of Contents ↗</div>
+
 # ac
 
-Plan-first development partner for Claude Code: interview-driven plans, tier-routed agents (haiku/sonnet/opus), and an adversarial review chain that verifies through real usage, not a green typecheck.
+Claude Code plans the work, routes each step to the cheapest model that can do it, and verifies four ways before calling it done.
 
 [![License](https://img.shields.io/github/license/anilcancakir/claude-code)](LICENSE)
 [![CI](https://img.shields.io/github/actions/workflow/status/anilcancakir/claude-code/ci.yml?branch=main&label=CI)](https://github.com/anilcancakir/claude-code/actions/workflows/ci.yml)
-[![Version](https://img.shields.io/badge/version-0.9.1-blue)](CHANGELOG.md)
 [![Claude Code](https://img.shields.io/badge/Claude%20Code-plugin-orange)](https://code.claude.com)
 
-## Overview
+Ask a coding agent for a cross-file change and it starts editing. It has already decided the design, and you find out what it decided by reading the diff. The decisions that needed your judgment were made silently, the ones that did not took a turn each, and nothing checked the result beyond a green typecheck.
 
-`ac` is a Claude Code plugin marketplace whose headline plugin turns a feature request into a reviewed, tier-routed execution plan. It interviews you for intent, drafts a wave-and-step plan, and routes each step to the cheapest model that can do it well: haiku for mechanical edits, sonnet for pattern work, opus for cross-layer changes. Every plan passes an adversarial reviewer before execution, and every step is verified four ways, including hands-on runtime QA rather than a passing typecheck alone.
+`ac` puts a file between the request and the first edit. You get interviewed for intent, the plan lands on disk as `.ac/plans/<slug>/plan.md`, an adversarial reviewer reads it before anything runs, and then it executes wave by wave with a commit per wave.
 
-## Why / Why not
+## Install
 
-**Use it for:**
-
-- Cross-file features where the change in one shape propagates to distant callers.
-- Refactors and migrations that need a plan and a caller-impact check before the first edit.
-- Bug investigations that need discipline: a reproducer first, then a verified fix.
-
-**Skip it for:**
-
-- Trivial one-line edits or a single rename. The planning overhead is not worth it.
-- Throwaway exploration where you do not want a plan artifact on disk.
-
-## Quickstart
-
-Run these as slash commands inside Claude Code:
+Inside Claude Code:
 
 ```
 /plugin marketplace add anilcancakir/claude-code
@@ -34,80 +22,92 @@ Run these as slash commands inside Claude Code:
 /ac:install
 ```
 
-`/ac:install` runs an interactive post-install setup: it creates the `my-coding` and `my-language` user skills from short style interviews, merges a portable delegation section into your global `CLAUDE.md`, and idempotently merges plugin parity into `settings.json`. After install, start with `/ac:plan` for a new piece of work.
+Then `/ac:plan <what you want>` for a new piece of work.
 
-## Commands
+`/ac:install` is optional and interactive. It writes your global `CLAUDE.md`, generates two personal style skills from short interviews, and merges plugin parity into `settings.json`. Everything it writes is backed up first and gated behind a diff you approve.
+
+## How it works
+
+1. **Plan.** `/ac:plan` researches in parallel, interviews you for the decisions only you can make, audits for reuse, then writes a wave-and-step plan with a model tier on every step.
+2. **Review.** `ac:plan-reviewer` reads the plan cold and reports what cannot work, before a single edit.
+3. **Execute.** `/ac:execute` runs the plan wave by wave, spawning one worker per step at its declared tier.
+4. **Verify.** Every wave passes four layers: automated checks, a hunk-by-hunk read of the wave diff, a hands-on QA scenario, and the plan's own checkboxes.
+5. **Deliver.** One code-review pass over the whole change, then atomic commits split by concern.
+
+## What makes it different
+
+Plan-then-execute is a crowded category. Three things here are not common:
+
+- **Tier routing.** Each step declares whether it needs haiku, sonnet or opus, and gets that model. Mechanical edits do not pay opus prices, and cross-layer work does not get attempted by haiku.
+- **Four-layer verification per wave.** A passing typecheck is one layer of four. The wave diff is read hunk by hunk against what each worker claimed, and anything user-visible is exercised the way a person would use it.
+- **Frozen completion criteria.** `/ac:auto` writes down what "done" means before work starts, hashes it, and hands the finished run to a read-only verifier that holds no `Edit`, `Write` or `Agent` tool, so it cannot change what it is judging.
+
+## When not to use it
+
+- A one-line fix or a single rename. The planning overhead is not worth it, and `/ac:plan` will tell you so.
+- Exploration where you do not want a plan artifact on disk.
+- A request whose definition of done cannot be written down before starting. `/ac:auto` refuses these at Phase 0 rather than guessing.
+
+## What it installs
+
+| | Count | |
+|---|---:|---|
+| Commands | 3 | `/ac:install`, `/ac:init-project`, `/ac:commit` |
+| Skills | 9 | `ac:plan`, `ac:execute`, `ac:auto`, plus six authoring skills |
+| Agents | 10 | three advisory, four tiered workers, two reviewers, one verifier |
+| Hooks | 7 | three `PreToolUse`, two `Stop`, one `SessionStart` |
+| MCP tools | 6 | docs lookup, code search, web fetch and search, local history search |
+
+**On the hooks**, since they run code on your machine. Each one is gated and fails open, meaning any condition it cannot evaluate lets the action through unchanged. The three `PreToolUse` hooks fire only on plan-mode entry, only while an `/ac:execute` run is active in the current project, and only inside an `ac:explore` subagent. The two `Stop` hooks keep an in-flight run from ending its turn mid-plan. `SessionStart` reports whether a plan is still open. None of them makes a network call. Read them at [`plugins/ac/hooks/`](plugins/ac/hooks/).
+
+**On the MCP server**, it runs locally as `node plugins/ac/cli/ac.js mcp`. `search-history` reads your own Claude Code transcripts from disk and never sends them anywhere.
+
+## Reference
 
 | Command | What it does |
 |---------|--------------|
-| `/ac:plan` | Interactive planner: parallel research, an intent interview, a reuse/quality/efficiency audit, then a tier-assigned wave-and-step plan written to `.ac/plans/<slug>/plan.md`. (Skill.) |
-| `/ac:execute` | Runs an approved plan wave by wave on the main thread, spawning tier-routed workers, with per-step 4-layer verification and a final code review. (Skill.) |
-| `/ac:auto` | Autonomous mode for a request whose completion criteria can be enumerated before work starts: freezes those criteria under a digest, chains `/ac:plan --auto` into `/ac:execute`, then hands the run to a read-only gate for a verdict. Never pushes, auto-answers no BLOCKER. (Skill.) |
-| `/ac:install` | Interactive post-install setup: `my-coding` / `my-language` skills, global `CLAUDE.md` delegation, and `settings.json` parity. |
-| `/ac:init-project` | Deep project initialization: parallel `ac:explore` agents, a two-question rule-placement test, and drafted `CLAUDE.md` / `CLAUDE.local.md` / `.claude/rules/*.md`, plus a linter hook and a language server that are each verified to work. |
-| `/ac:commit` | Atomic commits with style detection from recent history, multi-file splitting, test pairing, optional preflight, and push when an upstream exists. |
-
-## Skills
-
-Three skills are user-invocable and back the planning workflow:
-
-- **`ac:plan`**: the planner behind `/ac:plan`.
-- **`ac:execute`**: the executor behind `/ac:execute`.
-- **`ac:auto`**: the autonomous runner behind `/ac:auto`, which drives the other two and then gates the result.
-
-Six further skills are internal authoring tools the plan chain calls on its own: `ac:skill-creator`, `ac:command-creator`, `ac:agent-creator`, `ac:claude-md-rules-creator`, `ac:prompt-writer`, and `ac:git-master`.
-
-## Agents
-
-Nine subagents back the workflow. Advisory agents answer questions, plan-chain workers execute steps, and two reviewers report findings on the plan and on the implementation for the orchestrator to act on.
+| `/ac:plan` | Parallel research, an intent interview, a reuse and efficiency audit, then a tier-assigned plan at `.ac/plans/<slug>/plan.md`. Skill. |
+| `/ac:execute` | Runs an approved plan wave by wave with four-layer verification and a checkpoint commit per wave, closing with one code review. Skill. |
+| `/ac:auto` | Freezes completion criteria under a hash, chains plan into execute, then gates the result with a read-only verifier. Never pushes. Skill. |
+| `/ac:install` | Writes your global `CLAUDE.md`, generates the `my-coding` and `my-language` skills, merges `settings.json` parity. |
+| `/ac:init-project` | Investigates a project with four parallel agents, then writes its `CLAUDE.md`, `CLAUDE.local.md` and path-scoped `.claude/rules/*.md`, plus a linter hook and a language server each proved to work. |
+| `/ac:commit` | Atomic commits with style detected from recent history, multi-file splitting and test pairing. |
 
 | Agent | Model | Role |
 |-------|-------|------|
-| `ac:explore` | haiku | Deep, parallel-friendly codebase research; returns `file:line` citations with LSP/AST-grep precision. |
-| `ac:librarian` | sonnet | External documentation and OSS research; returns URL/permalink citations with code-snippet evidence. |
-| `ac:oracle` | opus | Strategic advisor for architecture, debugging stalls, and reuse-vs-build trade-offs; advises, never executes. |
-| `ac:plan-worker-quick` | haiku | Mechanical single-file step executor: config edits, renames, scaffolds, doc-block additions. |
-| `ac:plan-worker-junior` | sonnet | Standard step executor: 1-3 file changes, business logic, pattern and framework-idiom application. |
-| `ac:plan-worker-junior-high` | sonnet | Junior's model at high effort, for work at the borderline of coupling or context depth. Never the target of a criticality escalation. |
-| `ac:plan-worker-senior` | opus | Senior step executor: cross-layer changes, migrations, and complex edges with caller-impact checks. |
-| `ac:plan-reviewer` | opus | Single advisory second-eye pass over the written plan; returns findings tagged CRITICAL or IMPORTANT, no verdict. |
-| `ac:plan-code-review` | opus | Single post-implementation pass: compliance, spec, quality, simplify and cross-layer integration; returns findings, no verdict. |
-| `ac:auto-verifier` | opus | Read-only completion gate for an `/ac:auto` run: verifies the criteria digest, runs each command-tier criterion, and returns a verdict. Holds no `Edit`, `Write` or `Agent`, so it cannot change what it judges. |
+| `ac:explore` | haiku | Codebase research with `file:line` citations, LSP and ast-grep precision. |
+| `ac:librarian` | sonnet | External docs and OSS research with URL and permalink citations. |
+| `ac:oracle` | opus | Verifying advisor. Tests the premises a brief rests on before answering it. Advises, never edits. |
+| `ac:plan-worker-quick` | haiku | Mechanical single-file steps: config edits, renames, scaffolds. |
+| `ac:plan-worker-junior` | sonnet | Standard steps: one to three files, business logic, framework idiom. |
+| `ac:plan-worker-junior-high` | sonnet | Junior's model at high effort, for borderline coupling or context depth. |
+| `ac:plan-worker-senior` | opus | Cross-layer changes, migrations and complex edges with caller-impact checks. |
+| `ac:plan-reviewer` | opus | Advisory pass over the written plan. Reports findings, gives no verdict. |
+| `ac:plan-code-review` | opus | Post-implementation pass over the diff. Reports findings, gives no verdict. |
+| `ac:auto-verifier` | opus | Read-only completion gate for `/ac:auto`. Holds no `Edit`, `Write` or `Agent`. |
 
-## Plugin structure
+The six authoring skills (`ac:skill-creator`, `ac:command-creator`, `ac:agent-creator`, `ac:claude-md-rules-creator`, `ac:prompt-writer`, `ac:git-master`) are what the plan chain calls when the work is itself a skill, command, agent or `CLAUDE.md` file.
+
+## Repository layout
 
 ```
-plugins/ac/
-  .claude-plugin/
-    plugin.json          Plugin manifest.
-  .mcp.json              MCP entrypoint (node cli/ac.js mcp).
-  agents/                11 subagents (advisory, workers, reviewers).
-  commands/              /ac:install, /ac:init-project, /ac:commit.
-  skills/                8 skills (ac:plan, ac:execute + 6 creators).
-  cli/                   Bundled MCP runtime (ac.js, built from cli/ac/).
-  bin/                   CLI launcher.
-  references/            Bundled style/CLAUDE.md templates for /ac:install.
-  README.md
+plugins/ac/          The plugin: commands, skills, agents, hooks, references.
+plugins/ac/cli/      Bundled MCP runtime (ac.js), built from cli/ac/.
+cli/ac/              CLI source, TypeScript on Bun.
+.claude-plugin/      Marketplace manifest.
 ```
 
-| Component | Lives in | Loaded as |
-|-----------|----------|-----------|
-| Commands | `plugins/ac/commands/` | `/ac:<name>` |
-| Skills | `plugins/ac/skills/<name>/SKILL.md` | `ac:<name>` |
-| Agents | `plugins/ac/agents/<name>.md` | `ac:<name>` (subagents) |
-| CLI / MCP | `plugins/ac/cli/ac.js` | MCP server via `.mcp.json` |
-
-The CLI source lives at `cli/ac/` (TypeScript on Bun) and builds to `plugins/ac/cli/ac.js` (Node-targeted ESM) that Claude Code loads through `plugins/ac/.mcp.json`.
+The CLI source at `cli/ac/` builds to `plugins/ac/cli/ac.js` as Node-targeted ESM, which Claude Code loads through `plugins/ac/.mcp.json`. Never hand-edit the bundle; `cd cli/ac && bun run build` regenerates it.
 
 ## Requirements
 
-- A recent version of [Claude Code](https://code.claude.com) with plugin and marketplace support.
-- Node.js >= 20 for the bundled MCP runtime that Claude Code loads at `plugins/ac/cli/ac.js`.
-- [Bun](https://bun.sh) for CLI development and builds (`cd cli/ac && bun run build`).
+- Claude Code with plugin and marketplace support.
+- Node.js >= 22.13.0 for the bundled MCP runtime. The floor is 22.13.0 rather than 20 because the history archive uses the `node:sqlite` builtin, which is unflagged only from that version. The import is lazy, so an older Node loses `search-history` rather than the whole server.
+- [Bun](https://bun.sh) >= 1.1.0, for CLI development and builds only. Not needed to use the plugin.
 
 ## Contributing
 
-Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for the dev setup, the build/typecheck/test pipeline, and the PR checklist.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the dev setup, the build, typecheck and test pipeline, and the PR checklist.
 
 ## License
 
