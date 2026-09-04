@@ -2,6 +2,7 @@ import { Command } from "commander";
 import { runMcpProxy } from "./mcp.ts";
 import { AC_VERSION } from "./version.ts";
 import { scaffoldPlan } from "./plan-scaffold.ts";
+import { formatCheckResult, runPlanCheck } from "./plan-check.ts";
 import { collectPlanStats, formatPlanStats } from "./plan-stats.ts";
 import { resolveTranscriptPath, runRunStats } from "./run-stats.ts";
 import {
@@ -50,11 +51,48 @@ program
         "Create .ac/plans/<slug>/ with research/ and evidence/, and write a plan.md skeleton "
             + "carrying the template's sections in order. Leaves an existing plan.md untouched.",
     )
+    .requiredOption(
+        "--auto-mode <true|false>",
+        "The Stage 4 `Lock all?` answer, recorded in the plan frontmatter. Required: a run that "
+            + "skipped Stage 4 has no value to pass here, which is the point.",
+    )
     .option("--dir <value>", "Project root to scaffold under.", process.cwd())
-    .action((slug: string, opts: { dir: string }): void => {
-        const result = scaffoldPlan(slug, { dir: opts.dir });
+    .action((slug: string, opts: { autoMode: string; dir: string }): void => {
+        if (opts.autoMode !== "true" && opts.autoMode !== "false") {
+            process.stderr.write(`--auto-mode must be true or false, got "${opts.autoMode}"\n`);
+            process.exitCode = 1;
+            return;
+        }
+        const result = scaffoldPlan(slug, { autoMode: opts.autoMode === "true", dir: opts.dir });
         const state = result.created ? "created" : "exists, left untouched";
         process.stdout.write(`${result.planPath} (${state})\n`);
+    });
+
+program
+    .command("plan-check <slug>")
+    .description(
+        "Validate a plan file's machine-readable shape: one `- [ ]` checkbox per step matching the "
+            + "frontmatter count, a Type from code/infra/verification, a Tier on every worker step, "
+            + "Commands and Evidence on every verification step. Exits 1 on any error. Accepts a slug "
+            + "or a path to the plan.md.",
+    )
+    .option("--dir <value>", "Project root holding .ac/plans/.", process.cwd())
+    .action((slug: string, opts: { dir: string }): void => {
+        // A missing plan and a malformed plan are different problems with different fixes, so they
+        // get different exit codes. Sharing 1 would put "wrong slug" and "wrong shape" on the same
+        // branch of the caller's routing, and the caller here is a skill body following a table.
+        let result;
+        try {
+            result = runPlanCheck(slug, { dir: opts.dir });
+        } catch (error) {
+            process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
+            process.exitCode = 2;
+            return;
+        }
+        process.stdout.write(formatCheckResult(result) + "\n");
+        if (result.errorCount > 0) {
+            process.exitCode = 1;
+        }
     });
 
 program
