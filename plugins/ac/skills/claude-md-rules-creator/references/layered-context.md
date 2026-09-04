@@ -37,7 +37,9 @@ These instructions are baked into the harness. The model receives them in every 
 
 The list below is condensed from the canonical Claude Code system prompt (extracted via tooling like Piebald's `claude-code-system-prompts` repo). Cross-check against your installed CC version with `/doctor` if behavior contradicts what you expect.
 
-**Communication and output:**
+**Read the first group with the model in mind.** Claude Code builds the main-thread system prompt in two shapes and chooses per model. The **Communication and output** group below describes the CLASSIC shape. On a model that gets the LEAN shape, which on 2.1.260 includes Opus 5, the `# Tone and style` block is never built at all, and the communication section collapses to one sentence about matching the surrounding code's style. Measured 2026-09-04 against the shipped binary: a lean session with no output style selected receives no response-length guidance from any built-in block. A brevity or response-shape rule in CLAUDE.md is therefore NOT automatically a duplicate, and cutting one on the assumption that it is has already been the wrong call once. Verify against the binary before you cut. The other groups carry their own conditionals that this note does not map, so treat the whole list as a starting hypothesis rather than a settled inventory.
+
+**Communication and output (classic shape only, see the note above):**
 - Brief user-facing updates at key moments; one sentence at a time.
 - No narration of internal deliberation.
 - End-of-turn summary is one or two sentences.
@@ -76,7 +78,9 @@ The list below is condensed from the canonical Claude Code system prompt (extrac
 
 **The implication for CLAUDE.md authoring:**
 
-If a rule you are about to write matches anything in the list above, it is already in effect. Skip it. Adding "be concise" or "always confirm before pushing" or "never use SQL injection" or "include file:line references" to CLAUDE.md is pure noise: the model already follows those rules.
+If a rule you are about to write matches anything in the list above, it is already in effect. Skip it. Adding "always confirm before pushing" or "never use SQL injection" or "include file:line references" to CLAUDE.md is pure noise: the model already follows those rules.
+
+"Be concise" is the exception the note above names, and it is worth stating twice because it is the line an author is most likely to cut for the wrong reason. On a lean model nothing in the harness delivers it, so a short answer-shape line earns its place instead of duplicating anything.
 
 Reserve CLAUDE.md for what CC's defaults do NOT cover: your project's stack, build commands, conventions that differ from language defaults, off-limits paths, project-specific gotchas, communication preferences that DIFFER from CC defaults (e.g., your preference for an end-of-turn diff summary even though CC defaults to one or two sentences).
 
@@ -124,7 +128,7 @@ The most common duplicates and how to spot them:
 |-------------------|------------------|
 | "Run tests after changes" in user-global AND project CLAUDE.md | Search for "test" across both files. Pick one; usually project (team-shared and per-stack). |
 | "Use `pnpm` not `npm`" in user-global AND project CLAUDE.md | Search for the package manager name. If the project's tool agrees with your default, the user-global line is enough. If the project explicitly differs, keep the project line and drop the user-global one for this project. |
-| "Be concise" in CC system prompt AND user CLAUDE.md | The CC default already says "your responses should be short and concise". Dropping the user-global line is the simplest fix. |
+| "Be concise" in CC system prompt AND user CLAUDE.md | Not a conflict on a lean model, where the CC line is never built. Check the shape first: on classic, "your responses should be short and concise" is delivered and the user-global line can go; on lean, the user-global line is the only copy and dropping it removes the rule entirely. |
 | Code style rule that the linter already enforces | The linter is deterministic; the rule in CLAUDE.md is advisory. Drop the CLAUDE.md line; let the linter do its job. |
 | "Validate inputs at API boundaries" in CC system prompt AND `.claude/rules/api.md` | CC system prompt says "validate only at system boundaries". The rule restates it. Tighten the rule to the project-specific schema/library (`use Zod schemas in src/api/schemas/`), or drop. |
 | "Confirm before destructive actions" in CLAUDE.md AND CC system prompt | CC system prompt covers this exhaustively. CLAUDE.md restating it is noise. |
@@ -186,19 +190,19 @@ Duplicate. The CC default already enforces this. The project line is pure tax. C
 
 ## Quick "do not restate" cheat sheet
 
-CC's built-in system prompt already covers ALL of the following. Do NOT add these to your CLAUDE.md or rules:
+CC's built-in system prompt covers the following **on the classic shape**. Check the shape before you cut: four of these are built by the classic branch only and reach an Opus 5 user through nothing at all. The four are marked `[classic only]`.
 
-- "Be concise / brief / short"
+- "Be concise / brief / short" `[classic only]`
 - "No comments unless WHY is non-obvious"
 - "Reference code as file:line"
 - "Maximize parallel tool calls"
-- "Validate at system boundaries"
+- "Validate at system boundaries" `[classic only]`
 - "Confirm before destructive operations"
-- "No SQL injection / XSS / command injection"
+- "No SQL injection / XSS / command injection" `[classic only]`
 - "Never push to main without PR" (variant: CC says confirm before push, project rule can SHARPEN this with branch-specific prohibition)
 - "Solve bugs, refactor, explain code" (the software-engineering frame is the default)
 - "Truthful reporting of test outcomes"
-- "No backwards-compatibility shims"
+- "No backwards-compatibility shims" `[classic only]`
 - "Use the right tool for the job" (CC's tool-usage policy already guides this)
 
 When you find yourself writing a rule that pattern-matches any of these, ask: is the new rule MORE SPECIFIC than the CC default, or just restating it? If more specific (Zod for input validation, specific branch protection, specific test command), keep it. If just restating, cut.

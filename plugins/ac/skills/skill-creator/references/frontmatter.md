@@ -76,6 +76,8 @@ Two separate budgets govern visibility:
 
 When the listing overflows, Claude Code drops descriptions for the least-used skills first; the skills you actually use keep their full text. Run `/doctor` to confirm whether the listing budget is overflowing. Front-load the use case so trailing keywords are not the ones lost.
 
+Observed 2026-09-04 on 2.1.260: a listing at 10,182 characters against a 10,000 budget was missing an entry outright at session start, not reduced to a name, and the entry returned once characters were freed. Do not plan on a name-only stub surviving.
+
 **Three rules for the description text:**
 
 1. **Third person, present tense, active voice.** "Summarizes pull requests", not "I can summarize PRs" or "You can use this to summarize PRs".

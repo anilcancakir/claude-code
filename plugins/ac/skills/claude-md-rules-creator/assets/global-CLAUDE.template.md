@@ -15,7 +15,8 @@ Keep under 20 lines. Cross-project rules only; project-specific rules belong in 
 
 - [Language preferences, e.g., "Reply in the language of my message (English, Turkish, mixed)."]
 - [Code language preference, e.g., "Code, identifiers, comments, commit messages: English only."]
-- [Formatting bans you want enforced, e.g., "No em-dash or en-dash anywhere in any output."]
+- [Answer shape, e.g., "Lead with the result and keep an answer to a few sentences; give full depth the moment I ask. Error output and anything that changes what I do next stays whole." On a model that gets the lean prompt shape, nothing in the harness delivers this; see `references/layered-context.md` before deciding it is a duplicate.]
+- [Formatting bans you want enforced, either absolute ("No em-dash or en-dash anywhere in any output.") or scoped to finished artifacts ("No em-dash or en-dash in a code comment, commit message, PR description, document or email; our conversation and working files are free."). Scoping needs a tiebreaker or the boundary is guessed silently: say that the rule follows the content rather than the channel, and that anything unplaceable counts as an artifact.]
 
 ## Tools
 
