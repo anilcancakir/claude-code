@@ -45,6 +45,19 @@ Record each result. A failed detection is noted and never blocks the run.
 | `test -f ~/.claude/CLAUDE.md` | `CLAUDE_MD_EXISTS` |
 | `test -f ~/.claude/settings.json` | `SETTINGS_EXISTS` |
 | `test -d ~/.claude/skills/my-workflow` | `LEGACY_MY_WORKFLOW` |
+| the conjunction below, run only when `SETTINGS_EXISTS` | `SCHEDULING_TRIMMED` |
+
+```
+jq -e '((.permissions.deny // []) | map(split("(")[0])) as $d
+       | ($d | index("ScheduleWakeup")) and ($d | index("CronCreate"))
+         and ((.skillOverrides.schedule // "") == "off")' ~/.claude/settings.json
+```
+
+A non-zero exit, a missing file, or a `jq` failure all mean false. `SCHEDULING_TRIMMED` decides one conditional section in Phase 3, and it is read here rather than asked because the answer is already on disk.
+
+Three things about the predicate. It tests one key from each of the three claims the section makes, because the section asserts that cron is gone, that wakeup is gone, and that the scheduling skills are off; a single deny confirms none of the other two. It reads `~/.claude/settings.json` only, never project or local scope, because the file being written is the GLOBAL CLAUDE.md and a project-scope deny would make its claim false in every other project. And it fails closed: a false sentence in a file that loads everywhere costs more than a missing section.
+
+It cannot come from the Phase 4 Group D gate, which runs after Phase 3 has written the file. On a fresh machine it is false, which is correct; Phase 4's last step closes the seam when Group D then turns the trim on in the same run.
 
 Earlier versions scaffolded a `my-workflow` skill. The discipline now ships inside the Phase 3 CLAUDE.md, so a surviving copy duplicates it. Do not delete it; surface it in Phase 5 so the operator can.
 
@@ -192,7 +205,7 @@ The template's HTML-comment header argues what is in the file and what is delibe
 
 Two of its conclusions change what this phase writes. Its notes are HTML comments rather than `[//]: # (...)` link-reference definitions because the memory loader strips block-level HTML comments before injection, so that form costs nothing while the other ships as visible text. And it carries no "verify your work" instruction, because explicit verification instructions cause over-verification on the current Opus generation at no quality gain; if an answer tempts you to add one, put the requirement in the success check instead.
 
-Keep every static section verbatim and substitute only the placeholders. Drop the stack-specific verification line when the operator answered "skip", the `Blocked pages` line when they reported no third fetch path, and the `mcp__plugin_ac_ac__` fallback sentences from `Web research` when `MCP_REACHABLE` is false: those name tools as static text with no placeholder, so nothing else in this phase would remove them. Light tuning of the Skills wording from the Phase 1 and 2 answers is fine. Do not add sections.
+Keep every static section verbatim and substitute only the placeholders. Drop the stack-specific verification line when the operator answered "skip", the `Blocked pages` line when they reported no third fetch path, the `Watching something over time` section when `SCHEDULING_TRIMMED` is false, and the `mcp__plugin_ac_ac__` fallback sentences from `Web research` when `MCP_REACHABLE` is false: those name tools as static text with no placeholder, so nothing else in this phase would remove them. Light tuning of the Skills wording from the Phase 1 and 2 answers is fine. Do not add sections.
 
 This content lives in CLAUDE.md rather than a skill because CLAUDE.md reaches every main-thread turn unconditionally while a skill body loads only when the model elects to. Do not reintroduce a pointer-to-a-skill shape.
 
@@ -248,6 +261,7 @@ Read `${CLAUDE_PLUGIN_ROOT}/references/install-settings.md`. It is the only sour
 5. **Group E**, the output style, opt-in and default off. Ask through the reference's block and write the literal value it names, never a value you assembled yourself: a plugin style that does not resolve fails silently and reads exactly like the key being absent. Skip the question when `outputStyle` already holds any value other than `default`, which the reference explains is the no-style value rather than an answer, and skip it under `--dry-run`.
 6. **The MCP token.** Follow the reference exactly. The value is never echoed, logged, or rendered.
 7. **Show the diff and write.** Render newly-added against already-present, grouped A / C / B / D / E / token, with the token masked. Under `--dry-run`, stop here. Otherwise write the merged object back and report the same breakdown.
+8. **Close the scheduling seam.** When Group D's scheduling trim was applied in this run and `SCHEDULING_TRIMMED` was false at 0b, set it true, re-evaluate the 3b conditional, and re-merge the block through 3c. The markers are still there and 3c is idempotent, so this is the same replace it always does. Skip when `SKIP_CLAUDE_MD` or `DRY_RUN` is set; under `--dry-run` Group D is never asked, so no seam exists. Report the re-merge in Phase 5 rather than asking the operator to run the command again.
 
 ## Phase 5: Summary
 
@@ -280,6 +294,7 @@ Print these when they apply:
 - When `LEGACY_MY_WORKFLOW` was found, say `rm -rf ~/.claude/skills/my-workflow` removes the now-duplicated copy.
 - Restate the tradeoff of any Group B opt-in that was applied. `skipWebFetchPreflight` drops the Anthropic domain-safety blocklist preflight, a known hang source tracked as anthropics/claude-code#34565. `skipDangerousModePermissionPrompt` and `acceptEdits` reduce confirmation friction by removing a confirmation.
 - `statusLine` needs `bun` or `npx` on PATH to render.
+- When step 8 fired, say so: Group D denied the cron and wakeup tools in this run, so `Watching something over time` was added to the CLAUDE.md after Phase 3 had already written it. Name the section and the fact that the trim takes effect from the next session on, so nobody reads the new section as describing the session they are in.
 - Report the skill-listing cost, and write no setting for it. Claude Code loads every skill's `description` plus `when_to_use` on every main-thread turn under a budget of 1% of the model's context window, and an overflowing listing is trimmed starting with the skills the operator invokes least, silently. Say roughly what the operator's listing now costs, point at `/doctor` for the real figure and the biggest contributors, and name `skillListingBudgetFraction` as their lever if their own skills push them over. Raising that cap is a context tradeoff the operator owns, and the plugin cannot honestly widen a budget it is itself spending; Group D already refuses to make a context-cost change silently, and this is that decision inverted.
 
 Next steps:
@@ -297,6 +312,7 @@ Named without line numbers on purpose: an earlier set drifted the moment those f
 - `${CLAUDE_PLUGIN_ROOT}/references/global-claude-md-section-template.md`, the Phase 3 generated file inside its fence markers. Its HTML-comment header carries the keep test, what the built-in prompt reaches, and the grep recipe for re-auditing either against a shipped binary. The placeholder roster lives there, not here.
 - `${CLAUDE_PLUGIN_ROOT}/references/install-settings.md`, every Phase 4 key, all three opt-in gates including the Group E output style, and the ADD-only rule.
 - `${CLAUDE_PLUGIN_ROOT}/output-styles/concise.md`, the style Group E offers. Phase 4 writes its key and never its content; read it only to describe what the operator is turning on.
+- `${CLAUDE_PLUGIN_ROOT}/references/monitoring.md`, the depth behind the `Watching something over time` section: why cron is not the answer for a trimmed operator, and two worked `Monitor` shapes. It deliberately restates nothing the `Monitor` tool's own description already carries.
 - `${CLAUDE_PLUGIN_ROOT}/references/coding-style-template.md`, the Phase 1 seed including the required anti-pattern entries.
 - `${CLAUDE_PLUGIN_ROOT}/references/language-style-template.md`, the Phase 2 seed.
 - `${CLAUDE_PLUGIN_ROOT}/commands/init-project.md`, its CAN / CANNOT / MUST block for the orchestrator shape and its `.proposed` sidecar gate.
