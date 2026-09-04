@@ -14,11 +14,14 @@ Full docs: [repo root README](../../README.md)
 | `skills/` | Skills, each in its own `<name>/SKILL.md` folder |
 | `hooks/` | Hook scripts plus the `hooks.json` registration that wires them |
 | `cli/` | Bundled MCP runtime (`ac.js`); do not hand-edit, regenerate with `bun run build` |
-| `bin/` | CLI launcher |
 | `references/` | Bundled style and CLAUDE.md templates consumed by `/ac:install` |
+| `evals/` | Agent eval cases and graders, run by `claude plugin eval` |
 
-All component folders except `hooks/` are auto-discovered by Claude Code; hooks are declared in
-`hooks/hooks.json`. Override paths in `.claude-plugin/plugin.json` only when the defaults do not fit.
+`agents/`, `commands/` and `skills/` are auto-discovered by Claude Code; override their paths in
+`.claude-plugin/plugin.json` only when the defaults do not fit. Hooks are declared in
+`hooks/hooks.json`. The last three are not components: `cli/` is loaded through `.mcp.json`,
+`references/` is data the commands read at `${CLAUDE_PLUGIN_ROOT}`, and `evals/` is read by
+`claude plugin eval`.
 
 For the plugin specification, see the
 [Claude Code plugins reference](https://code.claude.com/docs/en/plugins-reference).

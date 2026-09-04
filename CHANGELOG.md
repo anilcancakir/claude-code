@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+
+- `plugins/ac/bin/ac`, a five-line bash wrapper that exec'd `node ../cli/ac.js`. Nothing called it: `.mcp.json` invokes the bundle directly, `plugin.json` has no `bin` key, and the plugin manifest schema has no `bin` property for one to hang off. It was also redundant, since the build gives the bundle a `#!/usr/bin/env node` shebang and mode 0755, so `./plugins/ac/cli/ac.js` already runs on its own. Shipped 2026-05-13 and untouched since.
+
 ## [0.20.0] - 2026-09-04
 
 `/ac:install` now generates the whole global CLAUDE.md rather than one section of it. The prompt for this was finding that the section template's entire design argument was pinned to a system prompt shape the current Opus models no longer receive. The release also runs `/ac:init-project` against this repository and rewrites every outward-facing surface against measured evidence.
