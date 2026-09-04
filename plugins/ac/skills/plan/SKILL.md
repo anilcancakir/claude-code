@@ -15,7 +15,11 @@ Request: $ARGUMENTS
 
 These hold for the whole run, including after a compaction. Everything below this block is procedure; these are the bounds. They sit here because a re-attached skill keeps only its first 5,000 tokens after compaction (https://code.claude.com/docs/en/skills.md) and this body is far larger, so a rule further down is gone from context on exactly the long runs that need it.
 
-**Turn termination.** Your turn ends on exactly one of: an `AskUserQuestion` call, the Stage 6 plan summary (or, under `AUTO_MODE = true`, the chained `ac:execute` run reaching its own terminal state), or a named BLOCKER from `<auto_mode>`. Nothing else ends it. Never end a turn by describing what you would do next.
+**Turn termination.** Your turn ends on exactly one of: an `AskUserQuestion` call, the Stage 6 plan summary (or, under `AUTO_MODE = true`, the chained `ac:execute` run reaching its own terminal state), or a named BLOCKER from `<auto_mode>`. Nothing else ends it. Never end a turn by describing what you would do next, and never on the Stage 3a or Stage 4
+render: both are followed by an `AskUserQuestion` in the same turn, so stopping after one skips the question. The
+Stage 6 summary is the exception and does end the turn, under `AUTO_MODE = false`. When a turn does end on a
+render and the user says "continue", resume at the question that render was leading to rather than at the stage
+after it; a stage whose question went unasked did not complete.
 
 **Context.** Auto-compaction summarizes older turns and the run continues. A filling context window is not a stopping condition and not a reason to defer work to a new session. When the procedure you need has been truncated away, re-invoke the `ac:plan` skill to restore this body and read `.ac/plans/<slug>/checkpoint.json` for where the run was.
 
@@ -382,10 +386,25 @@ Stage 3.5 complete.
 
 ## Stage 4: Synthesis Preview
 
-Render the locked synthesis as plain text in the chat, using the shape at
-`${CLAUDE_SKILL_DIR}/references/interview-procedure.md` under `## Stage 4 synthesis preview shape`. It covers Goal,
-Scope IN and OUT, Codebase Conventions, Reuse Map, Locked Decisions, Oracle findings when Stage 3.5 surfaced any,
-Deferred Ideas, Risks Accepted, and Canonical References.
+**The render and the question are one turn, and the question is the stage.** Append the full synthesis to
+`LOG_PATH`, render the short form in the chat, then call `AskUserQuestion`, all in the same turn.
+
+Measured once: the planner rendered a 908-character summary reading "decisions locked, here is the summary before
+I write the plan", ended the turn, and after the user typed "continue" went straight to Stage 5. The `Lock all?`
+gate was never asked, so `AUTO_MODE` was never set. Length was not the cause and a shorter render would not have
+prevented it: the two Stage 3 renders in the same run were 360 and 395 characters and both carried their question
+fine, and the planner's own reasoning before the render already said it was moving on to writing the plan. Two
+Stage 3 `AskUserQuestion` rounds had made this one read as redundant, and the whole procedural layer was degrading
+at that point in the run (no checkpoint was written either). The forcing function is in Stage 5 rather than here:
+`plan-scaffold` refuses to run without this stage's answer.
+
+Render the locked synthesis in the chat using the shape at
+`${CLAUDE_SKILL_DIR}/references/interview-procedure.md` under `## Stage 4 synthesis preview shape`, capped at
+roughly 2 KB on the cost grounds the Output length standing rule already argues: the Goal in one line, the Scope
+IN and OUT lists, the Locked Decisions table, the hard constraints research produced, and a one-line pointer to
+`LOG_PATH` for the rest. Codebase Conventions, the Reuse Map, the Canonical References and the full Deferred Ideas
+list go to `LOG_PATH` only; they are inputs to the plan file you are about to write, not a decision the user is
+being asked to make here.
 
 Then call `AskUserQuestion` (header `Lock all?`):
 
@@ -406,12 +425,24 @@ Stage 4 complete.
 Scaffold the skeleton first, then fill it in with `Edit`:
 
 ```
-Bash: node "${CLAUDE_PLUGIN_ROOT}/cli/ac.js" plan-scaffold <SLUG>
+Bash: node "${CLAUDE_PLUGIN_ROOT}/cli/ac.js" plan-scaffold <SLUG> --auto-mode <true|false>
 ```
+
+`--auto-mode` is required and takes the Stage 4 `Lock all?` answer: `true` for option 1, `false` for option 2.
+There is no other source for it and no default. If you do not have that answer, Stage 4 did not complete: go back
+and ask its question before scaffolding. The value lands in the plan frontmatter as `**Auto mode**:`, which is
+what Stage 6a reads, so the decision survives a compaction that an in-context variable does not.
 
 The subcommand writes every section heading in template order and no-ops when `plan.md` already exists, so a
 resumed run cannot clobber a filled-in plan. Fill it with `Edit`; a `Write` on `PLAN_PATH` erases the skeleton,
 and a second `Write` erases the first call's output.
+
+Under `## Steps` the skeleton carries a worked step stub rather than a `<fill>` marker. Follow it exactly and
+delete it once the real steps are written. The two fields in it that a downstream tool parses rather than reads
+are the `- [ ] **Step N**:` line, which Layer D ticks and the `Stop` hook counts, and `Type`, which is one of
+`code`, `infra` or `verification` and which the executor routes on with no branch for any other value. Measured
+once: a plan written from memory instead of from this shape carried neither, and the executor spent a user gate
+and 18 repair edits before its first worker spawned.
 
 Write the plan to `PLAN_PATH` using the markdown structure at `${CLAUDE_SKILL_DIR}/references/plan-template.md`. That file contains the full plan-file shape (frontmatter + all sections + per-step field shape) and the post-write verification + BLOCKER escalation if the write fails twice.
 
@@ -422,6 +453,21 @@ Fill placeholders with concrete content; remove placeholder text inside angle br
 **Test-driven literal-pattern audit (Stage 5 quality discipline)**: when a step's Description names a literal regex pattern, a literal config snippet (package.json fragment, tsconfig field, command-line invocation), or a literal API chain (`.X().Y().Z()`), AND the same step's QA or Done when field lists concrete test inputs that exercise it, execute the pattern against each of those inputs in your head BEFORE plan write. If any listed input would fail the literal as written, either fix the literal in the plan or flag the gap in the step's Description as `regex-needs-validation`, `snippet-needs-validation`, or `chain-needs-validation`. The worker's TDD red phase is the safety net for what this misses; catching it at planning time is cheaper. The template reference carries a worked example of the class of bug this finds.
 
 **Negative-test audit (Stage 5 quality discipline)**: for every `Done when` criterion that names a shell command, answer one question before plan write: what input would make this report a failure. Run the command in your head against that input. Two shapes cannot answer it and both get flagged in the step's `Done when` as `criterion-needs-negative-test`. A flag the tool does not support, where the shell exits non-zero with empty stdout and "returns nothing" reads as clean: `grep -P` on macOS is the measured case, and `rg` is the replacement. A pipeline that truncates before the asserted value appears, `head` being the usual culprit. Then, for any criterion naming a number, read that number against the fixture the same step sets up; when the step's own inputs cannot reach it, the criterion is wrong rather than unmet, so fix the criterion. The template reference carries both failures with their measurements.
+
+**Shape gate before the reviewer.** Run it once the plan is written:
+
+```
+Bash: node "${CLAUDE_PLUGIN_ROOT}/cli/ac.js" plan-check <SLUG>
+```
+
+It exits 1 and names every deviation the executor would hit: a checkbox count that disagrees with the `Steps`
+frontmatter, a `Type` outside the three, a worker step with no `Tier`, a verification step with no `Commands` or
+`Evidence`, a scaffold placeholder left in place. Fix every ERROR with `Edit` and re-run until it exits 0. WARN
+lines are yours to judge.
+
+This runs before Stage 5.5 because the reviewer reads prose and would spend a pass reporting what one command
+settles for free. It is also the last point where the fix is cheap: the same defects found at execute time cost a
+user gate and a repair pass with the run already started.
 
 Stage 5 complete.
 
@@ -462,6 +508,10 @@ One step restates the same rule across `Description`, `Why this tier`, `Done whe
 `References`, so a single-field edit leaves contradictions behind. This sweep used to be carried by the
 loop's later passes; with one pass it has to happen here.
 
+Re-run `plan-check` after the last edit. A reviewer fix is the likeliest way to break the shape the gate just
+confirmed: splitting a step or dropping one changes the count the `Steps` frontmatter declares, and nothing else
+in this stage would notice.
+
 Append the outcome to `LOG_PATH` under `## Stage 5.5 Review`: findings by severity, what was fixed, what
 was deferred. Then write a checkpoint with `last_stage: "5.5"`.
 
@@ -491,6 +541,10 @@ Stage 6 complete.
 
 ### 6a. Auto-mode chain
 
+Read `**Auto mode**:` from the plan frontmatter rather than trusting the in-context `AUTO_MODE`. Stage 5 wrote it
+there from the Stage 4 answer, and the file is what survives a compaction between the two. They agree on any run
+that went through Stage 4; when they disagree, the file is right and the variable was lost.
+
 When `AUTO_MODE = true`, do not end the turn after the summary. Emit one line naming the handoff, then invoke the
 `ac:execute` skill with `skill: "ac:execute"` and `args: "<slug> --auto"`, and keep going in the same turn until
 execute reaches its own terminal state or a BLOCKER halts it.
@@ -500,6 +554,8 @@ When `AUTO_MODE = false`, end the turn after the summary. The user reviews the p
 <reminders>
 - Reach every candidate yourself by the cheapest tool that settles it, and verify subagent claims before they move a decision (Stage 2a.1).
 - Route every question through the three-way test; every load-bearing decision ends locked, deferred, or risk-accepted.
+- Stage 4 renders the short synthesis and asks `Lock all?` in the SAME turn. The render never ends the turn, and a resumed run that finds itself at Stage 5 without that answer goes back for it.
+- `plan-check` exits 0 before Stage 5.5 spawns and again after its last edit. Every step carries a `- [ ]` line and a `Type` of `code`, `infra` or `verification`.
 - The reviewer receives a path and nothing else, runs once, and returns findings rather than a verdict. Fix CRITICAL with `Edit`, defer the rest.
 - Do not invoke `/ac:execute` when `AUTO_MODE = false`. The user reviews the plan first.
 </reminders>

@@ -20,6 +20,7 @@ The binding constraint is review coverage, because the reviewer runs once and ca
 **Steps**: <N>
 **Waves**: <N>
 **Codebase State**: <disciplined | transitional | legacy | chaotic | greenfield>
+**Auto mode**: <true | false, written by `plan-scaffold --auto-mode` from the Stage 4 answer; Stage 6a reads it>
 **Generated**: <ISO timestamp>
 
 ## Research Summary
@@ -142,6 +143,10 @@ Single-file chain check, applied before you commit to the wave list: when three 
 
 ## Steps
 
+`ac plan-check <slug>` validates this section mechanically and is the Stage 5 gate. It reads the `- [ ]` line, the
+`Type` value, `Tier` on worker steps, and `Commands` plus `Evidence` on verification steps, so those five are the
+fields where drift costs a run rather than a reader.
+
 Step types (the `Type:` field per step):
 - `code`: source code edits in the project. Requires Tier + worker spawn.
 - `infra`: server ops, SSH, deployment, multi-host orchestration. Requires Tier + worker spawn.
@@ -149,7 +154,7 @@ Step types (the `Type:` field per step):
 
 - [ ] **Step 1**: <imperative title>
     - **Type**: code | infra | verification
-    - **Tier**: quick | junior | senior (omit when Type is verification)
+    - **Tier**: quick | junior | junior-high | senior (omit when Type is verification)
     - **Why this tier**: <`rule-1-cross-layer` | `rule-2-context` | `rule-3-codebase-state` | `rule-4-detail` | `rule-5-criticality` | `rule-none`, then a colon and one sentence. `rule-5-criticality` takes the before-and-after form: `before <X>, after <Y>`, both halves concrete. `rule-none` names a risk no numbered rule covers and routes to `junior-high`, never `senior`. See `model-tiers.md`.> (omit when Type is verification)
     - **Files**: <absolute paths, one per line; for verification: "(no source edits; runs commands)">
     - **Description**: <what to do and why, grounded in research. Must stand alone: the worker receives this

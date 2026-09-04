@@ -99,8 +99,49 @@ Universal rules applied to every turn of the interview:
 
 ## Stage 4 synthesis preview shape
 
-Rendered as plain chat text at Stage 4, before the lock question. Cap it at roughly 8 KB; for longer
-content summarize each section to two sentences and link the full text from `LOG_PATH`.
+Two surfaces, written in this order in one turn: the full form appended to `LOG_PATH`, then the short
+form rendered in the chat, then the `Lock all?` question.
+
+The split is a cost decision, not a fix for anything. The one measured failure of this stage was the
+question going unasked after a 908-character render, which is shorter than the cap below and shorter
+than the two Stage 3 renders that carried their questions fine in the same run. Length was not the
+cause; the planner had already decided to move on. What prevents a repeat is Stage 5's
+`plan-scaffold --auto-mode`, which will not run without this stage's answer.
+
+### Chat form (cap at roughly 2 KB)
+
+Only what the user is being asked to react to. Every section here is a thing they can still change by
+answering `Revise a decision` or `Revise / expand scope`.
+
+```
+## Confirmed Understanding: <topic>
+
+### Goal
+<locked goal in one or two lines, falsifiable: current state, target state, acceptance criterion>
+
+### Scope
+- IN: <list>
+- OUT: <list>
+
+### Locked Decisions
+| Decision | Choice |
+|---|---|
+| <decision> | <choice> |
+
+### Hard constraints research produced
+- <constraint that narrows the plan, with the `file:line` or URL that established it>
+
+### Oracle findings (only when Stage 3.5 surfaced IMPORTANT ones)
+- [IMPORTANT] <trigger>: <concern>. Recommended action: <revise | accept-as-risk | no-action>.
+
+Full synthesis, conventions, reuse map and references: `<LOG_PATH>`.
+```
+
+### Log form (appended to `LOG_PATH`, no cap)
+
+Everything below is an input to the plan file you are about to write rather than a decision the user
+is making, so it belongs in the log. Writing it to the chat costs the turn and buys nothing: the next
+thing that reads it is you, at Stage 5, from the plan you are writing.
 
 ```
 ## Confirmed Understanding: <topic>
