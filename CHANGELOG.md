@@ -5,6 +5,30 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.24.0] - 2026-09-23
+
+Retargets the plugin at Claude Opus 5.5 on Claude Code 2.1.280. Three facts drove it. `model: opus` now resolves to Opus 5.5, whose effort labels do not port from Opus 5 (its `medium` matches Opus 5's `high`) and which receives none of the Opus 5 prompt bundle, so the host no longer damps delegation or carries `# Delivering work`. The global CLAUDE.md reached the model unsoftened, and a saved `CLAUDE_AFK_TIMEOUT_MS` was auto-submitting questions despite `askUserQuestionTimeout: "never"`. And an audit of every "devam et" nudge since 2026-08-01 found about 190 needless turn endings against 6 real blockers, most of them outside `/ac:execute` and `/ac:auto`, where the marker guards never armed.
+
+### Added
+
+- `stop-guard-announce.sh`, a Stop hook for every interactive main-thread session. It blocks a turn that ends on an announced step with no tool call, an offer to continue, or a question asked in prose, and names the three legitimate endings instead. It reads only the last paragraph of `last_assistant_message`, drops fenced and inline code, lets credential and physical handoffs through, allows the stop while a background task or cron will wake the session, skips `claude -p`, and stops after 2 blocks per stall and 4 per prompt. Replayed against the 224 audited stops it catches 157.
+- `prompt-writer/references/opus-5-5-tuning.md`: the Opus 5.5 deltas over Opus 5 (effort default `medium`, thinking that cannot be disabled, forced `tool_choice` rejected, 128k `max_tokens`, thinking blocks bound to an unchanged prefix, unattended early stops, elapsed-time signals, pasted content, `reasoning_extraction` refusals) and what Claude Code 2.1.280 gives 5.5.
+- `claude-code-builtin-prompts.md` in both `ac:prompt-writer` and `ac:claude-md-rules-creator`: the verbatim 2.1.280 system prompt text per shape and model, the per-model bundle sections, the CLAUDE.md wrapper as the model sees it, the subagent defaults, and the patterns worth copying. Both skills check a new line against it before writing.
+- `/ac:install` writes `askUserQuestionTimeout` and `dialogExpiry` as `"never"`, `CLAUDE_CODE_RETRY_WATCHDOG=1`, `CLAUDE_CODE_THRIFTY_SONIC=0` and `CLAUDE_CODE_DISABLE_EXPLORE_PLAN_AGENTS=1`.
+
+### Changed
+
+- `ac:oracle` is a review-first agent with a short advice mode. It quotes the load-bearing claims, tests each against the primary source, reviews by artifact type, classifies candidates as CONFIRMED, PLAUSIBLE or DISMISSED, and reports Coverage, Premises, Findings with a scenario and a fix, Bottom line and Confidence. `/ac:plan` and `/ac:execute` route its REFUTED premises and PLAUSIBLE findings.
+- The generated global CLAUDE.md is rebased on the Opus 5.5 lean prompt: lines the host already carries are cut, `Decisions` sends every blocking choice through `AskUserQuestion`, `Run to completion` names the measured stall shapes, an outward action the request names is authorized, and a multi-file or hard-to-reverse change goes to `ac:oracle` before it is reported done.
+- Every skill, command, agent and MCP tool description follows Claude Code's own style, and the creator skills teach it: an imperative verb, one "Use when" sentence, one boundary, no mechanics. Model-visible listing text per turn drops by about 4,200 characters. The proxy now owns the five remote tool texts, which also fixes two references to tools it never exposes.
+- Agent effort retuned for Opus 5.5: `ac:oracle` and `ac:plan-code-review` `high`, `ac:plan-worker-senior` and `ac:plan-reviewer` `medium`; `ac:plan`, `ac:execute` and `ac:auto` run at `high`. `/ac:install` no longer writes a top-level `effortLevel`, which newer models ignore.
+- `ac:explore` and `ac:librarian` set `omitClaudeMd: true`, honoured on plugin agents since 2.1.271; librarian carries the research rules it used to inherit.
+
+### Fixed
+
+- `/ac:install` wrote `API_TIMEOUT_MS=30000` and `MCP_TOOL_TIMEOUT=60000`, and offered `CLAUDE_AFK_TIMEOUT_MS`, which turns question auto-submit on whatever `askUserQuestionTimeout` says. A value-matched migration rewrites or removes what an earlier install wrote. The OTEL telemetry option is gone; the installer writes no telemetry key.
+- The `/ac:execute` and `/ac:auto` markers carried a model-written session id and a local time with a `Z`, which left about half of them unarmed. The skills now write `${CLAUDE_SESSION_ID}` and `date -u`, and both guards tolerate the old skew.
+
 ## [0.23.0] - 2026-09-04
 
 One real `/ac:plan` run produced a plan that `/ac:execute` could not parse, and lost its own `Lock all?` gate on the way. Both come back to the same thing: a step of a procedure that lives only in prose holds only as long as the model's attention does, and this run was 457K tokens deep with its checkpointing already skipped. So both fixes moved into the deterministic layer. The step shape moved from `plan-template.md`, which the planner never opened, into the scaffold the planner is already editing, with a validator behind it; the Stage 4 answer became a required argument of the command Stage 5 opens with.
