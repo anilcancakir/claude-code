@@ -35,7 +35,7 @@ Source: https://platform.claude.com/docs/en/build-with-claude/prompt-engineering
 
 | Effort | Use for | Notes |
 |--------|---------|-------|
-| `xhigh` | Coding and agentic work, the default for skill execution | Set this for any skill that touches code, runs migrations, edits configs, or chains tool calls |
+| `xhigh` | Coding and agentic work on Opus 5 | On Opus 5.5 start lower: its `medium` matches Opus 5 `high` and it thinks more per label, so set `xhigh` only for a measured gain |
 | `high` | Intelligence-sensitive non-coding tasks | The model default and the floor for tasks where intelligence matters; audits, reviews, deep research |
 | `medium` | Cost or latency-sensitive tasks where intelligence still matters | Shorter reports, summarization |
 | `low` | Short scoped tasks | Quick formatters, lookups |

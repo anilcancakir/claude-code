@@ -261,7 +261,7 @@ Source: https://platform.claude.com/docs/en/about-claude/model-deprecations.md.
 - [ ] No explicit `thinking: {"type": "adaptive"}` enable; it is the default (harmless if present, just redundant).
 - [ ] No `thinking: {"type": "disabled"}` paired with effort `xhigh` or `max` (400 error).
 - [ ] No manual `{"type": "enabled", budget_tokens: N}` (400 error).
-- [ ] `effort` set explicitly when the task needs something other than `high`; `xhigh` for coding and agentic work.
+- [ ] `effort` set explicitly when the task needs something other than `high`; `xhigh` for coding and agentic work on Opus 5 (on 5.5 start at `medium`, see `opus-5-5-tuning.md`).
 - [ ] `max_tokens` around 64k at `xhigh` or `max`.
 - [ ] Length controlled by an explicit target, not by lowering effort.
 - [ ] Deliverable length stated separately from conversational length when it matters.
