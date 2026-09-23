@@ -4,9 +4,9 @@ Read at Phase 1g and again at the first wave barrier. The skill body carries the
 
 ### 1g. Confirm the progress surface
 
-There is no task list to register. This setup runs with `CLAUDE_CODE_ENABLE_TASKS=false` in
-`~/.claude/settings.json`, a deliberate trade: the task tools' schemas cost roughly 2,500 tokens of context on
-every turn, which buys nothing the two surfaces below do not already carry.
+There is no task list to register. Claude Code leaves the task tools out on the models this setup runs, and
+`CLAUDE_CODE_ENABLE_TASKS=false` keeps the four Task tools out on older ones; the two surfaces below carry
+everything a task list would.
 
 The two surfaces:
 

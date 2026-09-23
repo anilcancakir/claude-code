@@ -27,7 +27,7 @@ after it; a stage whose question went unasked did not complete.
 
 **Progress surface.** The files are the surface, and there is no task list. `LOG_PATH` records every question and answer as it resolves, `CHECKPOINT_PATH` carries `last_stage` so a compaction or a restart resumes rather than restarts, and one short line per stage transition is what the user sees live.
 
-This setup runs with `CLAUDE_CODE_ENABLE_TASKS=false` in `~/.claude/settings.json`, a deliberate choice: the task tools' schemas cost roughly 2,500 tokens of context on every turn, which is more than a stage-transition line is worth. Do not write a procedure that depends on them.
+There are no task tools to build on: Claude Code leaves them out on Opus 4.8, Sonnet 5, Opus 5 and later ("the tools' definitions and reminders take up context"), and on the older models and background sessions that still get them, this setup's `CLAUDE_CODE_ENABLE_TASKS=false` leaves only `TodoWrite`. Do not write a procedure that depends on either.
 
 **Output length.** Per-turn user-facing prose: at most 3 lines. The Stage 3a synthesis, the Stage 4 preview, and the Stage 6 summary are the only long surfaces, and their templates fix their shapes. Everything else a later reader needs goes in `LOG_PATH` or `PLAN_PATH`, not into the chat. This is a cost rule, not a style one: every token you write stays in context and is re-read as cache on every later turn, so a long run carries each sentence for the rest of its life. A file is read on demand; a sentence in the chat is read hundreds of times.
 
