@@ -1,5 +1,5 @@
 ---
-description: "Splits the current changes into atomic commits through `ac:git-master`, matching the repo's own commit style, with an optional typecheck plus test plus lint preflight and a push when an upstream exists. Accepts `--skip-preflight` and `--no-push`."
+description: "Split the current changes into atomic commits in the repo's style, preflight them with typecheck, test and lint, and push when an upstream exists. Pass --skip-preflight or --no-push to skip those steps."
 argument-hint: "[--skip-preflight] [--no-push]"
 allowed-tools: Bash, Skill, Read
 effort: medium

@@ -1,7 +1,7 @@
 ---
-description: Deep project-initialization command. Phase 0 parses arguments, prints a plain-language primer, branches on an existing `CLAUDE.md` (review and improve / leave it / start fresh), opens a typed preference queue, and runs the gitignore guard for `CLAUDE.local.md`. Phase 1 spawns four parallel `ac:explore` agents (manifest plus build, languages plus frameworks, conventions plus style, existing agent infra), each brief carrying its own DEPTH and BUDGET line. Phase 2 runs the gap-fill interview one question per call (scope, commands, golden rules, testing, off-limits, branch flow) and routes every candidate convention through the two-question placement rule, pattern-specific or not and safety-critical or not. Phase 3 invokes the `ac:claude-md-rules-creator` skill once, then drafts the root `CLAUDE.md`, optional `CLAUDE.local.md`, and up to 5 `.claude/rules/*.md` files with `paths:` frontmatter, honoring the skill's pre-flight checklist and the `.proposed` sidecar plus AskUserQuestion gate on existing files. Phase 4 wires a linter hook into `.claude/settings.local.json` and proves it fires. Phase 5 proposes a language server and proves it answers. Phase 6 reads back every emitted file, dedupes parent against child, and reports the branch each rule took. Flags `--max-depth=N` (default 2), `--dry-run`, `--no-local`, `--force-overwrite` (overridden by `--dry-run`).
+description: "Set up a project's CLAUDE.md, CLAUDE.local.md and path-scoped rules from a codebase scan and a short interview, then wire and prove a linter hook and a language server."
 argument-hint: "[path] [--max-depth=N] [--dry-run] [--no-local] [--force-overwrite]"
-effort: high
+effort: medium
 disable-model-invocation: true
 ---
 
