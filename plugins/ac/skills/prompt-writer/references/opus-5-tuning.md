@@ -2,6 +2,8 @@
 
 Specific, load-bearing knobs for `claude-opus-5` (released 2026-07-24). Read this when writing or debugging a prompt for Opus 5, or when tuning a prompt up from Opus 4.8, 4.7, or Sonnet 5.
 
+Targeting `claude-opus-5-5`? Anthropic documents it as a delta over Opus 5, so this file stays the baseline and `opus-5-5-tuning.md` carries what changed. Where the two disagree (effort default, thinking disable, `max_tokens`, forced tool use), the 5.5 file wins for 5.5.
+
 Primary sources (raw markdown via the `.md` suffix on `platform.claude.com`):
 
 - Prompting Claude Opus 5: https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/prompting-claude-opus-5.md
@@ -51,6 +53,8 @@ Source: https://platform.claude.com/docs/en/about-claude/models/overview.md (lat
 ```text
 This task involves multi-step reasoning. Think carefully through the problem before responding.
 ```
+
+Not for Opus 5.5: there, raise effort instead. Anthropic recommends removing "think carefully" lines on 5.5 because the model sets its own thinking depth and effort is the control (`opus-5-5-tuning.md`, Effort).
 
 ## Thinking
 
@@ -174,7 +178,7 @@ Prefill migration paths, unchanged:
 | Old prefill use | Migration |
 |---|---|
 | Force JSON / YAML output | Structured Outputs (`output_config={"format": {...}}`) |
-| Force classification label | Tool call with enum, or Structured Outputs |
+| Force classification label | Tool call with enum, or Structured Outputs. On Opus 5.5 `tool_choice` `any` / `tool` returns 400, so the tool route needs `auto` plus a prompt line saying when the tool applies; Structured Outputs is the safer path there. |
 | Skip preamble | Direct instruction: "Respond directly without preamble. Do not start with 'Here is...' or 'Based on...'" |
 | Continue interrupted response | New user message: "Your previous response was interrupted and ended with `[snippet]`. Continue from where you left off." |
 

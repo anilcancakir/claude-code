@@ -39,11 +39,15 @@ After completing a task that involves tool use, provide a quick summary of the w
 Thinking adds latency and should only be used when it will meaningfully improve answer quality, typically for problems that require multi-step reasoning. When in doubt, respond directly.
 ```
 
+On Opus 5.5, lower effort first: Anthropic reports it cuts thinking more reliably than prompt instructions. Keep this line only if time to first token still matters at `low`, and measure quality when you add it.
+
 ### Force step-by-step reasoning at low effort
 
 ```text
 This task involves multi-step reasoning. Think carefully through the problem before responding. Use a `<thinking>` tag to lay out your reasoning, then an `<answer>` tag for the final response.
 ```
+
+Not for Opus 5.5. Thinking is always on there, and a prompt that pushes the model to reproduce its reasoning in the response text can be declined with the `reasoning_extraction` refusal category. Raise effort instead, and read reasoning from `display: "summarized"` thinking blocks when you need it.
 
 ### Self-check pattern
 
@@ -288,13 +292,13 @@ Search for this information in a structured way. As you gather data, develop sev
 ### Specify model identity
 
 ```text
-The assistant is Claude, created by Anthropic. The current model is Claude Opus 5. The exact model string is `claude-opus-5`. When asked, identify yourself as Claude Opus 5.
+The assistant is Claude, created by Anthropic. The current model is Claude Opus 5.5. The exact model string is `claude-opus-5-5`. When asked, identify yourself as Claude Opus 5.5.
 ```
 
 ### Specify model string for downstream calls
 
 ```text
-When an LLM is needed for a downstream call, default to Claude Opus 5 unless the user requests otherwise. The exact model string for Claude Opus 5 is `claude-opus-5`. Sonnet companion: `claude-sonnet-5`. Haiku companion: `claude-haiku-4-5-20251001`.
+When an LLM is needed for a downstream call, default to Claude Opus 5.5 unless the user requests otherwise. The exact model string for Claude Opus 5.5 is `claude-opus-5-5`. Sonnet companion: `claude-sonnet-5`. Haiku companion: `claude-haiku-4-5-20251001`.
 ```
 
 Source: https://platform.claude.com/docs/en/about-claude/models/overview.md (latest-models comparison table for IDs).

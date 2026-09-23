@@ -251,6 +251,8 @@ If you need to display thinking content in your UI, add `"display": "summarized"
 
 **The fix.** Drop effort to `high` when thinking must be off, or leave thinking on. Note that running with thinking disabled has its own documented artifacts (tool calls leaking into the text response, stray XML tags), so budget for mitigation rather than assuming clean output.
 
+On Opus 5.5 there is no level at which this works: `disabled` returns 400 at every effort. Start at `low` and measure instead, and remove any instruction that had the model write its reasoning into the reply in place of thinking, since on 5.5 that can draw a `reasoning_extraction` refusal. See `opus-5-5-tuning.md`.
+
 ### Carrying an explicit thinking enable forward from 4.8
 
 **The mistake.** Keeping `thinking={"type": "adaptive"}` as a required line because a 4.8 integration needed it.
@@ -392,9 +394,10 @@ When reviewing an existing prompt:
 - [ ] Output format is locked (Structured Outputs > tool > XML > prose).
 - [ ] No "based on your findings, do X" in subagent prompts.
 - [ ] No anti-laziness scaffolding from older models.
-- [ ] No compat hacks, no impossible-scenario error handling, no multi-paragraph docstrings (CC defaults).
-- [ ] Thinking is left at its default on Opus 5 / Sonnet 5 / Fable 5 (on); manual `enabled` + `budget_tokens` is used only on Haiku 4.5, which rejects adaptive.
-- [ ] No `thinking: { type: "disabled" }` paired with effort `xhigh` or `max` (400 on Opus 5).
+- [ ] No compat hacks, no impossible-scenario error handling, no multi-paragraph docstrings. These are CC classic-prompt defaults; on Opus 5 / 5.5 (lean prompt) and in subagent bodies the prompt must state them itself.
+- [ ] Thinking is left at its default on Opus 5.5 / Opus 5 / Sonnet 5 / Fable 5 (on); manual `enabled` + `budget_tokens` is used only on Haiku 4.5, which rejects adaptive.
+- [ ] No `thinking: { type: "disabled" }` on Opus 5.5 at all, and on Opus 5 not with effort `xhigh` or `max` (400).
+- [ ] On Opus 5.5: no `tool_choice` `any` / `tool`, no reasoning-in-reply scaffold, effort re-swept rather than copied from Opus 5.
 - [ ] No `effort` set for Haiku 4.5 (unsupported on that model).
 - [ ] Length controlled by an explicit target, not by lowering effort (effort is not a length lever on Opus 5).
 - [ ] Scope's upper bound stated, not just its span (Opus 5 widens scope on its own).

@@ -105,6 +105,8 @@ Not every task warrants a subagent. Spawning has a cost: the agent must rebuild 
 
 **Default behavior on Opus 5.** Delegates to subagents MORE readily than prior models. This inverts the Opus 4.8 default, where the model spawned fewer subagents unprompted and prompts had to encourage fan-out. On Opus 5 the useful steering is the opposite: name when NOT to spawn ("complete work directly when you can already see what needs to change; spawn only when the work needs its own context window"). A prompt still carrying 4.8-era fan-out encouragement pushes an already-eager default. Source: https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/prompting-claude-opus-5.md > Controlling subagent spawning.
 
+**Opus 5.5.** No documented reversal; Anthropic calls the Opus 5 patterns the starting point. Inside Claude Code 2.1.280 the steering matters more on 5.5: the host drops the line that suppressed Agent use on Opus 5 and its Agent description encourages delegation, so a 5.5 prompt that holds the Agent tool carries its own when-not-to-spawn line. For a lead agent fanning out to subagents, 5.5 also paces to an elapsed-time signal (`elapsed 340s / 1200s` appended by the harness), which Anthropic reports finishes teams sooner; see `opus-5-5-tuning.md`.
+
 ## Foreground vs background
 
 In Claude Code, an agent can run foreground (default) or background.
