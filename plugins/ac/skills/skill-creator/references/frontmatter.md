@@ -206,7 +206,7 @@ Inline (the default) keeps the work in the current conversation, which lets the 
 
 ## `agent`
 
-Picks the subagent type when `context: fork` is set. Built-in options: `Explore`, `Plan`, `general-purpose`. Or any custom agent in `.claude/agents/<name>.md`. Defaults to `general-purpose`.
+Picks the subagent type when `context: fork` is set. Built-in options: `Explore`, `Plan`, `general-purpose`. Or any custom agent in `.claude/agents/<name>.md`. Defaults to `general-purpose`. A setup installed by `/ac:install` disables and denies the built-in `Explore` and `Plan` (`CLAUDE_CODE_DISABLE_EXPLORE_PLAN_AGENTS=1`, `Agent(Explore)`, `Agent(Plan)`), so name `ac:explore` or `general-purpose` there.
 
 ```yaml
 context: fork

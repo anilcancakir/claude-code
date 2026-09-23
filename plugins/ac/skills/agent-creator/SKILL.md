@@ -8,7 +8,7 @@ when_to_use: "Use when writing, editing or debugging a subagent definition."
 
 You are about to write or edit a Claude Code custom subagent another Claude will delegate to. An agent is a markdown file that becomes a named worker the orchestrator can spawn with the Agent tool: the parent fills in `subagent_type`, `prompt`, and optional `description`, `name`, `run_in_background`, `isolation`; Claude Code spawns a fresh isolated context, injects the agent's body as the system prompt, and runs the agent until completion. The agent returns its final message to the parent as the tool result.
 
-This skill is the playbook for designing tool restrictions, choosing model and effort, picking `permissionMode`, adding `memory`, preloading `skills`, structuring the system-prompt body, and routing the storage choice. Target is Opus 5. Same patterns work for Sonnet 5 at lower cost and for Haiku 4.5, which supports no effort parameter.
+This skill is the playbook for designing tool restrictions, choosing model and effort, picking `permissionMode`, adding `memory`, preloading `skills`, structuring the system-prompt body, and routing the storage choice. Target is Opus 5.5. Same patterns work for Sonnet 5 at lower cost and for Haiku 4.5, which supports no effort parameter.
 
 ## Three jobs, not one
 
@@ -42,7 +42,7 @@ Route by the user's request.
 
 ```
 Is a custom subagent the right tool at all?
-├── Built-in (Explore / Plan / general-purpose) already fits → use it. Not a custom agent.
+├── Built-in (Explore / Plan / general-purpose) already fits → use it. Not a custom agent. (on an `/ac:install` setup Explore and Plan are disabled; use `ac:explore` or `general-purpose`)
 ├── Repeatable workflow, no isolation needed → SKILL (route through `ac:skill-creator`).
 ├── User-typed `/name [args]` action → COMMAND (route through `ac:command-creator`).
 ├── Always-on enforcement → HOOK (route through `update-config`).
