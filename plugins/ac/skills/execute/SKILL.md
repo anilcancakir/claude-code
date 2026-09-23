@@ -672,6 +672,7 @@ history and the wisdom file:
   the plan's `## Deferred Ideas`.
 - **MINOR, or anything under confidence 50**: `report.md` notes. Do not touch the code for these.
 - **An oracle PLAUSIBLE finding** names what would confirm it: run that check before acting on it as CRITICAL or IMPORTANT, and treat an unchecked one as MINOR.
+- **An oracle REFUTED premise** means the plan is wrong about the code, whatever the Findings say: route it through the plan-is-wrong BLOCKER below, naming the premise and the quote. An UNSUPPORTED premise goes to `report.md` with the search the oracle named.
 
 Expect volume. Both reviewers are told to report everything they see rather than to pre-filter, because
 a reviewer told to be conservative reports less, so a long list is the instruction working rather than

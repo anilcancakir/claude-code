@@ -356,7 +356,7 @@ bullets for the triggers that actually fired.
 
 ### 3.5c. Wait, classify, route
 
-Wait for the oracle, then sort findings by severity.
+Wait for the oracle, then sort findings by severity. A PLAUSIBLE finding names the check that would confirm it; run that check yourself before routing it. Confirmed, route it by its severity; refuted, drop it and log why; still open, list it in the Stage 4 preview as IMPORTANT instead of raising the CRITICAL BLOCKER.
 
 Any CRITICAL finding is a BLOCKER: surface it before Stage 4 even under auto mode, via `AskUserQuestion` (header
 `Oracle CRIT?`, options `Revise plan (Recommended)` back to Stage 3 at the affected decision / `Accept as Risk`,
