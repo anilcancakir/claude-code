@@ -2,6 +2,8 @@
 
 Skill-specific tuning for the current Claude family. Default target is Opus 5 (`claude-opus-5`, released 2026-07-24). Sonnet 5 (`claude-sonnet-5`) follows the same patterns; Haiku 4.5 (`claude-haiku-4-5-20251001`) differs on effort and thinking. This reference focuses on the knobs that matter when authoring the body of a skill; for prompt-architecture tuning beyond skills, route through `ac:prompt-writer` and read its `references/opus-5-tuning.md`.
 
+For `claude-opus-5-5`, the current `model: opus`, this file stays the baseline and `ac:prompt-writer`'s `references/opus-5-5-tuning.md` carries what changed: default effort `medium`, thinking that cannot be disabled, effort labels that do not port from Opus 5, and no reasoning-in-reply scaffolds.
+
 4.8 to 5 is a tuning step for skill bodies, not a port: there are no API changes a skill body touches, and a body that ran on Opus 4.8 runs on Opus 5. But two model defaults inverted, so two specific 4.8-era body patterns now push in the wrong direction. Those two are first below.
 
 ## Contents

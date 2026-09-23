@@ -1,6 +1,6 @@
 ---
-description: <Third-person summary of what this skill does and when to use it. Front-load the use case. Include trigger phrases. Be specific. Combined description + when_to_use must stay under 1,536 characters; past that the listing truncates and trailing text becomes invisible to the trigger decision.>
-when_to_use: <Optional. A separate slot for trigger phrases and example requests when `description` is busy. Counts toward the same 1,536-char cap.>
+description: <Imperative verb + object, one sentence, 60-120 characters. No stages, flags or paths.>
+when_to_use: <One "Use when..." sentence, under 150 characters, with at most one boundary. About 200 characters combined with description.>
 ---
 
 # <Skill Title>

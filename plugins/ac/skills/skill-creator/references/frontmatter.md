@@ -71,35 +71,31 @@ What the skill does and when to use it. This is the selection mechanism. When th
 
 Two separate budgets govern visibility:
 
-1. **Per-skill cap.** `description` + `when_to_use` combined is truncated at 1,536 characters in the listing. Configurable via the `maxSkillDescriptionChars` setting.
+1. **Per-skill cap.** `description` + `when_to_use` combined is truncated at 1,536 characters in the listing. Configurable via the `skillListingMaxDescChars` setting.
 2. **Total listing budget.** Across all listed skills, the listing budget scales at 1% of the model's context window. Configurable via `skillListingBudgetFraction` (e.g. `0.02` for 2%) or `SLASH_COMMAND_TOOL_CHAR_BUDGET` (fixed character override).
 
 When the listing overflows, Claude Code drops descriptions for the least-used skills first; the skills you actually use keep their full text. Run `/doctor` to confirm whether the listing budget is overflowing. Front-load the use case so trailing keywords are not the ones lost.
 
-Observed 2026-09-04 on 2.1.260: a listing at 10,182 characters against a 10,000 budget was missing an entry outright at session start, not reduced to a name, and the entry returned once characters were freed. Do not plan on a name-only stub surviving.
+Observed 2026-09-04 on 2.1.260: a listing at 10,182 characters against a 10,000 budget was missing an entry outright at session start, not reduced to a name, and the entry returned once characters were freed. Do not plan on a name-only stub surviving. On 2.1.280 an entry that does not fit collapses to `- <name>` instead, least-used first, and bundled skills keep their text.
 
 **Three rules for the description text:**
 
-1. **Third person, present tense, active voice.** "Summarizes pull requests", not "I can summarize PRs" or "You can use this to summarize PRs".
-2. **What it does + when to use it.** Both halves matter. "Summarizes a PR" tells the model the function; "Use when the user asks to summarize a PR, says 'review this PR', or pastes a PR URL" tells the model when to fire.
-3. **Specific over generic.** "Helps with documents" loses to "Extracts text and tables from PDF files, fills forms, merges multi-page PDFs". Include the file types, the verbs, the trigger phrases.
+1. **Imperative verb and object, like Claude Code's bundled skills.** "Create a git commit", "Review the changed code for reuse, simplification, efficiency", not "I can summarize PRs" or "You can use this to summarize PRs".
+2. **What it does, then when.** `description` states the function; `when_to_use` is one "Use when..." sentence naming the situation, not a list of phrasings.
+3. **Specific over generic.** "Helps with documents" loses to "Extract text and tables from PDFs, fill forms and merge files." Name the file type and the verbs once.
 
 ```yaml
-description: Summarizes a GitHub pull request with diff, comments, and review threads. Use when the user asks to "summarize this PR", "review this PR", "what changed in #123", or pastes a PR URL.
+description: "Summarize a GitHub pull request from its diff, comments and review threads."
+when_to_use: "Use when the user asks what a PR changed or pastes a PR URL."
 ```
 
 ## `when_to_use`
 
-Additional trigger context: phrasings, examples, contexts. Appended to `description` in the listing and shares the 1,536-character cap.
+One sentence that starts "Use when", appended after ` - ` in the listing and sharing the 1,536-character cap.
 
 ```yaml
-when_to_use: |
-  Use when the user wants to cherry-pick a PR to a release branch.
-  Examples: "cherry-pick to release", "CP this PR", "hotfix this".
-  Also triggers on "backport <issue>" or "ship this to the release branch".
+when_to_use: "Use when a merged PR has to reach a release branch."
 ```
-
-Useful when `description` is already busy with the what-it-does and you want a separate slot for triggers.
 
 ## `argument-hint`
 

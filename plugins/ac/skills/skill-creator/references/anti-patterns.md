@@ -20,13 +20,13 @@ Common skill-writing mistakes, why they fail, and what to do instead. Read this 
 
 **Why it fails.** When the model has 100+ skills available, it picks based on the description alone. Vague descriptions do not earn the trigger. The skill stays cold while the model uses generic tools.
 
-**The fix.** Specific, third-person, with both the function and the trigger contexts.
+**The fix.** An imperative verb and its object, then one "Use when" sentence naming the situation.
 
 | Anti-pattern | Pattern |
 |--------------|---------|
-| "Helps with PDFs" | "Extracts text and tables from PDF files, fills forms, merges multi-page PDFs. Use when the user mentions PDFs, forms, or document extraction." |
-| "Processes data" | "Cleans and reshapes CSV files using pandas (drop duplicates, normalize columns, type-coerce). Use when the user asks to clean a CSV, dedupe rows, or fix data types." |
-| "Does git stuff" | "Generates Conventional Commits messages from staged changes by analyzing the diff. Use when the user asks for a commit message, says 'commit this', or wants to review staged changes." |
+| "Helps with PDFs" | "Extract text and tables from PDFs, fill forms and merge files." / "Use when a request reads or changes a PDF." |
+| "Processes data" | "Clean and reshape CSV files with pandas." / "Use when a CSV needs deduping, column fixes or type coercion." |
+| "Does git stuff" | "Write a Conventional Commits message from the staged diff." / "Use when the user wants a commit message for staged changes." |
 
 ### First-person or second-person description
 
@@ -34,7 +34,7 @@ Common skill-writing mistakes, why they fail, and what to do instead. Read this 
 
 **Why it fails.** The description gets injected into the system prompt. Mixed POV confuses skill discovery, the model is reading "you" / "I" / "we" referring to itself, the user, and the skill all at once.
 
-**The fix.** Third person, present tense, active voice. "Processes Excel files", "Summarizes pull requests".
+**The fix.** Imperative verb and object, the way bundled skills read: "Create a git commit", "Summarize a pull request".
 
 ### Reserved words in `name`
 
@@ -66,7 +66,7 @@ Common skill-writing mistakes, why they fail, and what to do instead. Read this 
 
 **Why it fails.** Claude Code truncates the combined `description` + `when_to_use` at 1,536 characters in the listing. Anything past that is invisible to the trigger decision, the trailing phrases never get seen.
 
-**The fix.** Front-load the use case in the first 800 characters. Use `when_to_use` for synonyms and example phrasings. Keep combined length under 1,500 to leave headroom for listing budget pressure.
+**The fix.** One imperative sentence plus one "Use when" sentence, about 200 characters combined. The per-entry cap is not the target; the shared 1% listing budget is what trims entries, and it trims the least-used first. Keep headroom for listing budget pressure.
 
 ## Body failures
 
@@ -310,7 +310,7 @@ Common skill-writing mistakes, why they fail, and what to do instead. Read this 
 
 **The fix.** Diagnose where the failure is.
 
-- *Does not trigger*, strengthen the description (more specific, more trigger phrases, less vague).
+- *Does not trigger*, name the situation more exactly in `when_to_use`; if the trigger must never be lost, name the skill in CLAUDE.md.
 - *Triggers but does not influence behavior*, strengthen the body (clearer goal, success criteria, lead with the rule).
 - *Triggers when it should not*, tighten the description (remove broad keywords, narrow the use case).
 
@@ -318,8 +318,7 @@ Common skill-writing mistakes, why they fail, and what to do instead. Read this 
 
 When auditing an existing skill, walk through these:
 
-- [ ] `description` is third-person, specific, names the trigger contexts.
-- [ ] Combined `description` + `when_to_use` under 1,536 characters.
+- [ ] `description` opens with an imperative verb; `when_to_use` is one "Use when" sentence; about 200 characters combined.
 - [ ] `name` is lowercase + hyphens, no reserved words, matches directory.
 - [ ] No aggressive caps anywhere in frontmatter or body.
 - [ ] Invocation control matches who should trigger.

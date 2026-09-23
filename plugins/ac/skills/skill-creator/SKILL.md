@@ -1,14 +1,15 @@
 ---
 name: skill-creator
-description: "Authors and audits Claude Code skills: frontmatter, directory layout, scope, invocation control, and bundled references or scripts."
-when_to_use: "Creating, editing, auditing or debugging a skill at any scope, capturing a procedure you keep retyping, or diagnosing one that fails to fire."
+description: "Create or audit a Claude Code skill: frontmatter, layout, scope, invocation, and bundled references or scripts."
+when_to_use: "Use when writing, editing or debugging a skill, or turning a procedure you keep retyping into one."
+disable-model-invocation: false
 ---
 
 # Skill Creator
 
 You are about to write or edit a skill another Claude will load. A skill is a directory with a `SKILL.md`. Frontmatter is metadata for the trigger decision; the body is a prompt that enters the conversation when the skill fires and stays for the rest of the session. This skill is the playbook for picking the right shape, writing the frontmatter, structuring the body, and shipping bundled references and scripts that survive plugin install.
 
-Target is Opus 5. Same rules work for Sonnet 5 at lower cost and for Haiku 4.5, which supports no effort parameter at all. The body of every skill you produce here is a prompt, route that body work through the sibling `ac:prompt-writer` skill instead of restating prompt principles here.
+Target is Opus 5.5 (`model: opus` on Claude Code 2.1.280). Same rules work for Sonnet 5 at lower cost and for Haiku 4.5, which supports no effort parameter at all. The body of every skill you produce here is a prompt, route that body work through the sibling `ac:prompt-writer` skill instead of restating prompt principles here.
 
 ## Two jobs, not one
 
@@ -52,7 +53,7 @@ Eight rules that change outcomes the most. Detail in the references.
 
 2. **Match freedom to fragility.** Three settings: high freedom (text instructions, multiple valid paths, code review, exploration), medium freedom (parameterized scripts with a preferred pattern, report generation), low freedom (specific commands, fixed sequences, migrations, deploys). Over-constraining open fields wastes tokens; under-constraining narrow bridges breaks production.
 
-3. **The description is the selection mechanism.** When the model has 100+ skills available, it picks based on `description` alone. Front-load the verb and noun, write third person ("Processes Excel files"), cover the synonyms a caller would actually reach for, and close with the boundary that says when not to load it. The boundary is the part authors skip, and it is what keeps a skill from firing on every neighbouring request.
+3. **The description is the selection mechanism.** When the model has 100+ skills available, it picks based on `description` alone. Open with the imperative verb and the object ("Create a git commit"), give one "Use when" sentence, and close with the boundary that says when not to load it. The boundary is the part authors skip, and it is what keeps a skill from firing on every neighbouring request.
 
 4. **Progressive disclosure is the structural superpower.** Metadata always loaded, body on trigger, `references/` and `scripts/` only when the body points at them. Use this: keep the body lean, push detail into one-level-deep references, anchor each with "read this when X". Two-level-deep references suffer because the model often previews intermediate files with `head -100`.
 
@@ -83,7 +84,7 @@ The only fields a working skill needs are `name` and `description`. `when_to_use
 |-------|-----------|---------|-------------|
 | `name` | recommended (falls back to directory) | directory name | almost always; only omit when the directory name is already the right slug |
 | `description` | recommended | first paragraph of body (usually wrong) | always |
-| `when_to_use` | optional | empty | the description is busy and trigger phrases need a separate slot; usually worth setting |
+| `when_to_use` | optional | empty | almost always: one "Use when..." sentence that states the situation |
 | `argument-hint` | optional | none | the skill takes positional arguments and you want autocomplete to hint at them |
 | `arguments` | optional | none | the skill takes input and you want named-positional substitutions (`$pr_number` instead of `$0`) |
 | `disable-model-invocation` | optional | `false` | the skill has irreversible side effects (`/deploy`, `/commit`, `/send-slack`); user must trigger explicitly |
@@ -193,7 +194,7 @@ If the conversation already shows a workflow the user wants captured (correction
 Always-needed questions:
 
 - What does the skill do, in one sentence?
-- When should the model load it (trigger phrases, file types, user requests)?
+- What situation should load it (the request, the file type), in one sentence?
 - Project, user, or plugin scope?
 
 Conditional questions (ask only when the answer to an always-needed question implies the skill needs the field):
@@ -215,8 +216,8 @@ Start with the minimal set and add fields only when the answers from step 1 forc
 
 ```yaml
 ---
-description: <Third-person summary of what the skill does + when to use it.>
-when_to_use: <Optional: separate slot for trigger phrases if description is busy.>
+description: <Imperative verb + object, one sentence, 60-120 chars.>
+when_to_use: <One "Use when..." sentence, under 150 chars.>
 ---
 ```
 
@@ -231,15 +232,16 @@ Add other fields only when a specific condition holds (see the "Frontmatter is m
 - `paths:` when the skill is path-conditional.
 - `model:` / `effort:` / `hooks:` only when the skill genuinely needs them.
 
-`description` + `when_to_use` is the trigger surface, the only thing the model sees before deciding to load the skill. Claude Code truncates the combined entry at 1,536 characters in the skill listing (see [Anthropic docs](https://code.claude.com/docs/en/skills.md)); anything past that is invisible to the trigger decision. Front-load the use case.
+`description` + `when_to_use` is the trigger surface, the only thing the model sees before deciding to load the skill. The listing renders each entry as `- name: description - when_to_use`, truncated at 1,536 characters (`skillListingMaxDescChars`); see [Anthropic docs](https://code.claude.com/docs/en/skills.md).
 
-Triggering rules for the description text:
+Write it the way Claude Code writes its own bundled skills (read off the 2.1.280 listing):
 
-- **Third person.** "Summarizes a PR", not "I can summarize PRs" or "You can use this to summarize PRs". The description gets injected into the system prompt, mixed POV confuses skill discovery.
-- **Front-load the verb and the noun.** Start with what the skill does, then the contexts that pull it in.
-- **State the boundary, not a trigger list.** A list of phrasings grows without bounding anything, and the model still has to guess when NOT to load the skill. One clause naming where it stops does that work and costs less: "Use when the search spans several naming conventions; read the file directly when you already know where to look." Reach for a phrasing list only when the vocabulary is genuinely unguessable from the verb.
-- **Cover synonyms.** "Playbook", "checklist", "workflow", "procedure", "runbook" pull on different days.
-- **Be specific.** "Use whenever PDFs are involved" loses; "Use when the user extracts form fields, fills PDF forms, or merges multi-page PDFs" wins.
+- **Open with an imperative verb and its object, in one sentence of 60 to 120 characters.** "Create a git commit." "Run a prompt or slash command on a recurring interval."
+- **`when_to_use` is one sentence that starts "Use when", under 150 characters.** "Use before writing a memory file to choose the right `type:` frontmatter value and body structure."
+- **At most one boundary clause, with a redirect.** "Quality only; it does not hunt for bugs, use /code-review for that."
+- **No mechanics.** Leave out stages, tiers, hashes, file paths and internal agent names; the body carries how the skill works, the listing only decides whether to load it. The exception is a flag the model must pass, because `argument-hint` never reaches the model; the bundled code-review skill names `--comment` and `--fix` in its description.
+- **About 200 characters combined, 350 at most.** Every entry shares one listing budget of 1% of the context window, and on overflow the least-used entries collapse to their bare name.
+- **Plain case, no stacked synonyms.** A skill that does not fire is fixed by naming the situation more exactly, not by adding phrasings or "ALWAYS". A trigger that must never be lost belongs in CLAUDE.md, which is outside the listing budget.
 
 For naming, prefer gerund (`processing-pdfs`, `analyzing-spreadsheets`). Avoid reserved words (`anthropic`, `claude`) and vague names (`helper`, `utils`, `tools`). Full field reference: `${CLAUDE_SKILL_DIR}/references/frontmatter.md`.
 
@@ -278,7 +280,7 @@ Before shipping:
 
 1. **Frontmatter parses.** `description` is a string, `allowed-tools` matches the parser's expected shape (space-separated string or YAML list), no nonsense fields.
 2. **Path references resolve.** Every `&#36;{CLAUDE_SKILL_DIR}/...` in the body points to a file that exists.
-3. **Triggering reads cleanly.** Read `description` + `when_to_use` aloud, would the model load this skill on a relevant request? Combined under 1,536 characters?
+3. **Triggering reads cleanly.** Read `description` + `when_to_use` aloud: would the model load this skill on a relevant request, and skip it on a neighbouring one? About 200 characters combined?
 4. **Body holds up cold.** Re-read as if you had never seen the conversation. Goal clear, steps actionable, success criteria present.
 5. **Invoke it.** Run `/skill-name` in a fresh session. The first run surfaces every assumption.
 
@@ -290,7 +292,7 @@ If the skill misbehaves, route by symptom:
 
 | Symptom | Fix |
 |---------|-----|
-| Does not trigger when it should | Strengthen `description`: more specific verbs, more trigger phrases, less vague |
+| Does not trigger when it should | Name the situation more exactly in `when_to_use`; if the trigger must never be lost, name the skill in CLAUDE.md |
 | Triggers on unrelated work | Tighten `description`: remove broad keywords; add `disable-model-invocation: true` if it is user-only |
 | Loads but does not change behavior | Strengthen the body: clearer goal, success criteria, lead with the rule; explain the why |
 | Wastes turns on tangential exploration | Cut. Anything not pulling its weight; trust the model on the obvious |
@@ -313,9 +315,11 @@ This skill stays focused on the skill shape itself. The work around the skill ro
 
 When the user request implies any of the rows above, do both: invoke the matching creator for shape, then keep this skill loaded for what is still skill-shaped.
 
-## Opus 5 and Sonnet 5 tuning
+## Opus 5.5 and Sonnet 5 tuning
 
-Default target is `claude-opus-5`. Sonnet 5 (`claude-sonnet-5`) follows the same shape at lower cost; Haiku 4.5 (`claude-haiku-4-5-20251001`) supports no effort parameter at all. Full per-knob detail: `${CLAUDE_SKILL_DIR}/references/opus-5-tuning.md`.
+Default target is `claude-opus-5-5` (`model: opus` on Claude Code 2.1.280), documented by Anthropic as a delta over Opus 5, so the Opus 5 notes below still hold unless the next paragraph says otherwise. Sonnet 5 (`claude-sonnet-5`) follows the same shape at lower cost; Haiku 4.5 (`claude-haiku-4-5-20251001`) supports no effort parameter at all. Full per-knob detail: `${CLAUDE_SKILL_DIR}/references/opus-5-tuning.md`; the 5.5 deltas and the verbatim built-in prompt text live in `ac:prompt-writer`.
+
+On 5.5: default effort is `medium`, effort labels do not port from Opus 5 (5.5 thinks more per label), and its best agentic-coding score in the system card is at `medium`, so set a skill's `effort:` only when its work needs a different level from the session's, and remember it also holds for the rest of the turn after the skill runs. A skill body lands on the lean prompt, which lacks the classic code-style and communication rules; state any the skill needs.
 
 Quick deltas to keep in mind while authoring:
 
@@ -332,8 +336,8 @@ For the full annotated blank template (with every optional field commented inlin
 
 ```markdown
 ---
-description: <Third-person summary of what the skill does + when to use it. Front-load the use case. Combined description + when_to_use under 1,536 chars.>
-when_to_use: <Optional: separate slot for trigger phrases when description is busy.>
+description: <Imperative verb + object, one sentence, 60-120 chars.>
+when_to_use: <One "Use when..." sentence, under 150 chars.>
 ---
 
 # <Skill Title>
@@ -407,9 +411,8 @@ Always check:
 
 - [ ] Directory at the right scope (managed / user / project / plugin).
 - [ ] Directory name = skill slug (lowercase, hyphens, max 64 characters, no `claude` or `anthropic`).
-- [ ] Frontmatter has `description`; `name` set only if it differs from the directory; `when_to_use` set if trigger phrases need their own slot.
-- [ ] Combined `description` + `when_to_use` under 1,536 characters, front-loaded with the use case.
-- [ ] Pushy phrasing covers common synonyms and adjacent wordings.
+- [ ] Frontmatter has `description` and a one-sentence `when_to_use`; `name` set only if it differs from the directory.
+- [ ] `description` opens with an imperative verb; `when_to_use` is one "Use when" sentence; about 200 characters combined, 350 at most; no mechanics.
 - [ ] No optional fields set that the skill does not actually need (cargo-culting hurts).
 
 Check only the items that apply to your skill's specific needs:

@@ -218,7 +218,7 @@ Use this when the skill must enforce something deterministically. Hooks run rega
 
 Two separate budgets:
 
-1. **Per-skill cap.** `description` + `when_to_use` are concatenated and truncated at **1,536 characters per skill** in the listing. Anything past that is invisible to the trigger decision. Configurable via the `maxSkillDescriptionChars` setting.
+1. **Per-skill cap.** `description` + `when_to_use` are concatenated and truncated at **1,536 characters per skill** in the listing. Anything past that is invisible to the trigger decision. Configurable via the `skillListingMaxDescChars` setting.
 2. **Total listing budget.** Across all listed skills, the budget scales at **1% of the model's context window**. Configurable via `skillListingBudgetFraction` (e.g. `0.02` for 2%) or `SLASH_COMMAND_TOOL_CHAR_BUDGET` (fixed character count override).
 
 When the total listing overflows, Claude Code drops descriptions for the least-used skills first; the skills you actually use keep their full text. Run `/doctor` to see whether the budget is overflowing and which skills lost their descriptions. To free budget for other skills, demote low-priority entries via `skillOverrides` (see below); plugin skills are exempt from `skillOverrides`, so only the plugin author can shorten those.

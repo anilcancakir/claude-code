@@ -24,7 +24,8 @@ Each example is annotated to call out the choices: why this scope, why this invo
 ```markdown
 ---
 name: laravel-conventions
-description: Applies the Laravel conventions used in this codebase. Triggers on PHP work in `app/`, `tests/`, or `database/migrations/`, on words like "controller", "service", "form request", "migration", and on requests to add or refactor backend features. Use even when the user does not say "Laravel" but is asking about server-side PHP.
+description: "Apply the Laravel conventions used in this codebase."
+when_to_use: "Use when writing or changing PHP under app/, tests/ or database/migrations/."
 paths:
   - "app/**/*.php"
   - "tests/**/*.php"
@@ -72,7 +73,8 @@ Apply these to every PHP file you create or modify in this repo.
 ```markdown
 ---
 name: cherry-pick-to-release
-description: Cherry-picks a merged PR to the current release branch and opens a backport PR. Use when the user says "cherry-pick to release", "CP this PR", "backport this", "hotfix this PR", or asks to ship a fix to the release branch.
+description: "Cherry-pick a merged PR to the current release branch and open a backport PR."
+when_to_use: "Use when a merged PR has to reach a release branch."
 disable-model-invocation: true
 argument-hint: "[pr-number]"
 arguments: [pr_number]
@@ -145,7 +147,8 @@ gh pr create --base release --title "Cherry-pick #$pr_number" --body "Backports 
 ```markdown
 ---
 name: auditing-feature
-description: Audits how a specific feature is implemented across the codebase, returning a map of files, functions, data flow, and surfaces touched. Use when the user asks "how does X work end-to-end", "trace this feature", "where is X handled", "audit the X flow", or wants a self-contained understanding of a feature without polluting the main conversation.
+description: "Map how a feature is implemented across the codebase: files, functions, data flow and surfaces touched."
+when_to_use: "Use when the question is how X works end to end."
 context: fork
 agent: Explore
 argument-hint: "[feature description or starting point]"
@@ -214,7 +217,8 @@ Under 800 words. Lead with the feature's purpose in one sentence.
 ```markdown
 ---
 name: generating-changelog
-description: Generates a CHANGELOG.md entry for the upcoming release by parsing merged PRs, grouping by type (feat/fix/chore/refactor/docs), and writing the entry to the changelog. Use when the user asks to "generate the changelog", "update CHANGELOG", "draft release notes", or is preparing a release.
+description: "Write the CHANGELOG.md entry for the upcoming release from merged PRs, grouped by type."
+when_to_use: "Use when preparing a release."
 argument-hint: "[next-version-tag]"
 arguments: [next_version]
 allowed-tools: Bash(gh pr list:*) Bash(python:*) Read Edit
@@ -288,7 +292,8 @@ Script source: `${CLAUDE_SKILL_DIR}/scripts/build_changelog.py`. Read it only if
 ```markdown
 ---
 name: flutter-conventions
-description: Applies Flutter and Dart conventions for this app. Triggers on Dart files under `lib/` and `test/`, on widget/state-management requests, and on questions about routing, theming, or state. Use even when the user does not say "Flutter" if the work is in `lib/` or `test/` and uses Dart.
+description: "Apply the Flutter and Dart conventions used in this app."
+when_to_use: "Use when writing or changing Dart under lib/ or test/."
 paths:
   - "lib/**/*.dart"
   - "test/**/*.dart"
@@ -353,7 +358,8 @@ Apply to every Dart file in this app.
 ```markdown
 ---
 name: pdf-extractor
-description: Extracts text and tables from PDF files, fills PDF forms, merges multi-page PDFs. Use when the user mentions PDFs, says "extract from this PDF", "parse the PDF", "fill the form in <file>.pdf", or pastes a path to a `.pdf` file. Use even when the user does not say the word "extract" but the request implies reading PDF content.
+description: "Extract text and tables from PDFs, fill forms and merge files."
+when_to_use: "Use when a request reads or changes a PDF."
 allowed-tools: Read Bash(python:*)
 ---
 
@@ -402,7 +408,7 @@ Confirm the output file exists and is non-empty before presenting. If the script
 
 - *Plugin scope*, the skill is shipped as part of a plugin and auto-namespaced as `<plugin>:pdf-extractor`.
 - *`${CLAUDE_SKILL_DIR}` everywhere*, the script, scratch file, and references resolve correctly regardless of install destination. Repo-relative paths would break.
-- *Description covers the vocabulary*, the synonyms a caller reaches for ("extract", "parse", "fill") rather than a list of sentences they might type, since PDF work is named a dozen ways and the verb alone does not reach all of them.
+- *Description names the work once*, the verbs a caller reaches for in one sentence, with the situation in `when_to_use`, since PDF work is named a dozen ways and the verb alone does not reach all of them.
 - *Narrow `allowed-tools`*, only `Read` (to read the output file) and `Bash(python:*)` (the script). The bash injection runs via the preprocessor, but the body can also call the script via Bash if it needs interactive feedback.
 - *Verification step*, the model checks the output before presenting; the script does not have to be perfect.
 - *Drilldown for edge cases*, OCR and encryption are non-default flows; the model loads those references only when needed.
