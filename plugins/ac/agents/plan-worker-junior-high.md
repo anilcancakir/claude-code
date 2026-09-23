@@ -1,6 +1,6 @@
 ---
 name: plan-worker-junior-high
-description: "`junior-high` tier worker: junior-shaped work at high effort, for borderline coupling or context depth. Spawned by `/ac:execute` from a plan step's tier."
+description: "Junior-high-tier ac plan worker: junior-shaped steps at high effort, for borderline coupling or context depth. Spawned only by /ac:execute; not for general tasks."
 model: sonnet
 effort: high
 tools: Read, Write, Edit, Grep, Glob, Bash, LSP

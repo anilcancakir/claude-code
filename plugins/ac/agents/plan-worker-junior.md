@@ -1,6 +1,6 @@
 ---
 name: plan-worker-junior
-description: "`junior` tier worker and the default: 1 to 3 file changes in business logic or framework idiom. Spawned by `/ac:execute` from a plan step's tier."
+description: "Junior-tier ac plan worker, the default: one to three file changes in business logic or framework idiom. Spawned only by /ac:execute; not for general tasks."
 model: sonnet
 effort: medium
 tools: Read, Write, Edit, Grep, Glob, Bash, LSP

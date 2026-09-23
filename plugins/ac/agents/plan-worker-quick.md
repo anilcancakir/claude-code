@@ -1,6 +1,6 @@
 ---
 name: plan-worker-quick
-description: "`quick` tier worker: single-file mechanical steps. Spawned by `/ac:execute` from a plan step's tier."
+description: "Quick-tier ac plan worker: single-file mechanical steps. Spawned only by /ac:execute; not for general tasks."
 model: haiku
 tools: Read, Write, Edit, Grep, Glob, Bash, LSP
 disallowedTools: NotebookEdit
