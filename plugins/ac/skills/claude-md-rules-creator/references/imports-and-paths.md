@@ -168,6 +168,8 @@ Use plan mode for changes under `src/billing/`.
 
 `AGENTS.md` is read by Cursor, Windsurf, Cline, and others. Adding `@AGENTS.md` to CLAUDE.md gives Claude Code the same context. The "## Claude Code" section below the import adds Claude-specific overlay without forking the shared content.
 
+Since 2.1.277 Claude Code also reads `AGENTS.md` on its own, but only when no `CLAUDE.md`, `.claude/CLAUDE.md` or `CLAUDE.local.md` exists in the working directory or above it, and not at all in a session that cannot fetch feature flags (telemetry disabled, Bedrock, Vertex, Foundry) or on the first session after an upgrade (`https://code.claude.com/docs/en/memory.md#agents-md`). So the import is still the form that loads in every session, and it is safe to keep: "Keeping the import never makes Claude read `AGENTS.md` twice." Writing a `CLAUDE.local.md` into a project that relied on the direct read switches that read off for the person who wrote it, which is one more reason to put the import in the project file first. A CLAUDE.md sentence telling Claude to read `AGENTS.md` is not an import: Claude sees the file only if it decides to open it.
+
 Alternative (Linux/macOS only, when no Claude-specific overlay is needed):
 
 ```bash

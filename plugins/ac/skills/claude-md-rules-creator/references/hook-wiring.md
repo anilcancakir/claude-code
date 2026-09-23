@@ -1,6 +1,6 @@
-# Wiring a linter hook that provably fires
+# Wiring a lint or format hook that provably fires
 
-A CLAUDE.md note cannot make anything happen in response to an event. That is a hook. This file is the construction and verification procedure for one specific hook: run the project's linter after Claude writes a file, and report the result where it can be seen.
+A CLAUDE.md note cannot make anything happen in response to an event. That is a hook. This file is the construction and verification procedure for one specific hook: run the project's linter or formatter after Claude writes a file, and report a failure where it can be seen.
 
 The flow below reproduces the first-party seven-step procedure carried in the shipped Claude Code binary (2.1.259, symbol `nn`, loaded by the built-in `/init` when it invokes `update-config` with `[hooks-only]`), whose opening line is the reason each step exists: "Each step catches a different failure class - a hook that silently does nothing is worse than no hook." Field-level claims below come from `https://code.claude.com/docs/en/hooks.md`.
 
@@ -109,6 +109,17 @@ exit 0
 ```
 
 Adding `--fix` to the invocation turns it into a corrector as well as a reporter. Leave it off until the user asks, because it rewrites files Claude just wrote.
+
+## The format-on-edit variant
+
+The built-in `/init` offers a formatting hook by default, and the hooks guide's auto-format example is `prettier --write` on `PostToolUse`. The same script covers it with four changes:
+
+- Name it `.claude/hooks/format-changed.sh`, and set `CHECK_ARGS` to the flag that makes the tool rewrite in place rather than report: `prettier --write`, `biome format --write`, `ruff format`, `black`, `gofmt -w`, `rustfmt`, `dart format`, `pint` with no `--test`. The extension `case` follows the formatter, as it follows the linter.
+- A zero exit is the normal outcome and stays silent. A nonzero exit is a formatter that could not parse the file, which is worth the same `additionalContext` report, so the tail of the script is unchanged apart from the message ("Formatter failed on ...").
+- Point the registration's `command` and the `jq -e` proof below at the new script name; they are written for `lint-changed.sh`, and a name that does not match passes `jq -e` and fails only the live proof.
+- Never pipe-test or prove it on a tracked file: a formatter in write mode rewrites whatever it is given, so step 4 against a real file that is not already formatted leaves an unrequested diff in the user's tree. Copy a real file of the right extension to a scratch name inside the project root (the containment guard rejects anything outside it), unformat it, run the test and the live proof on the copy, confirm the copy changed, and delete it.
+
+When the user wants both a formatter and a linter, write ONE script, `.claude/hooks/format-lint-changed.sh`, that runs the formatter and then the linter on the same path, and register it once. Hooks that match the same event run in parallel ("All matching hooks run in parallel", `https://code.claude.com/docs/en/hooks.md`), so two separate registrations let the linter read the file while the formatter is still rewriting it and report on text that no longer exists.
 
 ## The registration
 
