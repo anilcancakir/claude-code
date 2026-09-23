@@ -49,6 +49,10 @@ Not security-sensitive, so it merges without a prompt. All ADD-only.
    array if missing, skip anything already there. Never widen to `mcp__*`.
 3. Append to `permissions.deny`: `EnterPlanMode`, `ExitPlanMode`, `Agent(Plan)`, `Agent(Explore)`.
    This is the load-bearing plan-mode block.
+4. `env.CLAUDE_CODE_DISABLE_EXPLORE_PLAN_AGENTS = "1"`, only when absent. It removes the built-in
+   Explore and Plan agents from the Agent tool's list and from the harness line that routes broad
+   searches to Explore (Claude Code 2.1.198 and later), so the model reaches `ac:explore` and
+   `/ac:plan` instead of a denied name. The deny entries stay for older builds.
 
 ### Migration strip for prior install versions
 
@@ -127,8 +131,7 @@ An unchecked option writes nothing.
 
 ## Group D: context trim, opt-in, default off
 
-Every session pays for tool schemas, bundled skill descriptions and the task toolset whether or
-not they are used, because `permissions.deny` strips a tool's SCHEMA rather than only blocking
+Every session pays for tool schemas and bundled skill descriptions whether or not they are used, because `permissions.deny` strips a tool's SCHEMA rather than only blocking
 the call. Each option below takes that cost off the baseline and takes a capability with it, so
 none is silent. No saving figure is quoted here: a tool that already defers costs its name
 rather than its schema, so the number moves with the build and with whether tool search is on.
@@ -146,7 +149,7 @@ AskUserQuestion({
       options: [
         {label: "Unused built-ins", description: "Denies NotebookEdit, PushNotification, EndConversation and the three MCP resource tools. Skip it if you edit Jupyter notebooks or your MCP servers expose resources."},
         {label: "Scheduling stack", description: "Denies CronCreate/CronDelete/CronList, ScheduleWakeup, RemoteTrigger and TaskOutput, and turns the loop and schedule skills off. Monitor survives and covers polling and log-watching; take this only if you do not use in-session reminders or claude.ai cloud routines."},
-        {label: "Task tools off", description: "env.CLAUDE_CODE_ENABLE_TASKS=false. Drops TaskCreate/TaskGet/TaskList/TaskUpdate, worth about 2,500 tokens of schema on every turn. Verified on 2.1.259: nothing replaces them, TodoWrite included, so multi-step work needs a file or a rendered table to keep its record. The ac plan and execute skills already work this way."}
+        {label: "Task tools off", description: "env.CLAUDE_CODE_ENABLE_TASKS=false. Claude Code already leaves the task-tracking tools out on Opus 4.8, Sonnet 5, Opus 5 and later. Where it still offers them (Opus 4.0 to 4.7, Sonnet 4.x, Haiku 4.5, and background sessions on any model), this swaps TaskCreate/TaskGet/TaskList/TaskUpdate for the single TodoWrite tool and its reminder; it does not remove tracking. The ac plan and execute skills keep their record in files either way."}
       ]
     },
     {
@@ -173,8 +176,9 @@ AskUserQuestion({
 Deny and override travel together on the scheduling stack: a skill whose tools are denied is a
 dead entry that still costs its description.
 
-For "Task tools off", report in the Phase 5 summary that an existing `CLAUDE_CODE_ENABLE_TODO_TOOLS`
-key re-adds the four tools and has to be removed by hand.
+For "Task tools off", report in the Phase 5 summary that an existing `CLAUDE_CODE_ENABLE_TODO_TOOLS=1`
+brings `TodoWrite` back on every model, and has to be removed by hand if the operator wants no
+tracking tool at all.
 
 `skillOverrides` takes a string enum, `"on"`, `"name-only"`, `"user-invocable-only"` or `"off"`;
 an object value there raises a settings validation error per key. `"name-only"` lists the skill
