@@ -1,6 +1,6 @@
 # Model Tier Reference
 
-Benchmark snapshot and routing table used for tier assignment in `/ac:plan` Stage 5 and consumed by `/ac:execute` Phase 1c. Numbers as of 2026-07 following the Claude Opus 5 release (2026-07-24).
+Benchmark snapshot and routing table used for tier assignment in `/ac:plan` Stage 5 and consumed by `/ac:execute` Phase 1c. Numbers as of 2026-07 following the Claude Opus 5 release (2026-07-24), with Opus 5.5 (2026-09-22) added from its system card. `model: opus` resolves to Opus 5.5 on Claude Code 2.1.280, so the senior tier now runs it.
 
 ## Provenance and comparability
 
@@ -16,6 +16,7 @@ Read this before quoting a number. Not every cell carries the same weight.
 
 | Model | ID | SWE-bench Verified | SWE-bench Pro | FrontierBench v0.1 | Capability summary |
 |-----------|---------------------------|--------------------|---------------|--------------------|--------------------|
+| Opus 5.5 | claude-opus-5-5 | not reported | 89.9% | not reported (FrontierCode v1.1 Main 54.6% at medium; Opus 5 53.4%, each at its best effort) | The senior tier since 2.1.280. $4 / $20 per MTok, default effort `medium`, thinking always on. Its best FrontierCode score is at `medium`; scores dip above it because the benchmark penalizes out-of-scope changes. |
 | Opus 5 | claude-opus-5 | 96.0% | 79.2% | 44.4% (xhigh) | Frontier agentic coding. Holds a ~16-point SWE-bench Pro lead and a 27-point FrontierBench lead over Sonnet 5, both measured against the same harness. 1M context, 128k output, five effort levels, thinking on by default. $5 / $25 per MTok. Cross-layer work, architecture, migrations. |
 | Sonnet 5 | claude-sonnet-5 | 85.2% | 63.2% | 17% | The speed-and-intelligence balance point, not a near-peer on the hardest cases. Strong on standard implementation and pattern application, reads broad context, avoids duplicating shared logic. 1M context, 128k output. $3 / $15 per MTok (introductory $2 / $10 through 2026-08-31). Standard implementation, pattern-following, refactor-with-pattern. |
 | Haiku 4.5 | claude-haiku-4-5-20251001 | 73.3% | not reported | not reported | Fastest and cheapest at $1 / $5 per MTok, 200k context, 64k output. Does NOT support the `effort` parameter; scope its work through the briefing instead. Mechanical work, config, rename, scaffold, single-file fix, parallel fan-out. |
@@ -30,6 +31,8 @@ Anthropic's published guidance is that tuning effort is often a better lever tha
 - The Claude Code diagnostic for effort versus model, "did it not try hard enough, or did it not know enough": https://claude.com/blog/claude-model-and-effort-level-in-claude-code
 
 The measured effort curve, from the Opus 5 system card section 8.5 on FrontierBench v0.1: `xhigh` 44.4%, `max` about 43% and within noise of `xhigh`, `high` 39% at 19% fewer output tokens, `low` 25% at 64% fewer. Two consequences: `max` buys nothing over `xhigh`, and effort moves a model about 5 points on this harness while the Opus-to-Sonnet gap on the same harness is 27.
+
+Opus 5.5 moves the curve. Its system card (section 8.4) puts its best FrontierCode v1.1 score at `medium` (54.6% Main, 65.3% Extended), lower between `high` and `xhigh`, and 54.4% / 63.6% at `max`; Anthropic attributes the dip to the benchmark penalizing out-of-scope changes. A plan step with a fixed Files list is judged much the same way (an inference, not a measurement), which is why the senior worker runs 5.5 at `medium` rather than carrying Opus 5's `high`. Re-measure cost per step and review findings once a few dozen 5.5 senior runs exist.
 
 This plugin's own contribution, which the vendor docs leave general, is the subagent-role-to-tier mapping in the routing table below.
 
@@ -76,7 +79,7 @@ Routing the residual to `junior-high` is deliberate: it is 3.2x cheaper than `se
 | `quick` | `ac:plan-worker-quick` | `claude-haiku-4-5-20251001` | not supported (Haiku 4.5 has no effort parameter) | 7 | 14.3 | 5,858 | 0.6M | ~$0.09 |
 | `junior` | `ac:plan-worker-junior` | `claude-sonnet-5` | medium | 113 | 27.7 | 16,276 | 2.6M | ~$1.02 |
 | `junior-high` | `ac:plan-worker-junior-high` | `claude-sonnet-5` | high | 40 | 36.1 | 27,846 | 4.9M | ~$1.89 |
-| `senior` | `ac:plan-worker-senior` | `claude-opus-5` | high | 207 | 58.7 | 51,981 | 9.5M | ~$6.05 |
+| `senior` | `ac:plan-worker-senior` | `claude-opus-5-5` (`model: opus`) | medium | 207 | 58.7 | 51,981 | 9.5M | ~$6.05 (Opus 5 at `high`; not yet re-measured on 5.5, whose per-token price is 20% lower) |
 
 Measured across 367 real worker runs on 2026-09-03, from every `subagents/*.meta.json` on this machine, averaged per run. Cost per step applies published pricing to the measured output and cache read. Read it as an observational average rather than a controlled comparison: tiers draw different work by construction, so the column mixes tier effect with step difficulty.
 
@@ -93,6 +96,8 @@ The criticality rule (rule 5) does not route here. It escalates `junior` to `sen
 Steps with `Type: verification` skip worker spawn entirely. The orchestrator runs the step's `Commands` directly via Bash and captures output to the `Evidence` paths. Tier and Why-this-tier are omitted on verification steps; this table does not apply to them.
 
 ## Sources
+
+- Claude Opus 5.5 system card (SWE-bench Pro 89.9%, FrontierCode v1.1 per-effort scores, section 8): https://www.anthropic.com/claude-opus-5-5-system-card
 
 - Claude Opus 5 system card (SWE-bench Verified 96.0%, SWE-bench Pro 79.2%, FrontierBench v0.1 44.4% plus the effort curve and the cross-model comparison carrying Sonnet 5's 17%): https://www-cdn.anthropic.com/c5fbac3f0b1280a933ebd26d3cb8bb9f5bdeaf48/Claude%20Opus%205%20System%20Card.pdf
 - Claude Sonnet 5 system card (SWE-bench Verified 85.2%, SWE-bench Pro 63.2%): https://www-cdn.anthropic.com/480e0bb54327b9622282e9c39a83a4f490ed377e/Claude%20Sonnet%205%20System%20Card.pdf

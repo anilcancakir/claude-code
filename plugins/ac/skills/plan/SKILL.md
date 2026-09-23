@@ -1,13 +1,13 @@
 ---
-description: Interactive planner. Researches in parallel, interviews you on intent, audits for reuse and efficiency, then writes a tier-assigned plan to `.ac/plans/<slug>/plan.md`. Planning only; it writes no code.
-when_to_use: Before implementation work that crosses files or modules, on a refactor, or from a `.ac/tasks/*.yaml` task file. Hands off to `/ac:execute`.
+description: "Plan a change interactively: research in parallel, ask the decisions only you can make, then write a tiered plan. Writes no code."
+when_to_use: "Use before work that crosses modules, carries design decisions, or is a refactor, or from a .ac/tasks/*.yaml file; hands off to /ac:execute."
 argument-hint: "[--auto] <topic description | .ac/tasks/*.yaml>"
-effort: xhigh
+effort: high
 ---
 
 # /ac:plan
 
-Interactive planner that runs entirely on the main thread (Opus 5). Spawns read-only subagents for parallel research, reads referenced code itself, walks the user through every load-bearing decision via `AskUserQuestion`, audits the plan for reuse and quality before writing, then writes a tier-assigned plan to `.ac/plans/<slug>/plan.md`.
+Interactive planner that runs entirely on the main thread. Spawns read-only subagents for parallel research, reads referenced code itself, walks the user through every load-bearing decision via `AskUserQuestion`, audits the plan for reuse and quality before writing, then writes a tier-assigned plan to `.ac/plans/<slug>/plan.md`.
 
 Request: $ARGUMENTS
 
