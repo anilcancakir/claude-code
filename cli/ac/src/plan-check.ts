@@ -58,7 +58,7 @@ type ParsedStep = {
 /**
  * A step line exactly as the hooks see it: anchored at column 0, with the space after the bracket.
  *
- * `stop-guard.sh:109` and `:118` both grep `'^- \[ \] '` including that trailing space, so a line
+ * `stop-guard.sh:121` and `:130` both grep `'^- \[ \] '` including that trailing space, so a line
  * written `- [ ]**Step 1**: x` is a step to a human, a step to a lenient parser, and invisible to
  * the guard that reads outstanding work. Accepting it here would mean this gate blessing a plan
  * whose progress signal is already dead, which is the exact failure the gate exists to catch.

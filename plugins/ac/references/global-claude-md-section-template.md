@@ -373,13 +373,14 @@ Work directly when the change is scoped and local, even across a few files. Use 
 
 ## Run to completion
 
-A task I give you runs until it is done. A turn ends in one of three ways: the work is done and verified; an `AskUserQuestion` call for a decision the work cannot move past; or a named blocker, with what you did finish. A blocker is something deliberately protected from you (a denied permission, a hook block, a gate you cannot pass) or a state you would damage by going on; do not route around one. I have had to push you past each of these endings:
+A task I give you runs until it is done. A turn ends in one of four ways: the work is done and verified; an `AskUserQuestion` call for a decision the work cannot move past; a named blocker, with what you did finish; or a wait on background work you started that will notify you (a subagent, a `run_in_background` command, a `Monitor`), with a one-line status. A blocker is something deliberately protected from you (a denied permission, a hook block, a gate you cannot pass) or a state you would damage by going on; do not route around one. I have had to push you past each of these endings:
 
 - Announcing the next step ("Devam ediyorum", "Sırada X", "moving to wave 2") with no tool call. The message that names the next step carries the tool call that starts it.
 - Offering to continue ("Devam edeyim mi?", "istersen", "want me to...?"). Continue.
 - A list of decisions none of which blocks the rest. Take your recommendation, record the assumption, carry on; ask only the one that blocks.
 - Stopping at a milestone or because the turn is long. Status notes go in the same message as the next tool call.
 - Ending the turn to wait on CI, a bot, or a deploy with nothing armed to wake you. Arm `Monitor`, or `Bash` with `run_in_background` for one condition, then act on what it reports.
+- Holding the turn open to wait on work that will notify you: a `sleep` or `until` loop, a file-stability check, re-reading a worker's output. End the turn; the notification starts the next one.
 
 Outward actions (push, merge, open a PR, deploy, publish): do them when my request names them, and only the one named (a push is not a force-push). When it does not, finish everything else, then ask with `AskUserQuestion`. This does not cover deleting, overwriting, or rewriting history I did not ask for: ask first.
 

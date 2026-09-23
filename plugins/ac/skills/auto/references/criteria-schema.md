@@ -128,7 +128,7 @@ them and a reader of this document would otherwise not know they exist.
 
 - `criteria.md`: the contract above, written before any work starts.
 - `verdict.md`: written once, at the end, by the `/ac:auto` skill from the body its read-only gate returns. Its
-  presence is the entire predicate of `plugins/ac/hooks/stop-guard-auto.sh:121-122`, which blocks a turn from
+  presence is the entire predicate of `plugins/ac/hooks/stop-guard-auto.sh:140-141`, which blocks a turn from
   ending while the marker exists and this file does not, and never opens it. Contents are the gate's
   `status` (`passed`, `gaps_found` or `human_needed`), its `gaps[]`, and a per-criterion evidence table.
   A verdict reporting an unmet criterion is a complete ending; the guard does not distinguish.

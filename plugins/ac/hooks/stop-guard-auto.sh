@@ -4,8 +4,9 @@
 # Blocks a turn-ending attempt only while an /ac:auto run this session owns has no verdict on
 # disk yet, and tells the orchestrator that invoking the gate is the one action still owed.
 # Every other condition fails OPEN (exit 0, no output): no marker, a marker owned by another
-# session, a marker past its age bound, a missing run directory, a verdict already written, a
-# latched or unwritable counter, and any parse uncertainty.
+# session, a marker past its age bound, background work in flight that will wake the session, a
+# missing run directory, a verdict already written, a latched or unwritable counter, and any
+# parse uncertainty.
 #
 # Why a second Stop hook rather than a branch inside stop-guard.sh: the two predicates are
 # disjoint and answer different questions. stop-guard.sh asks "is the plan finished", read from
@@ -112,6 +113,13 @@ age=$((now_epoch - started_epoch))
 # widest offset); accept that skew rather than going inert for the run.
 { [ "$age" -ge -50400 ] && [ "$age" -le 86400 ]; } || exit 0
 
+# 3b. Work in flight that will wake the session (a background worker, a monitor, a finite shell):
+#     ending the turn is how the run waits for it, so allow the stop without spending budget.
+#     stop-guard.sh carries the measurement behind this; lib/wake-count.jq decides what counts.
+wake_count="$(printf '%s' "$input" | jq -r --arg mode strict -f "$(dirname "$0")/lib/wake-count.jq" 2>/dev/null)" || exit 0
+case "$wake_count" in '' | *[!0-9]*) exit 0 ;; esac
+[ "$wake_count" -eq 0 ] || exit 0
+
 # 4. Resolve the run directory the marker names. A missing directory is a malformed run: there
 #    is nowhere for a verdict to land and nowhere to keep the counter, so we cannot judge.
 slug="$(jq -r '.slug // empty' "$marker" 2>/dev/null)"
@@ -216,6 +224,9 @@ it does not measure how much of it you managed, so nothing you do to the work it
 it. The one action that clears it is the gate writing the verdict.
 
 $next_action
+
+No background worker of this session is running, so do not wait with a sleep, until or polling
+loop in the foreground; while one runs, ending the turn is the right way to wait and this guard allows it.
 
 Context pressure is not a stopping condition. Auto-compaction summarizes older turns and the run
 continues; do not announce a context or token-budget concern in place of finishing, and do not

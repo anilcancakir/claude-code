@@ -15,8 +15,8 @@
 #
 # It reads `last_assistant_message` from the Stop payload (https://code.claude.com/docs/en/hooks.md,
 # Stop input) and only its last paragraph, with fenced code and inline code removed, so a long
-# report that mentions "next" in its body, or SQL with a `?`, is not caught. `background_tasks` or
-# `session_crons` non-empty means something will wake the session, so the guard allows the stop.
+# report that mentions "next" in its body, or SQL with a `?`, is not caught. Background work or a
+# cron that will wake the session means the guard allows the stop (lib/wake-count.jq, loose mode).
 #
 # Loop bound: `stop_hook_active` stays true across tool turns within one prompt, so it cannot
 # count "blocks since real work" on its own. The counter therefore stores the transcript size at
@@ -62,9 +62,11 @@ counter="${TMPDIR:-/tmp}/ac-announce-guard-$session_id"
 stop_hook_active="$(printf '%s' "$input" | jq -r '.stop_hook_active // false' 2>/dev/null)"
 [ "$stop_hook_active" = "true" ] || rm -f "$counter" 2>/dev/null
 
-# Something already armed will wake the session; ending the turn is correct.
-wake_count="$(printf '%s' "$input" | jq -r '((.background_tasks // []) | length) + ((.session_crons // []) | length)' 2>/dev/null)"
-case "$wake_count" in '' | *[!0-9]*) wake_count=0 ;; esac
+# Something already armed will wake the session; ending the turn is correct. A long-lived shell
+# (a dev server, a mock) is not counted: it never finishes, so it wakes nothing, and counting it
+# switched this guard off for as long as one ran. lib/wake-count.jq decides; a jq failure allows.
+wake_count="$(printf '%s' "$input" | jq -r --arg mode loose -f "$(dirname "$0")/lib/wake-count.jq" 2>/dev/null)" || exit 0
+case "$wake_count" in '' | *[!0-9]*) exit 0 ;; esac
 [ "$wake_count" -eq 0 ] || exit 0
 
 # An armed /ac:execute or /ac:auto marker owned by this session already has its own guard with
@@ -86,15 +88,21 @@ if ! command -v rg >/dev/null 2>&1; then
     exit 0
 fi
 
-# Last non-empty paragraph with fenced blocks dropped, inline code removed, the dotted capital I
-# folded (rg -i does not fold it), emphasis stripped; the last line is kept for the "?" test.
+# Last non-empty paragraph with fenced blocks dropped, inline code and double-quoted spans removed
+# (a quoted trigger word is a mention, not an offer), the dotted capital I folded (rg -i does not
+# fold it), emphasis stripped; the last line is kept for the "?" test. Single quotes stay: Turkish
+# uses them as the suffix apostrophe.
 fences="$(printf '%s\n' "$msg" | awk '/^[[:space:]]*(```|~~~)/{n++} END{print n+0}')"
 fence_filter='/^[[:space:]]*(```|~~~)/{f=!f; next} !f'
 [ $((fences % 2)) -eq 0 ] || fence_filter='{print}'
-tail_par="$(printf '%s\n' "$msg" \
-    | awk "$fence_filter" \
-    | awk 'BEGIN{RS=""} {p=$0} END{print p}' \
-    | sed -e 's/İ/i/g' -e 's/`[^`]*`//g' -e 's/[*_]//g' -e 's/[[:space:]]*$//' \
+para="$(printf '%s\n' "$msg" | awk "$fence_filter" | awk 'BEGIN{RS=""} {p=$0} END{print p}')"
+# An odd number of straight quotes (a 12" screen) would shift every pair after it and swallow real
+# text, so straight-quote spans are only stripped when the quotes balance.
+quotes="$(printf '%s' "$para" | tr -cd '"' | wc -c | tr -d ' ')"
+quote_filter='s/"[^"]*"//g'
+[ $((quotes % 2)) -eq 0 ] || quote_filter='s/^//'
+tail_par="$(printf '%s\n' "$para" \
+    | sed -e 's/İ/i/g' -e 's/`[^`]*`//g' -e "$quote_filter" -e 's/“[^”]*”//g' -e 's/[*_]//g' -e 's/[[:space:]]*$//' \
     | tail -c 600)"
 [ -n "$tail_par" ] || exit 0
 last_line="$(printf '%s\n' "$tail_par" | awk 'NF{l=$0} END{print l}')"
@@ -162,7 +170,7 @@ End the turn only in one of three ways:
 2. A decision only the user can make blocks the rest, including an outward action (push, merge, PR, deploy, publish) the request did not name: finish everything that does not depend on it, then call AskUserQuestion with your recommendation first.
 3. A blocker only the user can clear (a credential, a physical action, something deliberately protected from you): name it and say what you finished.
 
-Otherwise, if that step is part of what the user asked for, take it now with its tool call. If it is extra work beyond the request, drop the offer and end. If the request was to explain, investigate or review, the report is the finished work: end without starting the fix. If the user asked you to stop or pause, end now. To wait on CI, a deploy or a bot, arm Monitor or Bash run_in_background before ending the turn. Context or token pressure is not a reason to stop; compaction carries the work forward."
+Otherwise, if that step is part of what the user asked for, take it now with its tool call. If it is extra work beyond the request, drop the offer and end. If the request was to explain, investigate or review, the report is the finished work: end without starting the fix. If the user asked you to stop or pause, end now. Nothing that will notify you is running now; to wait on CI, a deploy or a bot, arm Monitor or Bash run_in_background, then end the turn and let its notification wake you. Do not hold the turn with a sleep or polling loop. Context or token pressure is not a reason to stop; compaction carries the work forward."
 
 jq -cn \
     --arg r "$reason" \

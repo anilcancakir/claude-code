@@ -20,16 +20,16 @@ are the bounds. They sit here because a re-attached skill keeps only its first 5
 (https://code.claude.com/docs/en/skills.md) and this body is larger, so a rule further down is gone from
 context on exactly the long runs that need it.
 
-**Turn termination.** Your turn ends on exactly one of: the Phase 5 closing report, or a terminal branch that
-deleted `.ac/state/active-auto.json` first. Nothing else ends it. While that marker exists and
-`.ac/auto/<slug>/verdict.md` does not, the plugin's auto `Stop` guard blocks the turn from ending
+**Turn termination.** Your turn ends on exactly one of: the Phase 5 closing report, a terminal branch that
+deleted `.ac/state/active-auto.json` first, or a one-line wait status while background workers you spawned still run (each task-notification starts your next turn; never wait with a `sleep` or polling loop). Nothing else ends it. While that marker exists,
+`.ac/auto/<slug>/verdict.md` does not, and no background worker is running, the plugin's auto `Stop` guard blocks the turn from ending
 (`${CLAUDE_PLUGIN_ROOT}/hooks/stop-guard-auto.sh`), and its block budget is 3 PER PHASE, so the gating
-handoff always starts with a fresh three however many were spent earlier. Writing the verdict at Phase 4 is the only action that releases it. Never end a turn by
+handoff always starts with a fresh three however many were spent earlier. Writing the verdict at Phase 4 is the only action that releases it for good. Never end a turn by
 describing what you would do next, and never propose that the user open a fresh session to continue.
 
 **Marker path.** `.ac/state/active-auto.json` is the single live-run record; the run directory is
 `.ac/auto/<slug>/`. Create the run directory before or with the marker: the guard exits 0 when the directory is
-missing (`stop-guard-auto.sh:116`), so a marker written first leaves the guard silently inert for the whole run.
+missing (`stop-guard-auto.sh:129`), so a marker written first leaves the guard silently inert for the whole run.
 
 **No BLOCKER is auto-answered.** Every interview gate in `ac:plan` Stage 3 and every BLOCKER in either chained
 skill (execute 2i dependency failed, 2j three failures spanning two waves, 3c plan-spec issue, a failed

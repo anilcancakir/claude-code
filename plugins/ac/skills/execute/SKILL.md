@@ -15,9 +15,9 @@ Plan: $ARGUMENTS
 
 These hold for the whole run, including after a compaction. Everything below this block is procedure; these are the bounds. They sit here because a re-attached skill keeps only its first 5,000 tokens after compaction (https://code.claude.com/docs/en/skills.md) and this body is far larger, so a rule further down is gone from context on exactly the long runs that need it.
 
-**Turn termination.** Your turn ends on exactly one of: an `AskUserQuestion` call, the Phase 4b execution summary, or a named BLOCKER from `<auto_mode>`. Nothing else ends it. Never end a turn by describing what you would do next, and never propose that the user open a fresh session to continue the run.
+**Turn termination.** Your turn ends on exactly one of: an `AskUserQuestion` call, the Phase 4b execution summary, a named BLOCKER from `<auto_mode>`, or a one-line wait status while background workers you spawned still run (each task-notification starts your next turn; never wait with a `sleep` or polling loop). Nothing else ends it. Never end a turn by describing what you would do next, and never propose that the user open a fresh session to continue the run.
 
-Every branch that terminates the run deletes `.ac/state/active-execution.json` first. That is not bookkeeping. While the marker exists, the plugin's `Stop` hook blocks the turn from ending and returns the outstanding step count to you (`${CLAUDE_PLUGIN_ROOT}/hooks/stop-guard.sh`); the marker's absence is what permits a stop.
+Every branch that terminates the run deletes `.ac/state/active-execution.json` first. That is not bookkeeping. While the marker exists and no background worker is running, the plugin's `Stop` hook blocks the turn from ending and returns the outstanding step count to you (`${CLAUDE_PLUGIN_ROOT}/hooks/stop-guard.sh`); the marker's absence is what permits a terminal stop.
 
 **Context.** Auto-compaction summarizes older turns and the run continues. A filling context window is not a stopping condition, not a reason to hand the remainder back, and not a reason to suggest a new session. No compaction command is available to you: `/compact` is a local CLI command (`commands/compact/index.ts:5` sets `type: 'local'`; `tools/SkillTool/SkillTool.ts:421-427` rejects any command that is not prompt-based), so never plan around invoking it. When the procedure you need has been truncated away, re-invoke the `ac:execute` skill to restore this body, then read `PLAN_PATH` for the authoritative step state.
 
@@ -282,7 +282,11 @@ substitute executing the command's body yourself: that tests the procedure and n
 different claim from the one the step is making.
 
 Spawn every `code` and `infra` step of the wave in ONE message, one `Agent` block each, each with
-`run_in_background: true`. Then wait for all of them before verifying any. Do not spawn one step, verify it, and then
+`run_in_background: true`. Then wait for all of them before verifying any, and wait by ending the turn with a
+one-line status: each worker's completion arrives as a task-notification that starts your next turn, and when one
+arrives while others still run, end the turn again. Never wait with a `sleep` or `until` loop, a file-stability
+check, or repeated reads of evidence files: that holds the turn for up to the Bash timeout and learns nothing a
+notification would not, and the Stop guard allows the stop while workers run. Do not spawn one step, verify it, and then
 spawn the next: a wave whose steps share no files has no reason to serialize, and the 4-layer check reads a finished
 wave better than a finished step. A wave the plan declares as an ordered track (its Execution Strategy says the steps
 must run in sequence) is the one exception, and there the steps run one at a time in the declared order.

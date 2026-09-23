@@ -15,7 +15,7 @@ Request: $ARGUMENTS
 
 These hold for the whole run, including after a compaction. Everything below this block is procedure; these are the bounds. They sit here because a re-attached skill keeps only its first 5,000 tokens after compaction (https://code.claude.com/docs/en/skills.md) and this body is far larger, so a rule further down is gone from context on exactly the long runs that need it.
 
-**Turn termination.** Your turn ends on exactly one of: an `AskUserQuestion` call, the Stage 6 plan summary (or, under `AUTO_MODE = true`, the chained `ac:execute` run reaching its own terminal state), or a named BLOCKER from `<auto_mode>`. Nothing else ends it. Never end a turn by describing what you would do next, and never on the Stage 3a or Stage 4
+**Turn termination.** Your turn ends on exactly one of: an `AskUserQuestion` call, the Stage 6 plan summary (or, under `AUTO_MODE = true`, the chained `ac:execute` run reaching its own terminal state), a named BLOCKER from `<auto_mode>`, or a one-line wait status while background workers you spawned still run (each task-notification starts your next turn; never wait with a `sleep` or polling loop). Nothing else ends it. Never end a turn by describing what you would do next, and never on the Stage 3a or Stage 4
 render: both are followed by an `AskUserQuestion` in the same turn, so stopping after one skips the question. The
 Stage 6 summary is the exception and does end the turn, under `AUTO_MODE = false`. When a turn does end on a
 render and the user says "continue", resume at the question that render was leading to rather than at the stage
@@ -200,7 +200,7 @@ A subagent returning empty or malformed output gets one re-spawn with a format r
 BLOCKER, `AskUserQuestion` (header `Agent fail?`, options `Retry (Recommended)` / `Skip this angle` / `Abandon`),
 surfaced even under auto mode, because dropping a research angle silently leaves the plan thinner than it claims.
 
-Wait for all spawned agents (collect BackgroundTask outputs or wait for foreground returns). Write each agent's output to `RESEARCH_DIR/<agent-type>-<short-slug>.md`. The directory survey at `RESEARCH_DIR/00-directory-survey.md` is already on disk from 1a. Write a checkpoint with `last_stage: "1"` and the gathered research summary.
+Wait for all spawned agents by ending the turn with a one-line status; each completion arrives as a task-notification that starts your next turn. Never poll one with a `sleep` loop or by re-reading its output file. Write each agent's output to `RESEARCH_DIR/<agent-type>-<short-slug>.md`. The directory survey at `RESEARCH_DIR/00-directory-survey.md` is already on disk from 1a. Write a checkpoint with `last_stage: "1"` and the gathered research summary.
 
 Stage 1 complete.
 
@@ -356,7 +356,7 @@ bullets for the triggers that actually fired.
 
 ### 3.5c. Wait, classify, route
 
-Wait for the oracle, then sort findings by severity. A PLAUSIBLE finding names the check that would confirm it; run that check yourself before routing it. Confirmed, route it by its severity; refuted, drop it and log why; still open, list it in the Stage 4 preview as IMPORTANT instead of raising the CRITICAL BLOCKER.
+Wait for the oracle the way 1e waits, by ending the turn until its notification arrives, then sort findings by severity. A PLAUSIBLE finding names the check that would confirm it; run that check yourself before routing it. Confirmed, route it by its severity; refuted, drop it and log why; still open, list it in the Stage 4 preview as IMPORTANT instead of raising the CRITICAL BLOCKER.
 
 Any CRITICAL finding is a BLOCKER: surface it before Stage 4 even under auto mode, via `AskUserQuestion` (header
 `Oracle CRIT?`, options `Revise plan (Recommended)` back to Stage 3 at the affected decision / `Accept as Risk`,

@@ -4,8 +4,8 @@
 # Blocks a turn-ending attempt only while an /ac:execute run this session owns is
 # demonstrably still in flight, and tells the orchestrator what remains. Every other
 # condition fails OPEN (exit 0, no output): no marker, a marker owned by another session,
-# a marker past its age bound, an unreadable plan, a latched or unwritable counter, and any
-# parse uncertainty.
+# a marker past its age bound, background work in flight that will wake the session, an
+# unreadable plan, a latched or unwritable counter, and any parse uncertainty.
 #
 # Why a hook and not a skill rule: after compaction Claude Code re-attaches the most recent
 # invocation of each skill and keeps only the first 5,000 tokens of each, so the execute
@@ -99,6 +99,16 @@ age=$((now_epoch - started_epoch))
 # A model-written local time with a trailing Z reads as up to 14h in the future (UTC+14 is the
 # widest offset); accept that skew rather than going inert for the run.
 { [ "$age" -ge -50400 ] && [ "$age" -le 86400 ]; } || exit 0
+
+# 3b. Work in flight that will wake the session. A wave's workers run with run_in_background, and
+#     each completion arrives as a task-notification that starts the next turn, so ending the turn
+#     is how the orchestrator waits for them. Blocking that stop is what made runs poll evidence
+#     files with foreground sleep loops until the 900s Bash timeout: measured 2026-09-23 over a week
+#     of transcripts, every execute-run block landed on a "waiting for workers" message. Nothing is
+#     counted against the budget here; the guard re-arms once the work has landed.
+wake_count="$(printf '%s' "$input" | jq -r --arg mode strict -f "$(dirname "$0")/lib/wake-count.jq" 2>/dev/null)" || exit 0
+case "$wake_count" in '' | *[!0-9]*) exit 0 ;; esac
+[ "$wake_count" -eq 0 ] || exit 0
 
 # 4. Resolve the plan the marker names. Without a readable plan we cannot say what remains,
 #    and a block with no concrete next action is worse than no block, so allow.
@@ -235,6 +245,8 @@ State from disk: wave $wave, $checked of $total steps checked, $unchecked unchec
 Next unchecked step: $next_step
 Authoritative step state: .ac/plans/$slug/plan.md, in its \`- [ ]\` checkboxes.
 $progress_note
+No background worker of this session is running, so do not wait with a sleep, until or file-stability loop in the foreground. If you were waiting on a worker, it has finished: its task-notification may still be queued behind your next tool call, so read the plan file and the worker's evidence first, and spawn a step again only when its output shows it ended without a result. While workers do run, ending the turn is the right way to wait and this guard allows it.
+
 Context pressure is not a stopping condition. Auto-compaction summarizes older turns and the run continues; do not announce a context or token-budget concern in place of finishing, and do not hand the remainder back as a next step for a new session. If a compaction just happened, only the first 5,000 tokens of the ac:execute body survived it: re-invoke the ac:execute skill to restore the full body, then continue from the plan file.
 
 If the user asked you to stop, pause, or hand off, that is a legitimate halt and outranks this guard: delete .ac/state/active-execution.json and stop. Do not argue with the user or keep working through their request to stop.
