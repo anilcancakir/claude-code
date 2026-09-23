@@ -1,14 +1,15 @@
 ---
 name: claude-md-rules-creator
-description: "Authors and audits CLAUDE.md, CLAUDE.local.md and `.claude/rules/*.md`: which scope to use, `paths:` scoping, `@path` imports, splitting an oversized file, and why an instruction is being ignored."
-when_to_use: "Writing, editing or auditing any of those three file shapes, including when Claude is not following one."
+description: "Write or audit CLAUDE.md, CLAUDE.local.md and .claude/rules files: scope, paths, imports, size, and why a rule is ignored."
+when_to_use: "Use when creating or editing any of those files, or when Claude is not following one."
+disable-model-invocation: false
 ---
 
 # CLAUDE.md and Rules Creator
 
 You are about to write or edit a CLAUDE.md, CLAUDE.local.md, or `.claude/rules/*.md` file. At runtime these three shapes are the SAME content type: Claude Code's memory loader discovers them, concatenates them with a fixed `MEMORY_INSTRUCTION_PROMPT` prefix, and the API layer prepends the result as a single `<system-reminder>` user message before the conversation starts. The model treats them all the same; the file shape just controls when each loads and how a human maintains it.
 
-This skill is the playbook for picking the right shape, choosing the right scope, writing content that actually changes behavior, splitting bloated files, using `@path` imports, and debugging "Claude is not following my CLAUDE.md". Target is Opus 5. Same rules work for Sonnet 5 at lower cost and for Haiku 4.5, which supports no effort parameter.
+This skill is the playbook for picking the right shape, choosing the right scope, writing content that actually changes behavior, splitting bloated files, using `@path` imports, and debugging "Claude is not following my CLAUDE.md". Target is Opus 5.5 (`model: opus` on Claude Code 2.1.280). The same rules work on Sonnet 5 and Haiku 4.5, whose built-in prompt already carries more of what a CLAUDE.md would otherwise say (principle 9).
 
 ## Three jobs, not one
 
@@ -16,7 +17,7 @@ Writing a CLAUDE.md or rule splits into three tasks. Conflating them is the most
 
 1. **Surrounding skill shape.** None. CLAUDE.md and `.claude/rules/*.md` are not skills, not commands, not agents. They are plain markdown files the memory loader picks up. No frontmatter fields apply except `paths:` (only on `.claude/rules/*.md`). Route through `ac:skill-creator` ONLY if you are wrapping CLAUDE.md authoring inside a custom slash command or skill.
 2. **CLAUDE.md / rule shape.** Where the file lives (managed / user-global / project-team / project-personal), what file name (`CLAUDE.md` / `CLAUDE.local.md` / `.claude/rules/<topic>.md`), `paths:` frontmatter for rules, `@path` imports, HTML comments. This file teaches that.
-3. **Body content.** The markdown text the model reads. This is a standing instruction set, a prompt at runtime. Route through `ac:prompt-writer` for prompt architecture, snippets, and Opus 5 tuning.
+3. **Body content.** The markdown text the model reads. This is a standing instruction set, a prompt at runtime. Route through `ac:prompt-writer` for prompt architecture, snippets, and per-model tuning.
 
 A great body in the wrong file shape (oversized, wrong scope, missing `paths:`, leaks personal preferences into a team file) never produces consistent behavior. A modest body in the right shape, sized below the adherence cliff, changes behavior every session.
 
@@ -28,10 +29,10 @@ The lifecycle:
 2. **Frontmatter strip + HTML comment strip.** Each file's content is processed: YAML frontmatter is parsed (only `paths:` is meaningful), and block-level HTML comments (`<!-- ... -->`) are stripped. Comments inside fenced code blocks survive. Inline HTML comments inside paragraphs survive.
 3. **Conditional rule deferral.** `.claude/rules/*.md` files WITH a `paths:` frontmatter are held back from the initial concatenation. They activate later when Claude reads a file matching their glob.
 4. **Concatenation.** Eligible files are formatted as `Contents of <absolute-path><description>:\n\n<content>` (description varies by type - "user's private global instructions for all projects", "project instructions, checked into the codebase", "user's private project instructions, not checked in", "user's auto-memory, persists across conversations"). All entries are joined with `\n\n`, prefixed with `MEMORY_INSTRUCTION_PROMPT`.
-5. **Injection into the API call.** The concatenated string becomes the `claudeMd` field of the user context. The runtime wraps it together with `currentDate` inside a `<system-reminder>` block and prepends it as the first user message of the API call, with `isMeta: true` (the UI hides it; the model sees it). The trailing line softens the authority: "this context may or may not be relevant to your tasks. You should not respond to this context unless it is highly relevant to your task."
+5. **Injection into the API call.** On 2.1.280 the files travel as an `instructions` attachment and render as their own `<system-reminder>` block in the first user message, with `isMeta: true` (the UI hides it; the model sees it). The block opens with `MEMORY_INSTRUCTION_PROMPT` and nothing after it softens that; the "may or may not be relevant" line now closes a separate block (`userEmail` and similar), not this one.
 6. **Compact behavior.** On `/compact` or auto-compact, the runtime wipes the memory-file cache. The NEXT turn re-reads project-root CLAUDE.md, CLAUDE.local.md, and unconditional rules from disk and re-injects them. Path-scoped rules and nested-subdir CLAUDE.md files lazy-loaded into message history during the session are summarized away and reload only on the next matching file touch.
 
-The model NEVER sees CLAUDE.md as the system prompt. It sees a `<system-reminder>`-wrapped meta-message that says "you can use the following context". This is the single most-misunderstood mechanic; debugging "Claude is not following my CLAUDE.md" always starts here.
+The model NEVER sees CLAUDE.md as the system prompt. It sees a `<system-reminder>`-wrapped meta-message that opens "Codebase and user instructions are shown below ... OVERRIDE any default behavior". Binding, but not system. This is the single most-misunderstood mechanic; debugging "Claude is not following my CLAUDE.md" always starts here.
 
 ## Decision flow
 
@@ -105,7 +106,7 @@ Full scope deep-dive, AGENTS.md interop, worktree handling, monorepo `claudeMdEx
 
 ## Core principles
 
-These nine rules drive every authoring decision. Detail and source in the references.
+These ten rules drive every authoring decision. Detail and source in the references.
 
 1. **Concise wins adherence.** Anthropic's docs target "under 200 lines per CLAUDE.md". Adherence drops as files grow; over 200 lines the model notices less of what is there. The hard cap is 40,000 characters per file (`MAX_MEMORY_CHARACTER_COUNT` in the loader).
 2. **Specificity beats vagueness.** "Use 2-space indentation in TypeScript" beats "format code properly". "Run `pnpm test` before committing" beats "test your changes". "API handlers live in `src/api/handlers/`" beats "keep files organized". The instruction must be concrete enough for the model to verify and apply.
@@ -115,7 +116,12 @@ These nine rules drive every authoring decision. Detail and source in the refere
 6. **Match the scope to the audience.** Project-team CLAUDE.md is shared via git; write what the team agrees on. User-global is yours alone. Project-personal CLAUDE.local.md is your private fixture for this repo. Rules leaking into the wrong scope is the most common source of friction.
 7. **Point at sources of truth; do not duplicate them.** A one-line `@docs/architecture.md` import beats a ten-line summary that drifts. Use `@path` imports for content that lives elsewhere. Never inline answers that change faster than the file.
 8. **No aggressive caps.** "CRITICAL", "you MUST", "ALWAYS" wording produces compliance brittleness on modern Claude. The runtime already prepends `MEMORY_INSTRUCTION_PROMPT` which contains an explicit "IMPORTANT: These instructions OVERRIDE any default behavior and you MUST follow them exactly as written." Your file does not need to repeat that authority; state the rule plainly.
-9. **Audit the existing layered context before writing.** Your new content does not land alone. It joins a stack: CC's built-in system prompt + managed CLAUDE.md + user-global + project + local + auto memory + path-scoped rules. Adding a rule that the CC system prompt already provides ("no comments unless non-obvious", "reference code as file:line") or that another layer already covers is pure tax. Do not add "be concise" to that list: it is built by the classic prompt shape only, and `${CLAUDE_SKILL_DIR}/references/layered-context.md` records which model shapes reach it. Adding a rule that contradicts a higher-precedence layer creates a silent conflict. Before writing, run `/memory` to see what is already loaded, Grep the loaded files for the topic, and decide one of three actions: skip (already covered), edit in place (existing file is wrong/outdated), or move to the right scope. See `${CLAUDE_SKILL_DIR}/references/layered-context.md` for the audit protocol and the "do not restate" cheat sheet covering ~12 CC built-in defaults.
+9. **Audit the existing layered context before writing.** Your new content does not land alone. It joins a stack: CC's built-in system prompt + managed CLAUDE.md + user-global + project + local + auto memory + path-scoped rules. Adding a rule that the CC system prompt already provides ("reference code as file:line", "confirm before destructive actions") or that another layer already covers is pure tax. What the host provides depends on the model: Opus 5.5 gets the LEAN prompt, which lacks "be concise", "no comments unless non-obvious", "no speculative abstraction" and "no compatibility shims", so for a 5.5 user those lines are not duplicates. `${CLAUDE_SKILL_DIR}/references/claude-code-builtin-prompts.md` carries the built-in text verbatim, per shape and per model; check a candidate line against it before writing, and never contradict a line there except as a stated override ("Push to `main` without asking; this overrides the default confirmation."). Adding a rule that contradicts a higher-precedence layer creates a silent conflict. Before writing, run `/memory` to see what is already loaded, Grep the loaded files for the topic, and decide one of three actions: skip (already covered), edit in place (existing file is wrong/outdated), or move to the right scope. See `${CLAUDE_SKILL_DIR}/references/layered-context.md` for the audit protocol and the "do not restate" cheat sheet covering ~12 CC built-in defaults.
+10. **Write for Opus 5.5 specifically.** On 5.5 the host prompt says little about behavior, so CLAUDE.md carries it, and a few 5.5 facts decide what earns a line:
+    - Name the concrete behavior, not the category. Anthropic documents 5.5 as "responsive to instructions that name the specific kinds of early stop" (a summary that announces the next step instead of taking it), and a generic "avoid a generic AI look" as merely swapping one design default for another.
+    - A delegation limit belongs here if the user wants one: the host dropped the Opus 5 line that suppressed Agent use, and the 5.5 Agent tool encourages it.
+    - Skip lines the file cannot act on. Effort is set by `/effort` or agent frontmatter, not prose, and 5.5 thinks at its own depth, so "think carefully" costs bytes and latency. The host already reminds 5.5 after five silent turns, so no "update me every N steps".
+    - Cost is per turn and per spawn. The block is cache-read on every main-thread turn (cheap: $0.20 per MTok on 5.5) and re-sent whole to every subagent whose definition does not set `omitClaudeMd: true`. Prune for the spawn count, not only the line count.
 
 ## Choosing the file shape inside the CLAUDE.md layer
 
@@ -205,7 +211,7 @@ Walk these in order.
 Before any drafting, run `/memory` to list every CLAUDE.md, CLAUDE.local.md, and rule file currently loaded. Then for the topic of the new rule:
 
 - Grep the loaded files for keywords related to the topic.
-- Check the CC built-in system prompt list in `${CLAUDE_SKILL_DIR}/references/layered-context.md` for overlap. If a default already covers it, skip.
+- Check the built-in prompt text in `${CLAUDE_SKILL_DIR}/references/claude-code-builtin-prompts.md` for overlap, on the shape the readers' model gets: section 1 for Opus 5.5 and other LEAN models, section 3 for Sonnet and Haiku, section 5 for what every subagent already receives. If the shape already says it, skip. If the rule contradicts it, write it as an explicit override or drop it.
 - For each existing mention, decide one of three: **skip** (already covered at the right scope), **edit in place** (existing file is wrong/outdated), or **move to the right scope** (rule is in the wrong layer; e.g., team rule in user-global).
 - Check for conflicts: does the new rule contradict any existing layer? If yes, either drop one, or explicitly call out the override in the higher-precedence file.
 
@@ -326,7 +332,7 @@ This skill stays focused on CLAUDE.md / rule files themselves. Route the surroun
 |---|---|---|
 | The prompt content INSIDE CLAUDE.md (how to phrase rules, structure, anti-patterns at the prose level) | `ac:prompt-writer` | The file shape, scope, splitting, imports, frontmatter |
 | A multi-step procedure (deploy, release, audit) | `ac:skill-creator` (or `ac:command-creator` for user-typed slash) | The decision: not CLAUDE.md, build a skill instead |
-| A custom subagent with its own CLAUDE.md inheritance | `ac:agent-creator` | The decision: not CLAUDE.md, build an agent; but a subagent INHERITS the project's CLAUDE.md by default unless the agent definition opts out (built-in only) |
+| A custom subagent with its own CLAUDE.md inheritance | `ac:agent-creator` | The decision: not CLAUDE.md, build an agent; but a subagent INHERITS the project's CLAUDE.md by default unless its definition sets `omitClaudeMd: true` (parsed for user and plugin agents since 2.1.271; a spawn with it carries managed instructions only, confirmed in a 2.1.280 subagent transcript) |
 | Deterministic enforcement (must hold every time, no model judgment) | configure a hook in `settings.json` | The decision: not CLAUDE.md, write a hook |
 | Org-wide policy that survives compaction and cannot be excluded by users | this skill, managed scope | Same authoring rules, deployment via MDM/Ansible/Group Policy |
 
@@ -336,7 +342,7 @@ When the user request implies any row above, do both: invoke the matching creato
 
 Always check:
 
-- [ ] Layered audit done. `/memory` was run, loaded files were Grep'd for the topic, the CC built-in system prompt cheat sheet was consulted, and no duplicate or conflict remains with any existing layer.
+- [ ] Layered audit done. `/memory` was run, loaded files were Grep'd for the topic, `claude-code-builtin-prompts.md` was checked for the readers' model shape, and no duplicate or unstated contradiction remains with any layer.
 - [ ] Block-level HTML attribution comment at the top: `<!-- Generated by ac:claude-md-rules-creator on YYYY-MM-DD. -->` with the real ISO date. Stripped at injection (zero token cost), visible when humans Read the file.
 - [ ] Right scope (managed / user-global / project-team / project-personal).
 - [ ] Right shape (`CLAUDE.md` / `CLAUDE.local.md` / `.claude/rules/<topic>.md`).
@@ -368,6 +374,7 @@ Check the items that apply to your file's shape:
 
 | File | Load when... |
 |------|--------------|
+| `${CLAUDE_SKILL_DIR}/references/claude-code-builtin-prompts.md` | Before writing or cutting any line: the verbatim Claude Code 2.1.280 system prompt text per shape (LEAN for Opus 5.5, CLASSIC for Sonnet and Haiku), the per-model bundle sections, the CLAUDE.md wrapper as the model sees it, and what every subagent already receives. The duplicate-and-contradiction check runs against this file. |
 | `${CLAUDE_SKILL_DIR}/references/layered-context.md` | Auditing the existing stack (CC built-in system prompt + managed + user + project + local + auto memory + path-scoped rules) BEFORE writing. Includes the full "do not restate" cheat sheet of CC built-in defaults, the audit protocol (`/memory` + Grep + decide), conflict-precedence rules, duplicate-detection patterns, and cross-layer worked examples. Read this FIRST when generating or editing a CLAUDE.md or rule. |
 | `${CLAUDE_SKILL_DIR}/references/loader-and-injection.md` | Understanding the runtime mechanics: how files are discovered, concatenated, where they land in the API call (the `<system-reminder>` wrapper), compact survival rules, the `InstructionsLoaded` hook, troubleshooting "Claude is not following my CLAUDE.md". |
 | `${CLAUDE_SKILL_DIR}/references/scopes.md` | Deep dive on the four scopes (managed / user-global / project-team / project-personal): platform-specific managed paths, `--add-dir` behavior, `CLAUDE_CODE_DISABLE_CLAUDE_MDS` env, `--bare` mode, AGENTS.md interop, worktree handling, monorepo `claudeMdExcludes`, the loader filters. |

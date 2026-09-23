@@ -33,11 +33,13 @@ When you write new content, you are adding to a stack the model already sees. Th
 
 ## What is already in Claude Code's built-in system prompt
 
-These instructions are baked into the harness. The model receives them in every session, regardless of any CLAUDE.md or rule file. Restating them in your CLAUDE.md is pure tax: more bytes, more attention dilution, no behavioral change.
+These instructions are baked into the harness, but not every model receives all of them: the list below is the CLASSIC shape (Sonnet, Haiku), and only the subset named in the next paragraph reaches LEAN models such as Opus 5.5. Restating a line the reader's model already receives is pure tax: more bytes, more attention dilution, no behavioral change.
 
-The list below is condensed from the canonical Claude Code system prompt (extracted via tooling like Piebald's `claude-code-system-prompts` repo). Cross-check against your installed CC version with `/doctor` if behavior contradicts what you expect.
+The list below is condensed from the Claude Code system prompt; the verbatim text per shape is in `claude-code-builtin-prompts.md` next to this file. `/doctor` does not show the system prompt; the `prompt_snapshot` attachment in a session's transcript jsonl does.
 
-**Read the first group with the model in mind.** Claude Code builds the main-thread system prompt in two shapes and chooses per model. The **Communication and output** group below describes the CLASSIC shape. On a model that gets the LEAN shape, which on 2.1.260 includes Opus 5, the `# Tone and style` block is never built at all, and the communication section collapses to one sentence about matching the surrounding code's style. Measured 2026-09-04 against the shipped binary: a lean session with no output style selected receives no response-length guidance from any built-in block. A brevity or response-shape rule in CLAUDE.md is therefore NOT automatically a duplicate, and cutting one on the assumption that it is has already been the wrong call once. Verify against the binary before you cut. The other groups carry their own conditionals that this note does not map, so treat the whole list as a starting hypothesis rather than a settled inventory.
+**Read the whole list with the model in mind.** On 2.1.280 the LEAN shape goes to Opus 5.5, Opus 5, Opus 4.8, Fable and Mythos; CLASSIC to every Sonnet and Haiku. LEAN carries only: `file_path:line_number`, parallel independent calls, dedicated tools over shell, hook output as feedback, "match the surrounding code's comment density, naming, and idiom", confirm hard-to-reverse or outward-facing actions, report outcomes faithfully, and "act without re-deriving settled facts". Everything else below is CLASSIC-only, so for an Opus 5.5 user a CLAUDE.md line carrying it is NOT a duplicate. Opus 5 additionally receives `# Delivering work`, `# Corrections` and a line suppressing Agent use; Opus 5.5 receives none of the three, so on 5.5 a delegation limit in CLAUDE.md is the only one there is. Read the `prompt_snapshot` attachment in a real session jsonl before cutting anything as a duplicate.
+
+The historical note follows. Claude Code builds the main-thread system prompt in two shapes and chooses per model. The **Communication and output** group below describes the CLASSIC shape. On a model that gets the LEAN shape, which on 2.1.260 includes Opus 5, the `# Tone and style` block is never built at all, and the communication section collapses to one sentence about matching the surrounding code's style. Measured 2026-09-04 against the shipped binary: a lean session with no output style selected receives no response-length guidance from any built-in block. A brevity or response-shape rule in CLAUDE.md is therefore NOT automatically a duplicate, and cutting one on the assumption that it is has already been the wrong call once. Verify against the binary before you cut. The other groups carry their own conditionals that this note does not map, so treat the whole list as a starting hypothesis rather than a settled inventory.
 
 **Communication and output (classic shape only, see the note above):**
 - Brief user-facing updates at key moments; one sentence at a time.
@@ -78,11 +80,11 @@ The list below is condensed from the canonical Claude Code system prompt (extrac
 
 **The implication for CLAUDE.md authoring:**
 
-If a rule you are about to write matches anything in the list above, it is already in effect. Skip it. Adding "always confirm before pushing" or "never use SQL injection" or "include file:line references" to CLAUDE.md is pure noise: the model already follows those rules.
+If a rule you are about to write matches a line the reader's model receives, it is already in effect. Skip it. On every shape that covers "always confirm before pushing" and "include file:line references"; adding either is pure noise. A CLASSIC-only line such as "never write SQL injection" is noise for a Sonnet team and the only statement of the rule for an Opus 5.5 user, so decide by the model the file's readers run.
 
 "Be concise" is the exception the note above names, and it is worth stating twice because it is the line an author is most likely to cut for the wrong reason. On a lean model nothing in the harness delivers it, so a short answer-shape line earns its place instead of duplicating anything.
 
-Reserve CLAUDE.md for what CC's defaults do NOT cover: your project's stack, build commands, conventions that differ from language defaults, off-limits paths, project-specific gotchas, communication preferences that DIFFER from CC defaults (e.g., your preference for an end-of-turn diff summary even though CC defaults to one or two sentences).
+Reserve CLAUDE.md for what CC's defaults do NOT cover: your project's stack, build commands, conventions that differ from language defaults, off-limits paths, project-specific gotchas, communication preferences that DIFFER from CC defaults (e.g., your preference for an end-of-turn diff summary even though the CLASSIC shape defaults to one or two sentences and the LEAN shape says nothing).
 
 ## Conflict precedence between layers
 
@@ -186,14 +188,14 @@ Adjacent, not duplicate. CC's rule is generic confirmation; the project rule is 
 - CC built-in says: "Default to writing no comments. Only add one when the WHY is non-obvious."
 - Project `./CLAUDE.md` says: "Do not write unnecessary comments. No multi-paragraph docstrings."
 
-Duplicate. The CC default already enforces this. The project line is pure tax. Cut.
+A duplicate only on the classic shape. For a team on Sonnet it is pure tax; cut it. For anyone on Opus 5 or 5.5 the lean prompt never says it, so the project line is the only place the rule lives; keep it.
 
 ## Quick "do not restate" cheat sheet
 
-CC's built-in system prompt covers the following **on the classic shape**. Check the shape before you cut: four of these are built by the classic branch only and reach an Opus 5 user through nothing at all. The four are marked `[classic only]`.
+CC's built-in system prompt covers the following **on the classic shape**. Check the shape before you cut: the items marked `[classic only]` reach an Opus 5 or Opus 5.5 user through nothing at all (re-checked against 2.1.280).
 
 - "Be concise / brief / short" `[classic only]`
-- "No comments unless WHY is non-obvious"
+- "No comments unless WHY is non-obvious" `[classic only]` (lean says only "match the surrounding code's comment density")
 - "Reference code as file:line"
 - "Maximize parallel tool calls"
 - "Validate at system boundaries" `[classic only]`
@@ -203,6 +205,7 @@ CC's built-in system prompt covers the following **on the classic shape**. Check
 - "Solve bugs, refactor, explain code" (the software-engineering frame is the default)
 - "Truthful reporting of test outcomes"
 - "No backwards-compatibility shims" `[classic only]`
+- "No speculative abstraction", "no unasked planning files" `[classic only]`
 - "Use the right tool for the job" (CC's tool-usage policy already guides this)
 
 When you find yourself writing a rule that pattern-matches any of these, ask: is the new rule MORE SPECIFIC than the CC default, or just restating it? If more specific (Zod for input validation, specific branch protection, specific test command), keep it. If just restating, cut.
