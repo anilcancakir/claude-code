@@ -72,7 +72,7 @@ with an hour left to run, and a poll loop without it dies on the first rate limi
 ## Two gates that change what any of this means
 
 `Monitor` sits behind a feature flag that defaults to false, so an operator can receive the
-CLAUDE.md section and have no such tool. That degrades correctly on its own: `Staying on the task`
+CLAUDE.md section and have no such tool. That degrades correctly on its own: `Run to completion`
 already says to substitute the nearest working mechanism and say so. Do not add a hedge to the
 section for it.
 
