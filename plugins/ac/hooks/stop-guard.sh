@@ -96,7 +96,9 @@ started_epoch="$(date -u -d "$started_at" +%s 2>/dev/null)" \
 [ -n "$started_epoch" ] || exit 0
 
 age=$((now_epoch - started_epoch))
-{ [ "$age" -ge 0 ] && [ "$age" -le 86400 ]; } || exit 0
+# A model-written local time with a trailing Z reads as up to 14h in the future (UTC+14 is the
+# widest offset); accept that skew rather than going inert for the run.
+{ [ "$age" -ge -50400 ] && [ "$age" -le 86400 ]; } || exit 0
 
 # 4. Resolve the plan the marker names. Without a readable plan we cannot say what remains,
 #    and a block with no concrete next action is worse than no block, so allow.

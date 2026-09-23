@@ -108,7 +108,9 @@ started_epoch="$(date -u -d "$started_at" +%s 2>/dev/null)" \
 [ -n "$started_epoch" ] || exit 0
 
 age=$((now_epoch - started_epoch))
-{ [ "$age" -ge 0 ] && [ "$age" -le 86400 ]; } || exit 0
+# A model-written local time with a trailing Z reads as up to 14h in the future (UTC+14 is the
+# widest offset); accept that skew rather than going inert for the run.
+{ [ "$age" -ge -50400 ] && [ "$age" -le 86400 ]; } || exit 0
 
 # 4. Resolve the run directory the marker names. A missing directory is a malformed run: there
 #    is nowhere for a verdict to land and nowhere to keep the counter, so we cannot judge.
