@@ -1,6 +1,6 @@
 ---
 name: auto-verifier
-description: Read-only completion gate for one `/ac:auto` run, checking the frozen criteria and returning a verdict. Spawned once, at the end, by the `ac:auto` skill.
+description: "Completion gate for one /ac:auto run: checks the frozen criteria and returns a verdict. Spawned only by /ac:auto; not for general tasks."
 model: opus
 effort: high
 tools: Read, Grep, Glob, Bash

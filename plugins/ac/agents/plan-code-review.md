@@ -1,8 +1,8 @@
 ---
 name: plan-code-review
-description: Post-implementation code review against the plan, returning findings without a verdict. Spawned once by `/ac:execute` Phase 3.
+description: "Post-implementation review of an executed ac plan's diff; returns findings, no verdict. Spawned only by /ac:execute; not for general tasks."
 model: opus
-effort: xhigh
+effort: high
 skills: my-coding
 disallowedTools: Edit, Write, NotebookEdit, Agent
 color: red

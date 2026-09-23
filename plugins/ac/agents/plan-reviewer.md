@@ -1,8 +1,8 @@
 ---
 name: plan-reviewer
-description: Advisory second-eye pass over one plan file, returning findings without a verdict. Spawned once by `/ac:plan` Stage 5.5.
+description: "Advisory review of one ac plan file before execution; returns findings, no verdict. Spawned only by /ac:plan; not for general tasks."
 model: opus
-effort: high
+effort: medium
 disallowedTools: Edit, Write, NotebookEdit, Agent
 color: yellow
 ---
