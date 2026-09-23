@@ -21,8 +21,10 @@
 # Loop bound: `stop_hook_active` stays true across tool turns within one prompt, so it cannot
 # count "blocks since real work" on its own. The counter therefore stores the transcript size at
 # its last block and resets when tool activity appeared after it, the same progress signal
-# stop-guard.sh uses. So at most AC_ANNOUNCE_GUARD_MAX_BLOCKS (default 2) blocks per stall, and
-# Claude Code itself ends the turn after 8 consecutive blocks. The counter lives under TMPDIR,
+# stop-guard.sh uses. So at most AC_ANNOUNCE_GUARD_MAX_BLOCKS (default 2) blocks per stall and
+# AC_ANNOUNCE_GUARD_MAX_TOTAL (default 4) per prompt; the total resets only when a stop arrives
+# with `stop_hook_active` false. Claude Code's own 8-block cap resets on every tool round, so it
+# is no backstop here. Headless and SDK runs are skipped. The counter lives under TMPDIR,
 # keyed by session id, so the guard writes nothing into projects that do not use ac.
 
 set -u
@@ -32,6 +34,14 @@ case "$max_blocks" in
     '' | *[!0-9]*) max_blocks=2 ;;
 esac
 [ "$max_blocks" -gt 0 ] || exit 0
+max_total="${AC_ANNOUNCE_GUARD_MAX_TOTAL:-4}"
+case "$max_total" in
+    '' | *[!0-9]*) max_total=4 ;;
+esac
+
+# Headless and SDK runs (claude -p) have a caller reading the printed result; a forced
+# continuation there changes the output rather than finishing a task someone walked away from.
+case "${CLAUDE_CODE_ENTRYPOINT:-}" in sdk-*) exit 0 ;; esac
 
 input="$(cat 2>/dev/null)" || exit 0
 [ -n "$input" ] || exit 0
@@ -92,18 +102,19 @@ last_line="$(printf '%s\n' "$tail_par" | awk 'NF{l=$0} END{print l}')"
 match() { printf '%s' "$1" | rg --no-config -q -i "$2"; }
 
 # A named blocker the user must clear is a legitimate end, even when phrased like a wait.
-if match "$tail_par" '(s[ıi]ra(da|daki)\b.{0,40}\b(yok|kalmad[ıi])|\b(token|anahtar|parola|[şs]ifre|credential|password|sudo|login|giri[şs] yap|parmak izi|team_id|2fa|otp|e-?posta\w*|mail\w*|sms|do[ğg]rulama kodu)\b|\b(fiziksel|[öo]l[çc][üu]m[üu]n[üu]?|cihaz[ıi]n[ıi]?|kart[ıi]) .{0,40}(yap|tak|ba[ğg]la|[öo]l[çc])|nothing (left|remaining))'; then
+if match "$tail_par" '(s[ıi]ra(da|daki)\b.{0,40}\b(yok|kalmad[ıi])\b|\b(token|anahtar|api key|key|parola|[şs]ifre|secret|credential|password|oauth|team_id|app id|parmak izi|2fa|otp|do[ğg]rulama kodu)\w*.{0,60}\b(ver|gir|yap[ıi][şs]t[ıi]r|d[öo]nd[üu]r|koy|olmadan|laz[ıi]m|gerek\w*|sende|bekliyorum|required|needed)\b|\b(sudo|login|giri[şs] yap)\b.{0,40}\b(sende|senin|yapman|laz[ıi]m)|\w+(d[ıi]ğ[ıi]nda|d[iu]ğ[iu]nda|d[üu]ğ[üu]nde|[iü]nce|[ıu]nca)\s+(bana\s+)?(s[öo]yle|yaz|haber ver)\b|\b(fiziksel|[öo]l[çc][üu]m[üu]n[üu]?|cihaz[ıi]n[ıi]?|kart[ıi]) .{0,40}(yap|tak|ba[ğg]la|[öo]l[çc])|nothing (left|remaining))'; then
     exit 0
 fi
 
 kind=""
-if match "$tail_par" '(devam edeyim mi|devam ederim|devam edelim|ister misin|ister misiniz|istersen|isterseniz|onaylarsan|tercih ediyorsan|ne dersen|haz[ıi]r oldu[ğg]unda|yapay[ıi]m m[ıi]|edeyim mi|ba[şs]layay[ıi]m m[ıi]|\w{2,}(ay[ıi]m|eyim)\b|(senin|sizin) (istemen|onay[ıi]n|karar[ıi]n)|onay[ıi]n[ıi] bekliyorum|want me to|shall i\b|should i (continue|proceed|go ahead)|would you like me to|if you(.d| would) like me to|if you want me to|let me know if you|\b(m[ıiuü]|m[ıiuü]s[ıi]n|m[ıiuü]s[ıi]n[ıi]z)\?)'; then
+if match "$tail_par" '(devam edeyim mi|devam ederim|devam edelim|ister misin|ister misiniz|istersen|isterseniz|onaylarsan|tercih ediyorsan|ne dersen|haz[ıi]r oldu[ğg]unda|yapay[ıi]m m[ıi]|edeyim mi|ba[şs]layay[ıi]m m[ıi]|\w{2,}(ay[ıi]m|eyim)\b[^:]|\w{2,}(ay[ıi]m|eyim)$|(senin|sizin) (istemen|onay[ıi]n|karar[ıi]n)|onay[ıi]n[ıi] bekliyorum|want me to|shall i\b|should i (continue|proceed|go ahead)|would you like me to|if you(.d| would) like me to|if you want me to|let me know if you|\b(m[ıiuü]|m[ıiuü]s[ıi]n|m[ıiuü]s[ıi]n[ıi]z)\?)'; then
     kind="offer"
 elif match "$tail_par" '(devam ediyorum|devam edece[ğg]im|s[ıi]rada\b|s[ıi]radaki (ad[ıi]m|i[şs]|tur|commit|plan)|sonraki (ad[ıi]m|tur|i[şs])|a[çc][ıi]l[ıi]yor\b|izliyorum|takip ediyorum|(d[öo]n[üu]yorum|ge[çc]iyoruz|ba[şs]l[ıi]yoruz)|ge[çc]iyorum|ba[şs]l[ıi]yorum|[şs]imdi\b.{0,80}[ıiuü]yorum\b|(bitince|tamamlan[ıi]nca|gelince|olunca|d[öo]n[üu]nce|d[üu][şs][üu]nce)\b.{0,80}(r[ıiuü]m|ece[ğg]im|aca[ğg][ıi]m|ecek|acak)\b|bekliyorum|next,? i(.ll| will)\b|i.ll now\b|moving on to|proceeding (to|with)\b|^let me\b|i.m waiting|waiting (for|on) )' \
     || match "$tail_par" '(ece[ğg]im|aca[ğg][ıi]m)[;:,]' \
-    || match "$last_line" '(ece[ğg]im|aca[ğg][ıi]m)[.!]?\s*$' \
+    || { match "$last_line" '(ece[ğg]im|aca[ğg][ıi]m)[.!]?\s*$' \
+         && ! match "$last_line" '(mayaca[ğg][ıi]m|meyece[ğg]im)[.!]?\s*$'; } \
     || { match "$last_line" '[ıiuü]yorum[.!]?\s*$' \
-         && ! match "$last_line" '(öner|d[üu][şs][üu]n|g[öo]r|bil|anl|um|san|zannet|tahmin ed)[ıiuü]yorum[.!]?\s*$'; }; then
+         && ! match "$last_line" '(öner|d[üu][şs][üu]n|g[öo]r|bil|anl|um|san|zannet|tahmin ed|m)[ıiuü]yorum[.!]?\s*$'; }; then
     kind="announce"
 elif match "$last_line" '\?\s*$'; then
     kind="question"
@@ -119,10 +130,12 @@ fi
 case "$tsize" in '' | *[!0-9]*) tsize=0 ;; esac
 
 blocks=0
+total=0
 if [ -f "$counter" ]; then
-    read -r prev_blocks prev_tpos < "$counter" 2>/dev/null || prev_blocks=0
+    read -r prev_blocks prev_tpos total < "$counter" 2>/dev/null || prev_blocks=0
     case "${prev_blocks:-}" in '' | *[!0-9]*) prev_blocks=0 ;; esac
     case "${prev_tpos:-}" in '' | *[!0-9]*) prev_tpos=0 ;; esac
+    case "${total:-}" in '' | *[!0-9]*) total=0 ;; esac
     blocks="$prev_blocks"
     if [ "$prev_tpos" -gt 0 ] && [ "$tsize" -gt "$prev_tpos" ] \
         && tail -c "+$prev_tpos" "$transcript_path" 2>/dev/null | grep -q '"type":"tool_use"'; then
@@ -130,9 +143,11 @@ if [ -f "$counter" ]; then
     fi
 fi
 [ "$blocks" -lt "$max_blocks" ] || exit 0
+[ "$total" -lt "$max_total" ] || exit 0
 
 blocks=$((blocks + 1))
-printf '%s %s\n' "$blocks" "$tsize" > "$counter" 2>/dev/null || exit 0
+total=$((total + 1))
+printf '%s %s %s\n' "$blocks" "$tsize" "$total" > "$counter" 2>/dev/null || exit 0
 
 case "$kind" in
     offer) found="Your last message offers to continue instead of continuing." ;;
