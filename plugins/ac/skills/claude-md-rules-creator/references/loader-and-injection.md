@@ -127,29 +127,39 @@ The model sees the full path and a one-line label of what the file represents. P
 
 ## The `<system-reminder>` wrapper
 
-the loader produces:
+On 2.1.280 the loaded files travel as an `instructions` attachment (a `files` list carrying `path`, `type` and `content` per file) and render as a block of their own. Read off a live Opus 5.5 session transcript on 2026-09-23:
+
+```
+<system-reminder>
+Codebase and user instructions are shown below. Be sure to adhere to these instructions. IMPORTANT: These instructions OVERRIDE any default behavior and you MUST follow them exactly as written.
+
+Contents of <absolute-path> (<description>):
+
+<content>
+
+Contents of <next file> ...
+</system-reminder>
+```
+
+The rest of the user context (for example `userEmail`) arrives in a separate block that keeps the old softener:
 
 ```
 <system-reminder>
 As you answer the user's questions, you can use the following context:
-# claudeMd
-<MEMORY_INSTRUCTION_PROMPT plus concatenated content>
-# currentDate
-Today's date is YYYY-MM-DD.
-
- IMPORTANT: this context may or may not be relevant to your tasks. You should not respond to this context unless it is highly relevant to your task.
+# userEmail
+...
+IMPORTANT: this context may or may not be relevant to your tasks. You should not respond to this context unless it is highly relevant to your task.
 </system-reminder>
 ```
 
-- Role: `user`, but `isMeta: true` (the UI hides it; the model sees it).
-- Position: `messages[0]`.
-- Trailing line softens authority: "may or may not be relevant". The model still tries to follow, but it is conditioned to use judgment.
-- `gitStatus` is NOT here. It rides in `systemContext` and is appended to the system prompt by the loader.
+- Role: `user`, but `isMeta: true` (the UI hides it; the model sees it). It sits in the first user message.
+- The "may or may not be relevant" line no longer follows CLAUDE.md content. Earlier builds put `# claudeMd` and `# currentDate` inside the softened block; a guide written against those builds describes a wrapper the model no longer sees.
+- `gitStatus` is NOT here. It rides in `systemContext` and is appended to the system prompt.
 
 Two practical consequences:
 
 1. **CLAUDE.md is not the system prompt.** It is a meta user message. For truly system-prompt-level rules, the SDK offers `--append-system-prompt`.
-2. **The trailing "may or may not be relevant" softens authority.** Combined with the leading `MEMORY_INSTRUCTION_PROMPT`'s `IMPORTANT:. you MUST`, the net is "follow the rules, use judgment". Repeating `MUST` in your own content does not stack. Anthropic's docs say emphasis keywords (`IMPORTANT:`, `YOU MUST`, `NEVER`) DO work when used SPARINGLY (2 to 3 rules max). If every rule is `IMPORTANT`, none of them are.
+2. **Authority is no longer softened.** The block opens with "OVERRIDE any default behavior" and nothing after it dilutes that, so the model treats every line as binding, including a stale or wrong one. Keep the file current and cut what no longer holds. Repeating `MUST` in your own content still does not stack: emphasis keywords work only when used sparingly (2 to 3 rules max), and if every rule is `IMPORTANT`, none of them are.
 
 ## Path-scoped rules: when they trigger, how they persist
 

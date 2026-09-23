@@ -24,7 +24,7 @@ Comprehensive INCLUDE / EXCLUDE list with examples, the five-question framework,
 
 Apply this test to every line you consider adding to CLAUDE.md or `.claude/rules/`. If the answer is "no, the model would still do the right thing", cut the line.
 
-Every line you add competes with every other line for the model's attention. Anthropic's docs and Claude Code's harness tell the model your CLAUDE.md "may or may not be relevant". When the file is bloated, the model does not selectively ignore the bad lines; it starts ignoring all of them uniformly.
+Every line you add competes with every other line for the model's attention. Claude Code 2.1.280 presents the file as binding ("OVERRIDE any default behavior"), with no "may or may not be relevant" softener after it, so every line reads as an instruction. When the file is bloated, the model does not selectively ignore the bad lines; it starts ignoring all of them uniformly.
 
 The math is simple: every line you add makes every other line less likely to be followed.
 
