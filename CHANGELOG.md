@@ -11,7 +11,7 @@ Retargets the plugin at Claude Opus 5.5 on Claude Code 2.1.280. Three facts drov
 
 ### Added
 
-- `stop-guard-announce.sh`, a Stop hook for every interactive main-thread session. It blocks a turn that ends on an announced step with no tool call, an offer to continue, or a question asked in prose, and names the three legitimate endings instead. It reads only the last paragraph of `last_assistant_message`, drops fenced and inline code, lets credential and physical handoffs through, allows the stop while a background task or cron will wake the session, skips `claude -p`, and stops after 2 blocks per stall and 4 per prompt. Replayed against the 224 audited stops it catches 157.
+- `stop-guard-announce.sh`, a Stop hook for every interactive main-thread session. It blocks a turn that ends on an announced step with no tool call, an offer to continue, or a question asked in prose, and names the three legitimate endings instead. It reads only the last paragraph of `last_assistant_message`, drops fenced and inline code, lets credential and physical handoffs through, allows the stop while a background task or cron will wake the session, skips `claude -p`, and stops after 2 blocks per stall and 4 per prompt. `AC_ANNOUNCE_GUARD_MAX_BLOCKS=0` turns it off. Replayed against the 224 audited stops it catches 157.
 - `prompt-writer/references/opus-5-5-tuning.md`: the Opus 5.5 deltas over Opus 5 (effort default `medium`, thinking that cannot be disabled, forced `tool_choice` rejected, 128k `max_tokens`, thinking blocks bound to an unchanged prefix, unattended early stops, elapsed-time signals, pasted content, `reasoning_extraction` refusals) and what Claude Code 2.1.280 gives 5.5.
 - `claude-code-builtin-prompts.md` in both `ac:prompt-writer` and `ac:claude-md-rules-creator`: the verbatim 2.1.280 system prompt text per shape and model, the per-model bundle sections, the CLAUDE.md wrapper as the model sees it, the subagent defaults, and the patterns worth copying. Both skills check a new line against it before writing.
 - `/ac:install` writes `askUserQuestionTimeout` and `dialogExpiry` as `"never"`, `CLAUDE_CODE_RETRY_WATCHDOG=1`, `CLAUDE_CODE_THRIFTY_SONIC=0` and `CLAUDE_CODE_DISABLE_EXPLORE_PLAN_AGENTS=1`.
@@ -19,14 +19,15 @@ Retargets the plugin at Claude Opus 5.5 on Claude Code 2.1.280. Three facts drov
 ### Changed
 
 - `ac:oracle` is a review-first agent with a short advice mode. It quotes the load-bearing claims, tests each against the primary source, reviews by artifact type, classifies candidates as CONFIRMED, PLAUSIBLE or DISMISSED, and reports Coverage, Premises, Findings with a scenario and a fix, Bottom line and Confidence. `/ac:plan` and `/ac:execute` route its REFUTED premises and PLAUSIBLE findings.
-- The generated global CLAUDE.md is rebased on the Opus 5.5 lean prompt: lines the host already carries are cut, `Decisions` sends every blocking choice through `AskUserQuestion`, `Run to completion` names the measured stall shapes, an outward action the request names is authorized, and a multi-file or hard-to-reverse change goes to `ac:oracle` before it is reported done.
-- Every skill, command, agent and MCP tool description follows Claude Code's own style, and the creator skills teach it: an imperative verb, one "Use when" sentence, one boundary, no mechanics. Model-visible listing text per turn drops by about 4,200 characters. The proxy now owns the five remote tool texts, which also fixes two references to tools it never exposes.
-- Agent effort retuned for Opus 5.5: `ac:oracle` and `ac:plan-code-review` `high`, `ac:plan-worker-senior` and `ac:plan-reviewer` `medium`; `ac:plan`, `ac:execute` and `ac:auto` run at `high`. `/ac:install` no longer writes a top-level `effortLevel`, which newer models ignore.
+- The generated global CLAUDE.md is rebased on the Opus 5.5 lean prompt: lines the host already carries are cut, `Decisions` sends every blocking choice through `AskUserQuestion`, `Run to completion` names the measured stall shapes, an outward action the request names is authorized, a multi-file or hard-to-reverse change goes to `ac:oracle` before it is reported done, and work past a couple of steps starts from a numbered list the user can see.
+- Every skill, command, agent and MCP tool description follows Claude Code's own style, and the creator skills teach it: an imperative verb, one "Use when" sentence, one boundary, no mechanics. Description and tool text drops by about 4,200 characters, about 2,700 of it on every main-thread turn. The proxy now owns the five remote tool texts, which also fixes two references to tools it never exposes.
+- Agent effort retuned for Opus 5.5: `ac:oracle` and `ac:plan-code-review` `high`, `ac:plan-worker-senior` and `ac:plan-reviewer` `medium`; `ac:plan`, `ac:execute` and `ac:auto` run at `high`, `/ac:install` and `/ac:init-project` at `medium`. `/ac:install` no longer writes a top-level `effortLevel`, which newer models ignore.
 - `ac:explore` and `ac:librarian` set `omitClaudeMd: true`, honoured on plugin agents since 2.1.271; librarian carries the research rules it used to inherit.
 
 ### Fixed
 
 - `/ac:install` wrote `API_TIMEOUT_MS=30000` and `MCP_TOOL_TIMEOUT=60000`, and offered `CLAUDE_AFK_TIMEOUT_MS`, which turns question auto-submit on whatever `askUserQuestionTimeout` says. A value-matched migration rewrites or removes what an earlier install wrote. The OTEL telemetry option is gone; the installer writes no telemetry key.
+- `search-docs` now tells the model to retry with the next `resolve-library` match when a library is reported not found. The remote catalog ranks unsynced local entries such as `/lib/laravel` first, and those have failed on every call since at least August; the server-side fix belongs to the remote.
 - The `/ac:execute` and `/ac:auto` markers carried a model-written session id and a local time with a `Z`, which left about half of them unarmed. The skills now write `${CLAUDE_SESSION_ID}` and `date -u`, and both guards tolerate the old skew.
 
 ## [0.23.0] - 2026-09-04
@@ -660,6 +661,8 @@ The lesson driving this release: a limit written in prose is not a limit. The ca
 - `subagent-monitor` plugin removed from the marketplace; functionality superseded by
   the plan-chain agent reviewers.
 
+[0.24.0]: https://github.com/anilcancakir/claude-code/compare/v0.23.0...v0.24.0
+[0.23.0]: https://github.com/anilcancakir/claude-code/compare/v0.22.0...v0.23.0
 [0.22.0]: https://github.com/anilcancakir/claude-code/compare/v0.21.0...v0.22.0
 [0.21.0]: https://github.com/anilcancakir/claude-code/compare/v0.20.0...v0.21.0
 [0.20.0]: https://github.com/anilcancakir/claude-code/compare/v0.14.2...v0.20.0
