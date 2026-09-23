@@ -63,24 +63,22 @@ const defaultLookup: LookupFn = async (hostname: string): Promise<readonly Looku
 export const LOCAL_WEB_FETCH_TOOL_DEFINITION: Tool = {
     name: "web-fetch",
     description:
-        "FALLBACK ONLY. Prefer the built-in WebFetch; use this one only when WebFetch errors or "
-        + "times out, is rate-limited or blocked (HTTP 403/429), returns empty or auth-walled "
-        + "content, or cannot follow a cross-host redirect.\n\n"
-        + "Fetches a URL with a real browser header set and returns markdown. Guards against SSRF "
-        + "(no private, loopback, link-local or cloud-metadata targets) and does not follow "
-        + "redirects.",
+        "Fetch a page with browser headers and return it as markdown. Fallback for the built-in "
+        + "WebFetch: use it when WebFetch errors, times out, is blocked (403/429) or returns an empty "
+        + "or auth-walled page, and when you need the page text itself. Refuses private and "
+        + "cloud-metadata addresses and does not follow redirects.",
     inputSchema: {
         type: "object",
         properties: {
             url: {
                 type: "string",
-                description: "Absolute http(s) URL to fetch.",
+                description: "Absolute http(s) URL.",
             },
             format: {
                 type: "string",
                 enum: ["markdown"],
                 default: "markdown",
-                description: "Output format. Only markdown is produced; the field exists for remote-shape parity.",
+                description: "Only markdown is produced.",
             },
         },
         required: ["url"],
