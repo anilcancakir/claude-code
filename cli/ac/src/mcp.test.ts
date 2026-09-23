@@ -7,7 +7,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import path from "node:path";
-import { applyAlwaysLoad, SERVER_INSTRUCTIONS, toIsErrorResult } from "./mcp.ts";
+import { applyAlwaysLoad, applyRemoteText, SERVER_INSTRUCTIONS, toIsErrorResult } from "./mcp.ts";
 
 // Bearer-free unit coverage for the exported proxy transforms. These do not
 // spawn the subprocess and are NOT skipIf-gated, so A2 (alwaysLoad) and A11
@@ -53,6 +53,39 @@ test("applyAlwaysLoad does not mutate the input tool", () => {
     const input = makeTool("search-docs");
     applyAlwaysLoad(input);
     expect(input._meta).toBeUndefined();
+});
+
+test("applyRemoteText replaces the description and known parameter texts, keeping the schema shape", () => {
+    const input: Tool = {
+        name: "search-docs",
+        description: "remote text that names web-fetch-result",
+        inputSchema: {
+            type: "object",
+            properties: {
+                library_id: { type: "string", description: "remote id text" },
+                extra: { type: "string", description: "remote extra text" },
+            },
+            required: ["library_id"],
+        },
+    };
+    const out = applyRemoteText(input);
+    const props = out.inputSchema.properties as Record<string, { type: string; description: string }>;
+
+    expect(out.description).not.toContain("web-fetch-result");
+    expect(out.description).toContain("resolve-library");
+    expect(props["library_id"]?.description).toContain("resolve-library");
+    expect(props["library_id"]?.type).toBe("string");
+    expect(props["extra"]?.description).toBe("remote extra text");
+    expect(out.inputSchema.required).toEqual(["library_id"]);
+    expect(input.description).toBe("remote text that names web-fetch-result");
+});
+
+test("applyRemoteText marks web-fetch and web-search as fallbacks and leaves unknown tools alone", () => {
+    for (const name of ["web-fetch", "web-search"]) {
+        expect(applyRemoteText(makeTool(name)).description).toContain("Fallback for the built-in");
+    }
+    const other = makeTool("something-else");
+    expect(applyRemoteText(other)).toBe(other);
 });
 
 test("toIsErrorResult wraps an Error message in an isError CallToolResult", () => {

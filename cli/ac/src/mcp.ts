@@ -42,39 +42,80 @@ const ALLOWED_REMOTE_TOOLS: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * Fallback-only directives prepended to the web-fetch and web-search tool
- * descriptions at list time.
+ * Model-facing text for the five proxied remote tools, replacing what the remote server ships.
  *
- * Claude Code's own built-in WebFetch description tells the model to prefer an
- * MCP web-fetch tool when one is registered, which biases every agent toward
- * this proxy by default. CLAUDE.md and agent-body prose lose that contest
- * because the tool description is read at the exact moment of tool selection.
- * Marking these two tools fallback-only in the description is the one lever
- * that reaches every consumer, including subagents that omit CLAUDE.md, and
- * counters the built-in's "prefer MCP" hint at the same layer. The other three
- * tools (search-docs, resolve-library, web-code-search) have no built-in
- * equivalent and stay primary, so they are not rewritten.
+ * The remote descriptions ran about 3,700 characters across the five and named two tools the
+ * proxy never exposes (`code-search`, `web-fetch-result`), so the proxy owns this text instead.
+ * Written the way Claude Code writes its own tool descriptions: what the tool does in one
+ * sentence, one line for the behaviour that differs from what the model expects, and a unit or
+ * bound per parameter.
+ *
+ * web-fetch and web-search stay marked as fallbacks. Claude Code's built-in WebFetch description
+ * tells the model to prefer an MCP fetch tool when one is registered, and the tool description is
+ * the only text read at the moment of tool selection, including by subagents that omit CLAUDE.md.
+ * A parameter override applies only when the remote schema still declares that parameter.
  */
-const FALLBACK_DIRECTIVES: Readonly<Record<string, string>> = {
-    "web-search":
-        "FALLBACK ONLY. Prefer the built-in WebSearch; use this one only when WebSearch errors, "
-        + "is unavailable or rate-limited, or returns insufficient results.\n\n",
-    "web-fetch":
-        "FALLBACK ONLY. Prefer the built-in WebFetch; use this one only when WebFetch errors or "
-        + "times out, is rate-limited or blocked (HTTP 403/429), returns empty or auth-walled "
-        + "content, or cannot follow a cross-host redirect.\n\n",
+const REMOTE_TOOL_TEXT: Readonly<Record<string, { description: string; params: Readonly<Record<string, string>> }>> = {
+    "resolve-library": {
+        description: "Map a library or framework name to its documentation id for search-docs. "
+            + "Call it first when the id is not already known; returns ranked matches with versions.",
+        params: { query: "Library or framework name, e.g. \"laravel\"." },
+    },
+    "search-docs": {
+        description: "Search one library's cached documentation for a topic and return the matching sections. "
+            + "Take library_id from resolve-library; append /<version> to pin a version.",
+        params: {
+            library_id: "Id from resolve-library, optionally suffixed with /<version>.",
+            topic: "What to look up in the docs.",
+            max_tokens: "Cap on returned content in tokens, default 5000.",
+        },
+    },
+    "web-code-search": {
+        description: "Search public GitHub code for real usage of an API or pattern. "
+            + "Use it to see how something is actually called, not what it is for.",
+        params: {
+            query: "Exact string or regex, 2 to 256 characters.",
+            language: "Optional language filter, e.g. \"TypeScript\".",
+            num_results: "1 to 30, default 10.",
+        },
+    },
+    "web-fetch": {
+        description: "Fetch a page and return its content as markdown. Fallback for the built-in WebFetch, "
+            + "which you try first: use it when WebFetch errors, times out, is blocked (403/429), returns an empty, auth-walled "
+            + "or unrendered page, or cannot follow a cross-host redirect, and when you need the page text "
+            + "itself rather than a summary.",
+        params: { url: "Absolute URL including https://." },
+    },
+    "web-search": {
+        description: "Search the web across several engines and return deduplicated results. Fallback for the "
+            + "built-in WebSearch: use it when WebSearch errors, is unavailable or rate-limited, or returns too little.",
+        params: {
+            query: "Search terms, 2 to 500 characters.",
+            num_results: "3 to 20, default 10.",
+        },
+    },
 };
 
 /**
- * Prepend the fallback directive to a web tool's description, leaving the
- * other proxied tools untouched.
+ * Replace a proxied tool's description and known parameter descriptions with `REMOTE_TOOL_TEXT`,
+ * leaving the schema's shape and any parameter the table does not name untouched.
  */
-function applyFallbackDirective(tool: Tool): Tool {
-    const directive = FALLBACK_DIRECTIVES[tool.name];
-    if (directive === undefined) {
+export function applyRemoteText(tool: Tool): Tool {
+    const text = REMOTE_TOOL_TEXT[tool.name];
+    if (text === undefined) {
         return tool;
     }
-    return { ...tool, description: directive + (tool.description ?? "") };
+    const schema = tool.inputSchema;
+    const properties = schema.properties as Record<string, Record<string, unknown>> | undefined;
+    if (properties === undefined) {
+        return { ...tool, description: text.description };
+    }
+    const nextProperties: Record<string, Record<string, unknown>> = {};
+    for (const [name, property] of Object.entries(properties)) {
+        const override = text.params[name];
+        nextProperties[name] = override === undefined ? property : { ...property, description: override };
+    }
+    return { ...tool, description: text.description, inputSchema: { ...schema, properties: nextProperties } };
 }
 
 /**
@@ -145,16 +186,10 @@ export function toIsErrorResult(err: unknown): CallToolResult {
  * tool-search deferral. Kept under the 2KB truncation bound.
  */
 export const SERVER_INSTRUCTIONS =
-    "ac proxies a documentation and open-source research surface. Routing: call "
-    + "resolve-library first to map a library name to its cached documentation id, then "
-    + "search-docs to read that library's cached docs; call web-code-search to find real "
-    + "usage patterns across public GitHub repositories. Prefer these three over generic "
-    + "web access; they return curated, cached results with no live-fetch latency. Use "
-    + "web-fetch and web-search only as a fallback, when the built-in WebFetch/WebSearch "
-    + "and the docs tools above cannot answer (broken or auth-walled pages, non-library "
-    + "sources, live pages absent from the cache). For anything about "
-    + "the user's own past work or conversations, call search-history instead of guessing from "
-    + "memory: it searches the local Claude Code history archive across every project.";
+    "For library docs call resolve-library, then search-docs; for real usage of an API call "
+    + "web-code-search. web-fetch and web-search are fallbacks for the built-in WebFetch and "
+    + "WebSearch. For the user's own past work or conversations, call search-history instead of "
+    + "guessing.";
 
 /**
  * Lazily-connected remote MCP handle.
@@ -206,7 +241,7 @@ export async function runMcpProxy(options: { token?: string; url?: string }): Pr
         const result = await remote.client.listTools();
         for (const tool of result.tools) {
             if (ALLOWED_REMOTE_TOOLS.has(tool.name)) {
-                remoteTools.push(applyAlwaysLoad(applyFallbackDirective(tool)));
+                remoteTools.push(applyAlwaysLoad(applyRemoteText(tool)));
             }
         }
 
