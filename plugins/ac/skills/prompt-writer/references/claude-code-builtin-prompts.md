@@ -227,7 +227,7 @@ IMPORTANT: this context may or may not be relevant to your tasks. You should not
 </system-reminder>
 ```
 
-An active output style arrives as `# Output Style: ${name}` plus its body in a session-context attachment, and each turn carries "${style} output style is active. Remember to follow the specific guidelines for this style." unless the style sets its own reminder.
+An active output style arrives as `# Output Style: ${name}` plus its body in an `output_style_instructions` attachment, in conversation position rather than `system`, and each turn carries "${style} output style is active. Remember to follow the specific guidelines for this style." unless the style sets its own reminder.
 
 ## 5. Subagents
 
