@@ -29666,73 +29666,73 @@ function primaryResultCode(error2) {
 var HISTORY_TOOL_NAME = "search-history";
 var HISTORY_TOOL_DEFINITION = {
   name: HISTORY_TOOL_NAME,
-  description: "Search the user's own local Claude Code conversation history across every local project, " + "backed by a permanent SQLite full-text archive. `pattern` is TOKENIZED FULL-TEXT search " + "with prefix matching, NOT a regular expression: it splits on whitespace, prefix-matches " + "each token and ANDs them. Punctuation is DROPPED rather than searched, so regex-shaped " + "input degrades silently instead of erroring; write plain words. Matching is " + "case-insensitive and folds Turkish diacritics both ways, so `calisiyor` finds " + "`çalışıyor`. `pattern` is required for every `output_mode` except `read`, which opens a " + "chronological window on one `session_id`. Only prose and tool arguments are indexed; " + "successful tool output is not, but failed output is, so this surfaces why something " + "broke rather than large file dumps.",
+  description: "Search the user's past Claude Code conversations across every local project. `pattern` is " + "TOKENIZED FULL-TEXT search with prefix matching, NOT a regular expression: tokens are ANDed " + "and punctuation is DROPPED, so write plain words. Case-insensitive, and folds Turkish letters " + 'both ways, so `calisiyor` finds `çalışıyor`. `output_mode` "read" opens one ' + "`session_id` in order instead of searching. Indexes prose, tool arguments and failed tool " + "output, not successful output.",
   inputSchema: {
     type: "object",
     properties: {
       pattern: {
         type: "string",
-        description: "Tokenized full-text search terms, NOT a regex. Required unless " + 'output_mode is "read".'
+        description: 'Plain search words, not a regex. Required unless output_mode is "read".'
       },
       path: {
         type: "string",
-        description: "Filters to turns whose stored project path contains this substring."
+        description: "Only turns whose project path contains this substring."
       },
       output_mode: {
         type: "string",
         enum: ["content", "sessions", "projects", "count", "read"],
         default: "content",
-        description: "content: one excerpt per matching turn. sessions: one entry per " + "matching session. projects: one entry per project, busiest first. " + "count: match/session/project totals only. read: a chronological window on " + "one session_id, no search performed."
+        description: "content: an excerpt per turn. sessions, projects: one entry each. " + "count: totals. read: one session_id in order, no search."
       },
       head_limit: {
         type: "number",
         minimum: 1,
         maximum: HISTORY_HEAD_LIMIT_MAX,
         default: HISTORY_HEAD_LIMIT_DEFAULT,
-        description: "Maximum number of hits (or turns, in read mode) to return."
+        description: "Maximum hits, or turns in read mode."
       },
       offset: {
         type: "number",
         minimum: 0,
         default: 0,
-        description: "Number of hits (or turns, in read mode) to skip before the page starts."
+        description: "Hits, or turns in read mode, to skip."
       },
       "-i": {
         type: "boolean",
-        description: "No-op; matching is always case-insensitive. Accepted only for " + "vocabulary parity with the built-in Grep tool."
+        description: "No-op; matching is always case-insensitive."
       },
       since: {
         type: "string",
-        description: "ISO 8601 date or date-time; excludes turns before it."
+        description: "ISO 8601 date or date-time lower bound."
       },
       until: {
         type: "string",
-        description: "ISO 8601 date or date-time; excludes turns after it."
+        description: "ISO 8601 date or date-time upper bound."
       },
       role: {
         type: "string",
         enum: ["user", "assistant", "any"],
         default: "any",
-        description: "Restricts to turns from this role."
+        description: "Only turns from this role."
       },
       kind: {
         type: "string",
         enum: ["prose", "tool_use", "tool_error", "any"],
         default: "any",
-        description: "Restricts to this kind of turn."
+        description: "Only this kind of turn."
       },
       include_subagents: {
         type: "boolean",
         default: true,
-        description: "Set false to exclude subagent transcript turns."
+        description: "false excludes subagent turns."
       },
       agent_type: {
         type: "string",
-        description: 'Restricts to subagent turns of this agent type, e.g. "ac:librarian".'
+        description: 'Only subagent turns of this agent type, e.g. "ac:librarian".'
       },
       session_id: {
         type: "string",
-        description: 'Database key of one session. Required when output_mode is "read"; ' + "the value comes from the session_id shown on a prior content or sessions hit."
+        description: 'Session key from an earlier hit; required when output_mode is "read".'
       }
     },
     required: []
@@ -38214,21 +38214,19 @@ var defaultLookup = async (hostname) => {
 };
 var LOCAL_WEB_FETCH_TOOL_DEFINITION = {
   name: "web-fetch",
-  description: "FALLBACK ONLY. Prefer the built-in WebFetch; use this one only when WebFetch errors or " + "times out, is rate-limited or blocked (HTTP 403/429), returns empty or auth-walled " + `content, or cannot follow a cross-host redirect.
-
-` + "Fetches a URL with a real browser header set and returns markdown. Guards against SSRF " + "(no private, loopback, link-local or cloud-metadata targets) and does not follow " + "redirects.",
+  description: "Fetch a page with browser headers and return it as markdown. Fallback for the built-in " + "WebFetch: use it when WebFetch errors, times out, is blocked (403/429) or returns an empty " + "or auth-walled page, and when you need the page text itself. Refuses private and " + "cloud-metadata addresses and does not follow redirects.",
   inputSchema: {
     type: "object",
     properties: {
       url: {
         type: "string",
-        description: "Absolute http(s) URL to fetch."
+        description: "Absolute http(s) URL."
       },
       format: {
         type: "string",
         enum: ["markdown"],
         default: "markdown",
-        description: "Output format. Only markdown is produced; the field exists for remote-shape parity."
+        description: "Only markdown is produced."
       }
     },
     required: ["url"]
@@ -38491,20 +38489,55 @@ var ALLOWED_REMOTE_TOOLS = new Set([
   "resolve-library",
   "web-code-search"
 ]);
-var FALLBACK_DIRECTIVES = {
-  "web-search": "FALLBACK ONLY. Prefer the built-in WebSearch; use this one only when WebSearch errors, " + `is unavailable or rate-limited, or returns insufficient results.
-
-`,
-  "web-fetch": "FALLBACK ONLY. Prefer the built-in WebFetch; use this one only when WebFetch errors or " + "times out, is rate-limited or blocked (HTTP 403/429), returns empty or auth-walled " + `content, or cannot follow a cross-host redirect.
-
-`
+var REMOTE_TOOL_TEXT = {
+  "resolve-library": {
+    description: "Map a library or framework name to its documentation id for search-docs. " + "Call it first when the id is not already known; returns ranked matches with versions.",
+    params: { query: 'Library or framework name, e.g. "laravel".' }
+  },
+  "search-docs": {
+    description: "Search one library's cached documentation for a topic and return the matching sections. " + "Take library_id from resolve-library; append /<version> to pin a version.",
+    params: {
+      library_id: "Id from resolve-library, optionally suffixed with /<version>.",
+      topic: "What to look up in the docs.",
+      max_tokens: "Cap on returned content in tokens, default 5000."
+    }
+  },
+  "web-code-search": {
+    description: "Search public GitHub code for real usage of an API or pattern. " + "Use it to see how something is actually called, not what it is for.",
+    params: {
+      query: "Exact string or regex, 2 to 256 characters.",
+      language: 'Optional language filter, e.g. "TypeScript".',
+      num_results: "1 to 30, default 10."
+    }
+  },
+  "web-fetch": {
+    description: "Fetch a page and return its content as markdown. Fallback for the built-in WebFetch, " + "which you try first: use it when WebFetch errors, times out, is blocked (403/429), returns an empty, auth-walled " + "or unrendered page, or cannot follow a cross-host redirect, and when you need the page text " + "itself rather than a summary.",
+    params: { url: "Absolute URL including https://." }
+  },
+  "web-search": {
+    description: "Search the web across several engines and return deduplicated results. Fallback for the " + "built-in WebSearch: use it when WebSearch errors, is unavailable or rate-limited, or returns too little.",
+    params: {
+      query: "Search terms, 2 to 500 characters.",
+      num_results: "3 to 20, default 10."
+    }
+  }
 };
-function applyFallbackDirective(tool) {
-  const directive = FALLBACK_DIRECTIVES[tool.name];
-  if (directive === undefined) {
+function applyRemoteText(tool) {
+  const text = REMOTE_TOOL_TEXT[tool.name];
+  if (text === undefined) {
     return tool;
   }
-  return { ...tool, description: directive + (tool.description ?? "") };
+  const schema = tool.inputSchema;
+  const properties = schema.properties;
+  if (properties === undefined) {
+    return { ...tool, description: text.description };
+  }
+  const nextProperties = {};
+  for (const [name, property] of Object.entries(properties)) {
+    const override = text.params[name];
+    nextProperties[name] = override === undefined ? property : { ...property, description: override };
+  }
+  return { ...tool, description: text.description, inputSchema: { ...schema, properties: nextProperties } };
 }
 var ALWAYS_LOAD_TOOLS = new Set([
   "search-docs",
@@ -38531,7 +38564,7 @@ function toIsErrorResult(err) {
     content: [{ type: "text", text: `remote tool call failed: ${message}` }]
   };
 }
-var SERVER_INSTRUCTIONS = "ac proxies a documentation and open-source research surface. Routing: call " + "resolve-library first to map a library name to its cached documentation id, then " + "search-docs to read that library's cached docs; call web-code-search to find real " + "usage patterns across public GitHub repositories. Prefer these three over generic " + "web access; they return curated, cached results with no live-fetch latency. Use " + "web-fetch and web-search only as a fallback, when the built-in WebFetch/WebSearch " + "and the docs tools above cannot answer (broken or auth-walled pages, non-library " + "sources, live pages absent from the cache). For anything about " + "the user's own past work or conversations, call search-history instead of guessing from " + "memory: it searches the local Claude Code history archive across every project.";
+var SERVER_INSTRUCTIONS = "For library docs call resolve-library, then search-docs; for real usage of an API call " + "web-code-search. web-fetch and web-search are fallbacks for the built-in WebFetch and " + "WebSearch. For the user's own past work or conversations, call search-history instead of " + "guessing.";
 async function runMcpProxy(options) {
   const token = (options.token ?? process.env["KODIZM_MCP_TOKEN"] ?? "").trim();
   const url2 = (options.url ?? process.env["KODIZM_MCP_URL"] ?? DEFAULT_REMOTE_URL).trim();
@@ -38554,7 +38587,7 @@ async function runMcpProxy(options) {
     const result = await remote.client.listTools();
     for (const tool of result.tools) {
       if (ALLOWED_REMOTE_TOOLS.has(tool.name)) {
-        remoteTools.push(applyAlwaysLoad(applyFallbackDirective(tool)));
+        remoteTools.push(applyAlwaysLoad(applyRemoteText(tool)));
       }
     }
     cachedTools = [
@@ -39445,4 +39478,4 @@ function formatSyncReport(report) {
 }
 await program2.parseAsync(process.argv);
 
-//# debugId=714554C42A9C446364756E2164756E21
+//# debugId=853FD2C77A5C569A64756E2164756E21
