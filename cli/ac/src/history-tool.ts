@@ -34,88 +34,79 @@ export const HISTORY_TOOL_NAME = "search-history" as const;
 export const HISTORY_TOOL_DEFINITION: Tool = {
     name: HISTORY_TOOL_NAME,
     description:
-        "Search the user's own local Claude Code conversation history across every local project, "
-        + "backed by a permanent SQLite full-text archive. `pattern` is TOKENIZED FULL-TEXT search "
-        + "with prefix matching, NOT a regular expression: it splits on whitespace, prefix-matches "
-        + "each token and ANDs them. Punctuation is DROPPED rather than searched, so regex-shaped "
-        + "input degrades silently instead of erroring; write plain words. Matching is "
-        + "case-insensitive and folds Turkish diacritics both ways, so `calisiyor` finds "
-        + "`çalışıyor`. `pattern` is required for every `output_mode` except `read`, which opens a "
-        + "chronological window on one `session_id`. Only prose and tool arguments are indexed; "
-        + "successful tool output is not, but failed output is, so this surfaces why something "
-        + "broke rather than large file dumps.",
+        "Search the user's past Claude Code conversations across every local project. `pattern` is "
+        + "TOKENIZED FULL-TEXT search with prefix matching, NOT a regular expression: tokens are ANDed "
+        + "and punctuation is DROPPED, so write plain words. Case-insensitive, and folds Turkish letters "
+        + "both ways, so `calisiyor` finds `\u00e7al\u0131\u015f\u0131yor`. `output_mode` \"read\" opens one "
+        + "`session_id` in order instead of searching. Indexes prose, tool arguments and failed tool "
+        + "output, not successful output.",
     inputSchema: {
         type: "object",
         properties: {
             pattern: {
                 type: "string",
-                description: "Tokenized full-text search terms, NOT a regex. Required unless "
-                    + "output_mode is \"read\".",
+                description: "Plain search words, not a regex. Required unless output_mode is \"read\".",
             },
             path: {
                 type: "string",
-                description: "Filters to turns whose stored project path contains this substring.",
+                description: "Only turns whose project path contains this substring.",
             },
             output_mode: {
                 type: "string",
                 enum: ["content", "sessions", "projects", "count", "read"],
                 default: "content",
-                description: "content: one excerpt per matching turn. sessions: one entry per "
-                    + "matching session. projects: one entry per project, busiest first. "
-                    + "count: match/session/project totals only. read: a chronological window on "
-                    + "one session_id, no search performed.",
+                description: "content: an excerpt per turn. sessions, projects: one entry each. "
+                    + "count: totals. read: one session_id in order, no search.",
             },
             head_limit: {
                 type: "number",
                 minimum: 1,
                 maximum: HISTORY_HEAD_LIMIT_MAX,
                 default: HISTORY_HEAD_LIMIT_DEFAULT,
-                description: "Maximum number of hits (or turns, in read mode) to return.",
+                description: "Maximum hits, or turns in read mode.",
             },
             offset: {
                 type: "number",
                 minimum: 0,
                 default: 0,
-                description: "Number of hits (or turns, in read mode) to skip before the page starts.",
+                description: "Hits, or turns in read mode, to skip.",
             },
             "-i": {
                 type: "boolean",
-                description: "No-op; matching is always case-insensitive. Accepted only for "
-                    + "vocabulary parity with the built-in Grep tool.",
+                description: "No-op; matching is always case-insensitive.",
             },
             since: {
                 type: "string",
-                description: "ISO 8601 date or date-time; excludes turns before it.",
+                description: "ISO 8601 date or date-time lower bound.",
             },
             until: {
                 type: "string",
-                description: "ISO 8601 date or date-time; excludes turns after it.",
+                description: "ISO 8601 date or date-time upper bound.",
             },
             role: {
                 type: "string",
                 enum: ["user", "assistant", "any"],
                 default: "any",
-                description: "Restricts to turns from this role.",
+                description: "Only turns from this role.",
             },
             kind: {
                 type: "string",
                 enum: ["prose", "tool_use", "tool_error", "any"],
                 default: "any",
-                description: "Restricts to this kind of turn.",
+                description: "Only this kind of turn.",
             },
             include_subagents: {
                 type: "boolean",
                 default: true,
-                description: "Set false to exclude subagent transcript turns.",
+                description: "false excludes subagent turns.",
             },
             agent_type: {
                 type: "string",
-                description: "Restricts to subagent turns of this agent type, e.g. \"ac:librarian\".",
+                description: "Only subagent turns of this agent type, e.g. \"ac:librarian\".",
             },
             session_id: {
                 type: "string",
-                description: "Database key of one session. Required when output_mode is \"read\"; "
-                    + "the value comes from the session_id shown on a prior content or sessions hit.",
+                description: "Session key from an earlier hit; required when output_mode is \"read\".",
             },
         },
         required: [],

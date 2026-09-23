@@ -157,7 +157,7 @@ test("the description states that punctuation is dropped rather than matched lit
     const description = HISTORY_TOOL_DEFINITION.description ?? "";
 
     expect(description).not.toContain("matched literally");
-    expect(description).toContain("Punctuation is DROPPED");
+    expect(description).toContain("punctuation is DROPPED");
 });
 
 test("the description promises Turkish folding in both directions, which the expansion now delivers", () => {
