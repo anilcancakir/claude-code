@@ -1,6 +1,6 @@
 ---
 name: <kebab-case-name>
-description: <Third-person summary of what the agent does AND when the orchestrator should delegate to it. Front-load the verb and noun. Include trigger phrases. Add "use proactively" if you want aggressive delegation.>
+description: <Role noun, then one "Use this when..." sentence, then what it returns. About 200 characters; an agent only a skill or command spawns ends with "Spawned only by <caller>; not for general tasks.">
 # Add only the fields the agent actually needs:
 # tools: Read, Grep, Glob                    # allowlist; omit to inherit every tool
 # disallowedTools: Write, Edit, NotebookEdit # denylist; applied first when both are set

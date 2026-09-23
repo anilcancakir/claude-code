@@ -28,11 +28,11 @@ name: code-reviewer
 
 What the agent does AND when the orchestrator should delegate to it. This is the trigger surface, the single line the orchestrator reads when deciding whether to call this agent. Format guidance:
 
-- Third person ("Reviews code for security issues"), not first or second person.
-- Front-load the verb and noun, then the contexts that pull it in.
-- Add "use proactively" when you want aggressive delegation.
-- Include trigger phrases the user might say ("review this", "audit", "check my PR").
-- Cover concrete contexts where this agent should fire.
+- A role noun first ("Read-only search agent", "Software architect agent"), then one "Use this when..." sentence, then what it returns. This is the shape of Claude Code's own built-in agents.
+- About 200 characters. Leave mechanics to the body, but name the knob a caller sets in the brief, as the built-in Explore does ("Specify search breadth: "medium" for moderate exploration, or "very thorough"...").
+- An agent only a skill or command spawns gets one short line ending "Spawned only by <caller>; not for general tasks.", the shape of first-party plugin agents on 2.1.280.
+- "Use proactively" raises delegation; on Opus 5.5 the Agent tool description already reads "Reach for this when the task matches an available agent type", so add it only when you have measured too little delegation.
+The examples below are from Anthropic's docs and predate that guidance; read them for structure, not wording.
 
 ```yaml
 description: Expert code review specialist. Proactively reviews code for quality, security, and maintainability. Use immediately after writing or modifying code.

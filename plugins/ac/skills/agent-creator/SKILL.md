@@ -1,7 +1,7 @@
 ---
 name: agent-creator
-description: "Authors and audits Claude Code subagents: tool allowlist or denylist, model and effort, permission mode, memory, skill preload, worktree isolation, and the system-prompt body."
-when_to_use: "Creating, editing, auditing or debugging a subagent definition, or moving recurring work into a fresh context."
+description: "Create or audit a Claude Code subagent: tools, model and effort, permissions, memory, isolation, and the system-prompt body."
+when_to_use: "Use when writing, editing or debugging a subagent definition."
 ---
 
 # Agent Creator
@@ -31,7 +31,7 @@ The lifecycle:
 3. **Listing.** Built-in plus active custom agents are summarized in the orchestrator's `Agent` tool description: `- {agentType}: {whenToUse} (Tools: {toolsDescription})`. The orchestrator decides delegation based on these lines.
 4. **Spawn.** Orchestrator calls `Agent({subagent_type, prompt, ...})`. Claude Code creates a fresh isolated context, applies the agent's tool restrictions, model, effort, permission mode, hooks, and any preloaded skills.
 5. **Substitution (plugin agents only).** `&#36;{CLAUDE_PLUGIN_ROOT}` and `&#36;{user_config.X}` are substituted in the system prompt for plugin agents. Non-plugin agents get no substitution; the body is injected verbatim.
-6. **Execution.** The agent runs as its own LLM loop. It receives the agent's body as system, the parent's `prompt` as the first user turn. CLAUDE.md is auto-loaded into its context unless the agent definition sets the internal `omitClaudeMd` flag (built-in only; saves token cost on read-only built-ins like Explore and Plan that do not need commit/PR/lint guidelines; kill-switch GrowthBook flag `tengu_slim_subagent_claudemd`). A subagent CAN spawn other subagents when `Agent` is in its tool set, which it is whenever the definition uses a `disallowedTools` denylist rather than a `tools:` allowlist. Decide that per agent; `references/tool-restrictions.md` carries the measurement and the two ways to deny it.
+6. **Execution.** The agent runs as its own LLM loop. It receives the agent's body as system, the parent's `prompt` as the first user turn. CLAUDE.md is auto-loaded into its context unless the definition sets `omitClaudeMd: true` (user and plugin frontmatter since Claude Code 2.1.271; managed instructions still load). It saves the hierarchy's tokens on read-only agents that need no commit, PR or lint rules, and it drops every project rule the agent would inherit, so the body has to carry any it still needs. A subagent CAN spawn other subagents when `Agent` is in its tool set, which it is whenever the definition uses a `disallowedTools` denylist rather than a `tools:` allowlist. Decide that per agent; `references/tool-restrictions.md` carries the measurement and the two ways to deny it.
 7. **Return.** The agent's final assistant message returns to the parent as the `Agent` tool result. Intermediate tool calls and reasoning stay in the agent's context, not the parent's.
 
 The parent never sees the agent's tool calls or scratch work; only the final summary. This is the central value: context isolation.
@@ -285,13 +285,13 @@ Minimal:
 ```yaml
 ---
 name: <kebab-case-name>
-description: <Third-person summary, when to use. Trigger phrases. Concrete contexts.>
+description: <Role noun. Use this when <situation>. Returns <shape>.>
 ---
 ```
 
 Add fields only when the conditional questions surfaced a reason. The "Frontmatter: minimal by default" table above lists each field with its trigger condition.
 
-`description` is the trigger surface; the orchestrator decides whether to delegate based on this line alone. Front-load the verb and noun, use third person, include "use proactively" if you want aggressive delegation. Cover synonyms and adjacent contexts.
+`description` is the trigger surface; the orchestrator decides whether to delegate based on this line alone. Write it the way Claude Code writes its built-in agents: a role noun, one "Use this when..." sentence, then what it returns ("Software architect agent for designing implementation plans. Use this when you need to plan the implementation strategy for a task. Returns step-by-step plans..."). About 200 characters: leave mechanics to the body but name the knob a caller sets in the brief (the built-in Explore names its breadth levels). An agent only a skill or command spawns ends with "Spawned only by <caller>; not for general tasks." so the main thread does not pick it up directly. Skip "use proactively": on Opus 5.5 the Agent tool description already reads "Reach for this when the task matches an available agent type".
 
 ### 4. Write the body
 
@@ -315,7 +315,7 @@ Worked examples that pass all gates: `${CLAUDE_SKILL_DIR}/references/examples.md
 
 | Symptom | Fix |
 |---------|-----|
-| Orchestrator never delegates | Strengthen `description`: more specific verbs, more trigger phrases, "use proactively" |
+| Orchestrator never delegates | Name the situation more exactly in the "Use this when" sentence, or name the agent in CLAUDE.md for the work it owns |
 | Orchestrator delegates too aggressively | Tighten `description`: remove broad keywords; specify when NOT to use |
 | Agent does the wrong thing | Strengthen the body: clearer Identity, explicit steps, lock the Output Format |
 | Agent writes files when it should not | Add `disallowedTools: Write, Edit, NotebookEdit` (or use `tools:` allowlist) |
@@ -361,7 +361,7 @@ Minimal form (covers most agents):
 ```markdown
 ---
 name: <kebab-case-name>
-description: <Third-person summary, when to use. Include trigger phrases. Use proactively if desired.>
+description: <Role noun. Use this when <situation>. Returns <shape>.>
 model: <sonnet | haiku | opus | inherit>
 ---
 
@@ -390,7 +390,7 @@ Always check:
 - [ ] File at the right scope (managed / project / user / plugin).
 - [ ] Filename = agent name (lowercase, hyphens, max 64 characters, no `claude` or `anthropic`).
 - [ ] Frontmatter has `name` and `description`. Other fields only when the agent needs them.
-- [ ] `description` is third-person, names trigger conditions, covers synonyms.
+- [ ] `description` is a role noun, one "Use this when" sentence and what it returns, about 200 characters.
 - [ ] No cargo-culted optional fields (each present field has a specific reason).
 
 Check only the items that apply to the agent's specific shape:

@@ -1,5 +1,7 @@
 # Worked Agent Examples
 
+The descriptions in these examples come from Anthropic's docs and predate the current style guidance in `frontmatter.md` (role noun, one "Use this when", what it returns, no "use proactively" by default). Read them for structure, not wording.
+
 Five complete custom subagents at different complexity tiers, ready to copy and adapt. Each is annotated to call out the choices: model, tools, body shape, why.
 
 This file is read raw; tokens shown stay literal. Copy directly into your own agent file with no escape adjustments.

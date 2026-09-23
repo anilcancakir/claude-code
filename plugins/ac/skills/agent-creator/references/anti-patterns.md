@@ -20,7 +20,7 @@ Common agent-authoring mistakes specific to agents (above and beyond the general
 
 **Symptom**: The orchestrator never delegates to the agent. The agent stays cold while the model uses generic tools.
 
-**Fix**: Third-person specific description with trigger phrases. "Reviews recently modified code for security, quality, and maintainability. Use proactively after writing or modifying code."
+**Fix**: A role noun, one "Use this when" sentence, and what it returns. "Read-only code reviewer. Use this when a change is ready for a second read. Returns ranked findings with evidence."
 
 ### First-person `description`
 
@@ -28,7 +28,7 @@ Common agent-authoring mistakes specific to agents (above and beyond the general
 
 **Symptom**: The orchestrator's listing reads mixed POV ("I" / "you" mixing); delegation gets confused.
 
-**Fix**: Third person. "Reviews code for security."
+**Fix**: Start with the role noun. "Security reviewer for pending changes."
 
 ### `name` not matching the filename
 
@@ -44,7 +44,7 @@ Common agent-authoring mistakes specific to agents (above and beyond the general
 
 **Symptom**: The orchestrator overtriggers; the agent fires for trivial reviews where the work could have stayed inline.
 
-**Fix**: Plain language. "Use proactively after writing or modifying code." Modern Claude reads aggressive caps literally and shifts trigger probability up.
+**Fix**: Plain language that names the situation. "Use this when a change is ready for a second read." Modern Claude reads aggressive caps literally and shifts trigger probability up.
 
 ### `tools: []` (empty list)
 
@@ -134,7 +134,7 @@ Common agent-authoring mistakes specific to agents (above and beyond the general
 
 **Mistake**: Body repeats coding conventions, repo structure, test commands.
 
-**Symptom**: Token bloat. Agent already auto-loads CLAUDE.md (unless `omitClaudeMd` is set, which is built-in only).
+**Symptom**: Token bloat. Agent already auto-loads CLAUDE.md (unless the frontmatter sets `omitClaudeMd: true`, available since Claude Code 2.1.271).
 
 **Fix**: Trust CLAUDE.md. The body only adds what is specific to THIS agent's role, not the codebase.
 
@@ -261,8 +261,8 @@ Common agent-authoring mistakes specific to agents (above and beyond the general
 When auditing an existing agent, walk these:
 
 - [ ] `name` is lowercase + hyphens, matches the filename.
-- [ ] `description` is third-person, names trigger conditions, covers synonyms.
-- [ ] No aggressive caps in `description` (one or two "use proactively" hints is fine; "CRITICAL" / "ALWAYS" is too much).
+- [ ] `description` is a role noun, one "Use this when" sentence and what it returns.
+- [ ] No aggressive caps in `description`; "use proactively" only where too little delegation was measured.
 - [ ] `tools` or `disallowedTools` matches what the body actually uses.
 - [ ] No bare `Bash` unless validated by a `PreToolUse` hook.
 - [ ] `Agent` in `tools` only for main-thread agents.
