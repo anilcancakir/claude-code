@@ -17,6 +17,14 @@ Sources: Anthropic's official docs at `https://code.claude.com/docs/en/memory.md
 
 ## Frontmatter and structure failures
 
+**Anything above a rule's frontmatter.**
+
+Symptom: a path-scoped rule loads at session start every session, exactly like the `globs:` case below, although its `paths:` block looks right.
+
+Why: the loader parses frontmatter only when the file starts with it (`/^---\s*\n/` against the raw content). An attribution comment, a title or a blank line above the opening `---` turns the whole block into body text, `paths:` is never read, and nothing warns. Verified on 2.1.280 with two otherwise identical rules whose glob matched nothing: the one with a comment above its frontmatter answered in the session, the one with the comment below did not. A 2026-09-23 scan found this shape in 27 of 123 rule files across six projects, all written from this skill's old template.
+
+Fix: frontmatter first, then the comment: `---`, `paths:`, `---`, then `<!-- ... -->`, then the body.
+
 **Using `globs:` instead of `paths:` for path-scoping.**
 
 Symptom: rule loads at session start every session regardless of which files Claude touches. You wonder why context fills up.
