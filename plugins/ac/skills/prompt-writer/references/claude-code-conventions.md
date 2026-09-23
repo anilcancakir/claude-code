@@ -49,9 +49,28 @@ Source: https://code.claude.com/docs/en/skills.md > Skill content lifecycle.
 
 **Software engineering frame is the default.** Claude Code interprets generic instructions in the context of software engineering and the working directory. Generic phrasing ("rename methodName to snake case") is interpreted as a code edit in the working directory, not a chat response.
 
-## CC code-style defaults (inherited by every custom prompt)
+## What the main-thread prompt actually carries (lean vs classic)
 
-The live CC system prompt carries the rules below. Custom agents and skills inherit them; do not restate them unless overriding. These are the bullets present in current Claude Code versions; they evolve, so when in doubt cross-check the latest live behavior.
+Claude Code builds the main-thread system prompt in one of two shapes, chosen per model. On 2.1.280 the LEAN shape goes to Opus 5.5, Opus 5, Opus 4.8, Fable 5 and 5.1, Mythos 5 and 5.1; CLASSIC goes to every Sonnet and Haiku and to Opus 4.0 through 4.7.
+
+LEAN carries only this, besides environment, memory and session blocks (read verbatim from a 2.1.280 Opus 5.5 session):
+
+- a persona line and the dual-use security policy;
+- `# Harness`: markdown rendering, permission denials, mid-conversation system turns, hooks as user feedback, the `<pasted_content>` note, dedicated tools over shell, parallel independent calls, `file_path:line_number`;
+- "Write code that reads like the surrounding code: match its comment density, naming, and idiom.";
+- they/them for unstated pronouns;
+- confirm hard-to-reverse or outward-facing actions, look before deleting or overwriting, report outcomes faithfully;
+- "When you have enough information to act, act. Do not re-derive facts already established in the conversation, re-litigate a decision the user has already made, or narrate options you will not pursue."
+
+Opus 5 additionally gets `# Delivering work`, `# Corrections` and a line suppressing Agent use unless a user, CLAUDE.md or skill asks; Opus 5.5 gets none of the three. Everything in the next two sections is CLASSIC only. So:
+
+- A skill or command body running on Opus 5.5 does NOT inherit the code-style rules or the communication contract below. If the task needs one, state it in the body in one line.
+- A custom subagent inherits none of either shape: its system prompt is its own body plus environment notes. Everything the agent must follow goes in the body.
+- Capabilities can be served remotely, so before relying on a section reaching a model, read the `prompt_snapshot` attachment in a real session's jsonl.
+
+## CC code-style defaults (CLASSIC shape only)
+
+The CLASSIC prompt carries the rules below; LEAN models (Opus 5.5 included) and every custom subagent do not receive them. Restate the ones a prompt needs when it can run on a LEAN model or as a subagent.
 
 **Exploratory question rule.** For exploratory questions ("what could we do about X?", "how should we approach this?", "what do you think?"), respond in 2 to 3 sentences with a recommendation and the main tradeoff. Present it as something the user can redirect, not a decided plan. Do not implement until the user agrees.
 
@@ -73,7 +92,7 @@ These rules are derived from the bullets currently embedded in Claude Code's "Do
 
 ## Communication during tool use
 
-Users see the text written between tool calls, not the tool calls themselves. Calibrate accordingly.
+Users see the text written between tool calls, not the tool calls themselves. Calibrate accordingly. This contract is CLASSIC-only (and part of Fable 5.1's bundle); Opus 5.5 instead gets a host reminder after five silent turns, so state the update cadence you want rather than assuming it.
 
 **Before the first tool call.** State in one sentence what you are about to do.
 
@@ -130,7 +149,7 @@ The live system prompt has two sub-agent variants tied to whether sub-agent-as-f
 
 > "Use the Agent tool with specialized agents when the task at hand matches the agent's description. Subagents are valuable for parallelizing independent queries or for protecting the main context window from excessive results, but they should not be used excessively when not needed. Importantly, avoid duplicating work that subagents are already doing; if you delegate research to a subagent, do not also perform the same searches yourself."
 
-Both variants come from the same harness; only one is active per session depending on feature flags. Source: https://code.claude.com/docs/en/sub-agents.md and https://code.claude.com/docs/en/skills.md > Run skills in a subagent.
+Both variants come from the same harness; only one is active per session depending on feature flags. On the LEAN shape the Agent tool description itself carries the guidance instead, and it differs per model on 2.1.280: Opus 5 gets a no-nudges variant plus the suppression line, while Opus 5.5 gets "Reach for this when the task matches an available agent type, when you have independent work to run in parallel, ...". A prompt running on 5.5 that wants less delegation has to say so itself. Source: https://code.claude.com/docs/en/sub-agents.md and https://code.claude.com/docs/en/skills.md > Run skills in a subagent.
 
 ## Skill mechanics that affect prompt writing
 
