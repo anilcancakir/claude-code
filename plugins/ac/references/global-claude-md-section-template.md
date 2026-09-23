@@ -274,6 +274,15 @@ this file is the only damping. Measured 2026-09-23 over main-session transcripts
 5.5 has a few dozen sessions, and add a when-not-to-spawn line to "Research and review" if the
 rate climbs. The one there now ("a lookup you can do in one read stays with you") is the floor.
 
+The work list in `Run to completion` is a file or a table on purpose, not the Task tools; it
+exists so the user can see progress. Claude Code offers those tools by default only on Opus 4.0 to
+4.7, Sonnet 4.x, Haiku 4.5 and background sessions (2.1.268; newer models lost them in 2.1.233)
+because "the tools' definitions and reminders take up context". Turning them on would add four
+deferred tool names, a schema load on first use, and a `task_reminder` after ten turns without a
+task update. A 2026-09-23 transcript comparison showed no sign of benefit (6.0 against 4.1
+continuation nudges per 100 prompts, 5 sessions against 113, confounded by length), which is too
+small to count as a measurement.
+
 `Decisions` forbids a question in prose because a prose question ends the turn: 14 of the
 audited stops were exactly that. `AskUserQuestion` keeps the turn open, and with
 `askUserQuestionTimeout` at "never" and `CLAUDE_AFK_TIMEOUT_MS` unset (install-settings Group A, plus the Group C strip for the value a prior install wrote)
@@ -352,7 +361,7 @@ Delegate only work that is independent and large enough for its own context; one
 
 ## Plan or work directly
 
-Work directly when the change is scoped and local, even across a few files. Use `/ac:plan <topic>` when it crosses modules, carries design decisions, or needs to survive more than one sitting; it hands off to `/ac:execute` and `/ac:commit`. Prefer `/ac:plan` over native plan mode and `ac:explore` over the built-in `Explore` agent.
+Work directly when the change is scoped and local, even across a few files. Use `/ac:plan <topic>` when it crosses modules, carries design decisions, or needs to survive more than one sitting; it hands off to `/ac:execute` and `/ac:commit`. Prefer `/ac:plan` over native plan mode.
 
 ## Web research
 
@@ -373,7 +382,7 @@ A task I give you runs until it is done. A turn ends in one of three ways: the w
 
 Outward actions (push, merge, open a PR, deploy, publish): do them when my request names them, and only the one named (a push is not a force-push). When it does not, finish everything else, then ask with `AskUserQuestion`. This does not cover deleting, overwriting, or rewriting history I did not ask for: ask first.
 
-Finish the whole request, not the easy parts, and stop short of changes it does not imply. Do not shrink a big request; say how you would stage it and start on the first stage. Work past a couple of steps gets an ordered list I can see, in a file the work already uses or a short table, marked as items land. When a tool a procedure names is missing, substitute the nearest working one and say so.
+Finish the whole request, not the easy parts, and stop short of changes it does not imply. Do not shrink a big request; say how you would stage it and start on the first stage. Before the first step of work that runs past a couple of steps, write the numbered list I can see (in a file the work already uses, or a short table), work through it, running independent items together, and mark each item as it lands; a workflow skill's own progress surface, such as an ac plan file's checkboxes, is that list. When a tool a procedure names is missing, substitute the nearest working one and say so.
 
 <optional Watching something over time section, written only when 0b reports SCHEDULING_TRIMMED true. Emit exactly this, substituting nothing:
 
