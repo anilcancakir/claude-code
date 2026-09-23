@@ -150,7 +150,7 @@ name: auditing-feature
 description: "Map how a feature is implemented across the codebase: files, functions, data flow and surfaces touched."
 when_to_use: "Use when the question is how X works end to end."
 context: fork
-agent: Explore
+agent: ac:explore
 argument-hint: "[feature description or starting point]"
 allowed-tools: Read Grep Glob
 ---
@@ -201,7 +201,7 @@ Under 800 words. Lead with the feature's purpose in one sentence.
 **Annotations.**
 
 - *User scope* (`~/.claude/skills/`), this is a generic audit skill, useful across all projects.
-- *`context: fork` + `agent: Explore`*, runs in an isolated read-only subagent. The audit does not pollute the main conversation, and Explore's tool set is exactly right for read-only investigation.
+- *`context: fork` + `agent: ac:explore`*, runs in an isolated read-only subagent. The audit does not pollute the main conversation, and a read-only search agent's tool set is exactly right for it. The built-in `Explore` has the same shape but is disabled on an `/ac:install` setup, where naming it silently falls back to `general-purpose`.
 - *Pure body, no shell injection*, the subagent does the work; nothing is preprocessed.
 - *Output shape locked*, section headers are dictated, with citation format and length cap. Forked skills must commit; the user has no way to steer mid-run.
 - *Body is the task*, every line tells the subagent what to find or what to return. No standing rules, no general principles.

@@ -91,7 +91,7 @@ The only fields a working skill needs are `name` and `description`. `when_to_use
 | `user-invocable` | optional | `true` | the skill is background reference knowledge that has no meaningful slash-menu invocation |
 | `allowed-tools` | optional | none (every tool call goes through normal permissions) | the body issues specific tool calls you want pre-approved to avoid prompting (narrow patterns only) |
 | `context` | optional | `inline` | the work is bounded, self-contained, and benefits from running in an isolated subagent context |
-| `agent` | optional (only meaningful with `context: fork`) | `general-purpose` | a different subagent type (Explore, Plan, custom) fits the task better |
+| `agent` | optional (only meaningful with `context: fork`) | `general-purpose` | a different subagent type (`ac:explore`, a custom agent, or built-in `Explore`/`Plan` where `/ac:install` has not disabled them) fits the task better |
 | `paths` | optional | none (skill always discoverable) | the skill is relevant only to a subset of files; you want to keep the description out of unrelated sessions' budget |
 | `model` | optional | inherit session model | the skill needs a heavier or lighter model than the session default |
 | `effort` | optional | inherit session effort | the skill needs more or less reasoning budget than the session default |
@@ -124,7 +124,7 @@ Inline is the default and the right choice for most skills. Set `context: fork` 
 | User can steer mid-process | Yes | No |
 | Body shape allowed | Reference content or task | Actionable task only |
 | Main context cleanup | No | Yes, work happens in an isolated context |
-| `agent:` field | Ignored (do not set) | Picks subagent type (`Explore`, `Plan`, `general-purpose`, or any `.claude/agents/<name>.md`); only set when forking |
+| `agent:` field | Ignored (do not set) | Picks subagent type (`general-purpose`, `ac:explore`, or any `.claude/agents/<name>.md`; built-in `Explore` and `Plan` are disabled on an `/ac:install` setup); only set when forking |
 
 Reference content in a forked skill produces a subagent with guidelines but no goal, returning nothing useful. If the body has no actionable task, leave the default inline.
 
@@ -366,7 +366,7 @@ when_to_use: <as above>
 # user-invocable: false             # model-only; background reference knowledge
 # allowed-tools: Bash(gh pr view:*) Read Grep   # narrow patterns; never bare Bash
 # context: fork                     # subagent execution; body must be an actionable task
-# agent: Explore                    # subagent type when forked
+# agent: ac:explore                 # subagent type when forked (general-purpose | ac:explore | <custom>)
 # paths: ["lib/**/*.dart", "pubspec.yaml"]   # auto-activate only when matching files are touched
 # model: claude-opus-5              # override the active model for this skill's run
 # effort: high                      # override the active effort level

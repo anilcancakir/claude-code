@@ -197,7 +197,7 @@ When set to `fork`, the skill runs in a subagent. The body becomes the subagent'
 
 ```yaml
 context: fork
-agent: Explore
+agent: ac:explore
 ```
 
 Inline (the default) keeps the work in the current conversation, which lets the user steer mid-process and lets the body reference earlier conversation state.
@@ -206,11 +206,11 @@ Inline (the default) keeps the work in the current conversation, which lets the 
 
 ## `agent`
 
-Picks the subagent type when `context: fork` is set. Built-in options: `Explore`, `Plan`, `general-purpose`. Or any custom agent in `.claude/agents/<name>.md`. Defaults to `general-purpose`. A setup installed by `/ac:install` disables and denies the built-in `Explore` and `Plan` (`CLAUDE_CODE_DISABLE_EXPLORE_PLAN_AGENTS=1`, `Agent(Explore)`, `Agent(Plan)`), so name `ac:explore` or `general-purpose` there.
+Picks the subagent type when `context: fork` is set. Built-in options: `Explore`, `Plan`, `general-purpose`. Or any custom agent in `.claude/agents/<name>.md`. Defaults to `general-purpose`. A setup installed by `/ac:install` disables and denies the built-in `Explore` and `Plan` (`CLAUDE_CODE_DISABLE_EXPLORE_PLAN_AGENTS=1`, `Agent(Explore)`, `Agent(Plan)`), so name `ac:explore` or `general-purpose` there. An `agent:` value that names no loaded agent falls back to `general-purpose` with only a debug-log line, so a skill naming `ac:explore` runs on `general-purpose` for anyone without the ac plugin.
 
 ```yaml
 context: fork
-agent: Explore
+agent: ac:explore
 ```
 
 The agent type determines the model, tools, and permissions of the subagent.
@@ -328,13 +328,13 @@ Hidden from the slash menu (no meaningful user action), conditional on path so i
 name: deep-research
 description: Researches a topic thoroughly across the codebase. Use when the user asks "how does X work end-to-end", "where is X handled", or wants a deep audit of a feature.
 context: fork
-agent: Explore
+agent: ac:explore
 argument-hint: "[topic or question]"
 allowed-tools: Read Grep Glob
 ---
 ```
 
-Fork to keep the main conversation clean, Explore agent for read-only investigation, narrow tool list.
+Fork to keep the main conversation clean, `ac:explore` for read-only investigation, narrow tool list.
 
 ### Plugin-distributed skill (portable bundled files)
 

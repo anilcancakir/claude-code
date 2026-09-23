@@ -71,7 +71,7 @@ when_to_use: ...
 # user-invocable: false                                       # background reference; not a meaningful slash-menu command
 # allowed-tools: Bash(gh pr view:*) Read Grep                 # body chains tool calls you want pre-approved (narrow patterns only)
 # context: fork                                               # body is a bounded actionable task, run isolated
-# agent: Explore                                              # subagent type when forked (Explore | Plan | general-purpose | <custom>)
+# agent: ac:explore                                           # subagent type when forked (general-purpose | ac:explore | <custom>)
 # paths:                                                      # path-conditional activation (polyglot repos)
 #   - "lib/**/*.dart"
 # model: claude-opus-5                                        # override session model for this skill's run

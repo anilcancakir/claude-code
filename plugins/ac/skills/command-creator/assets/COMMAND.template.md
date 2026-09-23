@@ -83,7 +83,7 @@ when_to_use: ...
 # user-invocable: false                            # very rare for commands; pure background context
 # allowed-tools: Bash(gh pr view:*) Read Grep      # body chains tool calls you want pre-approved (narrow patterns only)
 # context: fork                                    # body is a bounded actionable task, run isolated
-# agent: Explore                                   # subagent type when forked (Explore | Plan | general-purpose | <custom>)
+# agent: ac:explore                                # subagent type when forked (general-purpose | ac:explore | <custom>)
 # model: claude-opus-5                             # override session model for this command's run
 # effort: high                                     # override session effort (low | medium | high | xhigh | max)
 # shell: bash                                      # default; powershell on Windows when CLAUDE_CODE_USE_POWERSHELL_TOOL=1
