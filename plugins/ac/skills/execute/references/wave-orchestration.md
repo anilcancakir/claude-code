@@ -4,9 +4,9 @@ Read at Phase 1g and again at the first wave barrier. The skill body carries the
 
 ### 1g. Confirm the progress surface
 
-There is no task list to register. Claude Code leaves the task tools out on the models this setup runs, and
-`CLAUDE_CODE_ENABLE_TASKS=false` keeps the four Task tools out on older ones; the two surfaces below carry
-everything a task list would.
+There is no task list to register. Claude Code leaves the task tools out on Opus 4.8, Sonnet 5, Opus 5 and
+later, and where it still offers them `CLAUDE_CODE_ENABLE_TASKS=false` swaps the four Task tools for `TodoWrite`;
+the two surfaces below carry everything a task list would.
 
 The two surfaces:
 

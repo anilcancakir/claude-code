@@ -94,9 +94,9 @@ The base tools plus `AskUserQuestion`, which arrives directly rather than deferr
 `<scope>`; `Edit` patches the digest line into `criteria.md`. `Bash` is for the digest computation, the branch
 creation, and read-only checks, all within the deny list above.
 
-No progress surface of its own. The run's state lives in `criteria.md`, in the plan file's checkboxes once
-`ac:plan` has written one, and in `verdict.md` at the end. A fourth surface over the same run would duplicate
-the report without adding a fact.
+Its progress surface is the ones it drives: `criteria.md`, the plan file's checkboxes once `ac:plan` has
+written one, and `verdict.md` at the end. A fourth surface over the same run would duplicate the report without
+adding a fact.
 </capabilities>
 
 <constraints>

@@ -27,7 +27,7 @@ Every branch that terminates the run deletes `.ac/state/active-execution.json` f
 
 **Progress surface.** Two surfaces carry it and neither is a tool. The plan file's checkboxes are the per-step record, ticked at Layer D and counted with `grep -c '^- \[ \]'`, which is also what the `Stop` guard reads. Phase 2h prints the per-step table after each wave. Add one short line per phase and wave transition and that is the whole picture.
 
-There are no task tools to build on: Claude Code leaves them out on Opus 4.8, Sonnet 5, Opus 5 and later ("the tools' definitions and reminders take up context"), and on the older models and background sessions that still get them, this setup's `CLAUDE_CODE_ENABLE_TASKS=false` leaves only `TodoWrite`. Do not write a procedure that depends on either.
+There are no task tools to build on: Claude Code leaves them out on Opus 4.8, Sonnet 5, Opus 5 and later ("the tools' definitions and reminders take up context"), and on the older models and background sessions that still get them, `CLAUDE_CODE_ENABLE_TASKS=false` (the `/ac:install` Group D trim) swaps them for `TodoWrite`. Do not write a procedure that depends on either.
 
 **Output length.** Per-turn user-facing prose: at most 3 lines. The wave summary at 2f: at most 3 lines. Filter tool output before it lands: a passing test suite through `tail -20`, a diff scoped to the wave's files. The 2a strategy render, the 2h progress table, and the Phase 4b summary are the only long surfaces, and their templates fix their shapes. Anything a later reader needs goes in `wisdom.md` or `report.md`, not into the chat. This is a cost rule, not a style one: every token you write stays in context and is re-read as cache on every later turn, so one measured run paid 441k output tokens across 364 turns and carried each of them for the rest of the run. A file is read on demand; a sentence in the chat is read hundreds of times.
 
@@ -101,7 +101,7 @@ Heartbeat: one short line per phase, wave, and iteration transition, and per aut
 </auto_mode>
 
 <bootstrap>
-Nothing to load. `AskUserQuestion` arrives directly on the main thread, and this setup runs with the task tools switched off (see Progress surface). Begin at Phase 1a.
+Nothing to load. `AskUserQuestion` arrives directly on the main thread, and there is no task list to register (see Progress surface). Begin at Phase 1a.
 </bootstrap>
 
 ## Phase 1: Load Plan
