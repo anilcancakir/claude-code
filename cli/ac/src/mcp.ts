@@ -82,7 +82,7 @@ const REMOTE_TOOL_TEXT: Readonly<Record<string, { description: string; params: R
     "web-fetch": {
         description: "Fetch a page and return its content as markdown. Fallback for the built-in WebFetch, "
             + "which you try first: use it when WebFetch errors, times out, is blocked (403/429), returns an empty, auth-walled "
-            + "or unrendered page, or cannot follow a cross-host redirect, and when you need the page text "
+            + "or unrendered page, and when you need the page text "
             + "itself rather than a summary.",
         params: { url: "Absolute URL including https://." },
     },

@@ -38511,7 +38511,7 @@ var REMOTE_TOOL_TEXT = {
     }
   },
   "web-fetch": {
-    description: "Fetch a page and return its content as markdown. Fallback for the built-in WebFetch, " + "which you try first: use it when WebFetch errors, times out, is blocked (403/429), returns an empty, auth-walled " + "or unrendered page, or cannot follow a cross-host redirect, and when you need the page text " + "itself rather than a summary.",
+    description: "Fetch a page and return its content as markdown. Fallback for the built-in WebFetch, " + "which you try first: use it when WebFetch errors, times out, is blocked (403/429), returns an empty, auth-walled " + "or unrendered page, and when you need the page text " + "itself rather than a summary.",
     params: { url: "Absolute URL including https://." }
   },
   "web-search": {
@@ -39478,4 +39478,4 @@ function formatSyncReport(report) {
 }
 await program2.parseAsync(process.argv);
 
-//# debugId=853FD2C77A5C569A64756E2164756E21
+//# debugId=43ACA07A92D6268A64756E2164756E21
