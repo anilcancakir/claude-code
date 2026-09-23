@@ -1,7 +1,7 @@
 ---
 name: git-master
-description: "Git expert: atomic commits with style detection, rebase and squash, and history archaeology through blame, bisect and pickaxe."
-when_to_use: "Committing, rebasing, squashing, cherry-picking, or tracing when and why something changed. The GitHub API is `github-cli`, not this."
+description: "Make atomic commits in the repo's own style, rebase or squash, and trace history with blame, bisect and pickaxe."
+when_to_use: "Use for commit, rebase, squash, cherry-pick or when-and-why history questions; GitHub API work is github-cli."
 user-invocable: false
 allowed-tools: Bash(git:*)
 ---
