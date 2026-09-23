@@ -290,7 +290,7 @@ For agents that diagnose AND fix.
 ```markdown
 ---
 name: debugger
-description: Debugging specialist for errors, test failures, and unexpected behavior. Use proactively when encountering any issues.
+description: Debugging agent for errors, test failures and unexpected behaviour. Use this when something fails and the cause is unknown. Returns the root cause and the fix it applied.
 tools: Read, Edit, Bash, Grep, Glob
 model: inherit
 ---

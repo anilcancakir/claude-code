@@ -264,7 +264,7 @@ Not the same as `mcpServers`. `mcpServers` adds servers scoped to the agent; `re
 ```yaml
 ---
 name: docs-researcher
-description: Searches local docs and project files for usage examples. Use proactively when the user asks how to use a library or pattern.
+description: Read-only docs researcher. Use this when the question is how to use a library or pattern in this project. Returns file:line examples.
 tools: Read, Grep, Glob
 model: haiku
 effort: low
@@ -290,7 +290,7 @@ color: yellow
 ```yaml
 ---
 name: debugger
-description: Debugging specialist for errors, test failures, and unexpected behavior. Use proactively when encountering any issues.
+description: Debugging agent for errors, test failures and unexpected behaviour. Use this when something fails and the cause is unknown. Returns the root cause and the fix it applied.
 tools: Read, Edit, Bash, Grep, Glob
 model: inherit
 ---

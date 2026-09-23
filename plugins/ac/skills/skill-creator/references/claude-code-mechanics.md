@@ -223,9 +223,9 @@ Two separate budgets:
 
 When the total listing overflows, Claude Code drops descriptions for the least-used skills first; the skills you actually use keep their full text. Run `/doctor` to see whether the budget is overflowing and which skills lost their descriptions. To free budget for other skills, demote low-priority entries via `skillOverrides` (see below); plugin skills are exempt from `skillOverrides`, so only the plugin author can shorten those.
 
-Observed 2026-09-04 on 2.1.260: a listing at 10,182 characters against a 10,000 budget was missing an entry outright at session start, not reduced to a name, and the entry returned once characters were freed. Do not plan on a name-only stub surviving.
+Observed 2026-09-04 on 2.1.260: a listing at 10,182 characters against a 10,000 budget was missing an entry outright at session start, not reduced to a name, and the entry returned once characters were freed. Do not plan on a name-only stub surviving. On 2.1.280 an entry that does not fit collapses to `- <name>`, least-used first, and bundled skills keep their text.
 
-Front-load the use case in the first 700 to 900 characters of `description`. If the per-skill cap hits, the trailing text is what gets cut, not the front.
+Keep `description` plus `when_to_use` near 200 characters; the per-skill cap is a ceiling, not a target.
 
 ## `skillOverrides` setting (visibility control from settings)
 
