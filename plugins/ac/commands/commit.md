@@ -1,5 +1,5 @@
 ---
-description: "Split the current changes into atomic commits in the repo's style, preflight them with typecheck, test and lint, and push when an upstream exists. Pass --skip-preflight or --no-push to skip those steps."
+description: "Split the changes into atomic commits, preflight and push them. Pass --skip-preflight or --no-push to skip a step."
 argument-hint: "[--skip-preflight] [--no-push]"
 allowed-tools: Bash, Skill, Read
 effort: medium

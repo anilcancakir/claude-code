@@ -1,5 +1,5 @@
 ---
-description: "Set up ac for your user: generate your my-coding and my-language skills, write your global CLAUDE.md, and merge settings.json. Every write is backed up or gated."
+description: "Set up ac for your user: my-coding and my-language skills, the global CLAUDE.md and settings.json, each write gated."
 argument-hint: "[--dry-run] [--skip-skills] [--skip-settings] [--skip-claude-md]"
 effort: medium
 disable-model-invocation: true

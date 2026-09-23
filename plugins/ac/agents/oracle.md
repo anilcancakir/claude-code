@@ -1,6 +1,6 @@
 ---
 name: oracle
-description: "Read-only reviewer and advisor. Use this to check a plan, diff, research report or config change against its sources before it ships, to settle a decision spanning modules, or to break a stall after two failed fixes. Returns ranked findings with evidence and a fix; never edits."
+description: "Read-only reviewer and advisor. Use this when a plan, diff, report or config change needs checking against its sources, or a stalled decision needs settling. Returns ranked findings."
 model: opus
 effort: high
 color: purple

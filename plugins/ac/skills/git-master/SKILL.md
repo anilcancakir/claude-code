@@ -1,7 +1,7 @@
 ---
 name: git-master
 description: "Make atomic commits in the repo's own style, rebase or squash, and trace history with blame, bisect and pickaxe."
-when_to_use: "Use for commit, rebase, squash, cherry-pick or when-and-why history questions; GitHub API work is github-cli."
+when_to_use: "Use when rebasing, squashing, cherry-picking or tracing history, or for one hand-picked commit; /ac:commit splits, preflights and pushes the working tree."
 user-invocable: false
 allowed-tools: Bash(git:*)
 ---
