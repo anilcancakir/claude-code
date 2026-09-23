@@ -1,6 +1,6 @@
 ---
-description: <Third-person summary of what this command does and when to invoke it. Front-load the use case. Include trigger phrases. Be specific. Combined description + when_to_use must stay under 1,536 characters.>
-when_to_use: <Optional. A separate slot for trigger phrases and example invocations when `description` is busy. Counts toward the same 1,536-char cap.>
+description: <Imperative verb + object, one sentence, 60-120 characters. Name any flag the model must pass: argument-hint reaches only the / menu, never the model.>
+when_to_use: <Optional. One "Use when..." sentence, under 150 characters.>
 ---
 
 # <Command Title>

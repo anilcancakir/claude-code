@@ -260,8 +260,7 @@ Common command-authoring mistakes specific to commands (above and beyond the gen
 
 When auditing an existing command:
 
-- [ ] `description` is third-person, specific, names the trigger contexts.
-- [ ] Combined `description` + `when_to_use` under 1,536 characters.
+- [ ] `description` opens with an imperative verb, carries no phases, names any flag a model caller must pass, and stays at 60 to 120 characters (about 200 with `when_to_use`).
 - [ ] `argument-hint` matches what the body actually expects.
 - [ ] If `arguments:` is set, every `$<name>` in the body matches a declared name.
 - [ ] No literal `$ARGUMENTS` or `$N` in documentation contexts (escape as `&#36;`).

@@ -1,14 +1,14 @@
 ---
 name: command-creator
-description: "Authors and audits Claude Code slash commands: argument design, shell injection for live context, phase-structured bodies, approval gates before side effects, and the flat-file versus directory choice."
-when_to_use: "Creating, editing, auditing or debugging a slash command, or wiring `/name` invocation with arguments."
+description: "Create or audit a Claude Code slash command: arguments, shell-injected context, phases, and approval gates."
+when_to_use: "Use when writing, editing or debugging a slash command."
 ---
 
 # Command Creator
 
 You are about to write or edit a Claude Code slash command another Claude will execute. A command is a markdown file that becomes a `/name` invocation: when the user types `/foo bar baz`, Claude Code reads the file, substitutes `&#36;ARGUMENTS` with `bar baz`, runs shell injection blocks, and injects the resulting prompt as a single user message. The model then executes the body as the next turn.
 
-This skill is the playbook for designing arguments, shell-injection-driven context gathering, phase-based body structure, approval gates, and the storage-format choice. Target is Opus 5. The same shape works for Sonnet 5 at lower cost and for Haiku 4.5, which supports no effort parameter.
+This skill is the playbook for designing arguments, shell-injection-driven context gathering, phase-based body structure, approval gates, and the storage-format choice. Target is Opus 5.5. The same shape works for Sonnet 5 at lower cost and for Haiku 4.5, which supports no effort parameter.
 
 ## Three jobs, not one
 
@@ -251,8 +251,8 @@ Minimal:
 
 ```yaml
 ---
-description: <Third-person summary of what the command does + when to invoke it. Trigger phrases. Under 1,536 chars combined with when_to_use.>
-when_to_use: <Optional. Trigger phrases and example invocations.>
+description: <Imperative verb + object, one sentence, 60-120 chars. Name any flag the model must pass.>
+when_to_use: <Optional. One "Use when..." sentence.>
 ---
 ```
 
@@ -321,7 +321,7 @@ Always check:
 - [ ] Storage format chosen (flat `.md` for simple, skill-directory for bundled files).
 - [ ] Directory or file name = slash command name (lowercase, hyphens, no `claude` or `anthropic`).
 - [ ] Frontmatter has `description`; `argument-hint` set if the command takes input; `arguments` set only for named-positional substitutions.
-- [ ] Combined `description` + `when_to_use` under 1,536 characters, front-loaded with the use case.
+- [ ] `description` opens with an imperative verb, carries no phases, names any flag a model caller must pass, and stays at 60 to 120 characters (about 200 with `when_to_use`); a `disable-model-invocation` command's description is read by humans in `/help`, so keep it to one sentence too.
 - [ ] `disable-model-invocation: true` set if the command has irreversible side effects.
 - [ ] `allowed-tools` narrow patterns set if the body chains specific tool calls.
 
