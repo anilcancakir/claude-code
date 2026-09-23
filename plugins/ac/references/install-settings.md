@@ -5,7 +5,7 @@ these from memory; this file is the only source. It lives outside the command bo
 slash command renders into the user prompt and competes with the user's actual request, and
 because `--skip-settings` should not pay for a table it will not use.
 
-Every write is ADD-only, with one exception: the Group C migration strip, which rewrites or removes a value only when it exactly matches what an earlier /ac:install wrote. Outside that strip, never strip, downgrade, or overwrite a key the operator already set.
+Every write is ADD-only, with two exceptions: the Group C migration strip, which rewrites or removes a value only when it exactly matches what an earlier /ac:install wrote, and Group E, which replaces an `outputStyle` of `"default"` after the operator agrees. Outside that strip, never strip, downgrade, or overwrite a key the operator already set.
 "Set only when absent" means that if the key exists at all, even with a different value, it is
 left untouched. For arrays, append the missing entries and skip any already present.
 
