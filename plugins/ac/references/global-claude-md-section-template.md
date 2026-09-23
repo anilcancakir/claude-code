@@ -79,6 +79,9 @@ DELIBERATELY ABSENT because LEAN already carries it, verified 2026-09-04 against
                wait" back into `Role`: measured 2026-09-23 it produced 13 self-imposed merge and
                deploy stops the operator had already asked for.
   `# Memory`   duplicate-checking, path-verifying, and the do-not-save list.
+  act-don't-rederive  lean, behind `tengu_cedar_lantern`, default on. `Decisions` keeps its
+               carry-on sentence only because it names the non-blocking-decision stop the
+               audit counted (14); "look at the target" is lean text and is not repeated.
   `# Context management`  "the summary ... is provided in the next context window so work can
                continue, you don't need to wrap up early or hand off mid-task."
 
@@ -192,7 +195,7 @@ turn to wait on CI or a bot (18), non-blocking decision lists (14), questions in
 self-imposed outward-action gates (13), context worry (3). Context worry has no bullet: the
 lean `# Context management` line already covers it, and 3 of 190 did not earn one. Anthropic's Opus 5.5 prompting page
 says the model responds to instructions that name the specific early stops, which is why the
-list names them rather than saying "do not stop early". The plugin's always-on Stop guard
+list names them rather than saying "do not stop early". The same page scopes its example to fully unattended agents and says to leave it out of human-in-the-loop use. This section overrides that scope on purpose: the audit measured about 190 needless stops against 6 real blockers in interactive sessions, and the outward-action rule keeps the confirmation step the page asks for. The plugin's always-on Stop guard
 enforces the first, second and prose-question cases; this section is what the model reads.
 
 "or an unrendered app shell" is a separate condition from "an empty body", because an
@@ -245,7 +248,9 @@ budget of 1% of the model's context window. When that listing overflows it is tr
 the skills the operator invokes least, and no warning is emitted. Observed here on 2026-09-04 at
 2.1.260: a listing measured at 10,182 characters against a 10,000 budget was missing an entry
 outright at session start, and the entry returned once characters were freed. The docs say a name
-always survives a drop; that was not what the session showed, so do not rely on a name-only stub.
+always survives a drop; that was not what the session showed on 2.1.260. On 2.1.280 an entry that
+does not fit collapses to `- <name>`, least-used first, and bundled skills keep their text; a
+name alone still carries no trigger, so the invariant below stands.
 
 The invariant that follows: a skill whose trigger the operator cannot afford to lose has to be
 named in this section, because this file is not subject to that budget and a listing entry is. Keep
@@ -333,7 +338,7 @@ Classify the request before the first tool call, reading the current message on 
 
 A factual gap the codebase, the docs, or a command can settle: resolve it yourself. A choice with a conventional default, or one that blocks nothing: take your recommendation, say so, and carry on.
 
-A decision only I can make that the work cannot move past (a preference, a priority, a tradeoff, an outward action I did not ask for) goes through the `AskUserQuestion` tool, in my language, never as a question in text: a question in text ends your turn and the work stops until I come back. Finish everything that does not depend on the answer first. Each option carries the concrete artifact (the snippet, the path, the value, the consequence), your recommendation first. Never ask what this conversation, this file, or a readable file already answers. In a subagent there is no `AskUserQuestion`: put the open decision, or a review the work needs, in your report.
+A decision only I can make that the work cannot move past (a preference, a priority, a tradeoff, an outward action I did not ask for) goes through the `AskUserQuestion` tool, in my language, never as a question in text: a question in text ends your turn and the work stops until I come back. Finish everything that does not depend on the answer first. Each option carries the concrete artifact (the snippet, the path, the value, the consequence), your recommendation first. Never ask what this conversation, this file, or a readable file already answers. In a subagent, or a session whose tool list has no `AskUserQuestion` (a `claude -p` run), end on the open decision as the named blocker, or put it in your report.
 
 ## Research and review
 
@@ -352,7 +357,7 @@ Work directly when the change is scoped and local, even across a few files. Use 
 ## Web research
 
 - Built-in `WebSearch` to discover, built-in `WebFetch` when a summary of a page suffices.
-- `mcp__plugin_ac_ac__web-fetch` when exact wording matters or the built-in fails (a block, an empty body or an unrendered app shell, a cross-host redirect, a timeout); name which condition fired. When both fail, continue from snippets and label them as snippets.
+- `mcp__plugin_ac_ac__web-fetch` when exact wording matters or the built-in fails (a block, an empty body or an unrendered app shell, a timeout); name which condition fired. When both fail, continue from snippets and label them as snippets.
 - `gh` for GitHub files, issues, pull requests, and releases, with `ref` pinned to a commit SHA; commands live in the `github-cli` skill.
 <optional Blocked pages bullet in this list: written only when the 3a interview reports a third fetch path. Shape: "- When both fail on a WAF, use `<tool>`; name the failure, and <the one thing that is easy to get wrong about it>.">
 
@@ -366,7 +371,7 @@ A task I give you runs until it is done. A turn ends in one of three ways: the w
 - Stopping at a milestone or because the turn is long. Status notes go in the same message as the next tool call.
 - Ending the turn to wait on CI, a bot, or a deploy with nothing armed to wake you. Arm `Monitor`, or `Bash` with `run_in_background` for one condition, then act on what it reports.
 
-Outward actions (push, merge, open a PR, deploy, publish): do them when my request names them, and only the one named (a push is not a force-push). When it does not, finish everything else, then ask with `AskUserQuestion`. This does not cover deleting, overwriting, or rewriting history I did not ask for: look at the target and ask first.
+Outward actions (push, merge, open a PR, deploy, publish): do them when my request names them, and only the one named (a push is not a force-push). When it does not, finish everything else, then ask with `AskUserQuestion`. This does not cover deleting, overwriting, or rewriting history I did not ask for: ask first.
 
 Finish the whole request, not the easy parts, and stop short of changes it does not imply. Do not shrink a big request; say how you would stage it and start on the first stage. Work past a couple of steps gets an ordered list I can see, in a file the work already uses or a short table, marked as items land. When a tool a procedure names is missing, substitute the nearest working one and say so.
 

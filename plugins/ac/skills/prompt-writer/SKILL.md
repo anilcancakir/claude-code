@@ -150,7 +150,7 @@ Anthropic documents `claude-opus-5-5` as a delta over Opus 5: Opus 5 patterns ho
 
 **Scope and delegation.** Opus 5 widens scope, re-verifies finished work, and delegates readily; 5.5 documents no reversal. Name the upper bound, and say when NOT to spawn.
 
-**Unattended runs (5.5).** A progress report can end the turn with no tool call. For loops with no human, name the early stops you do not want (the four-stop paragraph in the 5.5 reference), at the end of the system prompt from turn one. Leave it out wherever a human answers.
+**Unattended runs (5.5).** A progress report can end the turn with no tool call. For loops with no human, name the early stops you do not want (the four-stop paragraph in the 5.5 reference), at the end of the system prompt from turn one. Anthropic scopes it to unattended runs; an interactive setup that measured these stops may adopt it as a stated override.
 
 **No reasoning in the reply (5.5).** "Explain your reasoning, then answer" and `<thinking>` / `<answer>` scaffolds can draw a `reasoning_extraction` refusal. Read `display: "summarized"` thinking instead.
 

@@ -52,7 +52,7 @@ Harness side: treat a text-only end of turn as a report, keep the task's parts i
 Prompt side: 5.5 responds to instructions that name the specific early stops you do not want, and the stops you do want. Anthropic's example is a four-stop paragraph for fully unattended agents (full text in the prompting page, "Unattended agentic runs"). Its four unwanted stops: a closing summary that announces the next step without taking it; an offer to continue unless the user objects; a list of decisions none of which blocks the work; stopping because the turn feels long or a milestone is done. Its wanted stops: nothing can move without the user, or the blocker is deliberately protected. Placement rules:
 
 - End of the system prompt, from the first request. Adding it later edits `system` and invalidates earlier thinking blocks.
-- Unattended agents only. Leave it out wherever a human is there to answer.
+- Unattended agents by default; Anthropic says to leave it out of human-in-the-loop use. An interactive setup that has measured this class of stop can adopt it as a stated override and keep the confirmation step (the `ac` global CLAUDE.md `Run to completion` section is one).
 - Keep your own confirmation step for risky or irreversible actions; the paragraph makes the model carry on where it would have checked in.
 
 ## Multi-agent time signals
