@@ -5,7 +5,7 @@ these from memory; this file is the only source. It lives outside the command bo
 slash command renders into the user prompt and competes with the user's actual request, and
 because `--skip-settings` should not pay for a table it will not use.
 
-Every write is ADD-only. Never strip, downgrade, or overwrite a key the operator already set.
+Every write is ADD-only, with one exception: the Group C migration strip, which rewrites or removes a value only when it exactly matches what an earlier /ac:install wrote. Outside that strip, never strip, downgrade, or overwrite a key the operator already set.
 "Set only when absent" means that if the key exists at all, even with a different value, it is
 left untouched. For arrays, append the missing entries and skip any already present.
 
@@ -19,8 +19,9 @@ Top level:
 |---|---|
 | `disableWorkflows` | `true` (the setting key, not an env duplicate; do not also write `CLAUDE_CODE_DISABLE_WORKFLOWS`) |
 | `disableArtifact` | `true` |
-| `effortLevel` | `"xhigh"` |
 | `alwaysThinkingEnabled` | `true` |
+| `askUserQuestionTimeout` | `"never"` (the default; auto-continue stays off only while env `CLAUDE_AFK_TIMEOUT_MS` is unset, because that variable turns it on and overrides this setting) |
+| `dialogExpiry` | `"never"` (a dialog forwarded to Remote Control or an SDK host, and the approval for a held cross-session message, stays open instead of cancelling after 5 minutes; local permission prompts never expire either way, and env `CLAUDE_CODE_USER_DIALOG_TIMEOUT_MS` overrides this) |
 | `statusLine` | `{"type": "command", "command": "bunx -y ccstatusline@latest", "padding": 0}` |
 
 `statusLine` assumes `bun` or `npx` on PATH; say so in the Phase 5 summary.
@@ -30,14 +31,14 @@ Under `env`, all string values:
 | Key | Value |
 |---|---|
 | `MAX_MCP_OUTPUT_TOKENS` | `"50000"` |
-| `MCP_TIMEOUT` | `"30000"` |
-| `MCP_TOOL_TIMEOUT` | `"60000"` |
-| `API_TIMEOUT_MS` | `"30000"` |
+| `MCP_TOOL_TIMEOUT` | `"1800000"` (the built-in default is about 28 hours, but each HTTP, SSE or claude.ai connector request is cut at 60 seconds unless this or a per-server `timeout` is above 60000; a call that sends no response or progress still aborts after 5 minutes on a network server and 30 minutes on stdio, through `CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT` at its default) |
+| `API_TIMEOUT_MS` | `"600000"` (the SDK request default; writing it also raises the non-streaming fallback timeout from its unset 300000 to 600000, and a lower value would shorten the first-byte retry window) |
 | `BASH_DEFAULT_TIMEOUT_MS` | `"180000"` |
 | `BASH_MAX_TIMEOUT_MS` | `"900000"` |
 | `BASH_MAX_OUTPUT_LENGTH` | `"50000"` |
 | `CLAUDE_CODE_FILE_READ_MAX_OUTPUT_TOKENS` | `"30000"` |
-| `CLAUDE_CODE_MAX_RETRIES` | `"15"` (clamped at 15; do not raise it) |
+| `CLAUDE_CODE_RETRY_WATCHDOG` | `"1"` (retries 429 and 529 capacity errors without limit, backing off up to 5 minutes or until the reset time the response carries; a 429 that reports a spend limit or exhausted credits still fails at once. Other transient errors get 300 attempts. Do not also write `CLAUDE_CODE_MAX_RETRIES`: under the watchdog its value replaces the 300, uncapped) |
+| `CLAUDE_CODE_THRIFTY_SONIC` | `"0"` (Opus 5.5 otherwise forces a steer toward editing files through `sed` and heredocs, which skips post-edit LSP diagnostics, the stale-write guard, the user-visible diff, and every `Edit|Write` hook including the plugin's file-scope gate) |
 
 ## Group C: core ac parity
 
@@ -51,10 +52,11 @@ Not security-sensitive, so it merges without a prompt. All ADD-only.
 
 ### Migration strip for prior install versions
 
-Removes artifacts a previous run of `/ac:install` wrote. The two hook entries carry an
-install-specific fingerprint (matcher plus command), so removing them never touches operator
-config. The deny-string entry cannot be fingerprinted and is stripped on the assumption a prior
-install wrote it.
+Removes or rewrites artifacts a previous run of `/ac:install` wrote. The two hook entries carry
+an install-specific fingerprint (matcher plus command), so removing them never touches operator
+config. The deny-string entry and the five env values cannot be fingerprinted: the deny entry is
+stripped on the assumption a prior install wrote it, and each env value is touched only on an
+exact match with the value a prior install wrote.
 
 - Remove any `WebSearch` or `WebFetch` entry from `permissions.deny`. These plain strings are
   indistinguishable from an operator-authored deny, so someone who denies them on purpose will
@@ -62,6 +64,12 @@ install wrote it.
 - Remove any `hooks.PreToolUse` entry whose matcher equals `WebSearch|WebFetch`.
 - Remove the `hooks.PreToolUse` entry a prior install wrote for plan mode: matcher
   `EnterPlanMode`, command echoing the `use /ac:plan` steer and exiting 2.
+- Rewrite or remove five env values a prior install wrote, matched by exact value so an operator's own
+  choice survives: `API_TIMEOUT_MS` `"30000"` becomes `"600000"`, `MCP_TOOL_TIMEOUT` `"60000"`
+  becomes `"1800000"`, and `MCP_TIMEOUT` `"30000"` and `CLAUDE_CODE_MAX_RETRIES` `"15"` are
+  removed (`CLAUDE_CODE_MAX_RETRIES` only when `CLAUDE_CODE_RETRY_WATCHDOG` ends up set, since without the watchdog removing it drops retries from 15 to 10). Remove `CLAUDE_AFK_TIMEOUT_MS` `"600000"` too: it was an opt-in here once, and it
+  auto-submits every AskUserQuestion after ten minutes even when `askUserQuestionTimeout` is
+  `"never"`. List every rewrite in the gate diff.
 
 ### Why no hook is written
 
@@ -73,13 +81,13 @@ is the load-bearing guard for plan mode either way.
 
 ## Group B: security-sensitive keys, opt-in, default off
 
-These change permission or telemetry behaviour, so they are never silent. Every option starts
+These change permission behaviour, so they are never silent. Every option starts
 unchecked. Write only what the operator checks, each only when the key is absent, and do not
-extend the Group C migration strip to any of them. Under `--dry-run`, skip the prompt and note
+extend the Group C migration strip to any current Group B key. The one former Group B key it touches, `CLAUDE_AFK_TIMEOUT_MS` `"600000"`, is removed because it defeats the Group A `askUserQuestionTimeout` value. Under `--dry-run`, skip the prompt and note
 that no security-sensitive key would be set.
 
-`AskUserQuestion` caps a question at four options, so these seven split across two questions in
-one call.
+`AskUserQuestion` caps a question at four options, so these five split across two questions in
+one call. `/ac:install` writes, rewrites and removes no telemetry key in any group, including any an earlier version wrote.
 
 ```
 AskUserQuestion({
@@ -90,19 +98,17 @@ AskUserQuestion({
       multiSelect: true,
       options: [
         {label: "Auto-accept edits", description: "permissions.defaultMode=acceptEdits. Edits apply without a per-edit prompt."},
-        {label: "Skip dangerous prompt", description: "permissions.skipDangerousModePermissionPrompt=true. No confirmation when entering bypass mode."},
-        {label: "All project MCP", description: "enableAllProjectMcpServers=true. Every project-scoped MCP server loads without asking."},
-        {label: "Skip fetch preflight", description: "skipWebFetchPreflight=true. Drops the per-fetch domain-safety blocklist preflight (a hang source) at the cost of that safety check."}
+        {label: "Skip dangerous prompt", description: "permissions.skipDangerousModePermissionPrompt=true. No confirmation when entering bypass mode."}
       ]
     },
     {
-      header: "Env keys?",
-      question: "These set environment keys that change timeout, team and telemetry behavior. Same ADD-only rule.",
+      header: "Loading?",
+      question: "These change what loads without asking. Same ADD-only rule.",
       multiSelect: true,
       options: [
-        {label: "AFK timeout 10m", description: "env.CLAUDE_AFK_TIMEOUT_MS=600000."},
-        {label: "Disable agent teams", description: "env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=0."},
-        {label: "OTEL telemetry", description: "env.CLAUDE_CODE_ENABLE_TELEMETRY=1 plus OTEL_METRICS_EXPORTER=otlp, OTEL_EXPORTER_OTLP_PROTOCOL=grpc, OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317. Exports metrics to a local collector."}
+        {label: "All project MCP", description: "enableAllProjectMcpServers=true. Every project-scoped MCP server loads without asking."},
+        {label: "Skip fetch preflight", description: "skipWebFetchPreflight=true. Drops the per-fetch domain-safety blocklist preflight (a hang source) at the cost of that safety check."},
+        {label: "Disable agent teams", description: "env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=0."}
       ]
     }
   ]
@@ -115,9 +121,7 @@ AskUserQuestion({
 | Skip dangerous prompt | `permissions.skipDangerousModePermissionPrompt = true` |
 | All project MCP | `enableAllProjectMcpServers = true` |
 | Skip fetch preflight | `skipWebFetchPreflight = true` |
-| AFK timeout 10m | `env.CLAUDE_AFK_TIMEOUT_MS = "600000"` |
 | Disable agent teams | `env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS = "0"` |
-| OTEL telemetry | `env.CLAUDE_CODE_ENABLE_TELEMETRY = "1"`, `env.OTEL_METRICS_EXPORTER = "otlp"`, `env.OTEL_EXPORTER_OTLP_PROTOCOL = "grpc"`, `env.OTEL_EXPORTER_OTLP_ENDPOINT = "http://localhost:4317"` |
 
 An unchecked option writes nothing.
 
