@@ -1,8 +1,9 @@
 ---
 name: explore
-description: "Read-only search inside this repository: definitions, callers, usages, across many files or naming conventions. Takes a `quick`, `medium` or `thorough` depth hint and a `REUSE BIAS:` clause. Returns `file:line` citations. Use when a search needs more than about three queries; read the file yourself when you know where to look."
+description: "Read-only code search agent for this repository. Use this when finding definitions, callers or usages needs more than about three queries or several naming conventions. Specify depth: quick, medium or thorough; add REUSE BIAS: to hunt for code to reuse. Returns file:line citations."
 model: haiku
 tools: Read, Grep, Glob, Bash, LSP
+omitClaudeMd: true
 color: green
 ---
 
