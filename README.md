@@ -55,11 +55,11 @@ Plan-then-execute is a crowded category. Three things here are not common:
 | Commands | 3 | `/ac:install`, `/ac:init-project`, `/ac:commit` |
 | Skills | 9 | `ac:plan`, `ac:execute`, `ac:auto`, plus six authoring skills |
 | Agents | 10 | three advisory, four tiered workers, two reviewers, one verifier |
-| Hooks | 7 | three `PreToolUse`, two `Stop`, one `SessionStart` |
+| Hooks | 8 | four `PreToolUse`, three `Stop`, one `SessionStart` |
 | Output styles | 1 | `ac:concise`, opt-in and never forced |
 | MCP tools | 6 | docs lookup, code search, web fetch and search, local history search |
 
-**On the hooks**, since they run code on your machine. Each one is gated and fails open, meaning any condition it cannot evaluate lets the action through unchanged. The three `PreToolUse` hooks fire only on plan-mode entry, only while an `/ac:execute` run is active in the current project, and only inside an `ac:explore` subagent. The two `Stop` hooks keep an in-flight run from ending its turn mid-plan. `SessionStart` reports whether a plan is still open. None of them makes a network call. Read them at [`plugins/ac/hooks/`](plugins/ac/hooks/).
+**On the hooks**, since they run code on your machine. Each one is gated and fails open, meaning any condition it cannot evaluate lets the action through unchanged. The four `PreToolUse` hooks fire only on plan-mode entry, only while an `/ac:execute` run is active in the current project, only during an `/ac:auto` run, and only inside an `ac:explore` subagent. Two `Stop` hooks keep an in-flight `/ac:execute` or `/ac:auto` run from ending its turn mid-plan. The third runs in every interactive main-thread session, in any project: it reads only the last paragraph of the reply and blocks a turn that ends on an announced next step, an offer to continue, or a question asked in prose, at most 2 times per stall and 4 per prompt; it skips `claude -p`, and `AC_ANNOUNCE_GUARD_MAX_BLOCKS=0` turns it off. `SessionStart` reports whether a plan is still open. None of them makes a network call. Read them at [`plugins/ac/hooks/`](plugins/ac/hooks/).
 
 **On the MCP server**, it runs locally as `node plugins/ac/cli/ac.js mcp`. `search-history` reads your own Claude Code transcripts from disk and never sends them anywhere.
 
@@ -78,7 +78,7 @@ Plan-then-execute is a crowded category. Three things here are not common:
 |-------|-------|------|
 | `ac:explore` | haiku | Codebase research with `file:line` citations, at a `quick`, `medium` or `thorough` depth. |
 | `ac:librarian` | sonnet | External docs and OSS research with URL and permalink citations. |
-| `ac:oracle` | opus | Verifying advisor. Tests the premises a brief rests on before answering it. Advises, never edits. |
+| `ac:oracle` | opus | Read-only reviewer: checks a plan, diff, report or config change against its sources, with a short advice mode. Never edits. |
 | `ac:plan-worker-quick` | haiku | Mechanical single-file steps: config edits, renames, scaffolds. |
 | `ac:plan-worker-junior` | sonnet | Standard steps: one to three files, business logic, framework idiom. |
 | `ac:plan-worker-junior-high` | sonnet | Junior's model at high effort, for borderline coupling or context depth. |
