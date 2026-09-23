@@ -144,12 +144,12 @@ AskUserQuestion({
   questions: [
     {
       header: "Trim tools?",
-      question: "These strip tool schemas out of every session's baseline. Each one removes a capability, so all are off by default.",
+      question: "These strip or swap tool schemas in every session's baseline. Each one changes a capability, so all are off by default.",
       multiSelect: true,
       options: [
         {label: "Unused built-ins", description: "Denies NotebookEdit, PushNotification, EndConversation and the three MCP resource tools. Skip it if you edit Jupyter notebooks or your MCP servers expose resources."},
         {label: "Scheduling stack", description: "Denies CronCreate/CronDelete/CronList, ScheduleWakeup, RemoteTrigger and TaskOutput, and turns the loop and schedule skills off. Monitor survives and covers polling and log-watching; take this only if you do not use in-session reminders or claude.ai cloud routines."},
-        {label: "Task tools off", description: "env.CLAUDE_CODE_ENABLE_TASKS=false. Claude Code already leaves the task-tracking tools out on Opus 4.8, Sonnet 5, Opus 5 and later. Where it still offers them (Opus 4.0 to 4.7, Sonnet 4.x, Haiku 4.5, and background sessions on any model), this swaps TaskCreate/TaskGet/TaskList/TaskUpdate for the single TodoWrite tool and its reminder; it does not remove tracking. The ac plan and execute skills keep their record in files either way."}
+        {label: "Task tools off", description: "env.CLAUDE_CODE_ENABLE_TASKS=false. On Opus 4.8, Sonnet 5, Opus 5 and later it changes nothing outside background sessions, because Claude Code already leaves the task-tracking tools out there. Where it still offers them (Claude 3.x, Opus 4.0 to 4.7, Sonnet 4.0 to 4.6, Haiku 4.5, and background or cloud sessions on any model), it swaps TaskCreate/TaskGet/TaskList/TaskUpdate for the single TodoWrite tool and its reminder; tracking stays. The ac plan and execute skills keep their record in files either way."}
       ]
     },
     {
@@ -177,8 +177,8 @@ Deny and override travel together on the scheduling stack: a skill whose tools a
 dead entry that still costs its description.
 
 For "Task tools off", report in the Phase 5 summary that an existing `CLAUDE_CODE_ENABLE_TODO_TOOLS=1`
-brings `TodoWrite` back on every model, and has to be removed by hand if the operator wants no
-tracking tool at all.
+gives `TodoWrite` to every model, including Opus 4.8 and later where it is otherwise absent, and has to
+be removed by hand if the operator wants those models to run without it.
 
 `skillOverrides` takes a string enum, `"on"`, `"name-only"`, `"user-invocable-only"` or `"off"`;
 an object value there raises a settings validation error per key. `"name-only"` lists the skill

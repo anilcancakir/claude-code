@@ -275,13 +275,14 @@ this file is the only damping. Measured 2026-09-23 over main-session transcripts
 rate climbs. The one there now ("a lookup you can do in one read stays with you") is the floor.
 
 The work list in `Run to completion` is a file or a table on purpose, not the Task tools; it
-exists so the user can see progress. Claude Code offers those tools by default only on Opus 4.0 to
-4.7, Sonnet 4.x, Haiku 4.5 and background sessions (2.1.268; newer models lost them in 2.1.233)
-because "the tools' definitions and reminders take up context". Turning them on would add four
-deferred tool names, a schema load on first use, and a `task_reminder` after ten turns without a
-task update. A 2026-09-23 transcript comparison showed no sign of benefit (6.0 against 4.1
-continuation nudges per 100 prompts, 5 sessions against 113, confounded by length), which is too
-small to count as a measurement.
+exists so the user can see progress. Claude Code offers those tools by default only on Claude 3.x,
+Opus 4.0 to 4.7, Sonnet 4.0 to 4.6, Haiku 4.5, and background and cloud sessions (2.1.268; newer
+models lost them in 2.1.233) because "the tools' definitions and reminders take up context".
+Turning them on (`CLAUDE_CODE_ENABLE_TODO_TOOLS=1`) would add a deferred `TodoWrite`, or four Task
+tool names without the Group D trim, a schema load on first use, and a reminder after ten turns
+without an update. A 2026-09-23 transcript comparison showed no sign of benefit: sessions that used
+the tools drew 6.0 continuation nudges per 100 prompts, sessions without them 4.1 (5 sessions
+against 113, confounded by length), which is too small to count as a measurement.
 
 `Decisions` forbids a question in prose because a prose question ends the turn: 14 of the
 audited stops were exactly that. `AskUserQuestion` keeps the turn open, and with
