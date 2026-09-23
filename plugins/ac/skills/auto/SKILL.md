@@ -1,9 +1,9 @@
 ---
 name: auto
-description: Autonomous end-to-end mode. Freezes the completion criteria under a hash, works on a branch, chains plan into execute, then gates the result with a read-only verifier. Never pushes.
-when_to_use: When you want a request carried through without supervision and can say up front what done means. Refuses open-ended audits and exploration, where the criteria cannot be written first.
+description: "Carry a request through plan, execute and a final verification on a branch, without supervision. Never pushes."
+when_to_use: "Use when you can say up front what done means; not for open-ended audits or exploration."
 argument-hint: "<request description>"
-effort: xhigh
+effort: high
 ---
 
 # /ac:auto
@@ -157,7 +157,7 @@ marker": the marker is a single global slot per repository, so minting a second 
 first with no guards, no verdict, and nothing that notices.
 
 - **Absent**: no run is live. Continue to 1a.
-- **Present and its `session_id` is this session's**: this is a re-entry, not a new run. Two places tell you to
+- **Present and its `session_id` equals `${CLAUDE_SESSION_ID}`**: this is a re-entry, not a new run. Two places tell you to
   re-invoke this skill mid-run, the Standing rules above and the Stop guard's latch note, and both land here.
   Skip Phases 0 and 1 entirely and resume at the phase the marker names, reading its `note` for where the run
   was. Do not re-derive a slug and do not touch `criteria.md`; the contract is already frozen.
@@ -209,8 +209,9 @@ here on, that block is the contract.
 
 ### 1c. Marker
 
-`Write` `.ac/state/active-auto.json` with the fields the schema names: `slug`, `session_id` (the real current
-one; it is what scopes both guards to this run), `started_at` (ISO-8601 UTC, written once and never refreshed),
+`Write` `.ac/state/active-auto.json` with the fields the schema names: `slug`, `session_id` (write exactly `${CLAUDE_SESSION_ID}`,
+which Claude Code substitutes with this session's id; it is what scopes both guards to this run), `started_at` (the
+output of `date -u +%Y-%m-%dT%H:%M:%SZ`, written once and never refreshed),
 `turns_used: 0`, `phase`, `note`. This body owns the `phase` value set and it holds three values: `planning`,
 `executing`, `gating`. Write `planning` here.
 

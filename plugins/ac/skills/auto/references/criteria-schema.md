@@ -100,8 +100,8 @@ Path: `.ac/state/active-auto.json`. Written once at the start of an `/ac:auto` r
 ```json
 {
   "slug": "<auto-run slug>",
-  "session_id": "<current session id>",
-  "started_at": "<ISO-8601 UTC timestamp>",
+  "session_id": "<the session id the skill body gives you>",
+  "started_at": "<output of date -u +%Y-%m-%dT%H:%M:%SZ>",
   "turns_used": 0,
   "phase": "planning",
   "note": "<one-line resume hint>"
