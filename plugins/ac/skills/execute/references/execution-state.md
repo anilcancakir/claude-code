@@ -20,8 +20,8 @@ Then write the on-disk active-execution marker at `.ac/state/active-execution.js
 {
   "slug": "<plan slug>",
   "pid": <orchestrator process id>,
-  "session_id": "<current session id>",
-  "started_at": "<ISO-8601 UTC timestamp>",
+  "session_id": "<the session id the skill body gives you>",
+  "started_at": "<output of date -u +%Y-%m-%dT%H:%M:%SZ>",
   "current_wave": 1,
   "wave_files": [],
   "note": "<one-line resume hint>"
@@ -30,7 +30,7 @@ Then write the on-disk active-execution marker at `.ac/state/active-execution.js
 
 Marker schema:
 - `slug`: the plan slug. Names which run holds the scope lock, and tells the SessionStart hook which of a repository's many plan directories is the live one.
-- `session_id`: load-bearing for the `Stop` guard, which blocks a turn end only when this field matches the session the hook fired in. Write the real current session id. It scopes the guard to the run that owns the marker, so a marker left behind by another session cannot block an unrelated session working in the same repository. Compaction and `--resume` both preserve the session id, so a run that survives either still matches.
+- `session_id`: load-bearing for the `Stop` guard, which blocks a turn end only when this field matches the session the hook fired in. Write the id the execute skill body gives in place of `${CLAUDE_SESSION_ID}`; never derive or recall it. It scopes the guard to the run that owns the marker, so a marker left behind by another session cannot block an unrelated session working in the same repository. Compaction and `--resume` both preserve the session id, so a run that survives either still matches.
 - `started_at`: written once here and preserved verbatim by every later refresh. Three mechanisms key on it, so changing it mid-run is a real defect: it is the age bound every hook uses to treat a marker older than 24 hours as stale, it is the `run` key of the `Stop` guard's block counter (a new value hands the run a fresh budget and clears the spent latch), and it is the value in the Phase 3a `## Run` header that scopes this run's review-log entry. Refresh `current_wave`, `wave_files`, and `note`; never this field.
 - `pid`: advisory only. The orchestrator cannot learn its own process id (a `$$` from Bash yields a short-lived subshell that is dead moments later), so write `0` and do not treat this field as a liveness signal. The file-scope hook still consults it for historical reasons; the `Stop` guard deliberately does not.
 - `current_wave`: the wave index the run is on; refreshed at each wave start (2c).

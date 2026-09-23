@@ -1,8 +1,8 @@
 ---
-description: Runs an approved plan to completion, wave by wave, routing each step to a cost-tiered worker and verifying every wave four ways before committing it. Closes with one code-review pass.
-when_to_use: After `/ac:plan` writes a plan you want built, or when `/ac:plan --auto` chains here. Takes a plan slug or a path to plan.md.
+description: "Run an approved ac plan to completion, wave by wave, with cost-tiered workers, per-wave verification and a final review."
+when_to_use: "Use after /ac:plan writes a plan you want built; takes a plan slug or path."
 argument-hint: "<plan-slug | .ac/plans/<slug>/plan.md> [--auto] [--no-oracle] [--no-checkpoint-commits]"
-effort: xhigh
+effort: high
 ---
 
 # /ac:execute
@@ -131,7 +131,7 @@ and `## Risks Accepted`. `## Tier Calibration` is referential; read it once, do 
 | `quick` | `ac:plan-worker-quick` | `claude-haiku-4-5-20251001` | not supported on this model |
 | `junior` | `ac:plan-worker-junior` | `claude-sonnet-5` | medium |
 | `junior-high` | `ac:plan-worker-junior-high` | `claude-sonnet-5` | high |
-| `senior` | `ac:plan-worker-senior` | `claude-opus-5` | high |
+| `senior` | `ac:plan-worker-senior` | `opus` (`claude-opus-5-5` on 2.1.280) | medium |
 
 `junior-high` is junior's model at high effort, for work at the borderline of coupling or context depth. The
 criticality rule never routes there; it escalates to `senior`.
@@ -154,8 +154,9 @@ No Phase 3 counters: the review is one pass and its outcome is appended to `revi
 
 Then write `.ac/state/active-execution.json`. Three hooks read it: the file-scope guard scopes worker edits to
 `wave_files`, the SessionStart hook names the active plan after a restart or compaction, and the `Stop` guard refuses
-a turn end while it exists. Fields: `slug`, `session_id` (the real current one; it scopes the `Stop` guard to this
-run), `started_at` (24-hour age bound), `pid` (advisory, write `0`), `current_wave`, `wave_files`, `note`. Schema and
+a turn end while it exists. Fields: `slug`, `session_id` (write exactly `${CLAUDE_SESSION_ID}`, which Claude Code substitutes with this session's id;
+it scopes the `Stop` guard to this run), `started_at` (24-hour age bound; take it from `date -u +%Y-%m-%dT%H:%M:%SZ`,
+never from your own sense of the time, since a local time with a `Z` reads as the future and disarms the guard), `pid` (advisory, write `0`), `current_wave`, `wave_files`, `note`. Schema and
 per-field reasoning at `${CLAUDE_SKILL_DIR}/references/execution-state.md`.
 
 Lifecycle: written here, refreshed at 2c and 2f, deleted at 4a and on every branch that ends the run early. A halt
@@ -643,14 +644,15 @@ what it was standing in for anyway.
 
 ```
 Agent({ subagent_type: "ac:oracle", description: "Oracle strategic review for <plan title>",
-        prompt: "Self-review category. Plan: <PLAN_PATH>
+        prompt: "Plan: <PLAN_PATH>
 Modified files: <MODIFIED_FILES>
 Research the plan was built on: <.ac/plans/<slug>/research/>
 Wisdom from the run: <.ac/plans/<slug>/wisdom.md>
-The change touches <the surfaces that fired>. Verify skeptically: bugs, missing edge cases, unhandled
-errors, scope drift, architectural concerns the structural review might miss. The plan's own claims
-about what the code does are premises, not findings; the sources above are what settles them. Return
-Bottom line + Action plan + Effort + Confidence." })
+The change touches <the surfaces that fired>. Review the diff for failure scenarios on those surfaces,
+and test the plan's claims about what the code does against the code: they are premises, not findings.
+Plan compliance, reuse and caller impact are the code reviewer's; do not repeat them. Use your standard
+report (Coverage, Premises, Findings with severity and CONFIRMED or PLAUSIBLE, scenario and fix, Bottom
+line, Confidence)." })
 ```
 
 ### 3c. Act on the findings
@@ -669,6 +671,7 @@ history and the wisdom file:
 - **IMPORTANT**: fix when the fix is small and local; otherwise record it in `report.md` and add it to
   the plan's `## Deferred Ideas`.
 - **MINOR, or anything under confidence 50**: `report.md` notes. Do not touch the code for these.
+- **An oracle PLAUSIBLE finding** names what would confirm it: run that check before acting on it as CRITICAL or IMPORTANT, and treat an unchecked one as MINOR.
 
 Expect volume. Both reviewers are told to report everything they see rather than to pre-filter, because
 a reviewer told to be conservative reports less, so a long list is the instruction working rather than
