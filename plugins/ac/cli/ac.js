@@ -38495,7 +38495,7 @@ var REMOTE_TOOL_TEXT = {
     params: { query: 'Library or framework name, e.g. "laravel".' }
   },
   "search-docs": {
-    description: "Search one library's cached documentation for a topic and return the matching sections. " + "Take library_id from resolve-library; append /<version> to pin a version.",
+    description: "Search one library's cached documentation for a topic and return the matching sections. " + "Take library_id from resolve-library; append /<version> to pin a version. If it reports the " + "library not found, retry with the next resolve-library match.",
     params: {
       library_id: "Id from resolve-library, optionally suffixed with /<version>.",
       topic: "What to look up in the docs.",
@@ -39478,4 +39478,4 @@ function formatSyncReport(report) {
 }
 await program2.parseAsync(process.argv);
 
-//# debugId=725E2605346E9F0F64756E2164756E21
+//# debugId=2E4EA9F2640A5E1364756E2164756E21

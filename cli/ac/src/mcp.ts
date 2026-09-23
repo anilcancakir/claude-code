@@ -63,7 +63,8 @@ const REMOTE_TOOL_TEXT: Readonly<Record<string, { description: string; params: R
     },
     "search-docs": {
         description: "Search one library's cached documentation for a topic and return the matching sections. "
-            + "Take library_id from resolve-library; append /<version> to pin a version.",
+            + "Take library_id from resolve-library; append /<version> to pin a version. If it reports the "
+            + "library not found, retry with the next resolve-library match.",
         params: {
             library_id: "Id from resolve-library, optionally suffixed with /<version>.",
             topic: "What to look up in the docs.",
