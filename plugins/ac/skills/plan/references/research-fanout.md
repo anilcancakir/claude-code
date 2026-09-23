@@ -107,6 +107,6 @@ GOAL (only include the bullets for triggers that fired in 3.5a):
 
 DOWNSTREAM: findings inline into the plan's Stage 4 Synthesis Preview under `### Oracle Sanity-Check Findings`. CRITICAL findings flip a Stage 3.5 BLOCKER for user judgment; IMPORTANT findings are listed and the plan proceeds. A REFUTED premise is its own branch, not a finding: it means the research under a locked decision does not hold, so it surfaces to the user whatever else the oracle returned.
 
-REQUEST: return findings tagged CRITICAL or IMPORTANT. Each finding includes the trigger it speaks to, the specific concern, evidence (docs URL or file:line), and a recommended action (revise / accept-as-risk / no-action). Cap at 5 findings; rank by impact. If nothing surfaces, return "No significant findings."
+REQUEST: use your standard report. Tag each finding with the trigger number it speaks to and end it with a recommended action (revise / accept-as-risk / no-action). Skip MINOR findings; Stage 3.5c routes only CRITICAL and IMPORTANT. When nothing surfaces, say so under Findings and still return Coverage and Premises, because 3.5c branches on a REFUTED premise even when there are no findings.
 ```
 
