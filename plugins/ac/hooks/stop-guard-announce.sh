@@ -18,29 +18,57 @@
 # report that mentions "next" in its body, or SQL with a `?`, is not caught. Background work or a
 # cron that will wake the session means the guard allows the stop (lib/wake-count.jq, loose mode).
 #
+# Two stages. The regexes below are the recall stage: they catch almost every ending shaped like
+# an announcement, an offer or a question, and on their own they were wrong more often than
+# right. Over the first day live they blocked 18 stops and about 10 of them were handoffs: "order
+# the parts, build it, tell me the result", "run /ac:install yourself", a peer session's next
+# step, "bekliyorum" meaning "I expect". Turkish imperatives addressed to the user ("kur", "söyle")
+# and the assistant's own step read alike to a regex. So a regex hit goes to a judge: an isolated
+# `claude -p` on Sonnet reads the ending with the user's last request (lib/announce-judge.md) and
+# only a parsed `"ok": false` blocks. On 44 unseen regex-positive stops that cut wrong blocks from
+# 24 to 5 and missed 3 of 20; Haiku flipped 8 of 107 decisions between identical runs and repeated
+# the regex's handoff mistakes, so the model is not Haiku. A missing `claude` or `perl`, a
+# timeout, an error or an unparsable verdict allows the stop.
+#
+# Why not a `type: "prompt"` Stop hook: on 2.1.281 its evaluator receives the whole conversation
+# (trimmed only above half the model's context window), under a system prompt that returns
+# `ok: false` on "insufficient evidence", on every stop of every session, `claude -p` runs
+# included. This hook pays for a judge only on the few stops the regexes and the gates let through.
+#
+# A block is sent as `additionalContext`, which continues the turn through the same loop
+# protections as `decision: "block"` but is labelled hook feedback rather than a hook error.
+#
 # Loop bound: `stop_hook_active` stays true across tool turns within one prompt, so it cannot
 # count "blocks since real work" on its own. The counter therefore stores the transcript size at
 # its last block and resets when tool activity appeared after it, the same progress signal
-# stop-guard.sh uses. So at most AC_ANNOUNCE_GUARD_MAX_BLOCKS (default 2) blocks per stall and
-# AC_ANNOUNCE_GUARD_MAX_TOTAL (default 4) per prompt; the total resets only when a stop arrives
+# stop-guard.sh uses. So at most AC_ANNOUNCE_GUARD_MAX_BLOCKS (default 1) blocks per stall and
+# AC_ANNOUNCE_GUARD_MAX_TOTAL (default 3) per prompt; the total resets only when a stop arrives
 # with `stop_hook_active` false. Claude Code's own 8-block cap resets on every tool round, so it
-# is no backstop here. Headless and SDK runs are skipped. The counter lives under TMPDIR,
-# keyed by session id, so the guard writes nothing into projects that do not use ac.
+# is no backstop here. Headless and SDK runs are skipped, and so is the judge's own session
+# (AC_ANNOUNCE_JUDGE). The counter lives under TMPDIR, keyed by session id, so the guard writes
+# nothing into projects that do not use ac.
 
 set -u
 
-max_blocks="${AC_ANNOUNCE_GUARD_MAX_BLOCKS:-2}"
+max_blocks="${AC_ANNOUNCE_GUARD_MAX_BLOCKS:-1}"
 case "$max_blocks" in
-    '' | *[!0-9]*) max_blocks=2 ;;
+    '' | *[!0-9]*) max_blocks=1 ;;
 esac
 [ "$max_blocks" -gt 0 ] || exit 0
-max_total="${AC_ANNOUNCE_GUARD_MAX_TOTAL:-4}"
+max_total="${AC_ANNOUNCE_GUARD_MAX_TOTAL:-3}"
 case "$max_total" in
-    '' | *[!0-9]*) max_total=4 ;;
+    '' | *[!0-9]*) max_total=3 ;;
+esac
+judge_model="${AC_ANNOUNCE_JUDGE_MODEL:-sonnet}"
+judge_timeout="${AC_ANNOUNCE_JUDGE_TIMEOUT:-20}"
+case "$judge_timeout" in
+    '' | *[!0-9]*) judge_timeout=20 ;;
 esac
 
 # Headless and SDK runs (claude -p) have a caller reading the printed result; a forced
 # continuation there changes the output rather than finishing a task someone walked away from.
+# The judge's own session is one of them, and the variable makes that explicit.
+[ -z "${AC_ANNOUNCE_JUDGE:-}" ] || exit 0
 case "${CLAUDE_CODE_ENTRYPOINT:-}" in sdk-*) exit 0 ;; esac
 
 input="$(cat 2>/dev/null)" || exit 0
@@ -153,6 +181,54 @@ fi
 [ "$blocks" -lt "$max_blocks" ] || exit 0
 [ "$total" -lt "$max_total" ] || exit 0
 
+# The user's last real prompt from the transcript tail, so the judge can tell work the request
+# covers from extra work. A slash command counts as its name plus arguments (an argless one such as
+# /compact is skipped). Tool results, task-notifications, hook feedback, `!` shell input and
+# injected reminders are skipped; anything unreadable gives an empty string and the judge is told.
+last_request() {
+    [ -n "$transcript_path" ] && [ -f "$transcript_path" ] || return 0
+    tail -n 2000 "$transcript_path" 2>/dev/null | jq -Rrn '
+        [inputs | fromjson? | select(.type == "user" and (.isMeta // false) == false and .toolUseResult == null)
+         | .message.content
+         | if type == "array" then map(select(.type == "text") | .text) | join("\n")
+           elif type == "string" then . else empty end
+         | select(length > 0)
+         | if test("^\\s*<command-(message|name)>") then
+               ([capture("<command-name>(?<n>[^<]*)</command-name>").n] | first // "") as $name
+               | ([capture("<command-args>(?<a>[\\s\\S]*?)</command-args>").a] | first // "") as $args
+               | if ($args | length) > 0 then "\($name) \($args)" else empty end
+           elif test("^\\s*(<task-notification|<system-reminder|Stop hook feedback|<local-command|<bash-|\\[Request interrupted|<cross-session|This session is being continued)") then empty
+           else . end]
+        | last // empty' 2>/dev/null
+}
+
+# Returns 0 only when the judge answers with a parsed `"ok": false`. It runs from TMPDIR with no
+# settings, plugins, MCP servers, tools or saved session, under a perl alarm (macOS ships no
+# `timeout`), so the hook's own 25 s registration timeout is never the bound that fires.
+judge_blocks() {
+    # A session pointed at another endpoint (ANTHROPIC_BASE_URL) would resolve `sonnet` to that
+    # provider's model, a judge nobody measured, so it skips the judge and the stop is allowed.
+    [ -z "${ANTHROPIC_BASE_URL:-}" ] || return 1
+    command -v claude >/dev/null 2>&1 || return 1
+    command -v perl >/dev/null 2>&1 || return 1
+    template="$(dirname "$0")/lib/announce-judge.md"
+    [ -f "$template" ] || return 1
+    prompt="$(jq -rn --rawfile t "$template" --arg r "$(last_request)" --arg m "$msg" '
+        ($r | if length == 0 then "(not available)"
+              elif length > 1500 then .[:750] + "\n[...]\n" + .[-750:] else . end) as $req
+        | $t | split("{{REQUEST}}") | map(split("{{MESSAGE}}") | join($m[-4000:])) | join($req)' 2>/dev/null)" \
+        || return 1
+    verdict="$(cd "${TMPDIR:-/tmp}" && printf '%s' "$prompt" | AC_ANNOUNCE_JUDGE=1 perl -e 'alarm shift; exec @ARGV; exit 127' \
+        "$judge_timeout" claude -p --model "$judge_model" --no-session-persistence --setting-sources '' \
+        --strict-mcp-config --disable-slash-commands --tools '' --output-format json \
+        --json-schema '{"type":"object","properties":{"ok":{"type":"boolean"}},"required":["ok"]}' 2>/dev/null)" \
+        || return 1
+    printf '%s' "$verdict" | jq -e '
+        (if type == "array" then map(select(.type == "result")) | last else . end)
+        | .structured_output.ok == false' >/dev/null 2>&1
+}
+judge_blocks || exit 0
+
 blocks=$((blocks + 1))
 total=$((total + 1))
 printf '%s %s %s\n' "$blocks" "$tsize" "$total" > "$counter" 2>/dev/null || exit 0
@@ -165,15 +241,13 @@ esac
 
 reason="$found
 
-End the turn only in one of three ways:
-1. The work the user asked for is done and verified: end without offering more work.
-2. A decision only the user can make blocks the rest, including an outward action (push, merge, PR, deploy, publish) the request did not name: finish everything that does not depend on it, then call AskUserQuestion with your recommendation first.
-3. A blocker only the user can clear (a credential, a physical action, something deliberately protected from you): name it and say what you finished.
-
-Otherwise, if that step is part of what the user asked for, take it now with its tool call. If it is extra work beyond the request, drop the offer and end. If the request was to explain, investigate or review, the report is the finished work: end without starting the fix. If the user asked you to stop or pause, end now. Nothing that will notify you is running now; to wait on CI, a deploy or a bot, arm Monitor or Bash run_in_background, then end the turn and let its notification wake you. Do not hold the turn with a sleep or polling loop. Context or token pressure is not a reason to stop; compaction carries the work forward."
+- If that step is yours and the user's request covers it, take it now with its tool call.
+- If the user has to decide, including an outward action (push, merge, deploy, publish) the request did not name, finish what does not depend on it and call AskUserQuestion with your recommendation first.
+- If you are waiting on CI, a deploy or a bot, nothing that will notify you is running: arm Monitor, or Bash with run_in_background under \`timeout N\`, then end the turn. Never wait with a sleep or polling loop.
+- If the next step belongs to the user or someone else, end with one line that says so. Do not repeat your report."
 
 jq -cn \
     --arg r "$reason" \
-    --arg m "ac stop-guard-announce: blocked a $kind stop ($blocks/$max_blocks)" \
-    '{decision: "block", reason: $r, systemMessage: $m}'
+    --arg m "ac stop-guard-announce: continued the turn ($kind, $blocks/$max_blocks)" \
+    '{hookSpecificOutput: {hookEventName: "Stop", additionalContext: $r}, systemMessage: $m}'
 exit 0
