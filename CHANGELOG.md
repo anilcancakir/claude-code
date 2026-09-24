@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.25.1] - 2026-09-24
+
+Stops the announce guard from blocking a turn whose next step belongs to the user. Its regexes now only nominate an ending; a Sonnet judge that reads your last request decides.
+
+### Changed
+
+- `stop-guard-announce.sh` asks a judge before it continues a turn. Over its first day live it blocked 18 stops and about 10 of them were handoffs the regexes cannot tell from an announcement: "order the parts, build it, tell me the result", "run `/ac:install --dry-run` yourself", a peer session's next step, "bekliyorum" meaning "I expect". A regex match now goes to an isolated `claude -p` on Sonnet (`hooks/lib/announce-judge.md`) that reads the ending together with the user's last request (a slash command counts as its name and arguments; a long request is sent as its head and tail), and only a parsed `"ok": false` continues the turn. A session pointed at another endpoint through `ANTHROPIC_BASE_URL` skips the judge, since `sonnet` would resolve to that provider's model. On 44 unseen regex-positive stops that cut wrong blocks from 24 to 5 and missed 3 of 20. Haiku was measured and rejected: it flipped 8 of 107 decisions between identical runs and repeated the regexes' handoff mistakes. An offer of extra work the request did not ask for is no longer blocked. A missing `claude` or `perl`, a 20 second timeout (`AC_ANNOUNCE_JUDGE_TIMEOUT`), an error or an unparsable verdict ends the turn normally; `AC_ANNOUNCE_JUDGE_MODEL` overrides the model.
+- The announce guard continues a turn through `additionalContext` rather than `decision: "block"`, so the transcript shows hook feedback instead of a "Stop hook error", with the same loop protections. It continues at most once per stall and 3 times per prompt (was 2 and 4), and its instruction tells the model to end with one line, without repeating the report, when the next step belongs to the user.
+- A `type: "prompt"` Stop hook was the obvious alternative and was rejected on 2.1.281 evidence: its evaluator receives the whole conversation, trimmed only above half the model's context window, under a system prompt that answers `ok: false` on insufficient evidence, on every stop of every session including `claude -p`.
+
+### Fixed
+
+- `hooks/lib/wake-count.jq` strict mode counts a shell that runs under `timeout N` (N above 0, optional `-k`, `-s`, `--foreground` and leading `VAR=` assignments) as finite, whatever it wraps, provided N is at most one hour and no `;`, `&`, `|` or newline sits outside quotes, so `timeout 86400 npm run dev` still does not switch a run guard off. An `/ac:execute` run was blocked twice on 2026-09-23 while `timeout 110 zsh /tmp/wait-step.sh` waited in the background, and the model then waited in the foreground. The run guards' block text now says a self-started wait is seen only under `timeout N`. A `Monitor` running an opaque script without `timeout` still does not count, because the payload carries no Monitor timeout.
+
 ## [0.25.0] - 2026-09-23
 
 Ends the foreground polling that the Stop guards were causing. Over the week to 2026-09-23 every `stop-guard.sh` block in an `/ac:execute` run landed on a "waiting for workers" message while the workers ran in the background, and the model answered each block by polling evidence files with `until ...; do sleep 15; done` loops, often to the 900s Bash timeout: 19 loops and about 138 minutes straight after a block, and 60 loops and about 325 minutes after a task-notification with other workers still running. Claude Code 2.1.280 sends `background_tasks` in the Stop payload for exactly this case, and neither run guard read it. It also brings `/ac:init-project` up to the 2.1.280 setup model: one approved proposal, permission rules, a format hook, an `AGENTS.md` import and a review of the drafts.
@@ -686,6 +700,7 @@ The lesson driving this release: a limit written in prose is not a limit. The ca
 - `subagent-monitor` plugin removed from the marketplace; functionality superseded by
   the plan-chain agent reviewers.
 
+[0.25.1]: https://github.com/anilcancakir/claude-code/compare/v0.25.0...v0.25.1
 [0.25.0]: https://github.com/anilcancakir/claude-code/compare/v0.24.0...v0.25.0
 [0.24.0]: https://github.com/anilcancakir/claude-code/compare/v0.23.0...v0.24.0
 [0.23.0]: https://github.com/anilcancakir/claude-code/compare/v0.22.0...v0.23.0
