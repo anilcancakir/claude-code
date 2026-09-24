@@ -64,10 +64,29 @@ def long_lived:
     + "|\\bdocker( +compose)?\\b[^|;&\\n]* up\\b(?![^|;&\\n]*( -d\\b|--detach))"
     + "|\\b(node|bun|deno|tsx|python3?|php) +\\S*server\\S*\\.(c?m?[jt]s|py|php)\\b");
 
+# A command that runs under `timeout N` ends by construction, whatever it wraps: an opaque wait
+# script, an `until` loop, a log follow. The finite list cannot see into `timeout 110 zsh
+# /tmp/wait-step.sh`, and missing it blocked a real execute run twice (2026-09-23) until the model
+# waited in the foreground. Only the first simple command is bounded, so a `;`, `&`, `|` or newline
+# outside quotes disqualifies it, and so does a clipped command whose tail cannot be seen. N must
+# lie in (0, 1 hour]: `timeout 0` disables the limit, and `timeout 86400 npm run dev` is a dev
+# server that would switch the run guard off for a day.
+def bounded:
+  (gsub("'[^']*'"; "''") | gsub("\"(\\\\.|[^\"\\\\])*\""; "\"\"")) as $bare
+  | ([$bare | capture(
+      "^\\s*([A-Za-z_][A-Za-z0-9_]*=\\S*\\s+)*g?timeout"
+      + "(\\s+(-k\\s*\\S+|--kill-after=\\S+|-s\\s*\\S+|--signal=\\S+|--foreground|--preserve-status|-v|--verbose))*"
+      + "\\s+(?<n>[0-9]+(\\.[0-9]+)?)(?<u>[smhd]?)\\s")] | first) as $t
+  | $t != null
+    and (($t.n | tonumber) * {"": 1, "s": 1, "m": 60, "h": 3600, "d": 86400}[$t.u] | . > 0 and . <= 3600)
+    and ($bare | test("[;&|\\n]") | not)
+    and (test("\\[\\+[0-9]+ chars\\]$") | not);
+
 def wakes:
   if .type == "shell" then
     (.command // "") as $c
-    | if strict then ($c | finite) and ($c | loops | not) and ($c | follows | not) and ($c | long_lived | not)
+    | if strict then ($c | bounded)
+        or (($c | finite) and ($c | loops | not) and ($c | follows | not) and ($c | long_lived | not))
       else ($c | loops) or ($c | follows) or ($c | long_lived | not)
       end
   else

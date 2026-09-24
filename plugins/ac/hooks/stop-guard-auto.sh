@@ -226,7 +226,7 @@ it. The one action that clears it is the gate writing the verdict.
 $next_action
 
 No background worker of this session is running, so do not wait with a sleep, until or polling
-loop in the foreground; while one runs, ending the turn is the right way to wait and this guard allows it.
+loop in the foreground; while one runs, ending the turn is the right way to wait and this guard allows it (a wait you start yourself counts only under \`timeout N\`).
 
 Context pressure is not a stopping condition. Auto-compaction summarizes older turns and the run
 continues; do not announce a context or token-budget concern in place of finishing, and do not

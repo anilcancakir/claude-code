@@ -245,7 +245,7 @@ State from disk: wave $wave, $checked of $total steps checked, $unchecked unchec
 Next unchecked step: $next_step
 Authoritative step state: .ac/plans/$slug/plan.md, in its \`- [ ]\` checkboxes.
 $progress_note
-No background worker of this session is running, so do not wait with a sleep, until or file-stability loop in the foreground. If you were waiting on a worker, it has finished: its task-notification may still be queued behind your next tool call, so read the plan file and the worker's evidence first, and spawn a step again only when its output shows it ended without a result. While workers do run, ending the turn is the right way to wait and this guard allows it.
+No background worker of this session is running, so do not wait with a sleep, until or file-stability loop in the foreground. If you were waiting on a worker, it has finished: its task-notification may still be queued behind your next tool call, so read the plan file and the worker's evidence first, and spawn a step again only when its output shows it ended without a result. While workers do run, ending the turn is the right way to wait and this guard allows it; a wait you start yourself is seen as one only when it runs under \`timeout N\`.
 
 Context pressure is not a stopping condition. Auto-compaction summarizes older turns and the run continues; do not announce a context or token-budget concern in place of finishing, and do not hand the remainder back as a next step for a new session. If a compaction just happened, only the first 5,000 tokens of the ac:execute body survived it: re-invoke the ac:execute skill to restore the full body, then continue from the plan file.
 
