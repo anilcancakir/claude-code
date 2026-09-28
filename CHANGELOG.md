@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.26.0] - 2026-09-28
+
+Brings the plugin in line with Sonnet 5.5, which `model: sonnet` resolves to from Claude Code 2.1.284 (every build up to 2.1.283 resolved it to Sonnet 5). Both junior worker tiers and `ac:librarian` already run it; nothing in the frontmatter changes.
+
+### Added
+
+- `ac:prompt-writer` ships `references/sonnet-5-5-tuning.md`, the Sonnet 5.5 delta over Sonnet 5 from Anthropic's prompting guide, what's-new page and system card: recalibrated effort levels, `thinking: {"type": "between_tools"}` as the floor where `disabled` now returns 400, forced `tool_choice` returning 400, early check-ins at `low` and `medium`, unrequested tests and docs at every level, self-started review rounds at `xhigh` and `max`, search over training knowledge, and what Claude Code 2.1.284 gives the model. The skill's knob table, anti-pattern rows and checklist carry Sonnet 5.5 in place of Sonnet 5.
+
+### Changed
+
+- The announce guard's judge stays on the `sonnet` alias and now runs Sonnet 5.5. Its 44-stop measurement ran on Sonnet 5, and 5.5 recalibrates effort and thinks before almost every reply from `medium` up, so the agreement and the latency are unmeasured until the labelled set is re-run (a four-case smoke test matched every label at 2.5 to 2.8 s); `AC_ANNOUNCE_JUDGE_MODEL=claude-sonnet-5` restores the measured judge.
+- `ac:plan-worker-junior` and `ac:plan-worker-junior-high` name Sonnet 5.5 and add the two habits Anthropic documents for it: they leave out tests, docs and supporting files the step did not ask for, and they carry a step through instead of stopping to confirm, stopping early only for a briefing gap, a contradiction, a tier mismatch or a blocker they cannot clear. `ac:plan-worker-junior` moves from `medium` to `high` effort: on the Sonnet 5.5 system card's per-effort FrontierCode curve, the benchmark closest to a fixed-scope plan step, `medium` scores about 36.5% against 49.4% at `high` for roughly 1.7x the output tokens. Both junior tiers now run `sonnet` at `high`; `junior-high` stays as the planner's borderline signal until 5.5 runs show whether it should move to `xhigh` or fold into `junior`.
+- `ac:librarian` checks release-sensitive specifics (a default, a limit, a price, a model ID, a flag) against a page fetched in the same run, because Sonnet 5.5 tends to answer those from training knowledge.
+- Every place that selects a model names the alias (`haiku`, `sonnet`, `opus`) rather than a versioned ID: the routing tables in `model-tiers.md`, the plan template and `ac:execute`, the `model:` examples in the skill, command and agent authoring templates, and the skill-creator override table. Versioned IDs remain only in API code samples and model rosters, where the API needs them.
+- `model-tiers.md` and the plan template carry Sonnet 5.5's system-card numbers for both junior tiers: SWE-Bench Pro 81.3% against Sonnet 5's 63.2% and Opus 5.5's 89.9%, all from one table at `max`. Sonnet 5's price is corrected to $2 / $10, since the planned rise to $3 / $15 was cancelled; Sonnet 5.5 costs the same. The per-step cost column is repriced at today's Sonnet 5.5 and Opus 5.5 prices on the measured tokens (junior $0.68, junior-high $1.26, senior $2.94), so the senior premium that `ac:plan`, `ac:execute` and `ac:plan-reviewer` cite drops from 5.9x junior to about 4.3x. The system card's per-effort FrontierCode curve is recorded next to the junior effort choice.
+- Every place that said Claude Code gives "every Sonnet" the classic system prompt now says Sonnet 5 and earlier. Sonnet 5.5 gets the lean prompt with no bundle sections, the same text as Opus 5.5, read off a 2.1.284 session's `prompt_snapshot`; the six classic-only rules no longer reach a Sonnet main thread.
+
 ## [0.25.1] - 2026-09-24
 
 Stops the announce guard from blocking a turn whose next step belongs to the user. Its regexes now only nominate an ending; a Sonnet judge that reads your last request decides.
