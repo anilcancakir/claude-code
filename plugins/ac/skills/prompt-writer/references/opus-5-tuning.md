@@ -60,7 +60,7 @@ Not for Opus 5.5: there, raise effort instead. Anthropic recommends removing "th
 
 Thinking is ON by default on Opus 5. This is the breaking change from 4.8, where thinking was off unless you asked for it. The wire value is unchanged: `thinking: {"type": "adaptive"}` remains valid and is equivalent to the default, so an existing 4.8 integration keeps working; the explicit enable is now redundant rather than required.
 
-Manual extended thinking is still rejected. `thinking: {"type": "enabled", budget_tokens: N}` returns a 400 error on Opus 4.7, Opus 4.8, Opus 5, and Sonnet 5.
+Manual extended thinking is still rejected. `thinking: {"type": "enabled", budget_tokens: N}` returns a 400 error on Opus 4.7, Opus 4.8, Opus 5, Opus 5.5, Sonnet 5, and Sonnet 5.5.
 
 ```python
 client.messages.create(
@@ -202,14 +202,14 @@ The two strategies that worked on 4.8 for design control are model-agnostic and 
 
 ## Sonnet 5 deltas
 
-If your prompt targets `claude-sonnet-5` instead of Opus 5:
+If your prompt targets `claude-sonnet-5` instead of Opus 5 (for `claude-sonnet-5-5`, which `model: sonnet` resolves to from Claude Code 2.1.284, read `sonnet-5-5-tuning.md` on top of this section):
 
 - Default effort `high`, all five levels supported. Set explicitly when you want something other than `high`.
 - Adaptive thinking is default-on; you do not need to set `thinking` at all. Manual `{"type": "enabled", budget_tokens: N}` is removed and returns a 400 error, not a soft deprecation.
 - Non-default `temperature` / `top_p` / `top_k` return a 400 error, same as Opus 5. This landed on Sonnet-class models with Sonnet 5; it was introduced on Opus 4.7.
 - 1M context window (default and maximum; there is no smaller variant), 128k max output.
 - Tokenizer: the docs state roughly 30% more tokens than Sonnet 4.6 for equivalent text. They do NOT state that it is the same tokenizer generation as Opus 4.7/4.8; treat any such equivalence as an inference, not a documented fact. Re-baseline token-count estimates carried over from Sonnet 4.6.
-- Pricing $3 per MTok input, $15 per MTok output (introductory $2/$10 through 2026-08-31).
+- Pricing $2 per MTok input, $10 per MTok output. Launched as introductory pricing; it became the standard price and the planned rise to $3/$15 was cancelled.
 - Knowledge cutoff January 2026, versus Opus 5's May 2026.
 - Reach for Opus 5 on the hardest, longest-horizon problems. Sonnet 5 is the fast, cost-efficient default for everything else.
 
@@ -249,7 +249,8 @@ Source: https://platform.claude.com/docs/en/about-claude/models/introducing-clau
 |---|---|---|---|---|---|---|
 | Fable 5 | `claude-fable-5` | 1M | 128k | 5 levels, default `high` | adaptive, always on | $10 / $50 |
 | Opus 5 | `claude-opus-5` | 1M | 128k | 5 levels, default `high` | adaptive, default on | $5 / $25 |
-| Sonnet 5 | `claude-sonnet-5` | 1M | 128k | 5 levels, default `high` | adaptive, default on | $3 / $15 (intro $2 / $10 to 2026-08-31) |
+| Sonnet 5.5 | `claude-sonnet-5-5` | 1M | 128k | 5 levels, default `high` (API) / `medium` (Claude Code) | adaptive, always on; `between_tools` floor | $2 / $10 |
+| Sonnet 5 | `claude-sonnet-5` | 1M | 128k | 5 levels, default `high` | adaptive, default on | $2 / $10 |
 | Haiku 4.5 | `claude-haiku-4-5-20251001` | 200k | 64k | not supported | manual only | $1 / $5 |
 
 Opus 4.8, 4.7, 4.6, 4.5 and Sonnet 4.6, 4.5 remain Active with no deprecation date. Tentative earliest retirements: `claude-opus-4-8` not sooner than 2027-05-28, `claude-sonnet-5` not sooner than 2027-06-30, `claude-haiku-4-5-20251001` not sooner than 2026-10-15.

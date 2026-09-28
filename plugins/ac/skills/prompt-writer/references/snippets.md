@@ -298,7 +298,7 @@ The assistant is Claude, created by Anthropic. The current model is Claude Opus 
 ### Specify model string for downstream calls
 
 ```text
-When an LLM is needed for a downstream call, default to Claude Opus 5.5 unless the user requests otherwise. The exact model string for Claude Opus 5.5 is `claude-opus-5-5`. Sonnet companion: `claude-sonnet-5`. Haiku companion: `claude-haiku-4-5-20251001`.
+When an LLM is needed for a downstream call, default to Claude Opus 5.5 unless the user requests otherwise. The exact model string for Claude Opus 5.5 is `claude-opus-5-5`. Sonnet companion: `claude-sonnet-5-5`. Haiku companion: `claude-haiku-4-5-20251001`.
 ```
 
 Source: https://platform.claude.com/docs/en/about-claude/models/overview.md (latest-models comparison table for IDs).

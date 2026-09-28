@@ -9,7 +9,9 @@ Text inside fences is verbatim. `${...}` marks a runtime interpolation. Em-dashe
 
 This file ships identically in `ac:prompt-writer` and `ac:claude-md-rules-creator`; refresh both together. To refresh after a Claude Code update: open a fresh session on the target model, take the `prompt_snapshot` attachment from its transcript (`~/.claude/projects/<project>/<session>.jsonl`, the line whose `attachment.type` is `prompt_snapshot`), diff its blocks against section 1, and re-grep every other fenced block against the new binary.
 
-## 1. Main thread, LEAN shape (Opus 5.5, Opus 5, Opus 4.8, Fable, Mythos)
+## 1. Main thread, LEAN shape (Opus 5.5, Sonnet 5.5, Opus 5, Opus 4.8, Fable, Mythos)
+
+Sonnet 5.5 receives this same text with no bundle sections, like Opus 5.5 (read off a 2.1.284 `claude -p --model sonnet` session's `prompt_snapshot`, 2026-09-28).
 
 The behavioral core a 5.5 main thread receives, minus feature-specific lines (the ultrareview bullet, the `EndConversation` deferred-tool guidance). Order in a real session: this block, then the separate sections below, then `# Memory`, the environment block, `# Context management`, and the act-don't-rederive line (behind `tengu_cedar_lantern`, default on).
 
@@ -107,7 +109,7 @@ Rules for that message:
 - Stop when the content stops. No closing offer, no restating what you did.
 ```
 
-**Opus 5.5, Fable 5.1 and Mythos 5.1** (`silent_turn_reminder`, on through the 5.5 bundle and the Fable 5.1 check): a runtime reminder, not a prompt section. After five tool-calling turns with nothing for the user, at most three times. The baked default:
+**Opus 5.5, Sonnet 5.5, Fable 5.1 and Mythos 5.1** (`silent_turn_reminder`, on through the Opus 5.5 bundle, Sonnet 5.5's own capability and the Fable 5.1 check): a runtime reminder, not a prompt section. After five tool-calling turns with nothing for the user, at most three times. The baked default:
 
 ```text
 The user hasn't heard from you in a while. As you continue, keep them updated when there's something to tell \u2014 a finding, a change of plan.
@@ -119,9 +121,9 @@ The text is overridable (`CLAUDE_CODE_SILENT_TURN_REMINDER_TEXT`, then the serve
 The user hasn't heard from you in a while \u2014 say in a few words what you're doing, then continue.
 ```
 
-## 3. Main thread, CLASSIC shape (every Sonnet and Haiku, Opus 4.0 to 4.7)
+## 3. Main thread, CLASSIC shape (Sonnet 5 and earlier, Haiku, Opus 4.0 to 4.7)
 
-None of this reaches an Opus 5.5 user. For a CLAUDE.md read by a mixed team, a line that repeats this is tax on the Sonnet sessions and load-bearing on the Opus ones.
+None of this reaches an Opus 5.5 or Sonnet 5.5 user. For a CLAUDE.md read by a mixed team, a line that repeats this is tax on the Sonnet 5 and Haiku sessions and load-bearing on the 5.5 ones.
 
 ```text
 # System

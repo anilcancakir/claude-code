@@ -7,7 +7,7 @@ disable-model-invocation: false
 
 # Prompt Writer
 
-You are about to write or edit a prompt another Claude will execute. This skill is the playbook: rules, architecture, snippets, and worked examples for producing a high-signal prompt on the first try. Primary target is Claude Opus 5.5 (`model: opus` on Claude Code 2.1.280), whose documented baseline is Opus 5; the same shapes work on Sonnet 5 at lower cost and on Fable above it.
+You are about to write or edit a prompt another Claude will execute. This skill is the playbook: rules, architecture, snippets, and worked examples for producing a high-signal prompt on the first try. Primary target is Claude Opus 5.5 (`model: opus` on Claude Code 2.1.280), whose documented baseline is Opus 5; the same shapes work on Sonnet 5.5 (`model: sonnet` on 2.1.284) at lower cost and on Fable above it.
 
 Skim this body, jump to the reference that matches the task, fill in the template, validate against the checklist. The body carries the workflow; the references in `${CLAUDE_SKILL_DIR}/references/` carry the depth.
 
@@ -132,19 +132,21 @@ You are [persona, one sentence: who, domain, tone].
 
 ## Model tuning knobs (Opus 5.5 first)
 
-Anthropic documents `claude-opus-5-5` as a delta over Opus 5: Opus 5 patterns hold unless this section says otherwise. Detail in `${CLAUDE_SKILL_DIR}/references/opus-5-5-tuning.md` (5.5 deltas) and `${CLAUDE_SKILL_DIR}/references/opus-5-tuning.md` (Opus 5 baseline, Sonnet 5, Haiku 4.5, Fable).
+Anthropic documents `claude-opus-5-5` as a delta over Opus 5: Opus 5 patterns hold unless this section says otherwise. Detail in `${CLAUDE_SKILL_DIR}/references/opus-5-5-tuning.md` (Opus 5.5 deltas), `${CLAUDE_SKILL_DIR}/references/sonnet-5-5-tuning.md` (Sonnet 5.5 deltas) and `${CLAUDE_SKILL_DIR}/references/opus-5-tuning.md` (Opus 5 baseline, Sonnet 5, Haiku 4.5, Fable).
 
-| Knob | Opus 5.5 | Opus 5 | Sonnet 5 | Haiku 4.5 |
+| Knob | Opus 5.5 | Opus 5 | Sonnet 5.5 | Haiku 4.5 |
 |---|---|---|---|---|
-| Default effort | `medium` | `high` | `high` | unsupported; never set it |
-| Thinking | always on; `disabled` and manual `budget_tokens` both 400 | on; `disabled` only at `high` or below | on; manual 400 | manual `budget_tokens` only; adaptive rejected |
-| `tool_choice` `any` / `tool` | 400; use `auto` plus `strict: true`, or Structured Outputs | accepted | - | - |
-| `max_tokens`, long agentic turns | 128k | ~64k at `xhigh` / `max` | - | 64k cap |
-| Price in / out per MTok | $4 / $20, cache read $0.20 | $5 / $25 | $3 / $15 | $1 / $5 |
+| Default effort | `medium` | `high` | `high` on the API, `medium` in Claude Code; levels recalibrated from Sonnet 5 | unsupported; never set it |
+| Thinking | always on; `disabled` and manual `budget_tokens` both 400 | on; `disabled` only at `high` or below | always on; `disabled` and manual 400; `between_tools` at `high` or below is the floor | manual `budget_tokens` only; adaptive rejected |
+| `tool_choice` `any` / `tool` | 400; use `auto` plus `strict: true`, or Structured Outputs | accepted | 400, same fix | - |
+| `max_tokens`, long agentic turns | 128k | ~64k at `xhigh` / `max` | 128k | 64k cap |
+| Price in / out per MTok | $4 / $20, cache read $0.20 | $5 / $25 | $2 / $10, cache read $0.20 | $1 / $5 |
 
-**Effort is the cost lever, and labels do not port.** 5.5 at `medium` matches Opus 5 at `high`, and at any given label it thinks more than Opus 5. Start at `medium`, try `low` for scoped work, step up only on a measured gain. Lower effort before writing "think less" prose, and drop "think carefully" lines. Change effort per turn with a per-message `output_config`; changing the top-level value breaks the cache.
+**Effort is the cost lever, and labels do not port.** Opus 5.5 at `medium` matches Opus 5 at `high`, and at any given label it thinks more than Opus 5. Start at `medium`, try `low` for scoped work, step up only on a measured gain. Lower effort before writing "think less" prose, and drop "think carefully" lines. Change effort per turn with a per-message `output_config`; changing the top-level value breaks the cache.
 
-**Keep the prefix append-only.** Cache reads are 0.05x input on 5.5 and the cache minimum is 512 tokens, so a long static system prompt is cheap and an edited one is expensive. On 5.5, editing `system` or `tools` mid-session also invalidates earlier thinking blocks. Late rules go in a mid-conversation system message.
+**Sonnet 5.5 steers by effort level.** At `low` and `medium` it checks in before agentic work is done; at every level it adds tests, docs and small files nobody asked for; at `xhigh` and `max` it starts its own review rounds, with subagents where it can. Each has a one-paragraph fix in `sonnet-5-5-tuning.md`; pick by the level you run.
+
+**Keep the prefix append-only.** Cache reads are 0.05x input on Opus 5.5 (0.1x on Sonnet 5.5) and the cache minimum is 512 tokens, so a long static system prompt is cheap and an edited one is expensive. On both 5.5 models, editing `system` or `tools` mid-session also invalidates earlier thinking blocks. Late rules go in a mid-conversation system message.
 
 **Verbosity.** Not documented for 5.5's general replies. Keep the Opus 5 practice: a positive length target, and deliverable length stated separately from chat length. Effort is not a length lever.
 
@@ -237,9 +239,10 @@ Surface-level set; the full audit checklist with the why behind each fix is in `
 | 4.8-era fan-out encouragement ("spawn multiple subagents when fanning out") | Invert it; Opus 5 and 5.5 already delegate readily. Say when NOT to spawn. |
 | Lowering `effort` to shorten output | Effort is not a length lever. State a length target instead. |
 | Effort label copied from an Opus 5 config onto 5.5 | Re-sweep from `medium`; 5.5 thinks more per label. |
+| Effort label copied from a Sonnet 5 config onto Sonnet 5.5 | Re-sweep; the levels are recalibrated. `medium` for well-specified agentic coding, `high` for harder work. |
 | "Think carefully" or "explain your reasoning, then answer" on 5.5 | Remove; raise effort. The second can draw a `reasoning_extraction` refusal. |
-| `thinking: { type: "enabled", budget_tokens }` | Returns 400 on Opus 4.7 and later and on Sonnet 5; omit `thinking` or send `adaptive`. |
-| `thinking: { type: "disabled" }` | 400 on 5.5 at every effort; on Opus 5 allowed only at `high` or below. |
+| `thinking: { type: "enabled", budget_tokens }` | Returns 400 on Opus 4.7 and later and on Sonnet 5 and 5.5; omit `thinking` or send `adaptive`. |
+| `thinking: { type: "disabled" }` | 400 on both 5.5 models at every effort (Sonnet 5.5 takes `between_tools` instead, at `high` or below); on Opus 5 allowed only at `high` or below. |
 | `tool_choice` `any` / `tool` on 5.5 | Returns 400; `auto` plus `strict: true`, or Structured Outputs. |
 | Editing `system` or `tools` mid-session | Breaks the cache and, on 5.5, earlier thinking blocks; append a mid-conversation system message. |
 | A body that assumes CC's classic code-style rules on 5.5 | State the rule in one line; the lean prompt does not carry it. |
@@ -260,8 +263,8 @@ Before shipping a prompt:
 - [ ] Scope stated explicitly ("every X, not just the first").
 - [ ] No "CRITICAL / MUST / ALWAYS" language.
 - [ ] If input above 20k tokens: documents at top, question at bottom.
-- [ ] Effort set explicitly via `output_config={"effort": ...}`, chosen by measurement from `medium` on 5.5, never copied across models.
-- [ ] Thinking shape matches the model: omitted or `adaptive` on Opus 5.5, Opus 5, Sonnet 5 and Fable; `disabled` only on Opus 5 at `high` or below; manual `budget_tokens` only on Haiku 4.5.
+- [ ] Effort set explicitly via `output_config={"effort": ...}`, chosen by measurement (from `medium` on Opus 5.5, by a fresh sweep on Sonnet 5.5), never copied across models.
+- [ ] Thinking shape matches the model: omitted or `adaptive` on Opus 5.5, Opus 5, Sonnet 5.5, Sonnet 5 and Fable; `disabled` only on Opus 5 at `high` or below; `between_tools` only on Sonnet 5.5 at `high` or below; manual `budget_tokens` only on Haiku 4.5.
 - [ ] On 5.5: no forced `tool_choice`, no reasoning-in-reply scaffold, `max_tokens` sized for thinking.
 - [ ] Main-thread text (skill, command, CLAUDE.md) restates what the reader's shape lacks and nothing it carries. An agent body restates every rule it needs, except what the subagent Notes already give it (`claude-code-builtin-prompts.md`, section 5).
 - [ ] No `effort` set for Haiku 4.5 (the parameter is unsupported on that model).
@@ -279,6 +282,7 @@ Before shipping a prompt:
 | `${CLAUDE_SKILL_DIR}/references/architecture.md` | Designing message structure, XML tag names, long-context layout, example design. |
 | `${CLAUDE_SKILL_DIR}/references/claude-code-builtin-prompts.md` | Official examples, and the duplicate check for anything that runs inside Claude Code: verbatim 2.1.280 system prompt text per shape and model, bundle sections, CLAUDE.md wrapper, subagent defaults, Agent tool text, plus the patterns worth copying. |
 | `${CLAUDE_SKILL_DIR}/references/opus-5-5-tuning.md` | Targeting `claude-opus-5-5`: effort calibration, thinking always on, forced tool use, thinking-block binding, unattended early stops, time signals, pasted content, what Claude Code 2.1.280 gives 5.5. |
+| `${CLAUDE_SKILL_DIR}/references/sonnet-5-5-tuning.md` | Targeting `claude-sonnet-5-5`: recalibrated effort, `between_tools`, early check-ins versus unrequested additions versus self-started review by effort level, search over training knowledge, JSON answers, what Claude Code 2.1.284 gives 5.5. |
 | `${CLAUDE_SKILL_DIR}/references/opus-5-tuning.md` | Tuning effort, thinking, verbosity, scope, subagent spawning, code-review re-tuning; the 4.8-to-5 inversions; per-model deltas for Sonnet 5, Haiku 4.5, Fable 5. |
 | `${CLAUDE_SKILL_DIR}/references/claude-code-conventions.md` | Writing prompts that run in the Claude Code harness: agents, slash commands, hooks, harness rules. |
 | `${CLAUDE_SKILL_DIR}/references/subagent-prompts.md` | Briefing a fresh subagent, designing a `subagent_type`, lookup vs investigation, length caps. |
