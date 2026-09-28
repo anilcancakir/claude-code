@@ -30,6 +30,13 @@
 # the regex's handoff mistakes, so the model is not Haiku. A missing `claude` or `perl`, a
 # timeout, an error or an unparsable verdict allows the stop.
 #
+# The judge runs on the `sonnet` alias. Those numbers were measured on Sonnet 5; 2.1.284 moved the
+# alias to Sonnet 5.5, which runs this call at its own `medium` default rather than Sonnet 5's
+# `high`, on recalibrated levels, and thinks before almost every reply from `medium` up. So the
+# agreement and the 2.8 to 6.7 s latency are unmeasured on it until the labelled set is re-run;
+# a four-case smoke test on 2026-09-28 matched every label at 2.5 to 2.8 s.
+# AC_ANNOUNCE_JUDGE_MODEL pins another model.
+#
 # Why not a `type: "prompt"` Stop hook: on 2.1.281 its evaluator receives the whole conversation
 # (trimmed only above half the model's context window), under a system prompt that returns
 # `ok: false` on "insufficient evidence", on every stop of every session, `claude -p` runs
