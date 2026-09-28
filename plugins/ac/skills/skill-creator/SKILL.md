@@ -9,7 +9,7 @@ disable-model-invocation: false
 
 You are about to write or edit a skill another Claude will load. A skill is a directory with a `SKILL.md`. Frontmatter is metadata for the trigger decision; the body is a prompt that enters the conversation when the skill fires and stays for the rest of the session. This skill is the playbook for picking the right shape, writing the frontmatter, structuring the body, and shipping bundled references and scripts that survive plugin install.
 
-Target is Opus 5.5 (`model: opus` on Claude Code 2.1.280). Same rules work for Sonnet 5 at lower cost and for Haiku 4.5, which supports no effort parameter at all. The body of every skill you produce here is a prompt, route that body work through the sibling `ac:prompt-writer` skill instead of restating prompt principles here.
+Target is Opus 5.5 (`model: opus` on Claude Code 2.1.280). Same rules work for Sonnet 5.5 (`model: sonnet` on 2.1.284) at lower cost and for Haiku 4.5, which supports no effort parameter at all. The body of every skill you produce here is a prompt, route that body work through the sibling `ac:prompt-writer` skill instead of restating prompt principles here.
 
 ## Two jobs, not one
 
@@ -315,11 +315,13 @@ This skill stays focused on the skill shape itself. The work around the skill ro
 
 When the user request implies any of the rows above, do both: invoke the matching creator for shape, then keep this skill loaded for what is still skill-shaped.
 
-## Opus 5.5 and Sonnet 5 tuning
+## Opus 5.5 and Sonnet 5.5 tuning
 
-Default target is `claude-opus-5-5` (`model: opus` on Claude Code 2.1.280), documented by Anthropic as a delta over Opus 5, so the Opus 5 notes below still hold unless the next paragraph says otherwise. Sonnet 5 (`claude-sonnet-5`) follows the same shape at lower cost; Haiku 4.5 (`claude-haiku-4-5-20251001`) supports no effort parameter at all. Full per-knob detail: `${CLAUDE_SKILL_DIR}/references/opus-5-tuning.md`; the 5.5 deltas and the verbatim built-in prompt text live in `ac:prompt-writer`.
+Default target is `claude-opus-5-5` (`model: opus` on Claude Code 2.1.280), documented by Anthropic as a delta over Opus 5, so the Opus 5 notes below still hold unless the next paragraph says otherwise. Sonnet 5.5 (`claude-sonnet-5-5`, `model: sonnet` on Claude Code 2.1.284) follows the same shape at lower cost, with its own deltas in `ac:prompt-writer`'s `references/sonnet-5-5-tuning.md`; Haiku 4.5 (`claude-haiku-4-5-20251001`) supports no effort parameter at all. Full per-knob detail: `${CLAUDE_SKILL_DIR}/references/opus-5-tuning.md`; the 5.5 deltas and the verbatim built-in prompt text live in `ac:prompt-writer`.
 
 On 5.5: default effort is `medium`, effort labels do not port from Opus 5 (5.5 thinks more per label), and its best agentic-coding score in the system card is at `medium`, so set a skill's `effort:` only when its work needs a different level from the session's, and remember it also holds for the rest of the turn after the skill runs. A skill body lands on the lean prompt, which lacks the classic code-style and communication rules; state any the skill needs.
+
+On Sonnet 5.5 the same holds, with its own twists: Claude Code's default is `medium`, labels are recalibrated from Sonnet 5 rather than shifted by one, and it is the first Sonnet on the lean prompt. At `low` and `medium` it checks in before agentic work is done, and at every level it adds tests, docs and small files nobody asked for, so a skill that fixes its scope or expects to run to completion says so in the body.
 
 Quick deltas to keep in mind while authoring:
 
@@ -368,7 +370,7 @@ when_to_use: <as above>
 # context: fork                     # subagent execution; body must be an actionable task
 # agent: ac:explore                 # subagent type when forked (general-purpose | ac:explore | <custom>)
 # paths: ["lib/**/*.dart", "pubspec.yaml"]   # auto-activate only when matching files are touched
-# model: claude-opus-5              # override the active model for this skill's run
+# model: opus                       # override the active model for this skill's run
 # effort: high                      # override the active effort level
 # hooks: ...                        # skill-scoped hook enforcement
 ---

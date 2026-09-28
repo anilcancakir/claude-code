@@ -2,7 +2,7 @@
 
 Skill-specific tuning for the current Claude family. Default target is Opus 5 (`claude-opus-5`, released 2026-07-24). Sonnet 5 (`claude-sonnet-5`) follows the same patterns; Haiku 4.5 (`claude-haiku-4-5-20251001`) differs on effort and thinking. This reference focuses on the knobs that matter when authoring the body of a skill; for prompt-architecture tuning beyond skills, route through `ac:prompt-writer` and read its `references/opus-5-tuning.md`.
 
-For `claude-opus-5-5`, the current `model: opus`, this file stays the baseline and `ac:prompt-writer`'s `references/opus-5-5-tuning.md` carries what changed: default effort `medium`, thinking that cannot be disabled, effort labels that do not port from Opus 5, and no reasoning-in-reply scaffolds.
+For `claude-opus-5-5`, the current `model: opus`, this file stays the baseline and `ac:prompt-writer`'s `references/opus-5-5-tuning.md` carries what changed: default effort `medium`, thinking that cannot be disabled, effort labels that do not port from Opus 5, and no reasoning-in-reply scaffolds. For `claude-sonnet-5-5`, the current `model: sonnet`, the same holds with `ac:prompt-writer`'s `references/sonnet-5-5-tuning.md`.
 
 4.8 to 5 is a tuning step for skill bodies, not a port: there are no API changes a skill body touches, and a body that ran on Opus 4.8 runs on Opus 5. But two model defaults inverted, so two specific 4.8-era body patterns now push in the wrong direction. Those two are first below.
 
@@ -111,14 +111,14 @@ For API-level skills (not Claude Code), thinking on Opus 5 is on by default. `{ 
 
 | Use case | `model:` value |
 |----------|----------------|
-| Heavy refactor under a Haiku or Sonnet session | `claude-opus-5` |
-| Boilerplate-only skill under an Opus session | `claude-haiku-4-5-20251001` |
-| Cost-efficient long-context work | `claude-sonnet-5` |
+| Heavy refactor under a Haiku or Sonnet session | `opus` |
+| Boilerplate-only skill under an Opus session | `haiku` |
+| Cost-efficient long-context work | `sonnet` |
 | Inherit session default | `inherit` or omit |
 
 Override applies for the rest of the current turn and is not saved. Session model resumes on the next user prompt. Carry the `[1m]` suffix when overriding if the user is on a 1M-context session, otherwise the effective window drops to 200K and may trip autocompact mid-skill.
 
-Do not pair `model: claude-haiku-4-5-20251001` with an `effort:` value; Haiku 4.5 does not support the effort parameter.
+Do not pair `model: haiku` with an `effort:` value; Haiku 4.5 does not support the effort parameter.
 
 ## Verbosity-sensitive output shapes
 
@@ -178,9 +178,11 @@ Sonnet 5 follows the same body shape as Opus 5 with these differences:
 - Default effort is `high`, all five levels supported. Drop one level versus Opus for cost-sensitive skills.
 - Adaptive thinking is default-on; manual extended thinking (`{ type: "enabled", budget_tokens: N }`) is removed and returns a 400 error, not merely deprecated.
 - Non-default `temperature` / `top_p` / `top_k` values return a 400 error, same as Opus 5.
-- 1M context and 128k max output, matching Opus 5. Pricing $3 / $15 per MTok versus Opus 5's $5 / $25.
+- 1M context and 128k max output, matching Opus 5. Pricing $2 / $10 per MTok versus Opus 5's $5 / $25.
 - Tokenizer produces roughly 30% more tokens than Sonnet 4.6 for equivalent text; re-baseline any token-count estimate carried over from Sonnet 4.6.
-- On the hardest work Sonnet 5 is not a near-peer: Opus 5 leads it by about 16 points on SWE-bench Pro and 27 points on FrontierBench v0.1. For a skill whose correctness matters more than its cost, set `model: claude-opus-5` rather than inheriting a Sonnet session.
+- On the hardest work Sonnet 5 is not a near-peer: Opus 5 leads it by about 16 points on SWE-bench Pro and 27 points on FrontierBench v0.1. For a skill whose correctness matters more than its cost, set `model: opus` rather than inheriting a Sonnet session.
+
+Sonnet 5.5 narrows the gap (SWE-bench Pro 81.3% against Opus 5.5's 89.9%, from one table) at the same $2 / $10, recalibrates its effort levels, and rejects `thinking: disabled`; its prompting deltas are in `ac:prompt-writer`'s `references/sonnet-5-5-tuning.md`.
 
 If a skill must run reliably on both Opus 5 and Sonnet 5, do not set `model:` or `effort:`. Let the session inherit, and do not write a body that assumes a specific model's quirks.
 
@@ -193,4 +195,4 @@ Haiku 4.5 is for short, scoped tasks where speed matters and reasoning depth doe
 - Verbosity calibration is less reliable; explicit length caps in the body matter more.
 - 200k context, 64k max output, $1 / $5 per MTok.
 
-Use Haiku 4.5 via `model: claude-haiku-4-5-20251001` for boilerplate, formatting, simple lookups. Do not use it for skills that require multi-step reasoning across many files; quality drops sharply past the third or fourth dependent decision.
+Use Haiku 4.5 via `model: haiku` for boilerplate, formatting, simple lookups. Do not use it for skills that require multi-step reasoning across many files; quality drops sharply past the third or fourth dependent decision.

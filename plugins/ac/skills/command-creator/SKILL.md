@@ -8,7 +8,7 @@ when_to_use: "Use when writing, editing or debugging a slash command."
 
 You are about to write or edit a Claude Code slash command another Claude will execute. A command is a markdown file that becomes a `/name` invocation: when the user types `/foo bar baz`, Claude Code reads the file, substitutes `&#36;ARGUMENTS` with `bar baz`, runs shell injection blocks, and injects the resulting prompt as a single user message. The model then executes the body as the next turn.
 
-This skill is the playbook for designing arguments, shell-injection-driven context gathering, phase-based body structure, approval gates, and the storage-format choice. Target is Opus 5.5. The same shape works for Sonnet 5 at lower cost and for Haiku 4.5, which supports no effort parameter.
+This skill is the playbook for designing arguments, shell-injection-driven context gathering, phase-based body structure, approval gates, and the storage-format choice. Target is Opus 5.5. The same shape works for Sonnet 5.5 at lower cost and for Haiku 4.5, which supports no effort parameter.
 
 ## Three jobs, not one
 

@@ -74,7 +74,7 @@ when_to_use: ...
 # agent: ac:explore                                           # subagent type when forked (general-purpose | ac:explore | <custom>)
 # paths:                                                      # path-conditional activation (polyglot repos)
 #   - "lib/**/*.dart"
-# model: claude-opus-5                                        # override session model for this skill's run
+# model: opus                                                 # override session model for this skill's run
 # effort: high                                                # override session effort (low | medium | high | xhigh | max)
 # hooks:                                                      # skill-scoped deterministic enforcement
 #   PreToolUse: ...

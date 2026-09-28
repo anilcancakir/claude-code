@@ -172,9 +172,9 @@ Pattern syntax mirrors `/permissions`:
 Override the active model while the skill runs. Same values as `/model`, plus `inherit` (no override).
 
 ```yaml
-model: claude-opus-5
+model: opus
 # or
-model: claude-sonnet-5
+model: sonnet
 # or
 model: inherit
 ```
