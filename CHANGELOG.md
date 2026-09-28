@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.26.0] - 2026-09-28
 
-Brings the plugin in line with Sonnet 5.5, which `model: sonnet` resolves to from Claude Code 2.1.284 (every build up to 2.1.283 resolved it to Sonnet 5). Both junior worker tiers and `ac:librarian` already run it; nothing in the frontmatter changes.
+Brings the plugin in line with Sonnet 5.5, which `model: sonnet` resolves to from Claude Code 2.1.284 (every build up to 2.1.283 resolved it to Sonnet 5). Both junior worker tiers and `ac:librarian` already run it; the one frontmatter change is `ac:plan-worker-junior` moving to `high` effort.
 
 ### Added
 
