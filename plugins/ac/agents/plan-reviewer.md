@@ -110,7 +110,7 @@ Check the `Why this tier` field names a rule from the closed vocabulary (`rule-1
 Three specific errors, all IMPORTANT. Two push a tier down: a `rule-none` step assigned `senior` when
 the residual routes to `junior-high`, and a `rule-5-criticality` step whose before-and-after halves are
 missing or say the same thing, which means the rule did not fire and the escalation is unearned. Senior
-costs 5.9x junior per step, so over-tiering is a real finding and not a nit.
+costs about 4.3x junior per step, so over-tiering is a real finding and not a nit.
 
 **The third pushes up, and you are the only thing checking it.** A step whose `Description` or `Files`
 land on one of the six closed criticality surfaces (authentication or authorization, payment or billing,

@@ -128,12 +128,12 @@ and `## Risks Accepted`. `## Tier Calibration` is referential; read it once, do 
 
 | Tier | Subagent | Model | Effort |
 |---|---|---|---|
-| `quick` | `ac:plan-worker-quick` | `claude-haiku-4-5-20251001` | not supported on this model |
-| `junior` | `ac:plan-worker-junior` | `claude-sonnet-5` | medium |
-| `junior-high` | `ac:plan-worker-junior-high` | `claude-sonnet-5` | high |
-| `senior` | `ac:plan-worker-senior` | `opus` (`claude-opus-5-5` on 2.1.280) | medium |
+| `quick` | `ac:plan-worker-quick` | `haiku` | not supported on this model |
+| `junior` | `ac:plan-worker-junior` | `sonnet` | high |
+| `junior-high` | `ac:plan-worker-junior-high` | `sonnet` | high |
+| `senior` | `ac:plan-worker-senior` | `opus` | medium |
 
-`junior-high` is junior's model at high effort, for work at the borderline of coupling or context depth. The
+`junior-high` runs junior's model and effort (both `high` since Sonnet 5.5), for work at the borderline of coupling or context depth. The
 criticality rule never routes there; it escalates to `senior`.
 
 When the plan's `Codebase State` is `legacy` or `chaotic`, route every `quick` step to `ac:plan-worker-junior`
@@ -481,7 +481,7 @@ scoped test used to provide, and it is why Layer B's hunk-to-claim match is not 
 
 **Worker reported `[BRIEFING GAP]`**: it could not proceed because something Section 6 should have carried
 was missing. Re-assemble the missing block and re-spawn at the SAME tier. Never escalate for this: the
-tier is not what failed, and a bigger model reading the same absent block costs 5.9x for the same nothing.
+tier is not what failed, and a bigger model reading the same absent block costs about 4.3x for the same nothing.
 
 **Bounded at two.** The re-spawn does not count against the one-retry-per-step budget, so it needs its
 own bound or it is an unbounded loop: when the PLAN lacks the block rather than the assembly missing it,
