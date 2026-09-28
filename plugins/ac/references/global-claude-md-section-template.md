@@ -16,16 +16,17 @@ Claude Code builds the main-thread system prompt in one of two shapes, chosen pe
 
   LEAN     one combined block: a persona line, the dual-use security policy, and a short
            `# Harness` bullet list. Selected when the model's capability roster carries
-           `lean_prompt`. On 2.1.280 that is claude-opus-4-8, claude-opus-5,
-           claude-opus-5-5, claude-fable-5, claude-fable-5-1, claude-mythos-5-1, plus
-           claude-mythos-5 by an explicit name check (its capability list is empty).
+           `lean_prompt`. On 2.1.284 that is claude-opus-4-8, claude-opus-5,
+           claude-opus-5-5, claude-sonnet-5-5, claude-fable-5, claude-fable-5-1,
+           claude-mythos-5-1, plus claude-mythos-5 by an explicit name check (its
+           capability list is empty).
   CLASSIC  six blocks: `# System`, `# Doing tasks`, `# Executing actions with care`,
-           `# Using your tools`, `# Tone and style`, plus a longer preamble. Every sonnet
-           and haiku, and Opus 4.0 to 4.7. Do not infer the roster from a family name.
+           `# Using your tools`, `# Tone and style`, plus a longer preamble. Sonnet 5 and
+           earlier, every haiku, and Opus 4.0 to 4.7. Do not infer the roster from a family name.
 
 Lean is not one fixed text either. Model-specific sections ride on per-model prompt bundles:
 Opus 5's bundle adds `# Delivering work`, `# Corrections` and the delegation clause quoted
-further down; Opus 5.5's bundle adds none of them. Read a real session's `prompt_snapshot`
+further down; Opus 5.5's bundle adds none of them, and Sonnet 5.5 carries no bundle at all. Read a real session's `prompt_snapshot`
 attachment in its jsonl before claiming a section reaches a given model.
 
 This file ships to users on BOTH. Write it to be correct under LEAN, which is the smaller set,

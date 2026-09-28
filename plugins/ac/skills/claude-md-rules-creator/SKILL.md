@@ -211,7 +211,7 @@ Walk these in order.
 Before any drafting, run `/memory` to list every CLAUDE.md, CLAUDE.local.md, and rule file currently loaded. Then for the topic of the new rule:
 
 - Grep the loaded files for keywords related to the topic.
-- Check the built-in prompt text in `${CLAUDE_SKILL_DIR}/references/claude-code-builtin-prompts.md` for overlap, on the shape the readers' model gets: section 1 for Opus 5.5 and other LEAN models, section 3 for Sonnet and Haiku, section 5 for what every subagent already receives. If the shape already says it, skip. If the rule contradicts it, write it as an explicit override or drop it.
+- Check the built-in prompt text in `${CLAUDE_SKILL_DIR}/references/claude-code-builtin-prompts.md` for overlap, on the shape the readers' model gets: section 1 for Opus 5.5, Sonnet 5.5 and other LEAN models, section 3 for Sonnet 5 and earlier and Haiku, section 5 for what every subagent already receives. If the shape already says it, skip. If the rule contradicts it, write it as an explicit override or drop it.
 - For each existing mention, decide one of three: **skip** (already covered at the right scope), **edit in place** (existing file is wrong/outdated), or **move to the right scope** (rule is in the wrong layer; e.g., team rule in user-global).
 - Check for conflicts: does the new rule contradict any existing layer? If yes, either drop one, or explicitly call out the override in the higher-precedence file.
 
@@ -374,7 +374,7 @@ Check the items that apply to your file's shape:
 
 | File | Load when... |
 |------|--------------|
-| `${CLAUDE_SKILL_DIR}/references/claude-code-builtin-prompts.md` | Before writing or cutting any line: the verbatim Claude Code 2.1.280 system prompt text per shape (LEAN for Opus 5.5, CLASSIC for Sonnet and Haiku), the per-model bundle sections, the CLAUDE.md wrapper as the model sees it, and what every subagent already receives. The duplicate-and-contradiction check runs against this file. |
+| `${CLAUDE_SKILL_DIR}/references/claude-code-builtin-prompts.md` | Before writing or cutting any line: the verbatim Claude Code 2.1.280 system prompt text per shape (LEAN for Opus 5.5 and Sonnet 5.5, CLASSIC for Sonnet 5 and earlier and Haiku), the per-model bundle sections, the CLAUDE.md wrapper as the model sees it, and what every subagent already receives. The duplicate-and-contradiction check runs against this file. |
 | `${CLAUDE_SKILL_DIR}/references/layered-context.md` | Auditing the existing stack (CC built-in system prompt + managed + user + project + local + auto memory + path-scoped rules) BEFORE writing. Includes the full "do not restate" cheat sheet of CC built-in defaults, the audit protocol (`/memory` + Grep + decide), conflict-precedence rules, duplicate-detection patterns, and cross-layer worked examples. Read this FIRST when generating or editing a CLAUDE.md or rule. |
 | `${CLAUDE_SKILL_DIR}/references/loader-and-injection.md` | Understanding the runtime mechanics: how files are discovered, concatenated, where they land in the API call (the `<system-reminder>` wrapper), compact survival rules, the `InstructionsLoaded` hook, troubleshooting "Claude is not following my CLAUDE.md". |
 | `${CLAUDE_SKILL_DIR}/references/scopes.md` | Deep dive on the four scopes (managed / user-global / project-team / project-personal): platform-specific managed paths, `--add-dir` behavior, `CLAUDE_CODE_DISABLE_CLAUDE_MDS` env, `--bare` mode, AGENTS.md interop, worktree handling, monorepo `claudeMdExcludes`, the loader filters. |
