@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+Makes a machine's context trims installable, and lets `/ac:install` upgrade an earlier setup instead of re-asking everything. On the author's machine on 2026-10-01 (Claude Code 2.1.286, Opus 5.5 1M), an empty `claude -p ok` went from 28,290 to 17,204 input tokens, most of it from unsetting `ENABLE_TOOL_SEARCH=auto` (about 9,600), which `/ac:install` now detects and reports, and from Group D denies the operator opts into; auto-memory indexes that had grown to 17KB and 20KB, about 5k tokens on every session of their project, came down to between 2.3KB and 6.2KB under the new hook's budget.
+
+### Added
+
+- `posttooluse-memory-index-budget.sh`, a `PostToolUse` hook on `Write|Edit|MultiEdit`. Claude Code loads the first 200 lines or 25KB of a project's auto-memory `MEMORY.md` into every session and only steps in itself near that cap. When a write to `projects/<project>/memory/MEMORY.md` leaves the index over 80 lines, 10240 bytes, or any line over 150 bytes (counted in bytes, so a Turkish letter is two), the hook answers `decision: "block"` with an instruction to shorten pointers, merge superseded memories and move large themes into `_index-<theme>.md` sub-indexes; it never edits the file. `AC_MEMORY_INDEX_MAX_LINES`, `AC_MEMORY_INDEX_MAX_BYTES` and `AC_MEMORY_INDEX_MAX_LINE_BYTES` move each limit, and 0 turns one check off. It fires inside subagents too and fails open; an index moved by `autoMemoryDirectory` is not covered. Its contract is pinned by a Bun test that runs the script, the first hook in the repo with one.
+- `/ac:install` Group F asks once whether to set `autoUpdate: true` on the `github`, `git` and `url` marketplaces in `extraKnownMarketplaces` that carry no `autoUpdate` key, since third-party marketplaces default to off. `claude-plugins-official` and any marketplace already toggled under `/plugin` are left alone, and the question is skipped with a note while `DISABLE_UPDATES`, `DISABLE_AUTOUPDATER` or `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` switches the update pass off. "Leave them off" writes `autoUpdate: false`, the value they already behave as, so the answer is on disk and no later run asks again.
+- `/ac:install` reports three things it never edits: an `ENABLE_TOOL_SEARCH` of `auto` or `false` in the environment, `settings.json` or a shell rc file (unset defers every MCP tool schema; unsetting `auto` saved about 9,600 tokens per session on a 1M window), a legacy top-level `autoUpdates` key, and a hand-installed `hooks.PostToolUse` copy of the memory index hook that would fire twice.
+- `/ac:install --upgrade` brings a machine set up by an earlier `/ac:install` up to the installed plugin version and asks only what it has never asked. It keeps both style skills without asking, reads the languages and every CLAUDE.md placeholder from the current file, folds the CLAUDE.md confirmation into one gate that shows the diff of the fenced block (and skips it when nothing changed), applies Groups A and C as always, and offers only the opt-in options that are not yet answered. The answers live in a new `~/.claude/ac-install.json`, written by every non-dry run; on a machine set up before it existed (recognised by the CLAUDE.md fence markers, an install backup or the Group C deny entries), an option whose keys are all on disk counts as applied, so only the options that are partly or not at all present are asked. Each answer is recorded from the disk after the write, so a plain re-run cannot turn an applied option into a decline; a declined option stays declined when a release widens it, and a missing style skill is offered once rather than rebuilt on every upgrade. Under `--dry-run` it lists what a real upgrade would ask.
+- `/ac:install` prints a `diff` of `settings.json` against a snapshot taken in the same run, with the MCP token masked inside the command.
+
+### Changed
+
+- Group D's "Unused built-ins" also denies `ShareOnboardingGuide`, `DesignSync`, `ReportFindings` and `Agent(statusline-setup)`. `/code-review` uses `ReportFindings` only when `CLAUDE_CODE_REPORT_FINDINGS` is set and prints its findings as text otherwise, so it keeps working; the `code-review` skill is deliberately left on, because `/batch` invokes it by name.
+
+### Fixed
+
+- Group B's "Skip dangerous prompt" wrote `permissions.skipDangerousModePermissionPrompt`, where Claude Code never reads it; the 2.1.286 binary reads the key only at the top level. It now writes the top-level key, and the Group C migration moves a nested `true` written by an earlier run.
+
 ## [0.26.0] - 2026-09-28
 
 Brings the plugin in line with Sonnet 5.5, which `model: sonnet` resolves to from Claude Code 2.1.284 (every build up to 2.1.283 resolved it to Sonnet 5). Both junior worker tiers and `ac:librarian` already run it; the one frontmatter change is `ac:plan-worker-junior` moving to `high` effort.
