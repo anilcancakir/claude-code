@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.27.0] - 2026-10-01
 
 Makes a machine's context trims installable, and lets `/ac:install` upgrade an earlier setup instead of re-asking everything. On the author's machine on 2026-10-01 (Claude Code 2.1.286, Opus 5.5 1M), an empty `claude -p ok` went from 28,290 to 17,204 input tokens, most of it from unsetting `ENABLE_TOOL_SEARCH=auto` (about 9,600), which `/ac:install` now detects and reports, and from Group D denies the operator opts into; auto-memory indexes that had grown to 17KB and 20KB, about 5k tokens on every session of their project, came down to between 2.3KB and 6.2KB under the new hook's budget.
 
