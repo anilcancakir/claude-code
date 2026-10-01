@@ -1,6 +1,6 @@
 ---
-description: "Set up ac for your user: my-coding and my-language skills, the global CLAUDE.md and settings.json, each write gated."
-argument-hint: "[--dry-run] [--skip-skills] [--skip-settings] [--skip-claude-md]"
+description: "Set up ac for your user, or upgrade an earlier setup: my-coding and my-language skills, the global CLAUDE.md and settings.json, each write gated."
+argument-hint: "[--upgrade] [--dry-run] [--skip-skills] [--skip-settings] [--skip-claude-md]"
 effort: medium
 disable-model-invocation: true
 ---
@@ -17,7 +17,7 @@ Precondition: the ac plugin is already installed and loaded. This command does n
 
 You are the `/ac:install` orchestrator. You interview the operator, delegate skill authoring to `ac:skill-creator`, and write user-scope config behind explicit gates.
 
-**CAN**: Use `Read`, `Write`, `Edit`, `Bash`, `AskUserQuestion`. Invoke `ac:skill-creator` through the `Skill` tool. Probe the ac MCP server with `mcp__plugin_ac_ac__resolve-library`. Write the `.proposed` sidecar and the two `.bak-ac-install` backups.
+**CAN**: Use `Read`, `Write`, `Edit`, `Bash`, `AskUserQuestion`. Invoke `ac:skill-creator` through the `Skill` tool. Probe the ac MCP server with `mcp__plugin_ac_ac__resolve-library`. Write the `.proposed` sidecar, the two `.bak-ac-install` backups, and the `~/.claude/ac-install.json` answer record.
 
 **CANNOT**: Hand-write `my-coding` or `my-language` SKILL.md content; that is `ac:skill-creator`'s job. Blind-overwrite `~/.claude/CLAUDE.md` or `~/.claude/settings.json`; both go through a backup plus a gate. Write settings keys from memory; the Phase 4 reference is the only source. Edit anything outside `~/.claude/`. Widen an allow rule past the literal server segment (`mcp__plugin_ac_ac__*`, never `mcp__*`).
 
@@ -31,7 +31,8 @@ Mirror the `commit.md` Phase 0 flag scan. Read `$ARGUMENTS` once:
 2. `--skip-skills` sets `SKIP_SKILLS`. Skips Phases 1 and 2.
 3. `--skip-claude-md` sets `SKIP_CLAUDE_MD`. Skips Phase 3.
 4. `--skip-settings` sets `SKIP_SETTINGS`. Skips Phase 4.
-5. Ignore any other token.
+5. `--upgrade` sets `UPGRADE`. Brings an earlier setup up to this plugin version and asks only what it has never asked; 0e says what changes per phase. It combines with every other flag.
+6. Ignore any other token.
 
 ### 0b. Detect the environment
 
@@ -45,6 +46,8 @@ Record each result. A failed detection is noted and never blocks the run.
 | `test -f ~/.claude/CLAUDE.md` | `CLAUDE_MD_EXISTS` |
 | `test -f ~/.claude/settings.json` | `SETTINGS_EXISTS` |
 | `test -d ~/.claude/skills/my-workflow` | `LEGACY_MY_WORKFLOW` |
+| `jq -r .version ${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json` | `PLUGIN_VERSION` |
+| `jq -c . ~/.claude/ac-install.json` | `RECORD` (absent or unparsable means none), and `PRIOR_VERSION` from its `version` |
 | the conjunction below, run only when `SETTINGS_EXISTS` | `SCHEDULING_TRIMMED` |
 
 ```
@@ -76,15 +79,29 @@ Ask as two questions in one `AskUserQuestion` call:
 1. `CONVERSATION_LANGUAGE`, the language you and the operator talk in.
 2. `ARTIFACT_LANGUAGE`, the language code, identifiers, comments, doc blocks, commit messages and documents are written in.
 
-Default both to English and never infer the second from the first. They are independent by design, and Turkish conversation with English artifacts is the case the split exists for. When `CLAUDE_MD_EXISTS`, read the file first and offer what it already says as the pre-filled option rather than asking cold; a `Core principles` section written by a previous run answers both.
+Under `UPGRADE`, 0e replaces this question. Default both to English and never infer the second from the first. They are independent by design, and Turkish conversation with English artifacts is the case the split exists for. When `CLAUDE_MD_EXISTS`, read the file first and offer what it already says as the pre-filled option rather than asking cold; a `Core principles` section written by a previous run answers both.
 
 Both values are consumed three times: the Phase 1 brief, the Phase 2 brief, and the Phase 3 placeholders. Collect them once here and pass the same strings to all three, so a generated skill cannot disagree with the generated CLAUDE.md about what language the project writes in.
 
 Run this even under `--dry-run`. Both briefs and the Phase 3 preview print these values, and a preview built without them does not match what a live run writes. This matches 3a rather than the Phase 4 gates: a question whose answer only feeds a preview still has to be asked, while a question whose only effect is a settings write does not.
 
+### 0e. Upgrade mode
+
+`--upgrade` is for a machine an earlier `/ac:install` already set up, after `claude plugin marketplace update ac` and `claude plugin update ac@ac` have pulled the new version and Claude Code has restarted (a running session keeps the old command and hooks). Everything the full run does is already idempotent; what upgrade changes is what it asks. The goal is that an operator who ran `/ac:install` once is asked only about options added since, plus one gate per file that actually changes.
+
+An earlier install leaves at least one of these: `RECORD`, the ac fence markers in `~/.claude/CLAUDE.md`, either `.bak-ac-install` backup, or the Group C fingerprint (`Agent(Plan)` in `permissions.deny` together with `env.CLAUDE_CODE_DISABLE_EXPLORE_PLAN_AGENTS`). With none of them there is nothing to upgrade from: say so, drop `UPGRADE`, and run the full install. Without `RECORD` but with any of the others, this is a setup from before the record existed; carry on, and the reference's "what counts as answered" rule infers the earlier answers from the keys on disk. When `PRIOR_VERSION` is newer than `PLUGIN_VERSION`, stop and say the plugin is older than the setup it would upgrade, since its templates would roll the CLAUDE.md block back.
+
+Per phase, under `UPGRADE`:
+
+- **0d.** Read both languages from the current CLAUDE.md and do not ask. Ask only when that file does not state one of them.
+- **Phases 1 and 2.** An existing skill is kept without the 1a or 2a question; neither skill is regenerated by an upgrade, because its content is the operator's interview, not plugin content. A missing one is offered with `Create` / `Skip` unless the record holds its `S.` id; Create runs 1b and 1c (or 2b and 2c), and the answer is recorded so a skill left out on purpose is not offered again.
+- **Phase 3.** Every placeholder comes from the current file; ask the 3a rounds only for a placeholder the current file cannot fill, which is how a placeholder the template gained since shows up. An optional line the current file does not carry (the stack line, the blocked-pages bullet, extra skills or anti-patterns) was answered with none, so leave it out without asking. Skip 3b's light tuning of the Skills wording and carry the current file's lines for the placeholders verbatim, so a template that did not change rebuilds the same bytes. The 3a confirmation moves into the 3c gate: render the filled values inside that question, alongside `diff` output between the current fenced block and the proposed one, so one question covers both; a wrong value comes back as the gate's free-text answer, and you rebuild and ask again. When the proposed file is byte-identical to the current one, write nothing, ask nothing, and report it unchanged.
+- **Phase 4.** Groups A and C and the migration strip run as always. Groups B, D and E show only the options that are not answered by the reference's rule; drop a question left with no options, and turn any question left with one option into a single-select question under the same header with `Apply` / `Skip` options, since `AskUserQuestion` needs two per question. When an option has widened since the record (some of its keys present, some not), name the missing keys in the question. Under `--dry-run`, ask nothing and list the option ids a real upgrade would ask, with the missing keys of any widened one. Group F runs as always; its answer lives on disk. Skip the MCP token prompt; a plain `/ac:install` sets the token.
+- **Phase 5.** Report the move from `PRIOR_VERSION` (or "pre-record") to `PLUGIN_VERSION` and list the options asked for the first time.
+
 ## Phase 1: my-coding skill
 
-Skip when `SKIP_SKILLS`.
+Skip when `SKIP_SKILLS`. Under `UPGRADE`, keep an existing skill without asking (0e).
 
 ### 1a. Skip-if-present gate
 
@@ -129,7 +146,7 @@ Do not write the SKILL.md yourself. The creator owns file content; this command 
 
 ## Phase 2: my-language skill
 
-Skip when `SKIP_SKILLS`. Same shape as Phase 1.
+Skip when `SKIP_SKILLS`. Same shape as Phase 1, the `UPGRADE` rule included.
 
 ### 2a. Skip-if-present gate
 
@@ -168,7 +185,7 @@ Same gating as 1c. Instructions:
 
 ## Phase 3: global CLAUDE.md
 
-Skip when `SKIP_CLAUDE_MD`.
+Skip when `SKIP_CLAUDE_MD`. Under `UPGRADE`, 0e moves the 3a confirmation into the 3c gate and skips the gate when nothing changed.
 
 ### 3a. Fill the placeholders
 
@@ -176,7 +193,7 @@ Read `${CLAUDE_PLUGIN_ROOT}/references/global-claude-md-section-template.md` and
 
 On an upgrade the current file is the answer sheet. Identity, conversation language, trigger words, test tools and stack are all recorded in the copy this phase is about to replace, and asking again breaks the rule the generated file itself carries against asking what a readable file already answers. Measured on one real upgrade, every placeholder was answerable and a full interview would have asked nothing new. Pre-fill what you can, then fall back to the rounds below only for what the current file leaves open, or when there is no current file. Fill `Identity` and `Role` from one string whichever branch you are on: take the full `name <email>` once and derive `Role`'s given name from that same value, never from a second line of the source.
 
-Pre-filling replaces the rounds; it does not replace the confirmation. Render the filled values as a list inside the `question` text of one `AskUserQuestion`, with options `Correct` / `Fix identity` / `Fix working style`, and let the operator answer before you build anything, however obvious the values look.
+Pre-filling replaces the rounds; it does not replace the confirmation (under `UPGRADE`, 0e moves it into the 3c gate rather than dropping it). Render the filled values as a list inside the `question` text of one `AskUserQuestion`, with options `Correct` / `Fix identity` / `Fix working style`, and let the operator answer before you build anything, however obvious the values look.
 
 Language is deliberately not on that list. 0d already asked, and Phases 1 and 2 have been briefed with the answer and have written it into two skills, so a change accepted here would leave those skills disagreeing with the file this phase is about to write. If the operator raises it anyway, do not silently take the new value: name the skills that were built on the old one and offer a Recreate pass over Phases 1 and 2 alongside the corrected CLAUDE.md. Skipping this is not a shortcut, it is the failure: on the run that produced this rule the name was pre-filled from two different lines of the same source file and shipped as `Anilcan` in `Role` and `Anılcan` in `Identity`, an inconsistency a single confirmation round would have caught and which nothing downstream checks. A source file that disagrees with itself is the normal case, not the exception, because the sections were written months apart.
 
@@ -257,28 +274,48 @@ Read `${CLAUDE_PLUGIN_ROOT}/references/install-settings.md`. It is the only sour
 1. **Read and back up.** Read `~/.claude/settings.json`, starting from `{}` when absent. Back it up with `cp -n ~/.claude/settings.json ~/.claude/settings.json.bak-ac-install` before any write, only when it exists. Skip the backup under `--dry-run`, where nothing is written.
 2. **Group A**, safe-silent tuning. Apply silently, each key only when absent.
 3. **Group C**, core ac parity. Apply without a prompt, including the migration strip for keys a prior install wrote. Surface every strip and every env rewrite in the gate diff, since neither the deny entry nor an exact-matched env value can be told apart from an operator's own choice.
-4. **Groups B and D**, opt-in and default off. Present each through the `AskUserQuestion` block the reference defines, with every option unchecked, and write only what the operator checks. Skip both prompts under `--dry-run` and say no key would be set.
-5. **Group E**, the output style, opt-in and default off. Ask through the reference's block and write the literal value it names, never a value you assembled yourself: a plugin style that does not resolve fails silently and reads exactly like the key being absent. Skip the question when `outputStyle` already holds any value other than `default`, which the reference explains is the no-style value rather than an answer, and skip it under `--dry-run`.
-6. **The MCP token.** Follow the reference exactly. The value is never echoed, logged, or rendered.
-7. **Show the diff and write.** Render newly-added against already-present, grouped A / C / B / D / E / token, with the token masked. Under `--dry-run`, stop here. Otherwise write the merged object back and report the same breakdown.
-8. **Close the scheduling seam.** When Group D's scheduling trim was applied in this run and `SCHEDULING_TRIMMED` was false at 0b, set it true, re-evaluate the 3b conditional, and re-merge the block through 3c. The markers are still there and 3c is idempotent, so this is the same replace it always does. Skip when `SKIP_CLAUDE_MD` or `DRY_RUN` is set; under `--dry-run` Group D is never asked, so no seam exists. Report the re-merge in Phase 5 rather than asking the operator to run the command again.
+4. **Groups B and D**, opt-in and default off. Present each through the `AskUserQuestion` block the reference defines and write only what the operator checks; under `UPGRADE`, only the unanswered options (0e). Skip both prompts under `--dry-run` and say no key would be set.
+5. **Group E**, the output style, opt-in and default off. Ask through the reference's block and write the literal value it names, never a value you assembled yourself: a plugin style that does not resolve fails silently and reads exactly like the key being absent. Skip the question when `outputStyle` already holds any value other than `default`, which the reference explains is the no-style value rather than an answer, when `UPGRADE` finds `E.output-style` answered, and under `--dry-run`.
+6. **Group F**, marketplace auto-update, opt-in and default off. Collect the candidates the reference defines and ask only when there is at least one; skip the question under `--dry-run` and list the candidates instead. Then run the reference's three report-only checks (`ENABLE_TOOL_SEARCH`, a legacy `autoUpdates` key, a hand-installed copy of the memory index hook) and hold the findings for Phase 5. They write nothing, and a shell rc file is never edited.
+7. **The MCP token.** Follow the reference exactly. The value is never echoed, logged, or rendered.
+8. **Show the diff and write.** Render newly-added against already-present, grouped A / C / B / D / E / F / token, with the token masked. Under `--dry-run`, stop here. When the merged object equals the file on disk, write nothing and report settings as unchanged. Otherwise copy the file as it stands to `${TMPDIR:-/tmp}/ac-install-settings.before.json`, or write `{}` there when it is absent (the `.bak-ac-install` backup is non-clobbering, so it can predate this run), write the merged object back, report the same breakdown, print the diff with the token masked inside the command so the value never reaches the diff output, and delete the snapshot, which holds the token in plain text:
+
+   ```
+   mask='if .env.KODIZM_MCP_TOKEN then .env.KODIZM_MCP_TOKEN = "<set>" else . end'
+   diff <(jq -S "$mask" "${TMPDIR:-/tmp}/ac-install-settings.before.json") <(jq -S "$mask" ~/.claude/settings.json)
+   ```
+
+   ```
+   rm -f "${TMPDIR:-/tmp}/ac-install-settings.before.json"
+   ```
+
+   A token written in this run therefore shows as no change; the breakdown above already reports it as `<set>`.
+9. **Close the scheduling seam.** When Group D's scheduling trim was applied in this run and `SCHEDULING_TRIMMED` was false at 0b, set it true, re-evaluate the 3b conditional, and re-merge the block through 3c. The markers are still there and 3c is idempotent, so this is the same replace it always does. Skip when `SKIP_CLAUDE_MD` or `DRY_RUN` is set; under `--dry-run` Group D is never asked, so no seam exists. Report the re-merge in Phase 5 rather than asking the operator to run the command again.
 
 ## Phase 5: Summary
+
+Unless `--dry-run`, first write `~/.claude/ac-install.json` as the reference's "Answer record" section defines: `PLUGIN_VERSION`, today's date, and every option shown or judged answered in this run, merged over `RECORD`. Write it on a `--skip-settings` run too, with the answers carried over unchanged.
 
 ```
 ## /ac:install Complete
 
+Upgrade:      <PRIOR_VERSION -> PLUGIN_VERSION | pre-record -> PLUGIN_VERSION | not an upgrade>
+Asked new:    <comma-list of option ids asked for the first time | none>
+Record:       <~/.claude/ac-install.json written | not written (dry-run)>
+
 my-coding:    <created | recreated | skipped (exists) | skipped (--skip-skills) | dry-run>
 my-language:  <created | recreated | skipped (exists) | skipped (--skip-skills) | dry-run>
 my-workflow:  <not created (discipline lives in CLAUDE.md) | LEGACY COPY FOUND at ~/.claude/skills/my-workflow, now redundant>
-CLAUDE.md:    <written | merged + applied | whole file replaced | proposed (awaiting review) | skipped (--skip-claude-md) | skipped (fence markers inconsistent) | dry-run>
+CLAUDE.md:    <written | merged + applied | whole file replaced | unchanged (upgrade, identical) | proposed (awaiting review) | skipped (--skip-claude-md) | skipped (fence markers inconsistent) | dry-run>
 Heading clash: <none | comma-list of headings both the block and the operator's own content carry>
-CLAUDE.md backup: <~/.claude/CLAUDE.md.bak-ac-install | kept (pre-existing) | none (file absent or dry-run)>
-settings:     <merged | skipped (--skip-settings) | dry-run>
+CLAUDE.md backup: <~/.claude/CLAUDE.md.bak-ac-install | kept (pre-existing) | none (file absent, unchanged, or dry-run)>
+settings:     <merged | unchanged | skipped (--skip-settings) | dry-run>
 Group A:      <N tuning keys set | all already present>
-Group B:      <opt-ins applied: comma-list | none selected | skipped (dry-run)>
-Group D:      <trims applied: comma-list | none selected | skipped (dry-run)>
+Group B:      <opt-ins applied: comma-list | none selected | all answered (upgrade) | skipped (dry-run)>
+Group D:      <trims applied: comma-list | none selected | all answered (upgrade) | skipped (dry-run)>
 Output style: <set to ac:concise | left off | already set to <existing value>, untouched | skipped (dry-run)>
+Group F:      <auto-update on for: comma-list | left off (false written) | no candidates | none left (already set in /plugin) | skipped (updates disabled by <var>) | skipped (dry-run)>
+Report only:  <none | comma-list of findings, each with its settings key path or its rc file and line>
 MCP token:    <set | unchanged | skipped>
 MCP URL:      <set | unchanged>
 settings backup: <~/.claude/settings.json.bak-ac-install | kept (pre-existing) | none (settings absent or dry-run)>
@@ -292,16 +329,18 @@ Print these when they apply:
 - Standing discipline lives in the global CLAUDE.md, not in a skill, because CLAUDE.md arrives on every main-thread turn and a skill body arrives only when the model elects to load it. The same split puts the short unconditional rules (identity, the two languages, the scoped dash rule, the answer-shape floor, the suppression ban) in CLAUDE.md and the depth behind them in `my-coding` and `my-language`: name the rule once where it always arrives, explain it once where it arrives on trigger.
 - The `ac:concise` output style is the third layer and the only one that reaches the system prompt itself. It carries the six answering rules in full; CLAUDE.md keeps a one-line floor because the style can be switched off or replaced at any time. Say which of the two the operator now has, so nobody reads the floor as the whole feature.
 - When `LEGACY_MY_WORKFLOW` was found, say `rm -rf ~/.claude/skills/my-workflow` removes the now-duplicated copy.
-- Restate the tradeoff of any Group B opt-in that was applied. `skipWebFetchPreflight` drops the Anthropic domain-safety blocklist preflight, a known hang source tracked as anthropics/claude-code#34565. `skipDangerousModePermissionPrompt` and `acceptEdits` reduce confirmation friction by removing a confirmation.
+- Restate the tradeoff of any Group B opt-in that was applied, or that the Group C migration made take effect by moving `skipDangerousModePermissionPrompt` to the top level. `skipWebFetchPreflight` drops the Anthropic domain-safety blocklist preflight, a known hang source tracked as anthropics/claude-code#34565. `skipDangerousModePermissionPrompt` and `acceptEdits` reduce confirmation friction by removing a confirmation.
 - `statusLine` needs `bun` or `npx` on PATH to render.
 - When `CLAUDE_CODE_RETRY_WATCHDOG` is set, say that every session, headless `claude -p` runs included, now waits through 429 and 529 errors without limit and up to a usage limit's reset time; an unattended job that must end needs an external timeout.
 - Removed env keys stay set in any Claude Code session that is already running; say that every open session needs a restart for the new settings to apply.
-- When step 8 fired, say so: Group D denied the cron and wakeup tools in this run, so `Watching something over time` was added to the CLAUDE.md after Phase 3 had already written it. Name the section and the fact that the trim takes effect from the next session on, so nobody reads the new section as describing the session they are in.
+- For each report-only finding, give the exact line to remove or change and what it costs or duplicates. For an `ENABLE_TOOL_SEARCH` hit in a shell rc file, say the change reaches only a session started from a new shell.
+- When step 9 fired, say so: Group D denied the cron and wakeup tools in this run, so `Watching something over time` was added to the CLAUDE.md after Phase 3 had already written it. Name the section and the fact that the trim takes effect from the next session on, so nobody reads the new section as describing the session they are in.
 - Report the skill-listing cost, and write no setting for it. Claude Code loads every skill's `description` plus `when_to_use` on every main-thread turn under a budget of 1% of the model's context window, and an overflowing listing is trimmed starting with the skills the operator invokes least, silently. Say roughly what the operator's listing now costs, point at `/doctor` for the real figure and the biggest contributors, and name `skillListingBudgetFraction` as their lever if their own skills push them over. Raising that cap is a context tradeoff the operator owns, and the plugin cannot honestly widen a budget it is itself spending; Group D already refuses to make a context-cost change silently, and this is that decision inverted.
 
 Next steps:
 
 - Restart Claude Code so the settings.json changes take effect.
+- On a later plugin release, run `claude plugin marketplace update ac` and `claude plugin update ac@ac`, restart, then `/ac:install --upgrade`; it asks only what this run did not.
 - Run `/mcp` to verify the ac MCP tools are reachable.
 - When the output style was set, open `/config` after the restart and confirm the active style reads `ac:concise`. A value that does not resolve produces no warning, so the written key is not evidence that the style is live.
 - Try entering native plan mode and confirm it is blocked with the `/ac:plan` steer.
@@ -312,7 +351,7 @@ Next steps:
 Named without line numbers on purpose: an earlier set drifted the moment those files were edited. Each entry names the section it means.
 
 - `${CLAUDE_PLUGIN_ROOT}/references/global-claude-md-section-template.md`, the Phase 3 generated file inside its fence markers. Its HTML-comment header carries the keep test, what the built-in prompt reaches, and the grep recipe for re-auditing either against a shipped binary. The placeholder roster lives there, not here.
-- `${CLAUDE_PLUGIN_ROOT}/references/install-settings.md`, every Phase 4 key, all three opt-in gates including the Group E output style, and the ADD-only rule.
+- `${CLAUDE_PLUGIN_ROOT}/references/install-settings.md`, every Phase 4 key, all four opt-in gates including the Group E output style and the Group F marketplace auto-update, the report-only checks, the `ac-install.json` answer record that `--upgrade` reads, and the ADD-only rule.
 - `${CLAUDE_PLUGIN_ROOT}/output-styles/concise.md`, the style Group E offers. Phase 4 writes its key and never its content; read it only to describe what the operator is turning on.
 - `${CLAUDE_PLUGIN_ROOT}/references/monitoring.md`, the depth behind the `Watching something over time` section: why cron is not the answer for a trimmed operator, and two worked `Monitor` shapes. It deliberately restates nothing the `Monitor` tool's own description already carries.
 - `${CLAUDE_PLUGIN_ROOT}/references/coding-style-template.md`, the Phase 1 seed including the required anti-pattern entries.
