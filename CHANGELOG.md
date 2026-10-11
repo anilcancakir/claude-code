@@ -5,6 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+Brings the plugin in line with Claude Code 2.1.296 and Haiku 5.5, which `model: haiku` resolves to on the Anthropic API since 2.1.293 (Haiku 4.5 on Bedrock, Vertex, Foundry and Claude Platform on AWS). Both haiku-tier agents now pin `effort: medium`, because Haiku 5.5 accepts an effort and `ac:explore` had been inheriting the session's `high`. Measured on 2026-10-12 over every local subagent transcript, `ac:explore` on Haiku 4.5 (572 runs) produced 555 output tokens in 124 s per run; on Haiku 5.5 at the inherited `high` (150 runs) it produced 9,763 output tokens in 166 s, with tool calls moving from 34.9 to 30.9 and the estimated cost per run from about $0.158 to $0.022. The `medium` setting has not been re-measured yet.
+
+### Added
+
+- `effort: medium` in the frontmatter of `agents/explore.md` and `agents/plan-worker-quick.md`, Haiku 5.5's default. It replaces inheriting the session effort, which cost `ac:explore` about 17.6 times the output tokens of Haiku 4.5.
+- A Haiku 5.5 section in both agent bodies. Claude Code adds its anti-early-stopping section to the main thread only, so `ac:explore` now finishes every target the brief names and checks that each cited `file_path:line_number` was opened, and `ac:plan-worker-quick` finishes the step's full scope and reads the verification result before it reports.
+- `ac:prompt-writer` ships `references/haiku-5-5-tuning.md`, the Haiku 5.5 delta from Anthropic's prompting guide and docs: start at `medium`, `low` for chat and short tool tasks, `high` for knowledge work, longer agent tasks and strict instruction following, and `thinking: disabled` accepted at `high` or below (400 at `xhigh` and `max`). The skill's knob table carries Haiku 5.5 in place of Haiku 4.5.
+- `ac:agent-creator` documents `autoCompactWindow` (new in 2.1.296, lowers the window a subagent inherits), `omitClaudeMd` (2.1.271), the Agent tool's per-invocation `effort` parameter (2.1.292) with the full precedence order, the 32-skill preload cap (2.1.295), and the `claude --debug` hint for unrecognised frontmatter fields (2.1.296).
+- A one-step install line, `/plugin install ac --marketplace anilcancakir/claude-code`, in `README.md` and `plugins/ac/README.md`, which `claude plugin validate` asked for. The two-step form stays.
+
+### Changed
+
+- `model-tiers.md`, `plan-template.md` and `ac:execute` split the quick tier by provider: Haiku 5.5 at `medium` is the tier on the Anthropic API ($0.10 / $0.50 per MTok, 1M context, FrontierCode 1.1 Main 46.4% against Sonnet 5.5's 52.1%, Terminal-Bench 4.0 39.2% against 70.6%, no SWE-bench published), and Haiku 4.5 is the third-party fallback. The reason to escalate a quick step in an inconsistent codebase is now the capability gap, not a missing effort lever. The quick row's cost column keeps the Haiku 4.5 tokens it was measured on and says so.
+- Sonnet 5.5's cache read is $0.10 per MTok since 2026-10-07 (was $0.20), updated in `model-tiers.md` and the prompt-writer knob table. The per-step cost column and its 1.9x / 2.3x / 4.3x ratios were priced before the cut and say so; they were not recomputed.
+- The lean roster in `global-claude-md-section-template.md`, both copies of `claude-code-builtin-prompts.md` (`ac:prompt-writer`, `ac:claude-md-rules-creator`) and the CLAUDE.md creator's docs adds `claude-haiku-5-5` as of 2.1.296, and states that a model missing from the registry, or any haiku or sonnet name outside the roster, falls back to CLASSIC. Whether Haiku 5.5 carries bundle sections is marked not verified, since no `prompt_snapshot` was taken on it.
+- `pretooluse-explore-budget.sh` and `stop-guard-announce.sh` label their historical measurements with the model they ran on (Haiku 4.5), comment changes only. The explore budget hook stays: on Haiku 5.5 `ac:explore` still averaged 30.9 tool calls over 150 runs. Haiku 5.5 has not been run on the announce judge's labelled set, so the judge stays on `sonnet`.
+- `ac:agent-creator`, `ac:command-creator` and `ac:skill-creator` say Haiku 5.5 supports `effort` and that only Haiku 4.5 does not, replacing "Haiku supports no effort value".
+- `install-settings.md` records that `OfferChromeSetup` (2.1.296, deferred and experiment-gated) is deliberately left off the Group D unused built-ins list, since widening the option would re-ask it on every `--upgrade`.
+
+### Fixed
+
+- The Claude Code facts the plugin stated that no longer hold: "There is no Haiku 5" (both `opus-5-tuning.md` copies, in `ac:prompt-writer` and `ac:skill-creator`) and "Haiku supports no effort parameter" (`ac:agent-creator`, `ac:command-creator`, `ac:skill-creator`, `model-tiers.md`, `plan-template.md`, `ac:execute`); "only Read loads path-scoped rules" (`ac:claude-md-rules-creator`, `loader-and-injection.md`, `rules-writing.md`, `layered-context.md`, `anti-patterns.md`), which is now Read, Write or Edit since 2.1.288 and a single-file Bash `cat`, `head`, `tail`, `sed -n` or `grep` since 2.1.293, with MultiEdit and NotebookEdit marked not verified; and the 64-character agent `name` cap in `ac:agent-creator`, which is 256 since 2.1.292.
+
 ## [0.27.0] - 2026-10-01
 
 Makes a machine's context trims installable, and lets `/ac:install` upgrade an earlier setup instead of re-asking everything. On the author's machine on 2026-10-01 (Claude Code 2.1.286, Opus 5.5 1M), an empty `claude -p ok` went from 28,290 to 17,204 input tokens, most of it from unsetting `ENABLE_TOOL_SEARCH=auto` (about 9,600), which `/ac:install` now detects and reports, and from Group D denies the operator opts into; auto-memory indexes that had grown to 17KB and 20KB, about 5k tokens on every session of their project, came down to between 2.3KB and 6.2KB under the new hook's budget.
