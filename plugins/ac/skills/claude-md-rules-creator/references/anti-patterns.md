@@ -309,11 +309,11 @@ Symptom: `paths:` is set correctly, but the rule does not appear in context.
 Causes:
 
 - The glob does not match the file Claude touched. Test the glob mentally.
-- Claude used Write/Edit/MultiEdit without first reading the file. Only Read triggers path-scoped rules.
+- Claude reached the file by a route that does not load rules. Read, Write or Edit (2.1.288) and a single-file Bash `cat`, `head`, `tail`, `sed -n` or `grep` (2.1.293) do; a multi-file or piped shell command, MultiEdit and NotebookEdit are not verified to. On a build older than 2.1.288 only Read loads them.
 - The rule is also loaded unconditionally elsewhere (a duplicate without `paths:`).
 - The frontmatter key is `globs:` not `paths:` (unconditional load).
 
-Fix per cause: tighten or loosen the glob; ensure Claude reads the file first (instruct it to in CLAUDE.md if needed); deduplicate; rename `globs:` to `paths:`.
+Fix per cause: tighten or loosen the glob; ensure Claude reaches the file by Read, Write, Edit or a single-file Bash read (instruct it to in CLAUDE.md if needed); deduplicate; rename `globs:` to `paths:`.
 
 ## Compact / persistence failures
 

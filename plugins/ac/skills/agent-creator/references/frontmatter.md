@@ -18,7 +18,7 @@ Every field a Claude Code agent recognizes, what it does, when to set it, and va
 
 ### `name`
 
-Unique identifier the orchestrator uses to delegate. Lowercase letters and hyphens. Max 64 characters. Plugin agents auto-namespace as `<plugin>:<name>` (and the underlying filename can be shorter).
+Unique identifier the orchestrator uses to delegate. Lowercase letters and hyphens. At most 256 characters since Claude Code 2.1.292; a longer name is rejected. Plugin agents auto-namespace as `<plugin>:<name>` (and the underlying filename can be shorter).
 
 ```yaml
 name: code-reviewer
@@ -105,6 +105,15 @@ effort: high
 
 Set explicitly only when the agent needs a different budget than the parent. Most agents inherit fine.
 
+Precedence, highest first:
+
+1. `CLAUDE_CODE_EFFORT_LEVEL` environment variable, which overrides both of the next two.
+2. The Agent tool's per-invocation `effort` parameter (Claude Code 2.1.292). It overrides this field, applies to non-fork subagents, and stays in effect when the subagent is resumed.
+3. This field ([sub-agents.md](https://code.claude.com/docs/en/sub-agents.md): "Overrides the session effort level, but not the CLAUDE_CODE_EFFORT_LEVEL environment variable").
+4. The session effort.
+
+Model support: Haiku 5.5, Sonnet and Opus accept it. Haiku 4.5, the `haiku` target on Bedrock, Vertex, Foundry and Claude Platform on AWS, has no effort parameter, so omit the field on an agent meant to run there. On the Anthropic API `haiku` resolves to Haiku 5.5 since Claude Code 2.1.293, where the default is `medium`.
+
 ## Permission and isolation
 
 ### `permissionMode`
@@ -145,6 +154,16 @@ maxTurns: 20
 ```
 
 Positive integer. Useful for capping runaway loops.
+
+### `autoCompactWindow`
+
+Token count at which the agent compacts its own conversation when it runs as a subagent (agent frontmatter and `--agents` definitions, Claude Code 2.1.296). It only lowers the window the subagent would otherwise inherit, and has no effect on the main session agent.
+
+```yaml
+autoCompactWindow: 150000
+```
+
+Integer. The accepted range is not documented for this field (the model-level setting is 100000 to 1000000, not verified for the agent field), and it is not yet in the sub-agents docs table; the description comes from the 2.1.296 binary schema and changelog. Use it for a long-running subagent that should compact before the main conversation's window fills. The example value is illustrative, not a recommendation.
 
 ### `background`
 
@@ -187,7 +206,17 @@ skills:
   - error-handling-patterns
 ```
 
-The full body of each listed skill is injected at startup. Subagents do NOT inherit skills from the parent; list every skill explicitly. Cannot preload skills with `disable-model-invocation: true`.
+The full body of each listed skill is injected at startup. Subagents do NOT inherit skills from the parent; list every skill explicitly. Cannot preload skills with `disable-model-invocation: true`. A subagent preloads at most 32 skills from this list, each once (Claude Code 2.1.295).
+
+### `omitClaudeMd`
+
+Drops the CLAUDE.md hierarchy from the subagent's context (Claude Code 2.1.271; the plugin loader parses it on plugin agents).
+
+```yaml
+omitClaudeMd: true
+```
+
+Measured on this repository, the hierarchy costs roughly 10,300 tokens per spawn. Setting the flag also drops every project rule the agent would otherwise inherit, so an agent that needs a CLAUDE.md rule carries it in its own body. Fits high-volume read-only agents that need no workflow rules. See `${CLAUDE_SKILL_DIR}/references/builtin-catalog.md` and `${CLAUDE_SKILL_DIR}/references/anti-patterns.md` for how it is used.
 
 ### `mcpServers`
 
@@ -366,4 +395,5 @@ Plugin agents DO get one substitution pass on their system prompt:
 - **`isolation` value validation.** Only `worktree` (and `remote` on ant builds) is accepted; others fall through.
 - **`maxTurns` must be a positive integer.** Non-integer or zero/negative values log a warning and the field is ignored.
 - **`name` collision.** Same-name agents across scopes resolve by priority (managed > CLI flag > project > user > plugin). Lower-priority duplicates are skipped silently. Plugin agents auto-namespace so they cannot collide directly.
+- **Unrecognized fields.** `claude --debug` names unrecognized frontmatter fields in custom agent files and adds a typo hint (Claude Code 2.1.296), so a misspelt `autoCompactWindow` or `omitClaudeMd` shows up there rather than failing silently.
 - **Plugin agents and forbidden fields.** Setting `permissionMode`, `hooks`, or `mcpServers` in a plugin agent does not error, just logs a warning and silently ignores. Check `claude --debug` logs if your plugin agent is missing expected behavior.

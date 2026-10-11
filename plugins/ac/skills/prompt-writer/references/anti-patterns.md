@@ -230,7 +230,7 @@ Return your response as JSON conforming to the schema provided. Do not wrap the 
 
 **The mistake.** Using the legacy thinking-budget shape on a model that has moved to adaptive thinking.
 
-**Why it fails.** Adaptive thinking replaces `budget_tokens`. The legacy shape returns a 400 error on Opus 4.7, Opus 4.8, Opus 5, Opus 5.5, Sonnet 5, and Sonnet 5.5. It remains the ONLY accepted shape on Haiku 4.5, which rejects adaptive; branch on model ID when a code path serves both. Source: https://platform.claude.com/docs/en/build-with-claude/extended-thinking.md > Migrating to adaptive thinking.
+**Why it fails.** Adaptive thinking replaces `budget_tokens`. The legacy shape returns a 400 error on Opus 4.7, Opus 4.8, Opus 5, Opus 5.5, Sonnet 5, and Sonnet 5.5. Haiku 5.5 behaves the same way (manual `enabled` errors, adaptive is the default). The legacy shape remains the only accepted one on Haiku 4.5, which rejects adaptive; branch on model ID when a code path serves both. Source: https://platform.claude.com/docs/en/build-with-claude/extended-thinking.md > Migrating to adaptive thinking.
 
 **The fix.**
 
@@ -397,10 +397,10 @@ When reviewing an existing prompt:
 - [ ] No "based on your findings, do X" in subagent prompts.
 - [ ] No anti-laziness scaffolding from older models.
 - [ ] No compat hacks, no impossible-scenario error handling, no multi-paragraph docstrings. These are CC classic-prompt defaults; on Opus 5 / 5.5 and Sonnet 5.5 (lean prompt) and in subagent bodies the prompt must state them itself.
-- [ ] Thinking is left at its default on Opus 5.5 / Opus 5 / Sonnet 5.5 / Sonnet 5 / Fable 5 (on); manual `enabled` + `budget_tokens` is used only on Haiku 4.5, which rejects adaptive.
+- [ ] Thinking is left at its default on Opus 5.5 / Opus 5 / Sonnet 5.5 / Sonnet 5 / Fable 5 (on); manual `enabled` + `budget_tokens` is used only on Haiku 4.5, which rejects adaptive (Haiku 5.5 is adaptive like the rest).
 - [ ] No `thinking: { type: "disabled" }` on Opus 5.5 or Sonnet 5.5 at all, and on Opus 5 not with effort `xhigh` or `max` (400).
 - [ ] On Opus 5.5: no `tool_choice` `any` / `tool`, no reasoning-in-reply scaffold, effort re-swept rather than copied from Opus 5.
-- [ ] No `effort` set for Haiku 4.5 (unsupported on that model).
+- [ ] No `effort` set for Haiku 4.5 (unsupported on that model); Haiku 5.5 supports it, see `haiku-5-5-tuning.md`.
 - [ ] Length controlled by an explicit target, not by lowering effort (effort is not a length lever on Opus 5).
 - [ ] Scope's upper bound stated, not just its span (Opus 5 widens scope on its own).
 - [ ] No 4.8-era subagent fan-out encouragement (Opus 5 already delegates readily).

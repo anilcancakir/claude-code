@@ -5,6 +5,16 @@ four ways before calling it done.
 
 Full docs: [repo root README](../../README.md)
 
+## Install
+
+Inside Claude Code, in one step:
+
+```
+/plugin install ac --marketplace anilcancakir/claude-code
+```
+
+The two-step form and the setup that follows are in the [repo root README](../../README.md#install).
+
 ## Component layout
 
 | Directory | Contents |

@@ -14,7 +14,13 @@ Ask a coding agent for a cross-file change and it starts editing. It has already
 
 ## Install
 
-Inside Claude Code:
+Inside Claude Code, in one step:
+
+```
+/plugin install ac --marketplace anilcancakir/claude-code
+```
+
+Or add the marketplace and install in two steps:
 
 ```
 /plugin marketplace add anilcancakir/claude-code

@@ -44,7 +44,7 @@ Source: https://platform.claude.com/docs/en/about-claude/models/whats-new-opus-5
 
 **Effort is not a length lever on Opus 5.** On 4.8, dropping to `low` or `medium` scoped the work down and shortened output as a side effect. On Opus 5, "changing effort does not reliably shorten responses". If you want shorter output, ask for it directly (see Response length below).
 
-**Token budget.** At `xhigh` or `max`, set `max_tokens` to roughly 64k, more if you want headroom under the 128k ceiling. Maximum output: Opus 5, Sonnet 5, and Fable 5 are all 128k; Haiku 4.5 is 64k.
+**Token budget.** At `xhigh` or `max`, set `max_tokens` to roughly 64k, more if you want headroom under the 128k ceiling. Maximum output: Opus 5, Sonnet 5, Fable 5 and Haiku 5.5 are all 128k; Haiku 4.5 is 64k.
 
 Source: https://platform.claude.com/docs/en/about-claude/models/overview.md (latest-models comparison table, "Max output" row).
 
@@ -86,7 +86,7 @@ Source: https://platform.claude.com/docs/en/build-with-claude/prompt-engineering
 {"type": "adaptive", "display": "summarized"}
 ```
 
-Other models: manual extended thinking is the only supported shape on Haiku 4.5 (adaptive is not accepted there). On Sonnet 5, adaptive is default-on and manual is removed, not merely deprecated.
+Other models: manual extended thinking is the only supported shape on Haiku 4.5 (adaptive is not accepted there); Haiku 5.5 is adaptive-only (see `haiku-5-5-tuning.md`). On Sonnet 5, adaptive is default-on and manual is removed, not merely deprecated.
 
 ## Response length and verbosity
 
@@ -217,7 +217,7 @@ Source: https://platform.claude.com/docs/en/about-claude/models/whats-new-sonnet
 
 ## Haiku 4.5 deltas
 
-`claude-haiku-4-5-20251001` is for latency-sensitive and high-throughput pipelines. There is no Haiku 5.
+`claude-haiku-4-5-20251001` is for latency-sensitive and high-throughput pipelines. For `claude-haiku-5-5` (released 2026-10-07, which `model: haiku` resolves to on the Anthropic API from Claude Code 2.1.293), read `haiku-5-5-tuning.md` instead; this section stays as the baseline for Haiku 4.5, the `haiku` alias target on Bedrock, Vertex, Foundry and Claude Platform on AWS and the third-party fallback.
 
 - **The `effort` parameter is not supported at all.** Haiku 4.5 is absent from the effort-supported model list; do not set effort for it and do not describe it as a "low effort" model. Scope its work through the prompt instead.
 - **Thinking shape is inverted relative to the Claude 5 family.** Haiku 4.5 accepts manual extended thinking (`{"type": "enabled", budget_tokens: N}`) and does NOT accept adaptive thinking. When sharing a prompt path across models, branch on model ID and use the right shape per side.
@@ -251,9 +251,10 @@ Source: https://platform.claude.com/docs/en/about-claude/models/introducing-clau
 | Opus 5 | `claude-opus-5` | 1M | 128k | 5 levels, default `high` | adaptive, default on | $5 / $25 |
 | Sonnet 5.5 | `claude-sonnet-5-5` | 1M | 128k | 5 levels, default `high` (API) / `medium` (Claude Code) | adaptive, always on; `between_tools` floor | $2 / $10 |
 | Sonnet 5 | `claude-sonnet-5` | 1M | 128k | 5 levels, default `high` | adaptive, default on | $2 / $10 |
+| Haiku 5.5 | `claude-haiku-5-5` | 1M | 128k | 5 levels, default `medium` | adaptive, default on; `disabled` at `high` or below | $0.10 / $0.50 |
 | Haiku 4.5 | `claude-haiku-4-5-20251001` | 200k | 64k | not supported | manual only | $1 / $5 |
 
-Opus 4.8, 4.7, 4.6, 4.5 and Sonnet 4.6, 4.5 remain Active with no deprecation date. Tentative earliest retirements: `claude-opus-4-8` not sooner than 2027-05-28, `claude-sonnet-5` not sooner than 2027-06-30, `claude-haiku-4-5-20251001` not sooner than 2026-10-15.
+Opus 4.8, 4.7, 4.6, 4.5 and Sonnet 4.6, 4.5 remain Active with no deprecation date. Tentative earliest retirements: `claude-opus-4-8` not sooner than 2027-05-28, `claude-sonnet-5` not sooner than 2027-06-30, `claude-haiku-4-5-20251001` not sooner than 2026-10-15, `claude-haiku-5-5` not sooner than 2027-10-07.
 
 Source: https://platform.claude.com/docs/en/about-claude/model-deprecations.md.
 
@@ -272,6 +273,6 @@ Source: https://platform.claude.com/docs/en/about-claude/model-deprecations.md.
 - [ ] No prefill on the last assistant turn; no non-default sampling parameters.
 - [ ] No image-coordinate scale-factor math.
 - [ ] Code-review harness uses coverage-first or an explicit severity bar.
-- [ ] Thinking shape matches the model: default-on adaptive on Opus 5 / Sonnet 5 / Fable 5; manual-only on Haiku 4.5.
-- [ ] No `effort` set for Haiku 4.5 (unsupported).
+- [ ] Thinking shape matches the model: default-on adaptive on Opus 5 / Sonnet 5 / Fable 5 / Haiku 5.5; manual-only on Haiku 4.5.
+- [ ] No `effort` set for Haiku 4.5 (unsupported); Haiku 5.5 takes one.
 - [ ] Output shape locked via `output_config.format`, a tool call with an enum, or an XML wrap.

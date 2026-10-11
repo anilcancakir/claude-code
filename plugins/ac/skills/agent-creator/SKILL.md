@@ -8,7 +8,7 @@ when_to_use: "Use when writing, editing or debugging a subagent definition."
 
 You are about to write or edit a Claude Code custom subagent another Claude will delegate to. An agent is a markdown file that becomes a named worker the orchestrator can spawn with the Agent tool: the parent fills in `subagent_type`, `prompt`, and optional `description`, `name`, `run_in_background`, `isolation`; Claude Code spawns a fresh isolated context, injects the agent's body as the system prompt, and runs the agent until completion. The agent returns its final message to the parent as the tool result.
 
-This skill is the playbook for designing tool restrictions, choosing model and effort, picking `permissionMode`, adding `memory`, preloading `skills`, structuring the system-prompt body, and routing the storage choice. Target is Opus 5.5. Same patterns work for Sonnet 5.5 at lower cost and for Haiku 4.5, which supports no effort parameter.
+This skill is the playbook for designing tool restrictions, choosing model and effort, picking `permissionMode`, adding `memory`, preloading `skills`, structuring the system-prompt body, and routing the storage choice. Target is Opus 5.5. Same patterns work for Sonnet 5.5 at lower cost and for Haiku 5.5, which supports `effort` (default `medium`). Haiku 4.5 supports no effort parameter; it is the `haiku` target on Bedrock, Vertex, Foundry and Claude Platform on AWS.
 
 ## Three jobs, not one
 
@@ -76,10 +76,12 @@ A working agent needs only `name` + `description`. Everything else is opt-in.
 | `tools` | optional | the agent should use only a specific subset of tools (allowlist). Omit to inherit every tool. Comma-separated string or YAML list. |
 | `disallowedTools` | optional | the agent should inherit most tools but be denied a few (denylist). Applied first, then `tools` filters the remainder. |
 | `model` | optional | the agent needs a specific model (`sonnet`/`opus`/`haiku`, full ID like `claude-opus-5`, or `inherit`). Default: `inherit`. |
-| `effort` | optional | the agent needs a different reasoning budget than the session (`low`/`medium`/`high`/`xhigh`/`max`). Omit for a Haiku 4.5 agent; that model does not support the parameter. |
+| `effort` | optional | the agent needs a different reasoning budget than the session (`low`/`medium`/`high`/`xhigh`/`max`). Haiku 5.5 accepts it; omit it for a Haiku 4.5 agent, which does not support the parameter. |
 | `permissionMode` | optional, NON-PLUGIN ONLY | the agent should run with a specific permission mode (`default`/`acceptEdits`/`auto`/`dontAsk`/`bypassPermissions`/`plan`). Ignored in plugin agents. |
 | `maxTurns` | optional | the agent should stop after N agentic turns. Positive integer. |
-| `skills` | optional | named skills to preload into the agent's context at startup (full content injected, not just made available). |
+| `autoCompactWindow` | optional | the subagent should compact its own conversation earlier than the window it inherits (Claude Code 2.1.296). Only lowers the inherited window. |
+| `skills` | optional | named skills to preload into the agent's context at startup (full content injected, not just made available). At most 32. |
+| `omitClaudeMd` | optional | `true` drops the CLAUDE.md hierarchy from the subagent (Claude Code 2.1.271). Detail in `${CLAUDE_SKILL_DIR}/references/frontmatter.md`. |
 | `mcpServers` | optional, NON-PLUGIN ONLY | MCP servers scoped to this agent. Inline definitions or names of already-configured servers. Ignored in plugin agents. |
 | `hooks` | optional, NON-PLUGIN ONLY | lifecycle hooks scoped to the agent. Same shape as project hooks. Ignored in plugin agents. |
 | `memory` | optional | persistent memory scope (`user`/`project`/`local`). Creates a directory the agent reads and updates across runs. Auto-injects Read/Write/Edit tools. |
@@ -138,7 +140,7 @@ Defaults: `model: inherit` (same as parent), no effort override.
 
 Picking:
 
-- **Haiku**: fast and cheap. Right for read-only search agents, classification, lookup. Built-in Explore uses Haiku (external builds). Note it supports no `effort` value, so do not pair `model: haiku` with `effort:`.
+- **Haiku**: fast and cheap. Right for read-only search agents, classification, lookup. Built-in Explore uses Haiku (external builds). `haiku` resolves to Haiku 5.5 on the Anthropic API since Claude Code 2.1.293, and `effort:` works there; on Bedrock, Vertex, Foundry and Claude Platform on AWS it resolves to Haiku 4.5, which supports no `effort` value, so do not pair `model: haiku` with `effort:` in an agent meant to run on those providers.
 - **Sonnet**: balanced. Right for code review, analysis, anything intelligence-sensitive but bounded.
 - **Opus**: deep reasoning. Right for architecture review, multi-file refactors, adversarial review (challenger pattern).
 - **Inherit**: when the agent's quality should track the session's model choice.
@@ -388,7 +390,7 @@ FAILED if: <list of quality-gate violations the agent self-checks against>.
 Always check:
 
 - [ ] File at the right scope (managed / project / user / plugin).
-- [ ] Filename = agent name (lowercase, hyphens, max 64 characters, no `claude` or `anthropic`).
+- [ ] Filename = agent name (lowercase, hyphens, at most 256 characters since Claude Code 2.1.292, no `claude` or `anthropic`).
 - [ ] Frontmatter has `name` and `description`. Other fields only when the agent needs them.
 - [ ] `description` is a role noun, one "Use this when" sentence and what it returns, about 200 characters.
 - [ ] No cargo-culted optional fields (each present field has a specific reason).

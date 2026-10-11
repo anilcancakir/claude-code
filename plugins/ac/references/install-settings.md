@@ -180,6 +180,9 @@ AskUserQuestion({
 | Rarely-used bundled skills | `skillOverrides` entries for `run`, `keybindings-help`, `fewer-permission-prompts`, `simplify`, `init`, `claude-api`, `update-config`, each `"user-invocable-only"` |
 | Auto-mode classifier off | `env.CLAUDE_CODE_ENABLE_AUTO_MODE = "0"` |
 
+`OfferChromeSetup` (2.1.296) is deferred and experiment-gated and is deliberately left off the
+unused built-ins list, since widening the option would re-ask it on every `--upgrade`.
+
 Deny and override travel together on the scheduling stack: a skill whose tools are denied is a
 dead entry that still costs its description.
 

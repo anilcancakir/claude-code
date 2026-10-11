@@ -51,7 +51,7 @@ Source: https://code.claude.com/docs/en/skills.md > Skill content lifecycle.
 
 ## What the main-thread prompt actually carries (lean vs classic)
 
-Claude Code builds the main-thread system prompt in one of two shapes, chosen per model. On 2.1.284 the LEAN shape goes to Opus 5.5, Opus 5, Opus 4.8, Sonnet 5.5, Fable 5 and 5.1, Mythos 5 and 5.1; CLASSIC goes to Sonnet 5 and earlier, Haiku, and Opus 4.0 through 4.7. Sonnet 5.5 is the first Sonnet on LEAN, so `model: sonnet` changed shape with the 2.1.284 alias move.
+Claude Code builds the main-thread system prompt in one of two shapes, chosen per model. On 2.1.296 the LEAN shape goes to Opus 5.5, Opus 5, Opus 4.8, Sonnet 5.5, Haiku 5.5, Fable 5 and 5.1, Mythos 5 and 5.1; CLASSIC goes to Sonnet 5 and earlier, Haiku 4.5 and earlier, and Opus 4.0 through 4.7. Sonnet 5.5 is the first Sonnet on LEAN, so `model: sonnet` changed shape with the 2.1.284 alias move, and `model: haiku` did the same on the Anthropic API once Haiku 5.5 became the alias target (2.1.293 or later; Bedrock, Vertex, Foundry and Claude Platform on AWS stay on Haiku 4.5 and CLASSIC).
 
 LEAN carries only this, besides environment, memory and session blocks (read verbatim from a 2.1.280 Opus 5.5 session):
 

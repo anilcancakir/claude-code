@@ -26,9 +26,10 @@
 # and the assistant's own step read alike to a regex. So a regex hit goes to a judge: an isolated
 # `claude -p` on Sonnet reads the ending with the user's last request (lib/announce-judge.md) and
 # only a parsed `"ok": false` blocks. On 44 unseen regex-positive stops that cut wrong blocks from
-# 24 to 5 and missed 3 of 20; Haiku flipped 8 of 107 decisions between identical runs and repeated
-# the regex's handoff mistakes, so the model is not Haiku. A missing `claude` or `perl`, a
-# timeout, an error or an unparsable verdict allows the stop.
+# 24 to 5 and missed 3 of 20; Haiku 4.5 flipped 8 of 107 decisions between identical runs and
+# repeated the regex's handoff mistakes, so the model is not Haiku. That rejection was measured
+# on Haiku 4.5 only; Haiku 5.5 has not been run on the labelled set (not verified). A missing
+# `claude` or `perl`, a timeout, an error or an unparsable verdict allows the stop.
 #
 # The judge runs on the `sonnet` alias. Those numbers were measured on Sonnet 5; 2.1.284 moved the
 # alias to Sonnet 5.5, which runs this call at its own `medium` default rather than Sonnet 5's

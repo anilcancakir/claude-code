@@ -22,7 +22,7 @@ Primary sources (raw markdown via the `.md` suffix):
 | Text between tool calls | `text` blocks | Notes longer than a sentence or two come back as progress-update `thinking` blocks, empty at the default `display` | Harness concern: `display: "updates"` (beta), or `between_tools`, which returns them with their summary. |
 | Safeguards | cyber | Adds `bio`, `frontier_llm`, `reasoning_extraction`, `general_harms`; server-side fallback retries only `cyber` and `frontier_llm`, on Sonnet 5 | Do not ask for reasoning in the reply. |
 | `max_tokens` | 64k default | 128,000 for agentic coding, streamed | Thinking counts toward it even when not returned. |
-| Pricing | $2 / $10 (the launch price became standard) | $2 / $10, cache read $0.20, 5m write $2.50, 1h write $4 | |
+| Pricing | $2 / $10 (the launch price became standard) | $2 / $10, cache read $0.10 (halved from $0.20 on 2026-10-07), 5m write $2.50, 1h write $4 | |
 | Context, output, cutoff | 1M, 128k, January 2026 | 1M, 128k, June 2026 | |
 
 Unchanged and restated on the 5.5 overview page: non-default `temperature` / `top_p` / `top_k` return 400.

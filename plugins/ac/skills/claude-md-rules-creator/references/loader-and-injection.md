@@ -77,9 +77,9 @@ Files in this path:
 
 **Path B: attachment injection on tool result (lazy load).**
 
-When Claude reads a file via the Read tool, the loader checks two pools:
+When Claude accesses a file, the loader checks two pools. Three access routes trigger it: the Read tool, Write or Edit creating or changing a file (2.1.288, previously only Read loaded them), and a single-file `cat`, `head`, `tail`, `sed -n` or `grep` in the Bash tool (2.1.293).
 
-- The runtime returns `.claude/rules/*.md` files WITH `paths:` whose globs match the file Claude just read.
+- The runtime returns `.claude/rules/*.md` files WITH `paths:` whose globs match the file Claude just accessed.
 - the loader returns `<subdir>/CLAUDE.md`, `<subdir>/.claude/CLAUDE.md`, and `<subdir>/CLAUDE.local.md` from directories between cwd and the file.
 
 These get injected as `<system-reminder>`-tagged attachments alongside the tool result. They are NOT in the cached `messages[0]`; they live in the conversation stream.
@@ -90,7 +90,7 @@ Files in this path:
 
 Once injected, these files persist in the conversation context for the rest of the session (the loader tracks the loader so it does not re-inject the same file twice). They are NOT scoped out when Claude moves to unrelated files. Token cost compounds as more rules accumulate across many tool calls.
 
-Lazy-loaded content gets summarized away by `/compact` and reloads only when Claude next reads a matching file.
+Lazy-loaded content gets summarized away by `/compact` and reloads only when Claude next accesses a matching file (Read, Write or Edit, or a single-file Bash read).
 
 ## The `MEMORY_INSTRUCTION_PROMPT` prefix
 
@@ -163,15 +163,15 @@ Two practical consequences:
 
 ## Path-scoped rules: when they trigger, how they persist
 
-and community reports (path-scoping triggers off the Read tool, not Write/Edit):
+and the Claude Code changelog (2.1.288 and 2.1.293 widened the triggers beyond the Read tool):
 
 - A `.claude/rules/<topic>.md` with `paths:` frontmatter is HELD BACK from `messages[0]` at session start.
-- It activates when Claude uses the Read tool to read a file whose path matches any glob in `paths:`.
+- It activates when Claude accesses a file whose path matches any glob in `paths:`: with the Read tool, with Write or Edit creating or changing the file (2.1.288), or with a single-file `cat`, `head`, `tail`, `sed -n` or `grep` in the Bash tool (2.1.293).
 - Once activated, it is injected as an attachment and persists in conversation context.
 - It does NOT scope out when Claude moves to other files. Once in, it is in.
-- Edit / Write / MultiEdit tools do NOT trigger path-scoped rules. Only Read does. If Claude edits a file without reading it first, the rule is silent.
+- The changelog names no other route. A multi-file or piped shell command, or a tool other than Read, Write or Edit, is not verified to load anything; check `InstructionsLoaded` before relying on one.
 
-Practical implication: if a rule MUST hold whenever a matching file changes (not just when read), do not rely on `paths:`. Make the rule unconditional, or move the enforcement to a `PostToolUse` hook on the Edit/Write events.
+Practical implication: loading is still advisory. If a rule MUST hold every time a matching file changes, do not rely on `paths:`. Make the rule unconditional, or move the enforcement to a `PostToolUse` hook on the Edit/Write events.
 
 ## Token cost of conditional rules
 
@@ -199,7 +199,7 @@ the loader clears `getUserContext.cache` and calls `resetGetMemoryFilesCache('co
 | `CLAUDE.local.md` (root) | Yes |
 | AutoMem `MEMORY.md` (200 lines / 25KB) | Yes |
 | Subdirectory `<subdir>/CLAUDE.md` | No, summarized away. Reloads on next file touch in that subdir |
-| `.claude/rules/*.md` WITH `paths:` (conditional) | No, summarized away. Reloads on next matching file read |
+| `.claude/rules/*.md` WITH `paths:` (conditional) | No, summarized away. Reloads on next matching file access (Read, Write or Edit, single-file Bash read) |
 | In-conversation instructions typed by the user | No, summarized away. Move to CLAUDE.md to persist |
 
 The subagent path (`agent:*` querySource) explicitly does NOT call this reset, to avoid clobbering main-thread state.
@@ -278,7 +278,7 @@ Diagnostic checklist by symptom. Apply in order.
 5. **Did the session just compact?** Subdirectory CLAUDE.md and `paths:`-scoped rules do NOT survive compact. They reload on the next matching file touch. Project-root and unconditional content reload automatically.
 6. **Is the rule an aspiration?** "We aim for 90% coverage" is not a rule the model can apply. Reframe to a verifiable rule, or move enforcement to a hook.
 7. **Is the rule something a hook would guarantee?** If the rule MUST hold every time, no exceptions, CLAUDE.md is the wrong mechanism. CLAUDE.md is advisory; hooks are deterministic. See [hooks](https://code.claude.com/docs/en/hooks.md).
-8. **Path-scoped rule not firing, or firing everywhere?** Confirm the file starts with `---` at byte 0: a comment or a blank line above the frontmatter makes the loader treat `paths:` as body text, and the rule then loads unconditionally at launch (verified on 2.1.280). Confirm: `paths:` (not `globs:`). Confirm the glob actually matches the file Claude touched. Confirm Claude READ the file (Write/Edit/MultiEdit do not trigger). Confirm the rule is not also loaded unconditionally elsewhere (which would shadow it).
+8. **Path-scoped rule not firing, or firing everywhere?** Confirm the file starts with `---` at byte 0: a comment or a blank line above the frontmatter makes the loader treat `paths:` as body text, and the rule then loads unconditionally at launch (verified on 2.1.280). Confirm: `paths:` (not `globs:`). Confirm the glob actually matches the file Claude touched. Confirm Claude accessed the file through a route that loads rules: Read, Write or Edit (2.1.288), or a single-file Bash `cat`, `head`, `tail`, `sed -n` or `grep` (2.1.293). On an older build only Read loads them. Confirm the rule is not also loaded unconditionally elsewhere (which would shadow it).
 9. **Is your rule conflicting with Claude Code's built-in system prompt?** The system prompt always wins on conflicts (tool usage patterns, safety guidelines). Your override is silently ignored. Work with the grain; do not fight built-ins.
 10. **Inherited ancestor rule?** Walking from cwd up to filesystem root picks up CLAUDE.md from every ancestor. In a monorepo, an unrelated team's CLAUDE.md may be loading. Use `claudeMdExcludes`.
 
@@ -291,6 +291,6 @@ For genuine system-prompt-level rules, use `--append-system-prompt` or `--system
 - **Prefix**: `MEMORY_INSTRUCTION_PROMPT` already supplies "IMPORTANT:. you MUST".
 - **Survives compaction**: eager files (re-read from disk). Not lazy files until re-touched.
 - **Stripped before injection**: block-level HTML comments only.
-- **Path-scoped rules**: trigger on Read tool, persist in context once loaded, never scope out.
+- **Path-scoped rules**: trigger on Read, Write or Edit, and a single-file Bash `cat`/`head`/`tail`/`sed -n`/`grep`; persist in context once loaded, never scope out.
 - **Debug**: `/memory` for the loaded list, `InstructionsLoaded` hook for audit log.
 - **Hard guarantee**: not from CLAUDE.md. Use hooks or system-prompt flags.

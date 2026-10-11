@@ -189,7 +189,7 @@ Override the active effort level while the skill runs. Options depend on the mod
 effort: high
 ```
 
-Use when the skill needs a different reasoning budget than the session default, a complex audit skill at `high`, a quick formatter skill at `low`. Most skills inherit fine. Haiku 4.5 does not support the parameter at all, so omit it on any skill targeted at that model. Detail on effort tuning: `${CLAUDE_SKILL_DIR}/references/opus-5-tuning.md`.
+Use when the skill needs a different reasoning budget than the session default, a complex audit skill at `high`, a quick formatter skill at `low`. Most skills inherit fine. Haiku 5.5 supports it (default `medium`); Haiku 4.5 does not support the parameter at all, so omit it on any skill targeted at that model. Detail on effort tuning: `${CLAUDE_SKILL_DIR}/references/opus-5-tuning.md`.
 
 ## `context`
 

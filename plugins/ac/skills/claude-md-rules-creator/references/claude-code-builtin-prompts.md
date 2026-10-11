@@ -9,9 +9,11 @@ Text inside fences is verbatim. `${...}` marks a runtime interpolation. Em-dashe
 
 This file ships identically in `ac:prompt-writer` and `ac:claude-md-rules-creator`; refresh both together. To refresh after a Claude Code update: open a fresh session on the target model, take the `prompt_snapshot` attachment from its transcript (`~/.claude/projects/<project>/<session>.jsonl`, the line whose `attachment.type` is `prompt_snapshot`), diff its blocks against section 1, and re-grep every other fenced block against the new binary.
 
-## 1. Main thread, LEAN shape (Opus 5.5, Sonnet 5.5, Opus 5, Opus 4.8, Fable, Mythos)
+## 1. Main thread, LEAN shape (Opus 5.5, Sonnet 5.5, Haiku 5.5, Opus 5, Opus 4.8, Fable, Mythos)
 
 Sonnet 5.5 receives this same text with no bundle sections, like Opus 5.5 (read off a 2.1.284 `claude -p --model sonnet` session's `prompt_snapshot`, 2026-09-28).
+
+Haiku 5.5 joined the lean roster on 2.1.296, read off the binary's `lean_prompt` capability list (no `prompt_snapshot` was taken on it, so whether it carries bundle sections is not verified). The registry roster there is claude-sonnet-5-5, claude-opus-4-8, claude-opus-5, claude-opus-5-5, claude-fable-5, claude-fable-5-1, claude-mythos-5-1 and claude-haiku-5-5; claude-mythos-5 is lean by an explicit name check. A model missing from the registry, and any haiku or sonnet name outside the roster, falls back to CLASSIC.
 
 The behavioral core a 5.5 main thread receives, minus feature-specific lines (the ultrareview bullet, the `EndConversation` deferred-tool guidance). Order in a real session: this block, then the separate sections below, then `# Memory`, the environment block, `# Context management`, and the act-don't-rederive line (behind `tengu_cedar_lantern`, default on).
 
@@ -121,9 +123,9 @@ The text is overridable (`CLAUDE_CODE_SILENT_TURN_REMINDER_TEXT`, then the serve
 The user hasn't heard from you in a while \u2014 say in a few words what you're doing, then continue.
 ```
 
-## 3. Main thread, CLASSIC shape (Sonnet 5 and earlier, Haiku, Opus 4.0 to 4.7)
+## 3. Main thread, CLASSIC shape (Sonnet 5 and earlier, Haiku 4.5, Opus 4.0 to 4.7)
 
-None of this reaches an Opus 5.5 or Sonnet 5.5 user. For a CLAUDE.md read by a mixed team, a line that repeats this is tax on the Sonnet 5 and Haiku sessions and load-bearing on the 5.5 ones.
+None of this reaches an Opus 5.5, Sonnet 5.5 or Haiku 5.5 user. For a CLAUDE.md read by a mixed team, a line that repeats this is tax on the Sonnet 5 and Haiku 4.5 sessions and load-bearing on the 5.5 ones.
 
 ```text
 # System

@@ -9,7 +9,7 @@ disable-model-invocation: false
 
 You are about to write or edit a skill another Claude will load. A skill is a directory with a `SKILL.md`. Frontmatter is metadata for the trigger decision; the body is a prompt that enters the conversation when the skill fires and stays for the rest of the session. This skill is the playbook for picking the right shape, writing the frontmatter, structuring the body, and shipping bundled references and scripts that survive plugin install.
 
-Target is Opus 5.5 (`model: opus` on Claude Code 2.1.280). Same rules work for Sonnet 5.5 (`model: sonnet` on 2.1.284) at lower cost and for Haiku 4.5, which supports no effort parameter at all. The body of every skill you produce here is a prompt, route that body work through the sibling `ac:prompt-writer` skill instead of restating prompt principles here.
+Target is Opus 5.5 (`model: opus` on Claude Code 2.1.280). Same rules work for Sonnet 5.5 (`model: sonnet` on 2.1.284) at lower cost and for Haiku 5.5, which supports `effort` (default `medium`); only Haiku 4.5, the `haiku` target on Bedrock, Vertex, Foundry and Claude Platform on AWS, supports no effort parameter at all. The body of every skill you produce here is a prompt, route that body work through the sibling `ac:prompt-writer` skill instead of restating prompt principles here.
 
 ## Two jobs, not one
 
@@ -317,7 +317,7 @@ When the user request implies any of the rows above, do both: invoke the matchin
 
 ## Opus 5.5 and Sonnet 5.5 tuning
 
-Default target is `claude-opus-5-5` (`model: opus` on Claude Code 2.1.280), documented by Anthropic as a delta over Opus 5, so the Opus 5 notes below still hold unless the next paragraph says otherwise. Sonnet 5.5 (`claude-sonnet-5-5`, `model: sonnet` on Claude Code 2.1.284) follows the same shape at lower cost, with its own deltas in `ac:prompt-writer`'s `references/sonnet-5-5-tuning.md`; Haiku 4.5 (`claude-haiku-4-5-20251001`) supports no effort parameter at all. Full per-knob detail: `${CLAUDE_SKILL_DIR}/references/opus-5-tuning.md`; the 5.5 deltas and the verbatim built-in prompt text live in `ac:prompt-writer`.
+Default target is `claude-opus-5-5` (`model: opus` on Claude Code 2.1.280), documented by Anthropic as a delta over Opus 5, so the Opus 5 notes below still hold unless the next paragraph says otherwise. Sonnet 5.5 (`claude-sonnet-5-5`, `model: sonnet` on Claude Code 2.1.284) follows the same shape at lower cost, with its own deltas in `ac:prompt-writer`'s `references/sonnet-5-5-tuning.md`; Haiku 5.5 (`claude-haiku-5-5`, `model: haiku` on the Anthropic API since Claude Code 2.1.293) supports `effort`, while Haiku 4.5 (`claude-haiku-4-5-20251001`) supports no effort parameter at all. Full per-knob detail: `${CLAUDE_SKILL_DIR}/references/opus-5-tuning.md`; the 5.5 deltas and the verbatim built-in prompt text live in `ac:prompt-writer`.
 
 On 5.5: default effort is `medium`, effort labels do not port from Opus 5 (5.5 thinks more per label), and its best agentic-coding score in the system card is at `medium`, so set a skill's `effort:` only when its work needs a different level from the session's, and remember it also holds for the rest of the turn after the skill runs. A skill body lands on the lean prompt, which lacks the classic code-style and communication rules; state any the skill needs.
 
@@ -328,7 +328,7 @@ Quick deltas to keep in mind while authoring:
 - **Two 4.8 defaults inverted.** Verbosity is higher by default and effort will not shorten it, so a body that relied on self-calibration needs an explicit length target. Subagent spawning is higher by default, so a body carrying 4.8-era fan-out encouragement now overtriggers delegation.
 - **State scope in both directions.** Say where a rule spans, and also name the upper bound: Opus 5 can widen scope and re-verify finished work on its own.
 - **Tool use.** The 4.8 conservatism claim has no Opus 5 counterpart in the docs; treat it as undocumented. Describe when and how to reach for a tool explicitly either way, and avoid "CRITICAL: ALWAYS use this tool" wording.
-- **Effort overrides.** Opus 5 converts extra effort into better results more reliably than any earlier Opus, so `effort:` is a stronger lever than it was. Set it only for skills that need it (deep audits, multi-step migrations); most skills inherit fine. Never set it on a skill targeted at Haiku 4.5.
+- **Effort overrides.** Opus 5 converts extra effort into better results more reliably than any earlier Opus, so `effort:` is a stronger lever than it was. Set it only for skills that need it (deep audits, multi-step migrations); most skills inherit fine. Never set it on a skill targeted at Haiku 4.5, which has no effort parameter; Haiku 5.5 accepts it.
 
 ## Quick template
 
@@ -441,7 +441,7 @@ Check only the items that apply to your skill's specific needs:
 | `${CLAUDE_SKILL_DIR}/references/claude-code-mechanics.md` | Understanding runtime lifecycle (load, invocation, auto-compact, char budget), substitutions, shell injection, location precedence. |
 | `${CLAUDE_SKILL_DIR}/references/examples.md` | Copying from a worked example: reference, manual-action, forked, scripted, path-conditional, plugin-distributed. |
 | `${CLAUDE_SKILL_DIR}/references/anti-patterns.md` | Diagnosing a misbehaving skill or auditing one before shipping. |
-| `${CLAUDE_SKILL_DIR}/references/opus-5-tuning.md` | Tuning effort, verbosity, scope, subagent spawning, thinking, model overrides; the 4.8-to-5 inversions; Sonnet 5 and Haiku 4.5 deltas. |
+| `${CLAUDE_SKILL_DIR}/references/opus-5-tuning.md` | Tuning effort, verbosity, scope, subagent spawning, thinking, model overrides; the 4.8-to-5 inversions; Sonnet 5, Haiku 5.5 and Haiku 4.5 deltas. |
 | `${CLAUDE_SKILL_DIR}/assets/SKILL.template.md` | Starting a new skill from a blank annotated template. |
 
 For the prompt body itself, invoke `/ac:prompt-writer` and follow the references it lists from its own body:

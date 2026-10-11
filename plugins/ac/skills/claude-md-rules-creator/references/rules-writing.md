@@ -72,7 +72,7 @@ paths:
 - Add rate limiting to public endpoints.
 ```
 
-Loads on demand when Claude READS a matching file via the Read tool. Once loaded, persists in conversation context for the rest of the session. See "Path-scoped rule lifecycle" below.
+Loads on demand when Claude accesses a matching file: Read, Write or Edit (2.1.288), or a single-file Bash `cat`, `head`, `tail`, `sed -n` or `grep` (2.1.293). Once loaded, persists in conversation context for the rest of the session. See "Path-scoped rule lifecycle" below.
 
 ## `paths:` vs `globs:`: they are NOT the same
 
@@ -139,12 +139,12 @@ Paths that escape the base (`./`) or that are absolute (cross-drive on Windows p
 When each path-scoped rule fires, when it stops firing, and what tools trigger it. and the loader:
 
 1. **Discovery**: At session start, the loader lists every `.claude/rules/*.md` file in the directories from filesystem root down to cwd. Files with `paths:` are HELD BACK from the initial `<system-reminder>` user message; files without are inlined.
-2. **Activation**: When Claude uses the Read tool to read a file, the runtime checks every held-back rule's globs against that path. Matching rules get appended to the tool result as `<system-reminder>`-wrapped attachments.
+2. **Activation**: When Claude accesses a file (Read, Write or Edit, or a single-file Bash `cat`, `head`, `tail`, `sed -n` or `grep`), the runtime checks every held-back rule's globs against that path. Matching rules get appended to the tool result as `<system-reminder>`-wrapped attachments.
 3. **Persistence**: Once a rule is appended, it lives in the conversation context for the rest of the session. The loader tracks the loader so it does not double-inject. Rules do NOT scope out when Claude moves to other files.
-4. **Tool sensitivity**: Only the READ tool triggers path-scoped rules. Edit, Write, MultiEdit, NotebookEdit do NOT trigger them. If Claude edits a file without reading it first, the rule is silent. (This is a longstanding issue: anthropics/claude-code#23478.)
-5. **Compact**: `/compact` summarizes the conversation. Path-scoped rules in the message stream are summarized away. They reload when Claude next reads a matching file.
+4. **Tool sensitivity**: Read always triggered path-scoped rules. Write and Edit creating or changing a file in scope trigger them since 2.1.288 (before that, an edit without a prior read left the rule silent; see anthropics/claude-code#23478), and a single-file Bash `cat`, `head`, `tail`, `sed -n` or `grep` triggers them since 2.1.293. No other route is named in the changelog, so MultiEdit, NotebookEdit and multi-file shell commands are not verified to load anything.
+5. **Compact**: `/compact` summarizes the conversation. Path-scoped rules in the message stream are summarized away. They reload when Claude next accesses a matching file.
 
-Practical implication: if a rule MUST hold whenever a file changes (not just when read), do not rely on `paths:`. Options:
+Practical implication: loading is advisory. If a rule MUST hold every time a file changes, do not rely on `paths:`. Options:
 
 - Make the rule unconditional (load at session start, always in context).
 - Move enforcement to a `PostToolUse` hook on `Write|Edit|MultiEdit` (deterministic, no model judgment).

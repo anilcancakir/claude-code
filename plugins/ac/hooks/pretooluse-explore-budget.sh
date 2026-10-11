@@ -10,12 +10,13 @@
 # condition fails OPEN (exit 0, no output): a payload it cannot parse, a call from the main
 # thread or from any other agent, a missing jq, an unwritable counter, and any parse uncertainty.
 #
-# Why a hook and not a sentence in the agent body. Measured across 309 real runs, ac:explore
-# averages 36.6 tool calls and peaks at 183, while its own body asks for "two to three parallel
-# passes" and "under 500 words total". Its sibling ac:librarian carries the same shape of
-# instruction and lands inside its budget. Same author, same phrasing, different model: prose
+# Why a hook and not a sentence in the agent body. Measured on Haiku 4.5 across 309 real runs,
+# ac:explore averages 36.6 tool calls and peaks at 183, while its own body asks for "two to three
+# parallel passes" and "under 500 words total". Its sibling ac:librarian carries the same shape
+# of instruction and lands inside its budget. Same author, same phrasing, different model: prose
 # numbers bind on Sonnet and do not bind on Haiku, so the bound for this agent has to sit
-# outside its token stream.
+# outside its token stream. On Haiku 5.5 (the `haiku` alias since Claude Code 2.1.293) explore
+# still averaged 30.9 tool calls over 150 runs, measured 2026-10-12, so the hook stays.
 #
 # Why agent_type rather than the agent's own frontmatter. Two frontmatter mechanisms were tested
 # on 2.1.259 and neither works: `maxTurns: 3` did not bind (61 turns observed), and a `hooks:`

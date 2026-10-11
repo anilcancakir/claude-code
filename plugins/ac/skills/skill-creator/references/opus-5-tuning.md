@@ -1,6 +1,6 @@
 # Opus 5 Tuning for Skill Bodies
 
-Skill-specific tuning for the current Claude family. Default target is Opus 5 (`claude-opus-5`, released 2026-07-24). Sonnet 5 (`claude-sonnet-5`) follows the same patterns; Haiku 4.5 (`claude-haiku-4-5-20251001`) differs on effort and thinking. This reference focuses on the knobs that matter when authoring the body of a skill; for prompt-architecture tuning beyond skills, route through `ac:prompt-writer` and read its `references/opus-5-tuning.md`.
+Skill-specific tuning for the current Claude family. Default target is Opus 5 (`claude-opus-5`, released 2026-07-24). Sonnet 5 (`claude-sonnet-5`) follows the same patterns; Haiku 5.5 (`claude-haiku-5-5`) supports effort and adaptive thinking; Haiku 4.5 (`claude-haiku-4-5-20251001`) differs on effort and thinking. This reference focuses on the knobs that matter when authoring the body of a skill; for prompt-architecture tuning beyond skills, route through `ac:prompt-writer` and read its `references/opus-5-tuning.md`.
 
 For `claude-opus-5-5`, the current `model: opus`, this file stays the baseline and `ac:prompt-writer`'s `references/opus-5-5-tuning.md` carries what changed: default effort `medium`, thinking that cannot be disabled, effort labels that do not port from Opus 5, and no reasoning-in-reply scaffolds. For `claude-sonnet-5-5`, the current `model: sonnet`, the same holds with `ac:prompt-writer`'s `references/sonnet-5-5-tuning.md`.
 
@@ -20,7 +20,7 @@ For `claude-opus-5-5`, the current `model: opus`, this file stays the baseline a
 - Long-horizon skills (compact-survival)
 - Frontend and visual output
 - Sonnet 5 quick deltas
-- Haiku 4.5 quick deltas
+- Haiku 5.5 and Haiku 4.5 quick deltas
 
 ## The two inversions that change skill bodies
 
@@ -47,7 +47,7 @@ What effort no longer does: shorten output. On 4.8, dropping to `low` or `medium
 
 Set `effort:` only when the skill needs a different reasoning budget than the session default. Most skills inherit fine. A complex audit skill at `effort: high`, a quick formatter skill at `effort: low`. Anything outside that range usually means the skill is doing too much; split it.
 
-Do not set `effort:` on a skill you expect to run under Haiku 4.5; that model does not support the parameter at all.
+Haiku 5.5 accepts `effort:` (`low` to `max`, default `medium`). Do not set `effort:` on a skill you expect to run under Haiku 4.5; that model does not support the parameter at all.
 
 Source: https://platform.claude.com/docs/en/about-claude/models/whats-new-opus-5.md > Effort matters more, and https://platform.claude.com/docs/en/build-with-claude/effort.md.
 
@@ -118,7 +118,7 @@ For API-level skills (not Claude Code), thinking on Opus 5 is on by default. `{ 
 
 Override applies for the rest of the current turn and is not saved. Session model resumes on the next user prompt. Carry the `[1m]` suffix when overriding if the user is on a 1M-context session, otherwise the effective window drops to 200K and may trip autocompact mid-skill.
 
-Do not pair `model: haiku` with an `effort:` value; Haiku 4.5 does not support the effort parameter.
+`model: haiku` resolves to Haiku 5.5 on the Anthropic API (Claude Code 2.1.293 and later), where `effort:` works, and to Haiku 4.5 on Bedrock, Vertex, Foundry and Claude Platform on AWS. Do not pair `model: haiku` with an `effort:` value in a skill meant to run on those providers; Haiku 4.5 does not support the effort parameter.
 
 ## Verbosity-sensitive output shapes
 
@@ -186,11 +186,13 @@ Sonnet 5.5 narrows the gap (SWE-bench Pro 81.3% against Opus 5.5's 89.9%, from o
 
 If a skill must run reliably on both Opus 5 and Sonnet 5, do not set `model:` or `effort:`. Let the session inherit, and do not write a body that assumes a specific model's quirks.
 
-## Haiku 4.5 quick deltas
+## Haiku 5.5 and Haiku 4.5 quick deltas
 
-Haiku 4.5 is for short, scoped tasks where speed matters and reasoning depth does not. There is no Haiku 5.
+Haiku 5.5 (`claude-haiku-5-5`, released 2026-10-07) is the `haiku` alias on the Anthropic API since Claude Code 2.1.293. It is the first Haiku with `effort` (`low`, `medium`, `high`, `xhigh`, `max`; default `medium`) and takes adaptive thinking. Start a skill at `medium` and drop to `low` only for chat-shaped or short tool tasks, because at `low` long agent prompts skip searches and stop early. Its prompting deltas are in Anthropic's [prompting guide](https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/prompting-claude-haiku-5-5.md). Sources: https://platform.claude.com/docs/en/build-with-claude/effort.md and https://code.claude.com/docs/en/model-config.md.
 
-- **The `effort` parameter is not supported.** Do not set `effort:` on a skill targeted at Haiku 4.5, and scope the work through the body instead.
+Haiku 4.5 is for short, scoped tasks where speed matters and reasoning depth does not. It remains the `haiku` target on Bedrock, Vertex, Foundry and Claude Platform on AWS.
+
+- **The `effort` parameter is not supported on Haiku 4.5.** Do not set `effort:` on a skill targeted at Haiku 4.5, and scope the work through the body instead.
 - Adaptive thinking is not accepted. Manual extended thinking is, with the legacy `{ type: "enabled", budget_tokens: N }` shape.
 - Verbosity calibration is less reliable; explicit length caps in the body matter more.
 - 200k context, 64k max output, $1 / $5 per MTok.

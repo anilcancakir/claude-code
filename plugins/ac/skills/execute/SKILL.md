@@ -128,7 +128,7 @@ and `## Risks Accepted`. `## Tier Calibration` is referential; read it once, do 
 
 | Tier | Subagent | Model | Effort |
 |---|---|---|---|
-| `quick` | `ac:plan-worker-quick` | `haiku` | not supported on this model |
+| `quick` | `ac:plan-worker-quick` | `haiku` | medium |
 | `junior` | `ac:plan-worker-junior` | `sonnet` | high |
 | `junior-high` | `ac:plan-worker-junior-high` | `sonnet` | high |
 | `senior` | `ac:plan-worker-senior` | `opus` | medium |
@@ -137,8 +137,8 @@ and `## Risks Accepted`. `## Tier Calibration` is referential; read it once, do 
 criticality rule never routes there; it escalates to `senior`.
 
 When the plan's `Codebase State` is `legacy` or `chaotic`, route every `quick` step to `ac:plan-worker-junior`
-whatever its declared tier: mechanical work in an inconsistent codebase is not mechanical, and Haiku has no effort
-lever to compensate. The plan file is not modified; this is an in-memory routing decision. Record the count for the
+whatever its declared tier: mechanical work in an inconsistent codebase is not mechanical, and Haiku 5.5 trails
+Sonnet 5.5 on FrontierCode 1.1 Main (46.4% against 52.1%). The plan file is not modified; this is an in-memory routing decision. Record the count for the
 Phase 4 report.
 
 ### 1e. Initialize execution state

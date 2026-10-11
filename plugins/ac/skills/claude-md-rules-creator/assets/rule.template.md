@@ -45,8 +45,8 @@ Authoring checklist:
 - [ ] No file-by-file tours, no standard-language conventions, no secrets.
 
 Loading behavior reminder:
-- WITH `paths:` -> loads on demand when Claude reads a file matching the glob via the Read tool. Edit/Write/MultiEdit do NOT trigger.
+- WITH `paths:` -> loads on demand when Claude accesses a file matching the glob: Read, Write or Edit (2.1.288), or a single-file Bash cat, head, tail, sed -n or grep (2.1.293).
 - Once loaded, persists in conversation context for the rest of the session.
-- Compact summarizes path-scoped rules away. They reload on next matching file read.
+- Compact summarizes path-scoped rules away. They reload on next matching file access.
 - WITHOUT `paths:` -> loads at session start with the same priority as `.claude/CLAUDE.md`. Survives compact.
 -->
