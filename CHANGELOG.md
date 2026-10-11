@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.28.0] - 2026-10-12
 
 Brings the plugin in line with Claude Code 2.1.296 and Haiku 5.5, which `model: haiku` resolves to on the Anthropic API since 2.1.293 (Haiku 4.5 on Bedrock, Vertex, Foundry and Claude Platform on AWS). Both haiku-tier agents now pin `effort: medium`, because Haiku 5.5 accepts an effort and `ac:explore` had been inheriting the session's `high`. Measured on 2026-10-12 over every local subagent transcript, `ac:explore` on Haiku 4.5 (572 runs) produced about 8,000 output tokens in 124 s per run; on Haiku 5.5 at the inherited `high` (150 runs) it produced about 26,100 in 166 s, with tool calls moving from 34.9 to 30.9 and the estimated cost per run from about $0.20 to $0.03. A live spawn after the pin ran at `medium` (the subagent transcript records `"effort":"medium"`) and spent 1,484 output tokens on a one-pass brief that took 2,068 at `high`, one sample each.
 
