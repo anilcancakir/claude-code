@@ -197,4 +197,4 @@ Haiku 4.5 is for short, scoped tasks where speed matters and reasoning depth doe
 - Verbosity calibration is less reliable; explicit length caps in the body matter more.
 - 200k context, 64k max output, $1 / $5 per MTok.
 
-Use Haiku 4.5 via `model: haiku` for boilerplate, formatting, simple lookups. Do not use it for skills that require multi-step reasoning across many files; quality drops sharply past the third or fourth dependent decision.
+Use `model: haiku` (Haiku 5.5, or Haiku 4.5 on third-party providers) for boilerplate, formatting, simple lookups. Do not use it for skills that require multi-step reasoning across many files; quality drops sharply past the third or fourth dependent decision.

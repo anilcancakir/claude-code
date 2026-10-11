@@ -30,7 +30,7 @@ Primary sources (raw markdown via the `.md` suffix, all fetched 2026-10-12):
 
 ## Effort
 
-"Start at medium" is Anthropic's advice, including for agentic coding. Use `low` for chat and short tool tasks, and `high` for knowledge work, longer agent tasks and strict instruction following; reach for `xhigh` or `max` only where evals show a gain, and compare against Sonnet 5.5 there. At `low` in a long agent prompt it skips a search, stops early or skips a check, so every level below `medium` on agent work needs the two paragraphs below. At `xhigh` in a multi-turn chat the reply can come back empty; treat an empty `content` as a retry or step the level down.
+"Start at medium" is Anthropic's advice, including for agentic coding. Use `low` for chat and short tool tasks, and `high` for knowledge work, longer agent tasks and strict instruction following; reach for `xhigh` or `max` only where evals show a gain, and compare against Sonnet 5.5 there. At `low` in a long agent prompt it skips a search, stops early or skips a check, so agent work at `low` or `medium` needs the two paragraphs below. At `xhigh` in a multi-turn chat the reply can come back empty; treat an empty `content` as a retry or step the level down.
 
 Asking it to "answer directly" does not stop the thinking. Lower the effort instead.
 
@@ -64,14 +64,14 @@ When a search tool is available, give the current date in the prompt.
 
 ## Benchmarks
 
-From the announcement page, read through a garbled extraction (digit splits inferred), so re-read the page before quoting. Haiku 5.5 / Haiku 4.5 / Sonnet 5.5: FrontierCode 1.1 Main 46.4% / not listed / 52.1% (Sonnet at `xhigh`); Terminal-Bench 4.0 39.2% / 0.0% / 70.6%; OSWorld 2.1 72.4% / 15.7% / 83.9%. No SWE-bench figure is published for Haiku 5.5 and none is quoted here.
+From the announcement page; the first extraction garbled the digits and a second fetch of the table on 2026-10-12 returned the same figures. Haiku 5.5 / Haiku 4.5 / Sonnet 5.5: FrontierCode 1.1 Main 46.4% / not listed / 52.1% (Sonnet at `xhigh`); Terminal-Bench 4.0 39.2% / 0.0% / 70.6%; OSWorld 2.1 72.4% / 15.7% / 83.9%. No SWE-bench figure is published for Haiku 5.5 and none is quoted here.
 
 ## Inside Claude Code 2.1.296
 
 Read off the 2.1.296 binary on 2026-10-12 and the model configuration page. Capabilities can be served remotely, so re-read a session jsonl before relying on any of this.
 
 - `model: haiku` resolves to `claude-haiku-5-5` on the Anthropic API and to Haiku 4.5 on Bedrock, Vertex, Foundry and Claude Platform on AWS, where effort stays unsupported. Haiku 5.5 needs Claude Code 2.1.293 or later. `ac:explore` subagents in the 2026-10-12 session ran `claude-haiku-5-5` (subagent jsonl `message.model`).
-- Baked default effort is `medium`. A subagent without an `effort:` key inherits the session level (Claude Code sub-agents docs, "Overrides the session effort level"); the level a Haiku agent actually ran at was not measured.
+- Baked default effort is `medium`. A subagent without an `effort:` key inherits the session level (Claude Code sub-agents docs, "Overrides the session effort level"). The subagent jsonl records the level applied as `"effort":"<level>"`: on 2026-10-12 an `ac:explore` spawn pinned to `effort: medium` recorded `medium`, and a control under `CLAUDE_CODE_EFFORT_LEVEL=high` recorded `high`.
 - It gets the LEAN system prompt (capability `lean_prompt`), as the other models on the roster below do. Every earlier Haiku got CLASSIC, so the classic-only rules (no speculative abstraction, no impossible fallback, no compat shim, prefer editing an existing file, never guess a URL, flag prompt injection) no longer reach a Haiku 5.5 main thread.
 - LEAN roster on 2.1.296: `claude-sonnet-5-5`, `claude-opus-4-8`, `claude-opus-5`, `claude-opus-5-5`, `claude-fable-5`, `claude-fable-5-1`, `claude-mythos-5-1`, `claude-haiku-5-5`, plus `claude-mythos-5` by an explicit name check.
 - A `haiku_5_5_early_stopping_guidance` capability adds a main-thread system-prompt section that opens "The reasoning effort setting changes how much you think before you act. It does not change how much of the request you are expected to finish ...". A subagent's system prompt is its agent body, so a Haiku 5.5 subagent does not get it (inference, not measured).

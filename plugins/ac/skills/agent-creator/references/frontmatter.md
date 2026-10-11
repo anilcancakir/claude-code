@@ -216,7 +216,7 @@ Drops the CLAUDE.md hierarchy from the subagent's context (Claude Code 2.1.271; 
 omitClaudeMd: true
 ```
 
-Measured on this repository, the hierarchy costs roughly 10,300 tokens per spawn. Setting the flag also drops every project rule the agent would otherwise inherit, so an agent that needs a CLAUDE.md rule carries it in its own body. Fits high-volume read-only agents that need no workflow rules. See `${CLAUDE_SKILL_DIR}/references/builtin-catalog.md` and `${CLAUDE_SKILL_DIR}/references/anti-patterns.md` for how it is used.
+Measured on the ac plugin's own repository (2026-09-23), the hierarchy cost roughly 10,300 tokens per spawn. Setting the flag also drops every project rule the agent would otherwise inherit, so an agent that needs a CLAUDE.md rule carries it in its own body. Fits high-volume read-only agents that need no workflow rules. See `${CLAUDE_SKILL_DIR}/references/builtin-catalog.md` and `${CLAUDE_SKILL_DIR}/references/anti-patterns.md` for how it is used.
 
 ### `mcpServers`
 
@@ -296,7 +296,7 @@ name: docs-researcher
 description: Read-only docs researcher. Use this when the question is how to use a library or pattern in this project. Returns file:line examples.
 tools: Read, Grep, Glob
 model: haiku
-effort: low
+effort: medium
 color: green
 ---
 ```
