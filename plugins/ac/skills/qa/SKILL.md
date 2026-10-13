@@ -85,7 +85,7 @@ Agent({
 })
 ```
 
-Parse the returned body by its four headers: `### Cases`, `### Findings`, `### Proposed learnings`, `### Could not run`. If the body lacks them, read `<Run dir>/report.md`; if that is absent too, treat it as an environment failure (step 6 above, reason "tester returned no report"). Do not re-spawn for this.
+The returned body is the report: `Write` it verbatim to `<Run dir>/report.md`. The tester cannot write it itself, because Claude Code 2.1.296 refuses a subagent `Write` to any `report*.md`, `summary*.md`, `findings*.md` or `analysis*.md` (`tengu_subagent_md_report_blocked`). Parse it by its four headers: `### Cases`, `### Findings`, `### Proposed learnings`, `### Could not run`. A body without them is an environment failure (step 6 above, reason "tester returned no report"). Do not re-spawn for this.
 
 ## Phase 4: Triage, fix, retest
 
@@ -97,7 +97,7 @@ Triage each finding (aligned with `/ac:execute` 3c):
 
 After the fixes, re-run the project's build and tests scoped to them (the `testing.command` and `testing.single` forms from `CLAUDE.md`, else the detected commands). A fix that breaks them and cannot be repaired in one more edit is undone and its finding stays unfixed. Record every edited path in `FIXED_FILES`. Restart the app first when its server does not hot-reload.
 
-With at least one fix, run exactly one retest. Copy `brief.md` to `<Run dir>/brief-retest.md` with the Mode line set to retest (`Mode: retest` to the tester) and `**Retest cases**:` set to the case IDs (`F-01`, `R-02`, ...) of the fixed findings, then spawn `ac:qa-tester` again with that path only. The brief reuses the same Run dir, so the tester reads the earlier `cases.md` and writes `report-retest.md`, leaving `report.md` intact. A case that still fails stays an open finding marked "still failing after fix"; there is no second retest.
+With at least one fix, run exactly one retest. Copy `brief.md` to `<Run dir>/brief-retest.md` with the Mode line set to retest (`Mode: retest` to the tester) and `**Retest cases**:` set to the case IDs (`F-01`, `R-02`, ...) of the fixed findings, then spawn `ac:qa-tester` again with that path only. The brief reuses the same Run dir, so the tester reads the earlier `cases.md`; write its returned body to `report-retest.md`, leaving `report.md` intact. A case that still fails stays an open finding marked "still failing after fix"; there is no second retest.
 
 ## Phase 5: Learnings
 
