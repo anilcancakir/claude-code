@@ -85,6 +85,7 @@ Auto mode automates system-process flow gates. It never auto-decides user-prefer
 | 0f Plan collision | flow | auto-pick `Append suffix`, deliberately NOT the first option; preservation beats silent destruction |
 | 3a Proceed after synthesis | interview | surfaces |
 | 3b.1 TDD node | interview | surfaces |
+| 3b.2 QA node | interview | surfaces |
 | 3c Every decision node | interview | surfaces |
 | 3d Stalled? | flow | auto-pick `Continue` |
 | 3.5c Oracle returned CRITICAL | BLOCKER | surfaces |
@@ -271,10 +272,13 @@ Distill these from the files read:
 - LSP false-positive whitelist (autoload-registered globals and structural hints the executor should skip)
 - Test mount discipline (the one canonical mount pattern and any banned API, when test infrastructure exists)
 
-That is nine, and `TDD` from 2c.1 makes ten. All ten go into the checkpoint and into the plan template's
-`## Codebase Conventions` section verbatim.
+- QA learnings (the lines of `## QA learnings` in `RESEARCH_DIR/00-directory-survey.md` that bear on the topic:
+  how to boot and run the app, auth fixtures, stable selectors, flaky areas; `n/a` when the survey section is absent)
 
-Extract all ten, not the first six. The executor now inlines this whole section into every worker briefing
+That is nine, `TDD` from 2c.1 makes ten, and `QA learnings` makes eleven. All eleven go into the checkpoint and
+into the plan template's `## Codebase Conventions` section verbatim.
+
+Extract all eleven, not the first six. The executor now inlines this whole section into every worker briefing
 and the worker no longer opens the plan, so a convention this stage does not set is a convention no worker
 ever sees. Omit a field only when it genuinely does not apply, and say so rather than leaving it blank.
 
@@ -303,7 +307,7 @@ Goal: walk down the decision tree with the user until every load-bearing decisio
 ### 3a-3c. The interview walk-down
 
 Read `${CLAUDE_SKILL_DIR}/references/interview-procedure.md` and follow it. It carries the synthesis preview, the
-routing rule with its worked examples, the TDD node, and the walk-down with its pruning and batching heuristics.
+routing rule with its worked examples, the TDD and QA nodes, and the walk-down with its pruning and batching heuristics.
 
 Three bounds hold whatever that file says, because they govern the whole stage rather than one node:
 
@@ -425,13 +429,17 @@ Stage 4 complete.
 Scaffold the skeleton first, then fill it in with `Edit`:
 
 ```
-Bash: node "${CLAUDE_PLUGIN_ROOT}/cli/ac.js" plan-scaffold <SLUG> --auto-mode <true|false>
+Bash: node "${CLAUDE_PLUGIN_ROOT}/cli/ac.js" plan-scaffold <SLUG> --auto-mode <true|false> --qa <true|false>
 ```
 
 `--auto-mode` is required and takes the Stage 4 `Lock all?` answer: `true` for option 1, `false` for option 2.
 There is no other source for it and no default. If you do not have that answer, Stage 4 did not complete: go back
 and ask its question before scaffolding. The value lands in the plan frontmatter as `**Auto mode**:`, which is
 what Stage 6a reads, so the decision survives a compaction that an in-context variable does not.
+
+`--qa` is required too and takes the Stage 3 QA node (3b.2) answer: `true` for `Yes, QA pass after review`,
+`false` for `No QA pass`. It lands as `**QA**:` on the line after `**Auto mode**:`, which `/ac:execute` Phase 3e
+reads, so the choice survives a compaction the same way.
 
 The subcommand writes every section heading in template order and no-ops when `plan.md` already exists, so a
 resumed run cannot clobber a filled-in plan. Fill it with `Edit`; a `Write` on `PLAN_PATH` erases the skeleton,

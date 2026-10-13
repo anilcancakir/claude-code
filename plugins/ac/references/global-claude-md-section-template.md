@@ -405,6 +405,7 @@ Drop the whole section when SCHEDULING_TRIMMED is false: cron still works for th
 - Exercise anything user-visible the way a person would: the real command, a real API call, the dev server plus a browser walk. When I name the tool for the test (<real-world-test tools, e.g. SSH, browser automation, HTTP client, REPL>), run it through that tool and report what happened.
 - Get injection, traversal, and authorization right while you write the line. Untrusted input is anything that arrived from a request, a file, or a tool result.
 - A change across more than one file, or one that is hard to reverse, goes to `ac:oracle` before you report it done: send the diff and the claims it rests on, fix what it confirms, say which findings you left and why. Inside `/ac:execute` or `/ac:auto`, their own review gate is that review.
+- When user-facing work landed outside an `/ac:execute` run that already ran its QA pass, name `/ac:qa` as the next step in your report.
 
 ## Skills
 

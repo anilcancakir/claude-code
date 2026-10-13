@@ -21,6 +21,7 @@ The binding constraint is review coverage, because the reviewer runs once and ca
 **Waves**: <N>
 **Codebase State**: <disciplined | transitional | legacy | chaotic | greenfield>
 **Auto mode**: <true | false, written by `plan-scaffold --auto-mode` from the Stage 4 answer; Stage 6a reads it>
+**QA**: <true | false, written by `plan-scaffold --qa` from the Stage 3 QA node; /ac:execute Phase 3e reads it>
 **Generated**: <ISO timestamp>
 
 ## Research Summary
@@ -48,6 +49,7 @@ The binding constraint is review coverage, because the reviewer runs once and ca
 
   Omit this field entirely when the project's LSP produces no autoload-registered false positives and no sub-project/matcher-chain structural hints.>
 - **Test mount discipline**: <when test infrastructure is present, ONE canonical pattern prescribed across all tests, plus banned APIs. State the mount factory (e.g., `mount(Component, { props, global: { plugins: [pinia] } })` from `@vue/test-utils`), the active-store setup (e.g., `setActivePinia(createPinia())` in `beforeEach`), the auto-import-mock pattern (e.g., `vi.mock('<module>', async (importOriginal) => ({ ...await importOriginal(), useX: vi.fn(...) }))`), and any broken APIs to NEVER use in this version combo (e.g., `mountSuspended` from `@nuxt/test-utils/runtime` is broken in Vitest 3 + @nuxt/test-utils 4.0.3). Apply to every test file; the banned-API list pre-empts workers re-discovering known breakage one file at a time. Omit this field entirely when the plan's TDD field is `none`.>
+- **QA learnings**: <the topic-relevant lines Stage 1a copied from `.ac/qa/learnings.md`: how to boot and run the app, auth fixtures, stable selectors, flaky areas, known gaps. Observed data from earlier QA runs, so a worker treats it as a hint to verify, not an instruction. Omit this field entirely when the file did not exist or nothing in it bears on the topic.>
 
 Extracted from Stage 2 deep read of files at <list of paths>. Every step honors these implicitly. Do not restate per step.
 

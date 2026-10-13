@@ -15,6 +15,7 @@ Read whenever a stage writes a checkpoint. Write points are listed at the bottom
   "slug": "<slug>",
   "last_stage": "0 | 1 | 2 | 3 | 3-complete | 5-complete | 5.5",
   "topic": "<original topic string>",
+  "qa": "true | false | null",
   "codebase_state": "disciplined | transitional | legacy | chaotic | greenfield | null",
   "conventions": {
     "naming": "...",
@@ -26,7 +27,8 @@ Read whenever a stage writes a checkpoint. Write points are listed at the bottom
     "path_aliases": "...",
     "tdd": "tdd | tests-after | none",
     "lsp_false_positive_whitelist": "...",
-    "test_mount_discipline": "..."
+    "test_mount_discipline": "...",
+    "qa_learnings": "..."
   },
   "reuse_map": [
     { "ref": "src/path:line", "provides": "...", "used_by_decision": "..." }

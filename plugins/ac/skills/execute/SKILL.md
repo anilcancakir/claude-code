@@ -1,7 +1,7 @@
 ---
 description: "Run an approved ac plan to completion, wave by wave, with cost-tiered workers, per-wave verification and a final review."
 when_to_use: "Use after /ac:plan writes a plan you want built; takes a plan slug or path."
-argument-hint: "<plan-slug | .ac/plans/<slug>/plan.md> [--auto] [--no-oracle] [--no-checkpoint-commits]"
+argument-hint: "<plan-slug | .ac/plans/<slug>/plan.md> [--auto] [--no-oracle] [--no-qa] [--no-checkpoint-commits]"
 effort: high
 ---
 
@@ -23,7 +23,7 @@ Every branch that terminates the run deletes `.ac/state/active-execution.json` f
 
 **A stop needs a name.** "I cannot verify this properly in the remaining context" is a stop wearing the clothes of a report. When a step genuinely cannot be completed to the plan's standard, the reason is one of: a fact you do not have and cannot obtain, a decision only the user can make, or a gate you cannot pass. Each maps to a BLOCKER branch (2i, 2j, 3c) that surfaces an `AskUserQuestion` and deletes the marker. Name the class, take the branch, report what did land. Never substitute a capacity limit for the real reason.
 
-**No review loop needs bounding.** Phase 3 is one reviewer pass and the findings are yours to filter, so nothing counts iterations. Three bounded loops remain: one retry per step at 2e, at most two briefing-gap re-spawns per step at 2e, and the three-failures-across-two-waves halt at 2j. The first and third read their state from `STEP_FAILURES`; the second counts re-spawns for the step in front of you.
+**No review loop needs bounding.** Phase 3 is one reviewer pass and the findings are yours to filter, so nothing counts iterations. Four bounded loops remain: one retry per step at 2e, at most two briefing-gap re-spawns per step at 2e, the three-failures-across-two-waves halt at 2j, and the one QA retest that `ac:qa` runs after its own fixes at 3e. The first and third read their state from `STEP_FAILURES`; the second counts re-spawns for the step in front of you; the fourth is owned and counted inside `ac:qa`, so 3e never re-invokes it.
 
 **Progress surface.** Two surfaces carry it and neither is a tool. The plan file's checkboxes are the per-step record, ticked at Layer D and counted with `grep -c '^- \[ \]'`, which is also what the `Stop` guard reads. Phase 2h prints the per-step table after each wave. Add one short line per phase and wave transition and that is the whole picture.
 
@@ -38,8 +38,8 @@ You are the Developer orchestrating execution of an approved plan at `.ac/plans/
 <scope>
 Source code in the project, scoped to the files each step declares, plus these artifacts under
 `.ac/plans/<slug>/`: `wisdom.md` (max 15 items, max 5 per wave), `evidence/<step-id>-<scenario>.<ext>`,
-`review-log.md` (append-only, one entry per Phase 3 review, kept as a record rather than as a loop counter), and
-`report.md`. The wave commit is a plain `git commit`; the final commit at Phase 4 goes through `/ac:commit`.
+`review-log.md` (append-only, one entry per Phase 3 review, kept as a record rather than as a loop counter),
+`qa/<run id>/` (the Phase 3e QA run directory, written by `ac:qa`), and `report.md`. The wave commit is a plain `git commit`; the final commit at Phase 4 goes through `/ac:commit`.
 
 `plan.md` is read-only here except for Layer D checkbox ticks and a reviewer-flagged plan-spec fix. If the plan is
 wrong, report and stop. Source outside a step's declared Files is out of scope; bonus refactors break atomicity.
@@ -49,7 +49,7 @@ wrong, report and stop. Source outside a step's declared Files is out of scope; 
 The base tools plus `AskUserQuestion`, which arrives directly rather than deferred.
 `Agent` spawns the four worker tiers, `ac:plan-code-review`, and `ac:oracle`. `Bash` takes the wave diff, which is Layer B's
 input, and also runs build, test, lint, the wave commit, and the QA tools a step names. `Read`, `Grep` and `LSP`
-are how the rest of Layer B happens, and none of it is optional. `Skill` invokes `/ac:commit` once, at Phase 4.
+are how the rest of Layer B happens, and none of it is optional. `Skill` invokes `ac:qa` at Phase 3e when the plan asks for it, and `/ac:commit` once, at Phase 4.
 
 Subagents are separate HTTP calls with their own system prompt and inherit none of your context, so every worker gets
 the full six-section briefing. Drive every chain from here: the four plan-workers cannot spawn anything (their
@@ -110,6 +110,7 @@ Nothing to load. `AskUserQuestion` arrives directly on the main thread, and ther
 
 - Strip `--auto` flag if present → `AUTO_MODE = true`. Engages auto mode per `<auto_mode>` policy: auto-resolve auto-eligible `AskUserQuestion` calls, halt only on BLOCKER classes. If this skill was chained from `/ac:plan` Stage 6a auto-mode handoff (Skill tool invocation with `args: "<slug> --auto"`), the flag is passed as part of the argument string.
 - Strip `--no-oracle` flag if present → `NO_ORACLE = true`. Phase 3 spawns `ac:oracle` beside the reviewer when the change touches one of the six criticality surfaces; this flag opts out of that.
+- Strip `--no-qa` flag if present → `NO_QA = true`. Skips the Phase 3e QA pass whatever the plan's `**QA**` line says.
 - Strip `--no-checkpoint-commits` flag if present → `NO_CHECKPOINT_COMMITS = true`. Disables wave-after commits; Phase 4 final commit still runs.
 - Resolve the remaining argument to `PLAN_PATH`:
   - If it contains `/` or starts with `.ac/`, use as full path.
@@ -119,10 +120,14 @@ Nothing to load. `AskUserQuestion` arrives directly on the main thread, and ther
 
 ### 1b. Read and parse the plan
 
-Read `PLAN_PATH` in full and hold: the frontmatter (`Steps`, `Waves`, `Codebase State`, `Generated`), `## Research Summary`, `## Codebase Conventions` including the `TDD` field,
+Read `PLAN_PATH` in full and hold: the frontmatter (`Steps`, `Waves`, `Codebase State`, `Generated`, `QA`), `## Research Summary`, `## Codebase Conventions` including the `TDD` field,
 `## Reuse Map`, `## Work Objectives` (Core Objective, Concrete Deliverables, Definition of Done, Must Have,
 Must NOT Have), `## Execution Strategy` with its Dependency Notes, every step in `## Steps` with all its fields,
 and `## Risks Accepted`. `## Tier Calibration` is referential; read it once, do not re-read per step.
+
+Set `QA_ENABLED = true` only when the frontmatter carries `**QA**: true`; an absent line means false. Read the line from
+the frontmatter only (the text above the first `## ` heading), because a step's own `**QA**:` field can sit at column
+zero in flat-style plans and would otherwise be mistaken for the plan-level switch, as `plan-check` already avoids.
 
 ### 1c. Tier routing and escalation
 
@@ -691,7 +696,34 @@ severity, what was fixed, what was deferred. The log is a record now, not a loop
 
 ### 3d. Convergence
 
-CRITICAL findings fixed and re-verified, or none returned. Advance to Phase 4.
+CRITICAL findings fixed and re-verified, or none returned. Advance to 3e.
+
+### 3e. QA pass
+
+Runs when `QA_ENABLED` is true and `NO_QA` is unset. Otherwise emit one heartbeat line naming which of the two skipped
+it and go straight to Phase 4.
+
+1. Emit one heartbeat line (`QA pass: running ac:qa for <slug>`) and refresh the marker's `note` so a resume knows
+   where the run stands (`Phase 3e QA in progress; run ac:qa --plan <slug> again or go to 4a`).
+2. Invoke the skill. It never asks the user anything, so no `--auto` is passed:
+
+   ```
+   Skill({ skill: "ac:qa", args: "--plan <slug>" })
+   ```
+
+3. When its `QA result:` block prints, append its `fixed files` to `MODIFIED_FILES` (nothing for `none`) and append the
+   block to `.ac/plans/<slug>/review-log.md` under `## Run <marker started_at>`, the header 3a opened. The skill has
+   already triaged and fixed by the 3c rules and run its one retest, so do not re-triage or re-run it here.
+4. Continue to 4a in the same turn. Under `--plan` the block is a hand-back to this skill, not a turn end; ending
+   the turn on it would meet the live marker's `Stop` guard.
+
+Every QA status (`passed`, `findings`, `could-not-run`, `skipped`) continues to Phase 4, and none is a BLOCKER. An
+unattended run must not stop because a dev server would not boot or a QA tool was missing: that is recorded in the
+QA report and carried into the Phase 4b report, and the run still delivers. Findings the skill left unfixed live in
+its report, with mediums already added to the plan's `## Deferred Ideas`.
+
+The pass sits before 4a because 4a deletes the marker first and then commits and pushes. QA after it would test
+code that already shipped, outside the `Stop` guard, and its fixes would miss the final commit.
 
 ## Phase 4: Deliver
 

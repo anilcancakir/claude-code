@@ -59,8 +59,8 @@ Plan-then-execute is a crowded category. Three things here are not common:
 | | Count | |
 |---|---:|---|
 | Commands | 3 | `/ac:install`, `/ac:init-project`, `/ac:commit` |
-| Skills | 9 | `ac:plan`, `ac:execute`, `ac:auto`, plus six authoring skills |
-| Agents | 10 | three advisory, four tiered workers, two reviewers, one verifier |
+| Skills | 10 | `ac:plan`, `ac:execute`, `ac:auto`, `ac:qa`, plus six authoring skills |
+| Agents | 11 | three advisory, four tiered workers, two reviewers, one verifier, one QA tester |
 | Hooks | 9 | four `PreToolUse`, one `PostToolUse`, three `Stop`, one `SessionStart` |
 | Output styles | 1 | `ac:concise`, opt-in and never forced |
 | MCP tools | 6 | docs lookup, code search, web fetch and search, local history search |
@@ -76,6 +76,7 @@ Plan-then-execute is a crowded category. Three things here are not common:
 | `/ac:plan` | Parallel research, an intent interview, a reuse and efficiency audit, then a tier-assigned plan at `.ac/plans/<slug>/plan.md`. Skill. |
 | `/ac:execute` | Runs an approved plan wave by wave with four-layer verification and a checkpoint commit per wave, closing with one code review. Skill. |
 | `/ac:auto` | Freezes completion criteria under a hash, chains plan into execute, then gates the result with a read-only verifier. Never pushes. Skill. |
+| `/ac:qa` | QA-engineer pass over a session's or a plan's work with the project's own test tool (playwright-cli as the fallback): functional, responsive, design and security checks, critical and high findings fixed with one bounded retest, learnings kept in `.ac/qa/learnings.md`. Skill. |
 | `/ac:install` | Writes your global `CLAUDE.md`, generates the `my-coding` and `my-language` skills, merges `settings.json` parity, and offers the opt-in `ac:concise` output style. `--upgrade` re-applies it after a plugin update and asks only what is new. |
 | `/ac:init-project` | Investigates a project with four parallel agents, shows one proposal, and on approval writes its `CLAUDE.md` (importing an `AGENTS.md`), `CLAUDE.local.md`, path-scoped `.claude/rules/*.md`, secret-file deny and routine-command allow rules, and a lint or format hook and a language server, each verified, after one `ac:oracle` review of the drafts. |
 | `/ac:commit` | Atomic commits with style detected from recent history, multi-file splitting and test pairing. |
@@ -92,6 +93,7 @@ Plan-then-execute is a crowded category. Three things here are not common:
 | `ac:plan-reviewer` | opus | Advisory pass over the written plan. Reports findings, gives no verdict. |
 | `ac:plan-code-review` | opus | Post-implementation pass over the diff. Reports findings, gives no verdict. |
 | `ac:auto-verifier` | opus | Read-only completion gate for `/ac:auto`. Holds no `Edit`, `Write` or `Agent`. |
+| `ac:qa-tester` | sonnet | Runs the QA cases from a brief and writes a report with evidence. Never edits application code; writes only inside its run directory. |
 
 The six authoring skills (`ac:skill-creator`, `ac:command-creator`, `ac:agent-creator`, `ac:claude-md-rules-creator`, `ac:prompt-writer`, `ac:git-master`) are what the plan chain calls when the work is itself a skill, command, agent or `CLAUDE.md` file.
 

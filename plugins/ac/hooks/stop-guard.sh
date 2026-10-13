@@ -128,7 +128,7 @@ total=$((unchecked + checked))
 [ "$total" -gt 0 ] || exit 0
 
 next_step="$(grep -m1 '^- \[ \] ' "$plan_file" 2>/dev/null | sed -E 's/^- \[ \] \*\*[^*]*\*\*: *//')"
-[ -n "$next_step" ] || next_step="(all steps checked; Phase 3 review and Phase 4 deliver remain)"
+[ -n "$next_step" ] || next_step="(all steps checked; Phase 3 review, Phase 3e QA when the plan asks for it, and Phase 4 deliver remain)"
 
 wave="$(jq -r '.current_wave // empty' "$marker" 2>/dev/null)"
 [ -n "$wave" ] || wave="unknown"

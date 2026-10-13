@@ -17,11 +17,13 @@ Steps: <N>/<total> | Escalations: <N>
 Verification:
 - Code-review: <N CRITICAL fixed, N IMPORTANT deferred, or `no findings`>
 - Oracle: <bottom line> | SKIPPED (no criticality surface touched) | SKIPPED (--no-oracle) | <verdict if accepted with findings>
+- QA: <status, cases passed/run, findings by severity> | could-not-run (<reason>) | SKIPPED (plan QA is false) | SKIPPED (--no-qa)
 
 Artifacts:
 - Plan: .ac/plans/<slug>/plan.md
 - Wisdom: .ac/plans/<slug>/wisdom.md
 - Evidence: .ac/plans/<slug>/evidence/ (<N> files)
+- QA: .ac/plans/<slug>/qa/<run id>/report.md (only when the QA pass ran)
 - Report: .ac/plans/<slug>/report.md
 - Commits: <hash list, from /ac:commit output>
 
