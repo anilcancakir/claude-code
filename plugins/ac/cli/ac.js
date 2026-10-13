@@ -38716,7 +38716,7 @@ var STEPS_STUB = `<!-- Keep this shape and delete this stub once the real steps 
     - **Evidence**: <verification steps only: paths under .ac/plans/<slug>/evidence/<step-id>-<scenario>.<ext>>
     - **Must NOT**:
         - <step-specific scope exclusion>`;
-function buildSkeleton(slug, autoMode) {
+function buildSkeleton(slug, autoMode, qa) {
   const lines = [
     `# Plan: ${slug}`,
     "",
@@ -38724,6 +38724,7 @@ function buildSkeleton(slug, autoMode) {
     "**Waves**: <N>",
     "**Codebase State**: <disciplined | transitional | legacy | chaotic | greenfield>",
     `**Auto mode**: ${autoMode}`,
+    `**QA**: ${qa}`,
     "**Generated**: <ISO timestamp>",
     ""
   ];
@@ -38741,7 +38742,7 @@ function scaffoldPlan(slug, opts) {
   if (existsSync(planPath)) {
     return { created: false, planPath };
   }
-  writeFileSync(planPath, buildSkeleton(slug, opts.autoMode), "utf8");
+  writeFileSync(planPath, buildSkeleton(slug, opts.autoMode, opts.qa), "utf8");
   return { created: true, planPath };
 }
 
@@ -38939,6 +38940,21 @@ function checkPlan(source) {
       severity: "error",
       scope: "frontmatter",
       message: `\`**Auto mode**\` is \`${autoMode}\`; must be true or false.`
+    });
+  }
+  const frontmatter = source.split(/^## /m)[0] ?? "";
+  const qa = /^\*\*QA\*\*\s*:\s*(.*)$/m.exec(frontmatter)?.[1]?.trim();
+  if (qa === undefined) {
+    findings.push({
+      severity: "error",
+      scope: "frontmatter",
+      message: "no `**QA**:` line. /ac:execute Phase 3e reads it to decide whether to run QA."
+    });
+  } else if (qa !== "true" && qa !== "false") {
+    findings.push({
+      severity: "error",
+      scope: "frontmatter",
+      message: `\`**QA**\` is \`${qa}\`; must be true or false.`
     });
   }
   return findings;
@@ -39357,14 +39373,24 @@ program2.command("mcp").description("Run the ac stdio MCP server (proxies tools 
     url: opts.url
   });
 });
-program2.command("plan-scaffold <slug>").description("Create .ac/plans/<slug>/ with research/ and evidence/, and write a plan.md skeleton " + "carrying the template's sections in order. Leaves an existing plan.md untouched.").requiredOption("--auto-mode <true|false>", "The Stage 4 `Lock all?` answer, recorded in the plan frontmatter. Required: a run that " + "skipped Stage 4 has no value to pass here, which is the point.").option("--dir <value>", "Project root to scaffold under.", process.cwd()).action((slug, opts) => {
+program2.command("plan-scaffold <slug>").description("Create .ac/plans/<slug>/ with research/ and evidence/, and write a plan.md skeleton " + "carrying the template's sections in order. Leaves an existing plan.md untouched.").requiredOption("--auto-mode <true|false>", "The Stage 4 `Lock all?` answer, recorded in the plan frontmatter. Required: a run that " + "skipped Stage 4 has no value to pass here, which is the point.").requiredOption("--qa <true|false>", "The Stage 3 QA answer, recorded in the plan frontmatter. Required: /ac:execute Phase 3e " + "reads it, and a planner that never asked has no value to pass here.").option("--dir <value>", "Project root to scaffold under.", process.cwd()).action((slug, opts) => {
   if (opts.autoMode !== "true" && opts.autoMode !== "false") {
     process.stderr.write(`--auto-mode must be true or false, got "${opts.autoMode}"
 `);
     process.exitCode = 1;
     return;
   }
-  const result = scaffoldPlan(slug, { autoMode: opts.autoMode === "true", dir: opts.dir });
+  if (opts.qa !== "true" && opts.qa !== "false") {
+    process.stderr.write(`--qa must be true or false, got "${opts.qa}"
+`);
+    process.exitCode = 1;
+    return;
+  }
+  const result = scaffoldPlan(slug, {
+    autoMode: opts.autoMode === "true",
+    qa: opts.qa === "true",
+    dir: opts.dir
+  });
   const state = result.created ? "created" : "exists, left untouched";
   process.stdout.write(`${result.planPath} (${state})
 `);
@@ -39478,4 +39504,4 @@ function formatSyncReport(report) {
 }
 await program2.parseAsync(process.argv);
 
-//# debugId=F72AA668EABA517F64756E2164756E21
+//# debugId=D6037D789896C24A64756E2164756E21

@@ -327,6 +327,25 @@ export function checkPlan(source: string): Finding[] {
         });
     }
 
+    // Written by `plan-scaffold --qa`. `/ac:execute` Phase 3e reads it to decide whether to run QA.
+    // Only the text above the first H2 is searched: the flat step style puts a step's own `**QA**:`
+    // field at column zero, which would otherwise be read as the frontmatter value.
+    const frontmatter = source.split(/^## /m)[0] ?? "";
+    const qa = /^\*\*QA\*\*\s*:\s*(.*)$/m.exec(frontmatter)?.[1]?.trim();
+    if (qa === undefined) {
+        findings.push({
+            severity: "error",
+            scope: "frontmatter",
+            message: "no `**QA**:` line. /ac:execute Phase 3e reads it to decide whether to run QA.",
+        });
+    } else if (qa !== "true" && qa !== "false") {
+        findings.push({
+            severity: "error",
+            scope: "frontmatter",
+            message: `\`**QA**\` is \`${qa}\`; must be true or false.`,
+        });
+    }
+
     return findings;
 }
 

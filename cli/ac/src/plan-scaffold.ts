@@ -69,8 +69,11 @@ export type ScaffoldResult = {
  * user typed "continue", and the resumed turn went straight to Stage 5 with the gate never asked,
  * so the decision was simply absent for the rest of the run. Persisting it in the frontmatter also
  * survives the compaction that lost it, which an in-context variable does not.
+ *
+ * `qa` is the Stage 3 QA answer and is required for the same reason: `/ac:execute` Phase 3e reads
+ * it, so a planner that never asked cannot get past the scaffold call.
  */
-export function buildSkeleton(slug: string, autoMode: boolean): string {
+export function buildSkeleton(slug: string, autoMode: boolean, qa: boolean): string {
     const lines: string[] = [
         `# Plan: ${slug}`,
         "",
@@ -78,6 +81,7 @@ export function buildSkeleton(slug: string, autoMode: boolean): string {
         "**Waves**: <N>",
         "**Codebase State**: <disciplined | transitional | legacy | chaotic | greenfield>",
         `**Auto mode**: ${autoMode}`,
+        `**QA**: ${qa}`,
         "**Generated**: <ISO timestamp>",
         "",
     ];
@@ -94,7 +98,7 @@ export function buildSkeleton(slug: string, autoMode: boolean): string {
  * a plan the planner already filled in. The directories are created either way, which is what
  * makes the call safe to repeat.
  */
-export function scaffoldPlan(slug: string, opts: { autoMode: boolean; dir: string }): ScaffoldResult {
+export function scaffoldPlan(slug: string, opts: { autoMode: boolean; qa: boolean; dir: string }): ScaffoldResult {
     const planDir = join(opts.dir, ".ac", "plans", slug);
     mkdirSync(join(planDir, "research"), { recursive: true });
     mkdirSync(join(planDir, "evidence"), { recursive: true });
@@ -103,6 +107,6 @@ export function scaffoldPlan(slug: string, opts: { autoMode: boolean; dir: strin
     if (existsSync(planPath)) {
         return { created: false, planPath };
     }
-    writeFileSync(planPath, buildSkeleton(slug, opts.autoMode), "utf8");
+    writeFileSync(planPath, buildSkeleton(slug, opts.autoMode, opts.qa), "utf8");
     return { created: true, planPath };
 }

@@ -56,14 +56,28 @@ program
         "The Stage 4 `Lock all?` answer, recorded in the plan frontmatter. Required: a run that "
             + "skipped Stage 4 has no value to pass here, which is the point.",
     )
+    .requiredOption(
+        "--qa <true|false>",
+        "The Stage 3 QA answer, recorded in the plan frontmatter. Required: /ac:execute Phase 3e "
+            + "reads it, and a planner that never asked has no value to pass here.",
+    )
     .option("--dir <value>", "Project root to scaffold under.", process.cwd())
-    .action((slug: string, opts: { autoMode: string; dir: string }): void => {
+    .action((slug: string, opts: { autoMode: string; qa: string; dir: string }): void => {
         if (opts.autoMode !== "true" && opts.autoMode !== "false") {
             process.stderr.write(`--auto-mode must be true or false, got "${opts.autoMode}"\n`);
             process.exitCode = 1;
             return;
         }
-        const result = scaffoldPlan(slug, { autoMode: opts.autoMode === "true", dir: opts.dir });
+        if (opts.qa !== "true" && opts.qa !== "false") {
+            process.stderr.write(`--qa must be true or false, got "${opts.qa}"\n`);
+            process.exitCode = 1;
+            return;
+        }
+        const result = scaffoldPlan(slug, {
+            autoMode: opts.autoMode === "true",
+            qa: opts.qa === "true",
+            dir: opts.dir,
+        });
         const state = result.created ? "created" : "exists, left untouched";
         process.stdout.write(`${result.planPath} (${state})\n`);
     });

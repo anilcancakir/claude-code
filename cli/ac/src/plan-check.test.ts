@@ -13,6 +13,7 @@ function wellFormed(): string {
         "**Steps**: 2",
         "**Waves**: 1",
         "**Auto mode**: false",
+        "**QA**: false",
         "",
         "## Steps",
         "",
@@ -116,6 +117,20 @@ test("the Auto mode frontmatter field is required and boolean", () => {
         .some((message) => message.includes("must be true or false"))).toBe(true);
 });
 
+test("the QA frontmatter field is required and boolean", () => {
+    expect(errors(checkPlan(wellFormed().replace("**QA**: false\n", "")))
+        .some((message) => message.includes("no `**QA**:` line"))).toBe(true);
+    expect(errors(checkPlan(wellFormed().replace("**QA**: false", "**QA**: maybe")))
+        .some((message) => message.includes("must be true or false"))).toBe(true);
+});
+
+// The flat field style puts a step's `**QA**:` at column zero, so a plan that lost its frontmatter
+// line must still be reported as missing rather than read the step's prose as the value.
+test("a flat-style step QA field is not mistaken for the frontmatter field", () => {
+    const source = wellFormed().replace("**QA**: false\n", "").replaceAll("\n    - **", "\n**");
+    expect(errors(checkPlan(source)).some((message) => message.includes("no `**QA**:` line"))).toBe(true);
+});
+
 test("a worker step with no References warns", () => {
     const source = wellFormed().replace(
         "    - **References**: /repo/vendor/pkg/StoreTeamRequest.php:12, the shape to follow\n",
@@ -206,7 +221,7 @@ test("a wave count mismatch warns rather than errors", () => {
 // checker catches it left behind. An unfilled skeleton must never read as a pass.
 
 test("the untouched scaffold fails the check", () => {
-    const findings = checkPlan(buildSkeleton("demo-slug", false));
+    const findings = checkPlan(buildSkeleton("demo-slug", false, false));
     expect(findings.filter((finding) => finding.severity === "error").length).toBeGreaterThan(0);
 });
 
@@ -214,7 +229,7 @@ test("the scaffold's step stub declares every field the checker requires", () =>
     // The stub's values are placeholders on purpose, so it fails the check as a whole. What must
     // hold is that none of its findings is a MISSING field: a planner who fills the stub in cannot
     // then be told it left a field out. Anything the checker requires, the stub has to name.
-    const found = errors(checkPlan(buildSkeleton("demo-slug", false)));
+    const found = errors(checkPlan(buildSkeleton("demo-slug", false, false)));
     expect(found.filter((message) => message.startsWith("no `"))).toEqual([]);
 });
 
