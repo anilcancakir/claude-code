@@ -5,9 +5,9 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.29.0] - 2026-10-13
 
-Adds a QA-engineer pass. Until now `ac` verified work per step (execute Layer C) and kept learnings per plan; nothing tested a finished change as a whole the way a person would.
+Adds a QA-engineer pass. Until now `ac` verified work per step (execute Layer C) and kept learnings per plan; nothing tested a finished change as a whole the way a person would. Measured on 2026-10-13 with one live `/ac:qa` run on a static fixture page carrying a deliberate fixed-width nav: the tester derived 20 cases (7 functional, 4 responsive, 4 design, 5 security, 1 regression) through the playwright-cli fallback, found the overflow at 375 and 768 px plus a form submit that reloaded the page, the orchestrator fixed both, and one retest confirmed the fixes, one sample. The tester returns its report as text and `ac:qa` writes `report.md`, because Claude Code 2.1.296 refuses a subagent `Write` to any `report*.md`, `summary*.md`, `findings*.md` or `analysis*.md` (read off the binary, `tengu_subagent_md_report_blocked`).
 
 ### Added
 
@@ -16,7 +16,7 @@ Adds a QA-engineer pass. Until now `ac` verified work per step (execute Layer C)
 - `.ac/qa/learnings.md`, written by `ac:qa` with six sections (boot and run, auth and fixtures, stable selectors, flaky areas, known gaps, recurring defects), capped at 150 lines.
 - `/ac:execute` Phase 3e, after the final code review and before the final commit, runs `ac:qa` for plans whose `**QA**` line is true and files its run under `.ac/plans/<slug>/qa/<YYYYMMDD-HHMMSS>/`. `--no-qa` skips it; an absent line counts as false.
 - `/ac:plan` asks a Stage 3 `QA?` question and reads `.ac/qa/learnings.md` in its Stage 1 survey as a `QA learnings` convention.
-- `plan-scaffold --qa <true|false>` writes the `**QA**` frontmatter line, and `plan-check` requires it.
+- `plan-scaffold --qa <true|false>` writes the `**QA**` frontmatter line, and `plan-check` requires it. `/ac:execute` runs a plan written before the field with QA off rather than stopping on that one error.
 
 ## [0.28.0] - 2026-10-12
 
