@@ -159,7 +159,7 @@ If `CHECKPOINT_PATH` exists:
 - When `AUTO_MODE = false`: Read it and call `AskUserQuestion` (header `Resume?`, options `Resume (Recommended)` / `Start fresh`).
 - When `AUTO_MODE = true`: auto-pick `Resume (Recommended)` without surfacing the question. Emit one line: `Auto mode: Resume detected, restoring from checkpoint.`
 
-On Resume: restore working memory from the JSON (locked_decisions, locked_requirements, canonical_refs, deferred_ideas, codebase_state, conventions, reuse_map, last_stage), jump to the stage indicated by `last_stage`. On Start fresh: delete the checkpoint, continue to 0f.
+On Resume: restore working memory from the JSON (locked_decisions, locked_requirements, canonical_refs, deferred_ideas, codebase_state, conventions, reuse_map, qa, last_stage), jump to the stage indicated by `last_stage`. On Start fresh: delete the checkpoint, continue to 0f.
 
 For the checkpoint JSON schema and write points, read `${CLAUDE_SKILL_DIR}/references/checkpoint-schema.md`.
 
@@ -289,6 +289,10 @@ Scan for test infrastructure: `package.json` scripts containing `test`, presence
 - `TEST_INFRA_PRESENT = true | false`
 - `TEST_FRAMEWORK = <name>` (when detected): vitest, jest, bun test, pytest, go test, etc.
 - `TEST_COMMAND = <command>`: extracted from `package.json` or `CLAUDE.md`.
+- `E2E_FRAMEWORK = <name | none>`: the first browser or device test tool whose marker matches, in the order and with
+  the markers listed in `${CLAUDE_SKILL_DIR}/../qa/references/detection.md` (Playwright Test, Cypress, Laravel Dusk,
+  Pest browser, Flutter integration_test). It feeds the 3b.2 QA node, since a project that already ships one makes a
+  QA pass cheap to run.
 
 This drives the Stage 3 TDD interview node: if `TEST_INFRA_PRESENT = true`, the planner asks the user whether to use TDD (defaulting to yes, since the infrastructure already exists). If `TEST_INFRA_PRESENT = false`, the planner asks whether to set up test infrastructure as part of this plan or proceed without tests.
 

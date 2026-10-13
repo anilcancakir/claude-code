@@ -19,7 +19,7 @@ Record the result in `brief.md` as the tool name plus the exact boot, suite and 
 
 ## Boot and readiness
 
-Boot the app only when `Target` is a URL and nothing already answers on it. Start the server in the background with output sent to `<run dir>/server.log`, keep its PID, and stop it when the run ends. Probe readiness with curl until HTTP 200, capped at 60 seconds:
+Boot the app only when `Target` is a URL and nothing already answers on it. The boot commands below are written without a trailing `&`: `ac:qa` backgrounds them itself (Bash `run_in_background`, output to `<run dir>/server.log`, PID kept) and stops the server when the run ends. Probe readiness with curl until HTTP 200, capped at 60 seconds:
 
 ```bash
 URL=http://127.0.0.1:8000
@@ -84,7 +84,7 @@ Device emulation (user agent, touch, `isMobile`) and a bare resize are different
 ### Laravel Dusk
 
 - Marker: `laravel/dusk` in `composer.json` `require-dev`, plus `tests/Browser/` or `phpunit.dusk.xml`.
-- Boot: Dusk does not start a server (https://laravel.com/docs/12.x/dusk). Start one yourself, `php artisan serve --no-reload --port=8000 &`, on the host and port that `APP_URL` names, then the readiness probe. `APP_URL` has to match the served URL exactly or Dusk's requests miss the app.
+- Boot: Dusk does not start a server (https://laravel.com/docs/12.x/dusk). Start one yourself, `php artisan serve --no-reload --port=8000`, on the host and port that `APP_URL` names, then the readiness probe. `APP_URL` has to match the served URL exactly or Dusk's requests miss the app.
 - Existing suite: `php artisan dusk`.
 - Throwaway spec: `php artisan dusk <path>` forwards the path to PHPUnit and always loads `phpunit.dusk.xml` (`DuskCommand.php` L139). Whether a file outside `tests/Browser` is picked up is unverified, so try once with `<run dir>/specs/<name>Test.php`; on "no tests executed" or a class-not-found error, fall back to playwright-cli. Dusk still writes its own screenshots to `tests/Browser/screenshots`; name that stray path in the report.
 - Preflight, all of which have to hold:
@@ -103,14 +103,14 @@ Device emulation (user agent, touch, `isMobile`) and a bare resize are different
 ### Flutter integration_test
 
 - Marker: `integration_test` under `dev_dependencies` (with `sdk: flutter`) in `pubspec.yaml`, and an `integration_test/` directory.
-- Boot: no server. A device or browser target is needed: list with `flutter devices`. For a web build that playwright-cli can reach, serve it with `flutter run -d web-server --web-port 8080 &` and use the readiness probe against `http://127.0.0.1:8080`.
+- Boot: no server. A device or browser target is needed: list with `flutter devices`. For a web build that playwright-cli can reach, serve it with `flutter run -d web-server --web-port 8080` and use the readiness probe against `http://127.0.0.1:8080`.
 - Existing suite: `flutter test integration_test -d <device id>`. For web, `flutter drive --driver=test_driver/integration_test.dart --target=integration_test/<name>_test.dart -d chrome` with ChromeDriver on port 4444.
 - Throwaway spec: unverified out of tree. Try once with `flutter test <run dir>/specs/<name>_test.dart -d <device id>`; a package-resolution error means fall back, which is only possible for a served web build. With no web target, the cases are `BLOCKED` and the reason goes under `### Could not run`.
 - Preflight: `flutter doctor -v` shows no error for the chosen platform, and the device id appears in `flutter devices`.
 
 ### Unit runners only
 
-- Marker: a test runner is present (`package.json` `test` script, `vitest.config.*`, `jest.config.*`, `bun` tests, `pytest.ini`, `go test`, `phpunit.xml`, `cargo test`) and no browser tool above matched. This is the same detection `ac:plan` runs in its test infrastructure stage (`plugins/ac/skills/plan/SKILL.md:281-289`); prefer the `testing: {command, single, quirks}` values in `CLAUDE.md` (the shape `/ac:init-project` writes) over re-deriving them.
+- Marker: a test runner is present (`package.json` `test` script, `vitest.config.*`, `jest.config.*`, `bun` tests, `pytest.ini`, `go test`, `phpunit.xml`, `cargo test`) and no browser tool above matched. This is the same detection `ac:plan` runs in its test infrastructure stage (2c.1); prefer the `testing: {command, single, quirks}` values in `CLAUDE.md` (the shape `/ac:init-project` writes) over re-deriving them.
 - Boot: none for a library or CLI; for a web app with no browser tool, boot it as in the section above and test it with the playwright-cli fallback.
 - Existing suite: `testing.command`, falling back to the detected test command. Run it first as the regression case.
 - Throwaway spec: write the file under `<run dir>/specs/` and run it with the `testing.single` form for one file. Whether the runner discovers files outside its configured roots varies; if it reports no tests found, run the case as a shell command against the CLI or function entry point instead and record the output as evidence.
@@ -119,7 +119,7 @@ Device emulation (user agent, touch, `isMobile`) and a bare resize are different
 ### Static site
 
 - Marker: no server code and no runner; an `index.html` at the root, or a build output directory (`dist/`, `public/`, `_site/`, `build/`) from a static generator (Astro, Eleventy, Hugo, Jekyll).
-- Boot: build first if the generator's build command is in `package.json` or `CLAUDE.md`, then serve the output over HTTP: `python3 -m http.server 8080 --directory <output dir> &`, then the readiness probe. Do not open `file://` URLs: root-relative links and fetches break there and produce false failures.
+- Boot: build first if the generator's build command is in `package.json` or `CLAUDE.md`, then serve the output over HTTP: `python3 -m http.server 8080 --directory <output dir>`, then the readiness probe. Do not open `file://` URLs: root-relative links and fetches break there and produce false failures.
 - Existing suite: none; the page checks are the cases.
 - Throwaway spec: use the playwright-cli fallback below for every case.
 - Preflight: the output directory exists and contains the page under test.
@@ -140,9 +140,9 @@ Device emulation (user agent, touch, `isMobile`) and a bare resize are different
   playwright-cli -s=<run id> screenshot --filename=<run dir>/evidence/<case-id>-<slug>.png
   playwright-cli -s=<run id> console
   playwright-cli -s=<run id> requests
-  playwright-cli close-all                               # last command of the run
+  playwright-cli -s=<run id> close                       # last command of the run
   ```
 
   Prefer `snapshot` over `screenshot`: it is text, cheap, and gives the element refs the next command needs. Take a screenshot only for visual evidence (design and responsive cases). Pass `--filename` into `<run dir>/evidence/`; the default location is a `.playwright-cli/` directory in the working directory, outside the run dir. `open --device="<name>"` and `--mobile` emulate a phone; `resize <w> <h>` changes only the viewport.
-- Preflight: `playwright-cli --help` exits 0, then `playwright-cli open <url>` returns a page snapshot. A missing browser is fixed with `playwright-cli install-browser`; if that fails, `could-not-run`.
-- Cleanup: run `playwright-cli close-all` at the end of every run, including after a failure; use `kill-all` only when `close-all` leaves processes behind.
+- Preflight (run by `ac:qa` in its Prepare phase, never by `ac:qa-tester`, which installs nothing): `playwright-cli --help` exits 0, then `playwright-cli open <url>` returns a page snapshot. A missing browser is installed once with `playwright-cli install-browser`; if that fails, `could-not-run`.
+- Cleanup: run `playwright-cli -s=<run id> close` at the end of every run, including after a failure. `close-all` and `kill-all` reach every session on the machine, a parallel QA run's and the user's own included, so leave them alone.

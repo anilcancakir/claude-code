@@ -78,14 +78,14 @@ Record the choice in the checkpoint as `tdd_mode` and surface it in the Stage 4 
 
 ### 3b.2. QA node
 
-Ask right after 3b.1, as its own standalone call: the answer decides whether `/ac:execute` runs a QA pass (Phase 3e) after the review, and it is a preference the code cannot answer. Judge the recommendation from the locked scope. A plan that changes a user-facing surface (a page, an HTTP endpoint, CLI output) gets the pass recommended, because the per-step checks never exercise the finished surface the way a user does; a plan that touches none (internal refactor, docs, build tooling) does not.
+Ask right after 3b.1, as its own standalone call: the answer decides whether `/ac:execute` runs a QA pass (Phase 3e) after the review, and it is a preference the code cannot answer. Judge the recommendation from the Stage 2 synthesis, since the scope is not locked yet, and name `E2E_FRAMEWORK` from 2c.1 in the question (a project without one runs QA through the playwright-cli fallback). A plan that changes a user-facing surface (a page, an HTTP endpoint, CLI output) gets the pass recommended, because the per-step checks never exercise the finished surface the way a user does; a plan that touches none (internal refactor, docs, build tooling) does not.
 
 `AskUserQuestion` (header `QA?`, options, with the recommended one first:
 - `Yes, QA pass after review (Recommended)` when the plan changes a user-facing surface: `QA = true`. `/ac:execute` runs `ac:qa` against the plan's work after the review.
 - `No QA pass (Recommended)` when it does not: `QA = false`. Listed first in that case, with `Yes, QA pass after review` as the alternative.
 )
 
-Offer the two options in either case; only the label carrying `(Recommended)` and its position change. Record the choice in the checkpoint as the top-level `qa`, and carry it to Stage 5, where `plan-scaffold --qa` writes it into the plan frontmatter.
+Offer the two options in either case; only the label carrying `(Recommended)` and its position change. Record the choice in the checkpoint as the top-level `qa`, surface it in the Stage 4 Synthesis Preview, and carry it to Stage 5, where `plan-scaffold --qa` writes it into the plan frontmatter.
 
 ### 3c. Walk down with recommended answers
 

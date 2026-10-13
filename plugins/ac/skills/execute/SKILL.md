@@ -222,6 +222,9 @@ continue route on the same step:
   of its label, and say in one line which steps you re-read and as what. A step carrying a `Tier` is a worker
   step, because `Tier` is meaningful on nothing else; a step carrying `Commands` and `Evidence` with no `Tier` is
   a verification step. `implementation` is the value this actually produces and it maps to `code`.
+- **A missing `**QA**:` line as the only ERROR** (plan-check prints `no` + the field + `line`): the plan predates the field, not a defect in it. Continue with
+  `QA_ENABLED = false`, as 1b already reads an absent line, and say so in one line. Every plan scaffolded before
+  `plan-scaffold --qa` existed lacks the line, and stopping each of them at a BLOCKER would buy nothing.
 - **Any other ERROR** (a missing `Files`, `Description`, `QA` or `Must NOT`, a leftover placeholder, a missing
   `Auto mode` line): a plan-spec defect. The worker briefing inlines four of those five fields verbatim, so a
   step missing one sends a worker out with a hole in its contract. Take the 3c plan-spec BLOCKER branch and name
@@ -713,7 +716,9 @@ it and go straight to Phase 4.
 
 3. When its `QA result:` block prints, append its `fixed files` to `MODIFIED_FILES` (nothing for `none`) and append the
    block to `.ac/plans/<slug>/review-log.md` under `## Run <marker started_at>`, the header 3a opened. The skill has
-   already triaged and fixed by the 3c rules and run its one retest, so do not re-triage or re-run it here.
+   already triaged and fixed by the 3c rules and run its one retest, so do not re-triage or re-run it here. When
+   `fixed files` is not `none`, re-run 3a (whole-project build, test and lint) before 4a: those edits landed after
+   the review and after 3a, and 4a commits with `--skip-preflight` on the strength of 3a having covered them.
 4. Continue to 4a in the same turn. Under `--plan` the block is a hand-back to this skill, not a turn end; ending
    the turn on it would meet the live marker's `Stop` guard.
 

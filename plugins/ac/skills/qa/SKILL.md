@@ -91,7 +91,7 @@ The returned body is the report: `Write` it verbatim to `<Run dir>/report.md`. T
 
 Triage each finding (aligned with `/ac:execute` 3c):
 
-- **critical, high**: fix with `Edit` at the suspect `file:line`, smallest correct fix. With no suspect, locate the cause from the repro and evidence with `Grep` and `Read`; a cause you cannot find stays an unfixed finding.
+- **critical, high**: fix with `Edit` at the suspect `file:line`, smallest correct fix. With no suspect, locate the cause from the repro and evidence with `Grep` and `Read`; a cause you cannot find stays an unfixed finding. When the `Requirement` and the code do not determine what correct behaviour is (a form with no endpoint, a link with no target page), the fix would be a product decision: leave the finding open, say what is undecided, and, chained, add it to `## Deferred Ideas` rather than inventing behaviour.
 - **medium**: fix when small and local (one file, a few lines, cause known); otherwise report it and, chained, append it to the plan's `## Deferred Ideas` in `.ac/plans/<slug>/plan.md`.
 - **low**: report only.
 
@@ -106,7 +106,7 @@ Merge `### Proposed learnings` from `report.md` and `report-retest.md` with what
 ## Phase 6: Close
 
 1. Stop the server only when `STARTED_SERVER`: `kill $(cat <run dir>/server.pid)`, then confirm the URL no longer answers; a leftover child still listening on the port you started (`lsof -ti :<port>`) is killed too.
-2. `playwright-cli close-all`, whenever playwright-cli was available, including after a failure.
+2. `playwright-cli -s=<run id> close`, whenever playwright-cli was available, including after a failure. Not `close-all`, which also closes a parallel run's sessions and the user's own.
 3. Print the closing block, then follow the standing rules: standalone, end the turn here; under `--plan`, continue with the caller.
 
 ```
@@ -126,5 +126,5 @@ report: <absolute path of report.md>
 |------|----------|
 | `${CLAUDE_SKILL_DIR}/references/detection.md` | Tool choice, preflight, boot and readiness, viewports, playwright-cli commands |
 | `${CLAUDE_SKILL_DIR}/references/learnings-format.md` | Template, bullet rules and pruning for `.ac/qa/learnings.md` |
-| `plugins/ac/agents/qa-tester.md` | The agent contract: brief fields it reads, the four report sections it returns |
-| `plugins/ac/skills/execute/SKILL.md` | Phase 3e caller; 3c triage wording; standing-rules placement |
+| `ac:qa-tester` | The agent contract: brief fields it reads, the four report sections it returns |
+| `ac:execute` | Phase 3e caller; 3c triage wording; standing-rules placement |
