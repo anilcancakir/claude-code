@@ -48,8 +48,10 @@ global-claude-md-section-template.md:13-36):
   past fixes.
   The doc-block length bullet stayed in CLAUDE.md; "match its comment density" is built in.
 
-EVIDENCE PER SECTION. Each item names the template maintainer-note range that carries the full
-story; read it there before trimming a line here.
+EVIDENCE PER SECTION. Each item names the template maintainer-note range that carried the full
+story before the move. Those notes were deleted from the template when these sections left it, so
+the ranges refer to `git show 10de655:plugins/ac/references/global-claude-md-section-template.md`;
+read them there before trimming a line here.
 
   Reading the request  template :268-270. Opus 5's Agent tool says not to spawn "unless the user, a
                        CLAUDE.md file, or a skill asks for it", which is why naming a subagent is a

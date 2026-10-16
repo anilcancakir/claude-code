@@ -11,7 +11,7 @@
 # outside /ac:execute and /ac:auto, where the marker-based guards never arm. Anthropic's Opus 5.5
 # prompting guide documents the same shape: a progress report that ends the turn with text and
 # no tool call. Milestone stops and decision lists read like finished reports, so they stay with
-# the prompt side (the "Run to completion" section of the global CLAUDE.md).
+# the prompt side (the "Run to completion" section of plugins/ac/references/working-rules.md).
 #
 # It reads `last_assistant_message` from the Stop payload (https://code.claude.com/docs/en/hooks.md,
 # Stop input) and only its last paragraph, with fenced code and inline code removed, so a long

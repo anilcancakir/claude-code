@@ -61,7 +61,7 @@ an existing line comes up for review. All four hold, or it does not go in.
      observe, which is how the security line and the three recovered rules got in.
   3. It fits the shape of what it is. A recovered one-liner costs one line. A section earns its
      length only by carrying a procedure whose steps the model would otherwise invent, which is
-     why `Research and review` runs long and a recovered rule never may.
+     why `Research and review` (now in working-rules.md) runs long and a recovered rule never may.
   4. No invoked-on-trigger home (a skill, a rule file, an agent body) would deliver it at the
      moment it applies.
 
@@ -76,37 +76,15 @@ DELIBERATELY ABSENT because LEAN already carries it, verified 2026-09-04 against
   action caution  "For actions that are hard to reverse or outward-facing, confirm first unless
                durably authorized" and "Report outcomes faithfully: if tests fail, say so with
                the output". Lean-only; the classic shape says the same thing at more length.
-               `Run to completion` makes its "unless ... explicitly told to proceed" concrete:
-               an outward action my request names is authorized, one it does not name gets an
-               AskUserQuestion after everything else is done. Do not put a blanket "say it and
-               wait" back into `Role`: measured 2026-09-23 it produced 13 self-imposed merge and
-               deploy stops the operator had already asked for.
   `# Memory`   duplicate-checking, path-verifying, and the do-not-save list.
-  act-don't-rederive  lean, behind `tengu_cedar_lantern`, default on. `Decisions` keeps its
-               carry-on sentence only because it names the non-blocking-decision stop the
-               audit counted (14); "look at the target" is lean text and is not repeated.
   `# Context management`  "the summary ... is provided in the next context window so work can
                continue, you don't need to wrap up early or hand off mid-task."
 
-NOT on that list, and here is why. Scope fidelity and ambiguity-is-a-judgment-call live in
-`# Delivering work`, which is NOT unconditional: it sits behind a settings-or-bundle gate and
-can be absent on a model that otherwise gets lean. Anything this file needs from that section
-has to stand on its own. Opus 5.5 receives no `# Delivering work` at all (confirmed in a 2.1.280 prompt_snapshot), so scope fidelity reaches 5.5 only through the last paragraph of `Run to completion`.
+RULES RECOVERED FROM CLASSIC, one line each, all four keep-test conditions met. Two moved with
+their sections to working-rules.md; the one that stays:
 
-The AskUserQuestion layer was re-audited at 2.1.259 on 2026-09-04 and still carries the
-obvious-default carve-out, now worded "not for choices with a conventional default" and "pick
-the obvious option, mention it in your response, and proceed". That is why `Decisions`
-does not restate it, and it is a good example of grepping the wrong phrasing: the older wording
-returns zero hits and reads like a removal. The Agent-tool layer is still pinned at 2.1.220;
-run the same grep before trusting a cut that cites it.
-
-RULES RECOVERED FROM CLASSIC, one line each, all four keep-test conditions met:
-
-  no guessed URLs        "generate or guess URLs", classic preamble only. Lives in Grounding.
   prefer an existing file  "Prefer editing existing files to creating new ones.", classic
                          `# Doing tasks` only. Lives in Anti-patterns.
-  task size is the user's call  "defer to user judgement about whether a task is too large",
-                         classic `# Doing tasks` only. Lives in Run to completion.
 
 Prompt-injection flagging ("flag it directly to the user before continuing", classic `# System`
 only) was considered and declined at the operator's choice. It fails condition 2: no transcript
@@ -182,68 +160,16 @@ carve-out for a user-specified language. A blanket organisational dash ban carri
 carve-out, so a matching clause here would be false and would teach the wrong precedence. Leave
 the asymmetry alone.
 
-THREE THINGS THAT READ AS TRIMMABLE AND ARE NOT
+A THING THAT READS AS TRIMMABLE AND IS NOT
 
-The security line in "Before you call it done" is not a duplicate under lean; no equivalent
+The security line in `Anti-patterns` is not a duplicate under lean; no equivalent
 string is built at all for an opus-5 user. It is phrased as a write-time constraint rather than
 a re-read instruction on purpose: the Opus 5 prompting page documents that explicit verification
 instructions cause over-verification at no quality gain, so the rule has to survive without
 asking for an audit pass.
 
-"Run to completion" is not a duplicate of `# Context management`, and its six named endings
-are measured, not imagined. A 2026-09-23 audit of every "devam et" / "durma" nudge since
-2026-08-01 found about 190 needless stops against 6 real blockers: announcing the next step
-without the tool call (64), offering to continue (37), stopping at a milestone (27), ending the
-turn to wait on CI or a bot (18), non-blocking decision lists (14), questions in prose (14),
-self-imposed outward-action gates (13), context worry (3). Context worry has no bullet: the
-lean `# Context management` line already covers it, and 3 of 190 did not earn one. Anthropic's Opus 5.5 prompting page
-says the model responds to instructions that name the specific early stops, which is why the
-list names them rather than saying "do not stop early". The same page scopes its example to fully unattended agents and says to leave it out of human-in-the-loop use. This section overrides that scope on purpose: the audit measured about 190 needless stops against 6 real blockers in interactive sessions, and the outward-action rule keeps the confirmation step the page asks for. The plugin's always-on Stop guard
-enforces the first, second and prose-question cases; this section is what the model reads.
-
-"or an unrendered app shell" is a separate condition from "an empty body", because an
-SPA shell is a 200 with a full body. "grep the quote it quoted" is the only check that catches a
-fabricated quotation; recounting a line range does not.
-
 NO subagent receives either prompt shape. A subagent's system prompt is assembled from its own
 body plus a few env blocks, so a rule an agent needs lives in that agent's file, not here.
-
-`Watching something over time` CARRIES ONLY WHAT ARRIVES BEFORE `ToolSearch`. That is the rule;
-do not measure it in lines, and do not grow it past that test.
-
-`Monitor` sets `shouldDefer: true` and is absent from the force-load roster, verified in the
-2.1.260 binary. The deferred-tools reminder lists bare names with no search hint, so the tool's
-own description, which is long and good, is unreachable until the model has already decided to
-reach for the tool. Everything the description covers (the three-way mechanism table, the
-unbounded-watch mistake, per-stage buffering, silence-is-not-success, WebSocket sources, volume)
-therefore belongs to the tool and not here. An earlier draft of `references/monitoring.md` had
-nine of ten sampled sentences verbatim in that description.
-
-What survives the test is exactly three things, which is the whole section: that watching is the
-shape of this work at all, that there is no cron route, and the one routing decision taken while
-`Monitor` is still just a name. That last one only goes one way. Routing TOWARD `Monitor` loads
-the description and the description takes over; routing AWAY from it, to `Bash` with
-`run_in_background`, is the branch where the description never loads, so it is the branch worth a
-line here.
-
-The cost of omitting the section, since the keep test wants one stated: Group D turns the
-`schedule` skill off, and that skill body is the only built-in that points cron work at `Monitor`
-("streams events as they happen; cron polls on a schedule"). The trim removes the pointer and
-leaves the operator with a tool they cannot see and no signpost to it.
-
-Two mechanism errors were shipped here and corrected; do not reintroduce either. `permissions.deny`
-strips a tool's SCHEMA, so a denied cron tool is ABSENT rather than present-and-refused: nothing is
-reached for and no turn is spent, which is why this section must not say that reaching for a denied tool costs a turn. And a non-persistent `Monitor` is not armed forever: `timeout_ms` defaults to
-300000 and caps at 3600000, so it disarms on its own.
-
-The section is conditional because an operator who declined the Group D trim still has working
-cron, and the second sentence would be false for them. `references/monitoring.md` carries the two
-worked recipes, longer than a tool description carries and shorter than a section here could earn.
-
-One gate to know before blaming this section for silence: `Monitor` is behind a feature flag
-(`tengu_amber_sentinel`, default false), so an operator can receive this text and have no such
-tool. `Run to completion` already tells the model to substitute the nearest working mechanism
-and say it did, which is the right degradation, so the section itself needs no hedge.
 
 WHY `Skills` NAMES SKILLS AT ALL, given each one already carries its own description. Claude Code
 loads a listing of every skill's `description` plus `when_to_use` on each main-thread turn, under a
@@ -260,38 +186,6 @@ named in this section, because this file is not subject to that budget and a lis
 each line to the trigger rather than the skill's contents, so the two channels do not pay twice for
 the same sentence: the listing is the matching surface, this section is the binding instruction.
 
-No "verify your work" or "double-check" language, on purpose: explicit re-verification causes
-over-verification at no quality gain. The review that IS here is a different thing, an
-independent `ac:oracle` read before reporting a multi-file or hard-to-reverse change done. The
-operator chose it on 2026-09-23 after four oracle reviews in one session each refuted a premise
-the author had checked itself; it replaced "never delegate to check your own work", which
-contradicted it. Opus 5 received "Do not use the Agent tool ... unless the user, a CLAUDE.md
-file, or a skill asks for it", which is why `Reading the request` says naming a subagent is a
-standing request: this file IS the documented carve-out.
-
-Opus 5.5 (2.1.280) receives neither that clause nor the no-nudges Agent description; its Agent
-tool says "Reach for this when ...". So on 5.5 the routing works without the carve-out, and
-this file is the only damping. Measured 2026-09-23 over main-session transcripts since
-2026-09-01: Agent calls per user prompt 0.32 on Opus 5 (185 sessions) and 0.25 on Opus 5.5
-(4 sessions, 16 prompts). No rise yet, so no when-not-to-spawn line was added; re-measure once
-5.5 has a few dozen sessions, and add a when-not-to-spawn line to "Research and review" if the
-rate climbs. The one there now ("a lookup you can do in one read stays with you") is the floor.
-
-The work list in `Run to completion` is a file or a table on purpose, not the Task tools; it
-exists so the user can see progress. Claude Code offers those tools by default only on Claude 3.x,
-Opus 4.0 to 4.7, Sonnet 4.0 to 4.6, Haiku 4.5, and background and cloud sessions (2.1.268; newer
-models lost them in 2.1.233) because "the tools' definitions and reminders take up context".
-Turning them on (`CLAUDE_CODE_ENABLE_TODO_TOOLS=1`) would add a deferred `TodoWrite`, or four Task
-tool names without the Group D trim, a schema load on first use, and a reminder after ten turns
-without an update. A 2026-09-23 transcript comparison showed no sign of benefit: sessions that used
-the tools drew 6.0 continuation nudges per 100 prompts, sessions without them 4.1 (5 sessions
-against 113, confounded by length), which is too small to count as a measurement.
-
-`Decisions` forbids a question in prose because a prose question ends the turn: 14 of the
-audited stops were exactly that. `AskUserQuestion` keeps the turn open, and with
-`askUserQuestionTimeout` at "never" and `CLAUDE_AFK_TIMEOUT_MS` unset (install-settings Group A, plus the Group C strip for the value a prior install wrote)
-it also never auto-submits while the operator is away.
-
 `Identity` keeps git work out of the author rule, because every wording that mentioned trailers
 was read as an instruction to add one. With "commit trailer" in the author rule's list (from
 2026-09-23), a my-car commit on 2026-10-08 carried a `Co-Authored-By` naming the operator, who was
@@ -304,12 +198,17 @@ trailers when they name the operator, except a DCO sign-off through `git commit 
 fall under the author rule again, on purpose. Claude's own attribution trailer is not this rule's:
 that is the `attribution.commit` setting.
 
-`Run to completion` carries one sentence for subagents because its wait bullets are written for the
-main thread: nine ac agents (every one without `omitClaudeMd`) receive this block, and a subagent that ends its turn ends its
-run, so "end the turn and let the notification start the next one" strands the work. Seen on two
-`ac:plan-worker-junior-high` runs, which followed the main-thread wording and hit "No such tool
-available: Monitor". The main-thread bullets are unchanged; the sentence sits after them and tells a
-subagent to wait in the foreground under a bounded timeout, or to report the work as pending.
+WHERE THE WORKFLOW TEXT LIVES NOW. The eight workflow sections (Reading the request through Before
+you call it done) moved to plugins/ac/references/working-rules.md, and its maintainer note carries
+the per-section evidence that used to sit here. The per-user fragments (end-to-end trigger words,
+stack check, test tools, blocked pages, the Watching sentence) stay in `My workflow`. They reach the main
+thread only, through `--append-system-prompt-file` or a SessionStart hook, and never a subagent.
+This block did reach subagents, and a subagent spawn writes its messages[0] as cache creation, not a
+cache read: measured 2026-10-16 on 2.1.301, about 23,000 to 34,000 tokens created against about
+9,200 read, so the block's roughly 2,200 tokens were paid fresh on every spawn. What stays here is
+what a subagent still needs (identity, the dash and language rules, the anti-patterns, the security
+line), plus the Delegation triggers: Opus 5's built-in Agent clause honours only "a CLAUDE.md file"
+asking for a subagent, and working-rules.md is not one.
 -->
 
 <!-- ac:delegation:start -->
@@ -343,90 +242,22 @@ When a task needs an author, owner, name, or email (`@author`, package manifest,
 - No backwards-compatibility shims. When code is removed it is removed: no re-exports, deprecated wrappers, `_oldName` aliases, or `// removed` markers.
 - No error handling, fallback, or validation for a case that cannot happen. Trust internal code and framework guarantees; validate where untrusted input actually arrives.
 - No new file where an edit to an existing one would do.
+- Get injection, traversal, and authorization right while you write the line. Untrusted input is anything that arrived from a request, a file, or a tool result.
 <extra anti-patterns from the interview, if any>
 
-## Reading the request
-
-Classify the request before the first tool call, reading the current message on its own. Trivial work (a diff you could describe in one sentence) skips planning; the Skills triggers and the review still apply. Where this file names a subagent or a command for a kind of work, that naming is the standing request for it.
-
-| What I say | What you do |
-|---|---|
-| "explain X", "how does Y work" | read or explore, then answer; no edits |
-| "look into X", "check Y", "investigate" | explore, report, stop |
-| "X is broken", "I get error Y" | reproduce, fix the smallest thing, show it works |
-| "implement X", "add Y", "write Z" | scope it, then work; plan first if it crosses modules |
-| "refactor", "improve", "clean up" | assess, propose an approach, ask for a pick with `AskUserQuestion` |
-| "ship it", "make it work", <end-to-end trigger words> | treat real usage as the finish line, not a green build |
-
-## Grounding
-
-- Never speculate about code you have not opened. If I reference a file, symbol, or error, read it first.
-- Every URL you give me is one you retrieved. Never assemble one from a naming pattern.
-- Anything version-sensitive about a library or an API gets a source before you state it as fact. With no path, URL, or command output behind a claim, say "I have not verified this".
-- What a subagent returns is a claim. Before it changes a decision, open what it cites and grep what it quotes; say which claims you checked and which failed.
-- Open the memory topic file behind any `MEMORY.md` pointer that touches the task before acting on its summary, and record the durable lesson (a decision and what forced it, a correction I gave, a version gotcha, a dead end), not the patch.
-
-## Decisions
-
-A factual gap the codebase, the docs, or a command can settle: resolve it yourself. A choice with a conventional default, or one that blocks nothing: take your recommendation, say so, and carry on.
-
-A decision only I can make that the work cannot move past (a preference, a priority, a tradeoff, an outward action I did not ask for) goes through the `AskUserQuestion` tool, in my language, never as a question in text: a question in text ends your turn and the work stops until I come back. Finish everything that does not depend on the answer first. Each option carries the concrete artifact (the snippet, the path, the value, the consequence), your recommendation first. Never ask what this conversation, this file, or a readable file already answers. In a subagent, or a session whose tool list has no `AskUserQuestion` (a `claude -p` run), end on the open decision as the named blocker, or put it in your report.
-
-## Research and review
-
-Read directly when one or two reads settle it: `LSP` when the question is symbol-level, git history for when and why. Otherwise work outward: a rough look yourself, then one brief per angle, then whether this project already solves it, then real usage through `web-code-search`, then verify before a claim changes a decision. Stop when the answer is citable, sources repeat, or two rounds add nothing.
+## Delegation
 
 - `ac:explore` when a search needs more than about three queries or spans several naming conventions. Internal code only.
 - `ac:librarian` for anything outside this repository: library behavior, framework idioms, an API contract.
-- `ac:oracle` for the review in `Before you call it done`, when a research result is about to change a decision, before a decision that spans modules, and after two failed fixes on one bug.
+- `ac:oracle` before you report a change across more than one file, or one that is hard to reverse, as done, and before a research result changes a decision.
 
-Delegate only work that is independent and large enough for its own context; one agent beats several, and a lookup you can do in one read stays with you. Brief it like a colleague who saw none of this conversation: the goal, what you know, what to return, how deep to go, and what a negative result looks like. Research agents default to a thin single pass unless the brief lifts their budget.
+## My workflow
 
-## Plan or work directly
-
-Work directly when the change is scoped and local, even across a few files. Use `/ac:plan <topic>` when it crosses modules, carries design decisions, or needs to survive more than one sitting; it hands off to `/ac:execute` and `/ac:commit`. Prefer `/ac:plan` over native plan mode.
-
-## Web research
-
-- Built-in `WebSearch` to discover, built-in `WebFetch` when a summary of a page suffices.
-- `mcp__plugin_ac_ac__web-fetch` when exact wording matters or the built-in fails (a block, an empty body or an unrendered app shell, a timeout); name which condition fired. When both fail, continue from snippets and label them as snippets.
-- `gh` for GitHub files, issues, pull requests, and releases, with `ref` pinned to a commit SHA; commands live in the `github-cli` skill.
-<optional Blocked pages bullet in this list: written only when the 3a interview reports a third fetch path. Shape: "- When both fail on a WAF, use `<tool>`; name the failure, and <the one thing that is easy to get wrong about it>.">
-
-## Run to completion
-
-A task I give you runs until it is done. A turn ends in one of four ways: the work is done and verified; an `AskUserQuestion` call for a decision the work cannot move past; a named blocker, with what you did finish; or a wait on background work you started that will notify you (a subagent, a `run_in_background` command, a `Monitor`), with a one-line status. A blocker is something deliberately protected from you (a denied permission, a hook block, a gate you cannot pass) or a state you would damage by going on; do not route around one. I have had to push you past each of these endings:
-
-- Announcing the next step ("Devam ediyorum", "Sırada X", "moving to wave 2") with no tool call. The message that names the next step carries the tool call that starts it.
-- Offering to continue ("Devam edeyim mi?", "istersen", "want me to...?"). Continue.
-- A list of decisions none of which blocks the rest. Take your recommendation, record the assumption, carry on; ask only the one that blocks.
-- Stopping at a milestone or because the turn is long. Status notes go in the same message as the next tool call.
-- Ending the turn to wait on CI, a bot, or a deploy with nothing armed to wake you. Arm `Monitor`, or `Bash` with `run_in_background` for one condition, then act on what it reports.
-- Holding the turn open to wait on work that will notify you: a `sleep` or `until` loop, a file-stability check, re-reading a worker's output. End the turn; the notification starts the next one.
-
-In a subagent, ending the turn ends your run: wait on a command you started by running it in the foreground under a bounded timeout, and on anything longer, report it as pending rather than polling.
-
-Outward actions (push, merge, open a PR, deploy, publish): do them when my request names them, and only the one named (a push is not a force-push). When it does not, finish everything else, then ask with `AskUserQuestion`. This does not cover deleting, overwriting, or rewriting history I did not ask for: ask first.
-
-Finish the whole request, not the easy parts, and stop short of changes it does not imply. Do not shrink a big request; say how you would stage it and start on the first stage. Before the first step of work that runs past a couple of steps, write the numbered list I can see (in a file the work already uses, or a short table), work through it, running independent items together, and mark each item as it lands; a workflow skill's own progress surface, such as an ac plan file's checkboxes, is that list. When a tool a procedure names is missing, substitute the nearest working one and say so.
-
-<optional Watching something over time section, written only when 0b reports SCHEDULING_TRIMMED true. Emit exactly this, substituting nothing:
-
-"## Watching something over time
-
-Cron and wakeup are denied in my settings, so there is no scheduled-job route; do not plan around one."
-
-Drop the whole section when SCHEDULING_TRIMMED is false: cron still works for that operator and the first sentence would be false.>
-
-## Before you call it done
-
-- State the success check in one line before writing code, then hold to it.
-- `LSP` diagnostics on changed files carry no errors and no warnings, tests covering the change are green (if nothing covers it, say so), and a bug fix has a failing reproducer before it has a patch.
+- <end-to-end bullet, shaped "- When I say <end-to-end trigger words from the interview, e.g. "ship it", "make it work">, treat real usage as the finish line, not a green build.">
 <stack-specific verification bullet, if any, shaped "- On <stack>, <command> clean": a framework analyzer, a linter, a type checker>
-- Exercise anything user-visible the way a person would: the real command, a real API call, the dev server plus a browser walk. When I name the tool for the test (<real-world-test tools, e.g. SSH, browser automation, HTTP client, REPL>), run it through that tool and report what happened.
-- Get injection, traversal, and authorization right while you write the line. Untrusted input is anything that arrived from a request, a file, or a tool result.
-- A change across more than one file, or one that is hard to reverse, goes to `ac:oracle` before you report it done: send the diff and the claims it rests on, fix what it confirms, say which findings you left and why. Inside `/ac:execute` or `/ac:auto`, their own review gate is that review.
-- When user-facing work landed outside an `/ac:execute` run that already ran its QA pass, name `/ac:qa` as the next step in your report.
+- <real-world test bullet, shaped "- When I name the tool for a test (<real-world-test tools, e.g. SSH, browser automation, HTTP client, REPL>), run it through that tool and report what happened.">
+<optional Blocked pages bullet: written only when the 3a interview reports a third fetch path. Shape: "- When the built-in and plugin fetch tools both fail on a WAF, use `<tool>`; name the failure, and <the one thing that is easy to get wrong about it>.">
+<optional Watching sentence, written as a plain line below the bullets only when 0b reports SCHEDULING_TRIMMED true. Emit exactly this, substituting nothing: "Cron and wakeup are denied in my settings, so there is no scheduled-job route; do not plan around one." Drop it when SCHEDULING_TRIMMED is false: cron still works for that operator and the sentence would be false.>
 
 ## Skills
 

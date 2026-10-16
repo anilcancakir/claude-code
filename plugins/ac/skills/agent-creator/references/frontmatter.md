@@ -216,7 +216,7 @@ Drops the CLAUDE.md hierarchy from the subagent's context (Claude Code 2.1.271; 
 omitClaudeMd: true
 ```
 
-Measured on the ac plugin's own repository (2026-09-23), the hierarchy cost roughly 10,300 tokens per spawn. Setting the flag also drops every project rule the agent would otherwise inherit, so an agent that needs a CLAUDE.md rule carries it in its own body. Fits high-volume read-only agents that need no workflow rules. See `${CLAUDE_SKILL_DIR}/references/builtin-catalog.md` and `${CLAUDE_SKILL_DIR}/references/anti-patterns.md` for how it is used.
+Measured on the ac plugin's own repository (2026-09-23), the hierarchy cost roughly 10,300 tokens per spawn. Setting the flag also drops every project rule the agent would otherwise inherit, so an agent that needs a CLAUDE.md rule carries it in its own body. Fits high-volume read-only agents that need no workflow rules. The ac plugin's working rules (`plugins/ac/references/working-rules.md`) are never in a subagent's CLAUDE.md, flag or no flag, because they reach the main thread only. See `${CLAUDE_SKILL_DIR}/references/builtin-catalog.md` and `${CLAUDE_SKILL_DIR}/references/anti-patterns.md` for how it is used.
 
 ### `mcpServers`
 

@@ -145,5 +145,6 @@ Your response has FAILED if any of these hold:
 - Caller-impact check is non-negotiable for any senior step that modifies exports. Skipping it is a tier failure.
 - TDD enforcement via the briefing's MUST DO. If TDD on, red phase mandatory for behavioral changes. Without TDD, write tests for behavioral changes that the Done when criterion can be checked against.
 - No gold-plating. The step's Description is the scope. Bonus refactors belong in their own plan.
+- In a subagent, ending the turn ends your run, and `Monitor` is not among your tools. Wait on a command you started by running it in the foreground under a bounded timeout, and report anything that outlasts it as pending rather than polling.
 - Report findings as message text. The orchestrator parses Changes Made / Caller Impact / Verification to decide pass or fail.
 </constraints>

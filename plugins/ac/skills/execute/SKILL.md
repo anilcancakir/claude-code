@@ -23,7 +23,7 @@ Every branch that terminates the run deletes `.ac/state/active-execution.json` f
 
 **A stop needs a name.** "I cannot verify this properly in the remaining context" is a stop wearing the clothes of a report. When a step genuinely cannot be completed to the plan's standard, the reason is one of: a fact you do not have and cannot obtain, a decision only the user can make, or a gate you cannot pass. Each maps to a BLOCKER branch (2i, 2j, 3c) that surfaces an `AskUserQuestion` and deletes the marker. Name the class, take the branch, report what did land. Never substitute a capacity limit for the real reason.
 
-**No review loop needs bounding.** Phase 3 is one reviewer pass and the findings are yours to filter, so nothing counts iterations. Four bounded loops remain: one retry per step at 2e, at most two briefing-gap re-spawns per step at 2e, the three-failures-across-two-waves halt at 2j, and the one QA retest that `ac:qa` runs after its own fixes at 3e. The first and third read their state from `STEP_FAILURES`; the second counts re-spawns for the step in front of you; the fourth is owned and counted inside `ac:qa`, so 3e never re-invokes it.
+**No review loop needs bounding.** Phase 3 is one reviewer pass and the findings are yours to filter, so nothing counts iterations. Four bounded loops remain: at most two retries per step at 2e (an effort rung, then a tier rung), at most two briefing-gap re-spawns per step at 2e, the three-failed-steps-across-two-waves halt at 2j, and the one QA retest that `ac:qa` runs after its own fixes at 3e. The first counts in `WORKER_RETRY_PER_STEP` and the third reads `STEP_FAILURES`, which gets one entry per step at terminal failure; the second counts re-spawns for the step in front of you; the fourth is owned and counted inside `ac:qa`, so 3e never re-invokes it.
 
 **Progress surface.** Two surfaces carry it and neither is a tool. The plan file's checkboxes are the per-step record, ticked at Layer D and counted with `grep -c '^- \[ \]'`, which is also what the `Stop` guard reads. Phase 2h prints the per-step table after each wave. Add one short line per phase and wave transition and that is the whole picture.
 
@@ -141,6 +141,11 @@ zero in flat-style plans and would otherwise be mistaken for the plan-level swit
 `junior-high` runs junior's model and effort (both `high` since Sonnet 5.5), for work at the borderline of coupling or context depth. The
 criticality rule never routes there; it escalates to `senior`.
 
+The Agent tool's `effort` parameter overrides a worker's frontmatter effort for one spawn, and its description
+reserves it for spawns where the user or an instruction such as a skill explicitly asks. This skill is that
+instruction, for exactly two spawns: the 2e effort retry and the 3b oracle spawn when only signal 1 fired. Every
+other spawn omits `effort` and runs at the table's default.
+
 When the plan's `Codebase State` is `legacy` or `chaotic`, route every `quick` step to `ac:plan-worker-junior`
 whatever its declared tier: mechanical work in an inconsistent codebase is not mechanical, and Haiku 5.5 trails
 Sonnet 5.5 on FrontierCode 1.1 Main (46.4% against 52.1%). The plan file is not modified; this is an in-memory routing decision. Record the count for the
@@ -151,8 +156,8 @@ Phase 4 report.
 ```
 ACCUMULATED_WISDOM = []                 # max 15 items total, max 5 added per wave
 MODIFIED_FILES = []                     # tracked across waves; passed to Phase 3
-STEP_FAILURES = []                      # {step, wave} per failure; 2j asks whether they span 2+ waves
-WORKER_RETRY_PER_STEP = {}              # max 1 tier-escalation retry per step
+STEP_FAILURES = []                      # one {step, wave} per step at terminal failure; 2j asks whether they span 2+ waves
+WORKER_RETRY_PER_STEP = {}              # retries spent per step (effort rung, tier rung), max 2
 ```
 
 No Phase 3 counters: the review is one pass and its outcome is appended to `review-log.md` as a record.
@@ -178,7 +183,8 @@ tests only when a step's `Done when` demands testable behavior. A missing field 
 in the Phase 4 report. The value is injected into every worker briefing.
 
 Read project `CLAUDE.md` and `CLAUDE.local.md` for build, test, and lint commands as `RUNTIME_CONTEXT`. Workers
-receive `CLAUDE.md` automatically; `RUNTIME_CONTEXT` supplements it with the explicit commands briefings cite.
+receive the personal `CLAUDE.md` rules automatically; the workflow rules, including this skill's, are main-thread only
+and never reach them. `RUNTIME_CONTEXT` supplements what they receive with the explicit commands briefings cite.
 
 ### 1g. Confirm the progress surface
 
@@ -491,27 +497,43 @@ a failure, which is why Layer B's hunk-to-claim match is not optional.
 was missing. Re-assemble the missing block and re-spawn at the SAME tier. Never escalate for this: the
 tier is not what failed, and a bigger model reading the same absent block costs about 4.3x for the same nothing.
 
-**Bounded at two.** The re-spawn does not count against the one-retry-per-step budget, so it needs its
+**Bounded at two.** The re-spawn does not count against the two-retry budget below, so it needs its
 own bound or it is an unbounded loop: when the PLAN lacks the block rather than the assembly missing it,
 re-assembly produces the same absent block and the worker reports the same gap, at $1 to $6 a spawn. On
 the third report for one step, stop re-spawning and take the plan-spec BLOCKER branch in 3c: name it,
 then `AskUserQuestion` (`Edit plan to fill the gap and re-verify` / `Accept as Risk and proceed` /
 `Stop`). Two failed re-assemblies is the plan telling you it does not carry what the step needs.
 
-**First failure, attributed to one step**: retry once at the next tier up (`quick` to `junior`, `junior` to `senior`; senior does not
-escalate), except a malformed report with no `### Changes Made` or `### Verification`, which re-spawns at the
-SAME tier with a format reminder because the tier is not what failed. The retry briefing leads with the failure
-context, then repeats the original. One retry per step, ever.
-Two fast paths skip the same-tier attempt: a worker flagging `tier mismatch` escalates immediately and the
+**Failures attributed to one step** climb two rungs at most, each counted in `WORKER_RETRY_PER_STEP`:
+
+1. **Effort rung, first failure** of a `quick`, `junior` or `junior-high` step: re-spawn at the SAME tier with the
+   Agent tool's `effort` one step above the tier's default (`quick` to `high`; `junior` and `junior-high` to
+   `xhigh`). Raising effort on the same model costs less than a tier step, and a step that failed on thin
+   reasoning is the case it fits. Skip the rung when effort cannot rise: Haiku 4.5 on Bedrock, Vertex and Foundry
+   takes no effort parameter, and `CLAUDE_CODE_EFFORT_LEVEL` set to any value removes the parameter from the
+   Agent tool. Then the first failure goes straight to rung 2.
+2. **Tier rung, second failure** (or the first when rung 1 is skipped): re-spawn one tier up (`quick` to `junior`,
+   `junior` and `junior-high` to `senior`) at the new tier's default effort, with no `effort` argument.
+
+`senior` has no rung 1, because Opus 5.5 scores best at medium (`plan/references/model-tiers.md:39`), and no rung
+2, because nothing sits above it: a senior step's first failure is terminal, as before. A failure after rung 2 is
+terminal too.
+
+These re-spawns keep the step's current effort and do not advance the ladder: a malformed report with no
+`### Changes Made` or `### Verification` (re-spawn at the SAME tier with a format reminder, because the tier is
+not what failed; a second malformed report counts as the step's first failure) and a `[BRIEFING GAP]` re-spawn.
+The retry briefing leads with the failure context, then repeats the original.
+Two fast paths skip rung 1: a worker flagging `tier mismatch` goes straight to rung 2 and the
 mis-classification goes in the report, and a worker flagging `[CONTRADICTION]` does not retry at all,
 because the next attempt hits the same structural conflict; mark it `pending-remediation` for 2f remediation.
 
 **A retried worker is not verified until you verify it.** 2d ran once for the wave and the retry
-spawned after it, so nothing has checked the retry's output. Before 2g commits: re-stage and re-diff
-scoped to that step's `Files`, re-run Layer A, and re-run the attribution for that step. A commit that
+spawned after it, so nothing has checked the retry's output. After each retry, effort rung or tier rung: re-stage and re-diff
+scoped to that step's `Files`, re-run Layer A, and re-run the attribution for that step, before 2g commits. A commit that
 includes an unverified retry is the failure this prevents.
 
-**Retry fails, or senior failed first**: append `{step, wave}` to `STEP_FAILURES` and fire 2j at 3. Do not block the
+**Terminal failure** (the tier rung failed, or a senior step failed first): append exactly one `{step, wave}` to
+`STEP_FAILURES` for the step, however many retries it spent, and fire 2j at 3. Do not block the
 wave on one failure unless 2i says a later wave depends on it.
 
 ### 2f. Remediation and wisdom
@@ -583,7 +605,8 @@ mode: three accumulated failures is systemic enough that the `(Recommended)` qua
 
 The two-wave span is what keeps the count meaningful. A wave's steps are verified together, so three failures
 inside a single four-step wave is one bad wave rather than a systemic pattern, and halting on it would stop
-an auto run early and often. Three failures across two waves is the signal the rule was built for.
+an auto run early and often. Three failures across two waves is the signal the rule was built for. An entry is one
+step at terminal failure, so a step that spent both retries before failing counts once.
 
 ### 2k. Loop until all waves complete
 
@@ -645,7 +668,9 @@ any one of which fires it, and `--no-oracle` forces the skip either way:
 
 Signal 1 alone is weak on its own: a file path rarely announces "cryptographic operations" or
 "destructive migration", where signals 2 and 3 are the planner's own conclusions written into the file
-you are already holding.
+you are already holding. So when only signal 1 fired, pass `effort: "medium"` on the oracle spawn below; when
+signal 2 or 3 fired, omit it and the agent's own `high` applies. `CLAUDE_CODE_EFFORT_LEVEL` removes the
+parameter, in which case omit it either way.
 
 This is the same trigger shape `/ac:plan` Stage 3.5 uses at planning time, so the pattern is proven in
 this pipeline rather than invented here. The trigger reads the surfaces directly, with no plan-wide label
@@ -653,6 +678,7 @@ standing in for them.
 
 ```
 Agent({ subagent_type: "ac:oracle", description: "Oracle strategic review for <plan title>",
+        effort: "medium",   // only when signal 1 alone fired; omit otherwise
         prompt: "Plan: <PLAN_PATH>
 Modified files: <MODIFIED_FILES>
 Research the plan was built on: <.ac/plans/<slug>/research/>

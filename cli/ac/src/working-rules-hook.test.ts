@@ -1,0 +1,256 @@
+import { afterEach, beforeEach, expect, test } from "bun:test";
+import {
+    existsSync,
+    mkdirSync,
+    mkdtempSync,
+    readFileSync,
+    rmSync,
+    statSync,
+    symlinkSync,
+    utimesSync,
+    writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
+// The hook is a shell script under the plugin, not TypeScript, but CI only runs `bun test` here,
+// so this is where its contract is pinned: exactly one copy of the working rules per main-thread
+// context. It emits the rules, stays silent whenever another copy exists, and never goes silent
+// because a tool is missing.
+const PLUGIN = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "plugins", "ac");
+const HOOK = join(PLUGIN, "hooks", "session-start-working-rules.sh");
+const RULES = join(PLUGIN, "references", "working-rules.md");
+
+const START = "<!-- ac:working-rules:start -->";
+const END = "<!-- ac:working-rules:end -->";
+const FIRST_LINE = "# Working rules (ac plugin)";
+
+let root: string;
+let stableDir: string;
+let stableCopy: string;
+let claudeMd: string;
+
+beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), "ac-working-rules-"));
+    stableDir = join(root, "stable");
+    stableCopy = join(stableDir, "working-rules.md");
+    claudeMd = join(root, "CLAUDE.md");
+});
+
+afterEach(() => {
+    rmSync(root, { recursive: true, force: true });
+});
+
+interface HookResult {
+    exitCode: number;
+    stdout: string;
+}
+
+function expectedRules(): string {
+    const lines = readFileSync(RULES, "utf8").split("\n");
+    const from = lines.indexOf(START);
+    const to = lines.indexOf(END);
+
+    return lines.slice(from + 1, to).join("\n");
+}
+
+function runHook(source: string, env: Record<string, string> = {}, extra: Record<string, string> = {}): HookResult {
+    const result = Bun.spawnSync([Bun.which("sh") ?? "sh", HOOK], {
+        stdin: Buffer.from(JSON.stringify({ hook_event_name: "SessionStart", source, ...extra })),
+        env: {
+            ...process.env,
+            HOME: root,
+            AC_WORKING_RULES: "",
+            AC_WORKING_RULES_APPENDED: "",
+            AC_WORKING_RULES_DIR: stableDir,
+            AC_GLOBAL_CLAUDE_MD: claudeMd,
+            ...env,
+        },
+    });
+
+    return {
+        exitCode: result.exitCode,
+        stdout: result.stdout.toString(),
+    };
+}
+
+function additionalContext(stdout: string): string {
+    const output = JSON.parse(stdout) as {
+        hookSpecificOutput: { hookEventName: string; additionalContext: string };
+    };
+    expect(output.hookSpecificOutput.hookEventName).toBe("SessionStart");
+
+    return output.hookSpecificOutput.additionalContext;
+}
+
+test("the fixture rules file carries the markers and the first line", () => {
+    expect(expectedRules().split("\n")[0]).toBe(FIRST_LINE);
+});
+
+test("a startup emits JSON whose additionalContext equals the extracted text", () => {
+    const result = runHook("startup");
+
+    expect(result.exitCode).toBe(0);
+    expect(additionalContext(result.stdout)).toBe(expectedRules());
+});
+
+test("clear and compact sources emit", () => {
+    for (const source of ["clear", "compact"]) {
+        const result = runHook(source);
+
+        expect(result.exitCode).toBe(0);
+        expect(additionalContext(result.stdout)).toBe(expectedRules());
+    }
+});
+
+test("AC_WORKING_RULES=0 is silent", () => {
+    const result = runHook("startup", { AC_WORKING_RULES: "0" });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toBe("");
+});
+
+test("AC_WORKING_RULES_APPENDED=1 is silent while the stable copy is still written", () => {
+    const result = runHook("startup", { AC_WORKING_RULES_APPENDED: "1" });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toBe("");
+    expect(readFileSync(stableCopy, "utf8")).toBe(`${expectedRules()}\n`);
+});
+
+test("a startup writes the stable copy that a wrapper appends", () => {
+    runHook("startup");
+
+    expect(readFileSync(stableCopy, "utf8")).toBe(`${expectedRules()}\n`);
+});
+
+test("a stale stable copy is replaced", () => {
+    mkdirSync(stableDir, { recursive: true });
+    writeFileSync(stableCopy, "old text\n");
+
+    runHook("startup");
+
+    expect(readFileSync(stableCopy, "utf8")).toBe(`${expectedRules()}\n`);
+});
+
+test("an unchanged stable copy keeps its mtime", () => {
+    runHook("startup");
+    const past = new Date(Date.now() - 3_600_000);
+    utimesSync(stableCopy, past, past);
+
+    runHook("startup");
+
+    expect(Math.floor(statSync(stableCopy).mtimeMs / 1000)).toBe(Math.floor(past.getTime() / 1000));
+});
+
+test("no temp file is left beside the stable copy", () => {
+    runHook("startup");
+
+    expect(existsSync(stableCopy)).toBe(true);
+    expect(Bun.spawnSync(["ls", stableDir]).stdout.toString().trim()).toBe("working-rules.md");
+});
+
+test("an old-layout CLAUDE.md with a moved heading is silent", () => {
+    for (const heading of ["Run to completion", "Grounding"]) {
+        writeFileSync(claudeMd, `# Role\n\n## ${heading}\n\nSome rule text.\n`);
+
+        const result = runHook("startup");
+
+        expect(result.exitCode).toBe(0);
+        expect(result.stdout).toBe("");
+    }
+});
+
+test("a CLAUDE.md without a whole-line moved heading still emits", () => {
+    writeFileSync(
+        claudeMd,
+        [
+            "# Role",
+            "",
+            "### Grounding",
+            "## Grounding and more",
+            "See the Run to completion section.",
+            " ## Decisions",
+            "## Core principles",
+            "",
+        ].join("\n"),
+    );
+
+    const result = runHook("startup");
+
+    expect(additionalContext(result.stdout)).toBe(expectedRules());
+});
+
+test("a missing CLAUDE.md still emits", () => {
+    const result = runHook("startup", { AC_GLOBAL_CLAUDE_MD: join(root, "absent.md") });
+
+    expect(additionalContext(result.stdout)).toBe(expectedRules());
+});
+
+test("a resume whose transcript already holds the rules is silent", () => {
+    const transcript = join(root, "session.jsonl");
+    writeFileSync(
+        transcript,
+        [
+            JSON.stringify({ type: "user", message: "hello" }),
+            JSON.stringify({
+                type: "attachment",
+                attachment: { type: "hook_additional_context", content: [`${FIRST_LINE}\nbody`] },
+            }),
+            "",
+        ].join("\n"),
+    );
+
+    const result = runHook("resume", {}, { transcript_path: transcript });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toBe("");
+});
+
+test("a resume whose transcript lacks the rules emits", () => {
+    const transcript = join(root, "session.jsonl");
+    writeFileSync(
+        transcript,
+        [
+            JSON.stringify({ type: "user", message: `quoting ${FIRST_LINE} in prose` }),
+            JSON.stringify({ type: "attachment", attachment: { type: "hook_additional_context", content: ["other"] } }),
+            "",
+        ].join("\n"),
+    );
+
+    const result = runHook("resume", {}, { transcript_path: transcript });
+
+    expect(additionalContext(result.stdout)).toBe(expectedRules());
+});
+
+test("a resume with a missing transcript emits", () => {
+    const result = runHook("resume", {}, { transcript_path: join(root, "absent.jsonl") });
+
+    expect(additionalContext(result.stdout)).toBe(expectedRules());
+});
+
+test("a startup ignores a transcript that holds the rules", () => {
+    const transcript = join(root, "session.jsonl");
+    writeFileSync(transcript, `${JSON.stringify({ type: "hook_additional_context", content: FIRST_LINE })}\n`);
+
+    const result = runHook("startup", {}, { transcript_path: transcript });
+
+    expect(additionalContext(result.stdout)).toBe(expectedRules());
+});
+
+test("without jq the rules go out as plain stdout", () => {
+    const bin = join(root, "bin");
+    mkdirSync(bin);
+    for (const tool of ["sh", "awk", "grep", "cmp", "mkdir", "dirname", "cat", "cp", "mv", "rm"]) {
+        const path = Bun.which(tool);
+        expect(path).not.toBeNull();
+        symlinkSync(path as string, join(bin, tool));
+    }
+
+    const result = runHook("startup", { PATH: bin });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toBe(`${expectedRules()}\n`);
+    expect(readFileSync(stableCopy, "utf8")).toBe(`${expectedRules()}\n`);
+});

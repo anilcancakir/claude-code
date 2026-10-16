@@ -18,8 +18,21 @@ const RULES = join(
     "working-rules.md",
 );
 
+const TEMPLATE = join(
+    dirname(fileURLToPath(import.meta.url)),
+    "..",
+    "..",
+    "..",
+    "plugins",
+    "ac",
+    "references",
+    "global-claude-md-section-template.md",
+);
+
 const START = "<!-- ac:working-rules:start -->";
 const END = "<!-- ac:working-rules:end -->";
+const TEMPLATE_START = "<!-- ac:delegation:start -->";
+const TEMPLATE_END = "<!-- ac:delegation:end -->";
 
 const SECTIONS = [
     "Reading the request",
@@ -44,11 +57,11 @@ function occurrences(haystack: string, needle: string): number {
     return haystack.split(needle).length - 1;
 }
 
-function extract(source: string): string {
-    const start = source.indexOf(START);
-    const end = source.indexOf(END);
+function extract(source: string, startMarker = START, endMarker = END): string {
+    const start = source.indexOf(startMarker);
+    const end = source.indexOf(endMarker);
 
-    return source.slice(start + START.length, end).trim();
+    return source.slice(start + startMarker.length, end).trim();
 }
 
 const source = readFileSync(RULES, "utf8");
@@ -77,7 +90,16 @@ test("the block fits one hook output with headroom", () => {
 });
 
 test("the block carries no en-dash or em-dash", () => {
-    expect(block).not.toMatch(/[–—]/);
+    expect(block).not.toMatch(new RegExp(`[${String.fromCharCode(0x2013, 0x2014)}]`));
+});
+
+test("the CLAUDE.md template block keeps none of the moved sections", () => {
+    const template = extract(readFileSync(TEMPLATE, "utf8"), TEMPLATE_START, TEMPLATE_END);
+    const headings = template.split("\n").filter((line) => line.startsWith("## "));
+
+    for (const section of SECTIONS) {
+        expect(headings).not.toContain(`## ${section}`);
+    }
 });
 
 test("the block is not written in the user's voice", () => {

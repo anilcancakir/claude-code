@@ -7,9 +7,9 @@ Read at Phase 1e. The skill body carries the write, the lifecycle rule, and the 
 ```
 ACCUMULATED_WISDOM = []                 # max 15 items total, max 5 added per wave
 MODIFIED_FILES = []                     # tracked across waves; passed to Phase 3 code-review
-STEP_FAILURES = []                      # one {step, wave} per failure after tier-escalation retry; 2j asks whether
+STEP_FAILURES = []                      # one {step, wave} per step at terminal failure; 2j asks whether
                                         # three of them span two or more waves, which a scalar counter cannot answer
-WORKER_RETRY_PER_STEP = {}              # max 1 tier-escalation retry per step
+WORKER_RETRY_PER_STEP = {}              # retries spent per step (effort rung, tier rung), max 2
 ```
 
 No Phase 3 counters live here or anywhere else. The review is one pass and `.ac/plans/<slug>/review-log.md` holds its outcome as a record, per the `## Standing rules` block.

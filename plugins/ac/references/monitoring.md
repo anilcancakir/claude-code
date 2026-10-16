@@ -14,8 +14,8 @@ The Group D scheduling trim in `install-settings.md` denies `CronCreate`, `CronD
 `CronList`, `ScheduleWakeup`, `RemoteTrigger` and `TaskOutput`, and turns the `loop` and `schedule`
 skills off. `permissions.deny` strips a tool's schema rather than only blocking the call, so for a
 trimmed operator those tools are ABSENT: there is nothing to reach for and no denial comes back.
-Nothing announces the gap either, which is the problem this file and the CLAUDE.md section exist
-to close.
+Nothing announces the gap either, which is the problem this file and the Watching sentence under
+`## My workflow` in the global CLAUDE.md exist to close.
 
 The gap has a second half worth naming. The `schedule` skill body is the only built-in that points
 cron work at `Monitor` ("streams events as they happen; cron polls on a schedule"), and Group D
@@ -24,8 +24,8 @@ turns that skill off, so the trim removes the signpost along with the road.
 This matters before `ToolSearch` rather than after. `Monitor` sets `shouldDefer: true`, so its
 description arrives only once the model has already decided to reach for it, and the deferred-tools
 reminder carries bare names with no search hint. The decision to watch at all happens a turn
-earlier. That is why the generated global CLAUDE.md carries a short `Watching something over time`
-section, and why this file restates nothing the tool description already delivers.
+earlier. That is why the generated global CLAUDE.md carries a short Watching sentence under
+`## My workflow`, and why this file restates nothing the tool description already delivers.
 
 Cron is the wrong shape even where it survives, for one verified reason: jobs fire only while the
 REPL sits idle, never mid-query.
@@ -72,12 +72,12 @@ with an hour left to run, and a poll loop without it dies on the first rate limi
 ## Two gates that change what any of this means
 
 `Monitor` sits behind a feature flag that defaults to false, so an operator can receive the
-CLAUDE.md section and have no such tool. That degrades correctly on its own: `Run to completion`
-already says to substitute the nearest working mechanism and say so. Do not add a hedge to the
-section for it.
+Watching sentence and the main-thread working rules and have no such tool. That degrades correctly
+on its own: `Run to completion` in `plugins/ac/references/working-rules.md` already says to
+substitute the nearest working mechanism and say so. Do not add a hedge to either for it.
 
 The tool's own description branches on `backgroundTasksDisabled`. With background tasks disabled it
 stops recommending `Bash` with `run_in_background` for the single-notification case and points at a
-foreground `until` loop instead. The CLAUDE.md section names `run_in_background`, so on a machine
-with that setting the section and the description disagree by one word. Check the setting before
-trusting either.
+foreground `until` loop instead. The `Run to completion` rule in `working-rules.md` names
+`run_in_background`, so on a machine with that setting the rule and the description disagree by one
+word. Check the setting before trusting either.

@@ -92,6 +92,10 @@ against a body that asks for two to three passes. A blank field in a template ge
 sentence elsewhere telling you to say how deep to go does not, and one has been in the global
 CLAUDE.md the whole time.
 
+For an `ac:explore` spawn, also pass the Agent tool's `effort` taken from `DEPTH`: `quick` is `"low"`, `medium` is
+`"medium"`, `thorough` is `"high"`. The Agent tool only accepts `effort` when a skill asks for it, and this is that
+instruction. The value overrides the agent's own `medium` for that one spawn. `ac:librarian` spawns pass no `effort`.
+
 ## Stage 3.5 oracle brief shape
 
 Spawn one `ac:oracle` with `run_in_background: true`. Build the brief by selecting only the GOAL bullets matching the fired triggers (skip the rest):
