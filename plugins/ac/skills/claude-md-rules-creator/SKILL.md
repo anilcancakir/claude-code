@@ -121,7 +121,7 @@ These ten rules drive every authoring decision. Detail and source in the referen
     - Name the concrete behavior, not the category. Anthropic documents 5.5 as "responsive to instructions that name the specific kinds of early stop" (a summary that announces the next step instead of taking it), and a generic "avoid a generic AI look" as merely swapping one design default for another.
     - A delegation limit belongs here if the user wants one: the host dropped the Opus 5 line that suppressed Agent use, and the 5.5 Agent tool encourages it.
     - Skip lines the file cannot act on. Effort is set by `/effort` or agent frontmatter, not prose, and 5.5 thinks at its own depth, so "think carefully" costs bytes and latency. The host already reminds 5.5 after five silent turns, so no "update me every N steps".
-    - Cost is per turn and per spawn. The block is cache-read on every main-thread turn (cheap: $0.20 per MTok on 5.5) and re-sent whole to every subagent whose definition does not set `omitClaudeMd: true`. Prune for the spawn count, not only the line count. The ac plugin's working rules (`plugins/ac/references/working-rules.md`) are outside that block: they reach the main thread only.
+    - Cost is per turn and per spawn. The block is cache-read on every main-thread turn (cheap: $0.20 per MTok on 5.5) and re-sent whole to every subagent whose definition does not set `omitClaudeMd: true`. Prune for the spawn count, not only the line count. The ac plugin's working rules (`${CLAUDE_PLUGIN_ROOT}/references/working-rules.md`) are outside that block: they reach the main thread only.
 
 ## Choosing the file shape inside the CLAUDE.md layer
 

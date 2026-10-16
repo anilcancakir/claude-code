@@ -76,7 +76,7 @@ Gated on a per-model prompt bundle, not on the lean/classic shape.
 Do not use the ${Agent} tool, workflows, or deep-research unless the user, a CLAUDE.md file, or a skill asks for it
 ```
 
-On an ac setup the routing lines that name `ac:oracle`, `ac:explore` and the plan commands stay in CLAUDE.md, so "a CLAUDE.md file ... asks" still holds; the working rules themselves (`plugins/ac/references/working-rules.md`) arrive on the main thread only, through the append file or the SessionStart hook.
+On an ac setup the routing lines that name `ac:explore`, `ac:librarian` and `ac:oracle` stay in CLAUDE.md, so "a CLAUDE.md file ... asks" still holds; the working rules themselves (the plugin's `references/working-rules.md`) arrive on the main thread only, through the append file or the SessionStart hook.
 
 ```text
 # Delivering work

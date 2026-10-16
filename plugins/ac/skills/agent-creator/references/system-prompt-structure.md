@@ -348,7 +348,7 @@ The body is the agent's system prompt; the orchestrator injects it once at spawn
 Do not include:
 
 - **Generic LLM advice.** The model already knows how to use Read and Grep. Skip "use Read for files, Grep for content".
-- **CLAUDE.md content.** Agents auto-load CLAUDE.md unless flagged otherwise. Do not duplicate convention rules in the body. The ac plugin's working rules (`plugins/ac/references/working-rules.md`) are not part of that CLAUDE.md: they reach the main thread only, so restate any the agent needs.
+- **CLAUDE.md content.** Agents auto-load CLAUDE.md unless flagged otherwise. Do not duplicate convention rules in the body. The ac plugin's working rules (its `references/working-rules.md`) are not part of that CLAUDE.md: they reach the main thread only, so restate any the agent needs.
 - **Trivia about the codebase.** Conventions belong in CLAUDE.md (which the agent loads); deep architecture goes in `references/` skill files (which the agent loads only if needed). The body should be focused on what THIS agent does differently.
 - **Long worked examples.** Show one or two if they clarify shape; more is bloat.
 - **Documentation of the Agent tool interface.** The orchestrator handles spawning; the agent body never describes how it is called.

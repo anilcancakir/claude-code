@@ -511,7 +511,8 @@ then `AskUserQuestion` (`Edit plan to fill the gap and re-verify` / `Accept as R
    `xhigh`). Raising effort on the same model costs less than a tier step, and a step that failed on thin
    reasoning is the case it fits. Skip the rung when effort cannot rise: Haiku 4.5 on Bedrock, Vertex and Foundry
    takes no effort parameter, and `CLAUDE_CODE_EFFORT_LEVEL` set to any value removes the parameter from the
-   Agent tool. Then the first failure goes straight to rung 2.
+   Agent tool. Then the first failure goes straight to rung 2. The rung follows the tier actually spawned: a
+   `quick` step routed to `ac:plan-worker-junior` by the codebase-state rule in 1c retries at `xhigh`.
 2. **Tier rung, second failure** (or the first when rung 1 is skipped): re-spawn one tier up (`quick` to `junior`,
    `junior` and `junior-high` to `senior`) at the new tier's default effort, with no `effort` argument.
 

@@ -127,7 +127,7 @@ Agent({
 })
 ```
 
-Each block also passes the Agent tool's `effort`, mapped from its `DEPTH` line: `shallow` is `"low"`, `medium` is `"medium"`, `deep` is `"high"`. `deep` is not an `ac:explore` depth word (the agent's own vocabulary is quick, medium and thorough), so the effort field is what carries the intent. The Agent tool only accepts `effort` when a command asks for it, and this is that instruction; it overrides the agent's own `medium` for that one spawn.
+Each block also passes the Agent tool's `effort`, mapped from its `DEPTH` line: `shallow` is `"low"`, `medium` is `"medium"`, `deep` is `"high"`. `deep` is not an `ac:explore` depth word (the agent's own vocabulary is quick, medium and thorough), so the effort field is what carries the intent. The Agent tool takes `effort` only when a command asks for it, and this is that instruction; it overrides the agent's own `medium` for that one spawn. Omit it when `CLAUDE_CODE_EFFORT_LEVEL` is set, which removes the parameter, and on a `haiku` that resolves to Haiku 4.5 (Bedrock, Vertex, Foundry), which takes none.
 
 Wait for all four agents to return before continuing, by ending the turn with a one-line status: each completion arrives as a task-notification that starts your next turn. Never poll one with a `sleep` loop or by re-reading its output file. Merge their reports into a single findings list keyed by file path. The merged list feeds the Phase 2 interview and placement pass.
 

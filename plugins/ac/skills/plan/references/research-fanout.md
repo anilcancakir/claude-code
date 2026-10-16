@@ -89,12 +89,14 @@ REQUEST: [what to return, format, what to skip]
 mean and neither can apply one you did not send; measured across every shipped brief, none carried
 either field, so every run used the agent's own default and explore averaged 36.6 tool calls
 against a body that asks for two to three passes. A blank field in a template gets filled. A
-sentence elsewhere telling you to say how deep to go does not, and one has been in the global
-CLAUDE.md the whole time.
+sentence elsewhere telling you to say how deep to go does not, and one has been in the ac working
+rules (`# Research and review`, previously the global CLAUDE.md) the whole time.
 
 For an `ac:explore` spawn, also pass the Agent tool's `effort` taken from `DEPTH`: `quick` is `"low"`, `medium` is
-`"medium"`, `thorough` is `"high"`. The Agent tool only accepts `effort` when a skill asks for it, and this is that
+`"medium"`, `thorough` is `"high"`. The Agent tool takes `effort` only when a skill asks for it, and this is that
 instruction. The value overrides the agent's own `medium` for that one spawn. `ac:librarian` spawns pass no `effort`.
+Omit it when `CLAUDE_CODE_EFFORT_LEVEL` is set, which removes the parameter, and on a `haiku` that resolves to Haiku
+4.5 (Bedrock, Vertex, Foundry), which takes none.
 
 ## Stage 3.5 oracle brief shape
 

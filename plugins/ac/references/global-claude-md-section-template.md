@@ -201,8 +201,9 @@ that is the `attribution.commit` setting.
 WHERE THE WORKFLOW TEXT LIVES NOW. The eight workflow sections (Reading the request through Before
 you call it done) moved to plugins/ac/references/working-rules.md, and its maintainer note carries
 the per-section evidence that used to sit here. The per-user fragments (end-to-end trigger words,
-stack check, test tools, blocked pages, the Watching sentence) stay in `My workflow`. They reach the main
-thread only, through `--append-system-prompt-file` or a SessionStart hook, and never a subagent.
+stack check, test tools, blocked pages, the Watching sentence) stay in `My workflow`. The eight moved
+sections reach the main thread only, through `--append-system-prompt-file` or a SessionStart hook, and
+never a subagent.
 This block did reach subagents, and a subagent spawn writes its messages[0] as cache creation, not a
 cache read: measured 2026-10-16 on 2.1.301, about 23,000 to 34,000 tokens created against about
 9,200 read, so the block's roughly 2,200 tokens were paid fresh on every spawn. What stays here is
@@ -249,7 +250,7 @@ When a task needs an author, owner, name, or email (`@author`, package manifest,
 
 - `ac:explore` when a search needs more than about three queries or spans several naming conventions. Internal code only.
 - `ac:librarian` for anything outside this repository: library behavior, framework idioms, an API contract.
-- `ac:oracle` before you report a change across more than one file, or one that is hard to reverse, as done, and before a research result changes a decision.
+- `ac:oracle` before you report a change across more than one file, or one that is hard to reverse, as done, and before a research result changes a decision. Inside `/ac:execute` or `/ac:auto`, their own review gate is that review, and a subagent leaves the call to its parent.
 
 ## My workflow
 

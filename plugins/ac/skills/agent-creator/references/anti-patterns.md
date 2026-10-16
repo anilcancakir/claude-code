@@ -136,7 +136,7 @@ Common agent-authoring mistakes specific to agents (above and beyond the general
 
 **Symptom**: Token bloat. Agent already auto-loads CLAUDE.md (unless the frontmatter sets `omitClaudeMd: true`, available since Claude Code 2.1.271).
 
-**Fix**: Trust CLAUDE.md. The body only adds what is specific to THIS agent's role, not the codebase. The exception is the ac plugin's working rules (`plugins/ac/references/working-rules.md`): they reach the main thread only, never a subagent, so the body restates any workflow rule its agent needs.
+**Fix**: Trust CLAUDE.md. The body only adds what is specific to THIS agent's role, not the codebase. The exception is the ac plugin's working rules (its `references/working-rules.md`): they reach the main thread only, never a subagent, so the body restates any workflow rule its agent needs.
 
 ### Aggressive caps everywhere
 
