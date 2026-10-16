@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - `ac:init-project` Phase 5 and `lsp-wiring.md` Rule 1b: the language-server proposal now drops extensions an enabled plugin already serves and plugins the user set to `false`, so it cannot re-enable `php-lsp@claude-plugins-official` over `ac-php-lsp`.
+- CI and the preflight rules now run `bun run test:node`, the `node:sqlite` suites that bun cannot load, on Node 24. The 22.13 floor in `engines` is not exercised in CI.
 - `/ac:install` Phase 3 and the global CLAUDE.md template: `Identity` now carries the git identity separately when its email differs from the author email. Commit author, `Co-Authored-By` and `Signed-off-by` trailers, and PR sign-offs take the global `git config user.email`; everything else keeps the author identity. With one identity for both, briefs and commits passed `git -c user.email=` or `--author` and committed under the author address instead of the git one.
 
 ### Fixed

@@ -15,6 +15,10 @@ jobs:
 
       - uses: oven-sh/setup-bun@v2
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
       - name: Install dependencies
         run: cd cli/ac && bun install --frozen-lockfile
 
@@ -23,3 +27,7 @@ jobs:
 
       - name: Test
         run: cd cli/ac && bun test
+
+      # The node:sqlite suites only run under Node; bun cannot load the binding.
+      - name: Test (node:sqlite)
+        run: cd cli/ac && bun run test:node
