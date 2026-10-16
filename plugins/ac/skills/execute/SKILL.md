@@ -704,7 +704,8 @@ CRITICAL findings fixed and re-verified, or none returned. Advance to 3e.
 ### 3e. QA pass
 
 Runs when `QA_ENABLED` is true and `NO_QA` is unset. Otherwise emit one heartbeat line naming which of the two skipped
-it and go straight to Phase 4.
+it and go straight to Phase 4. A plan step that already walked the app live does not replace the pass: its Layer C
+evidence reaches the tester as `Existing evidence`, and the tester skips those scenarios and still runs the rest.
 
 1. Emit one heartbeat line (`QA pass: running ac:qa for <slug>`) and refresh the marker's `note` so a resume knows
    where the run stands (`Phase 3e QA in progress; run ac:qa --plan <slug> again or go to 4a`).
@@ -714,13 +715,20 @@ it and go straight to Phase 4.
    Skill({ skill: "ac:qa", args: "--plan <slug>" })
    ```
 
-3. When its `QA result:` block prints, append its `fixed files` to `MODIFIED_FILES` (nothing for `none`) and append the
-   block to `.ac/plans/<slug>/review-log.md` under `## Run <marker started_at>`, the header 3a opened. The skill has
-   already triaged and fixed by the 3c rules and run its one retest, so do not re-triage or re-run it here. When
-   `fixed files` is not `none`, re-run 3a (whole-project build, test and lint) before 4a: those edits landed after
-   the review and after 3a, and 4a commits with `--skip-preflight` on the strength of 3a having covered them.
-4. Continue to 4a in the same turn. Under `--plan` the block is a hand-back to this skill, not a turn end; ending
-   the turn on it would meet the live marker's `Stop` guard.
+   Its tester runs in the background, so `ac:qa` may end a turn with `QA: tester running for run <run id>; resuming on
+   its notification`. That wait is expected: the notification resumes inside `ac:qa`, and the `Stop` guards allow the
+   stop because they count a running subagent. Do not poll, sleep or read the tester's output file, and do not treat
+   that turn end as the QA result.
+3. When the skill finishes, read `result.txt` in the directory of the block's `report:` path, the file `ac:qa` wrote
+   before printing its block, and append that content to `.ac/plans/<slug>/review-log.md` under
+   `## Run <marker started_at>`, the header 3a opened. With `report: none` the printed block is the record. When the
+   file is missing, append the printed block plus `result.txt missing`, and still apply the rule below. Append its
+   `fixed files` to `MODIFIED_FILES` (nothing for `none`). The skill has already triaged and fixed by the 3c rules and
+   run its one retest, so do not re-triage or re-run it here. When `fixed files` is not `none`, re-run 3a
+   (whole-project build, test and lint) before 4a: those edits landed after the review and after 3a, and 4a commits
+   with `--skip-preflight` on the strength of 3a having covered them.
+4. Continue to 4a in the turn the block prints. Under `--plan` the block is a hand-back to this skill, not a turn end;
+   ending the turn on it would meet the live marker's `Stop` guard.
 
 Every QA status (`passed`, `findings`, `could-not-run`, `skipped`) continues to Phase 4, and none is a BLOCKER. An
 unattended run must not stop because a dev server would not boot or a QA tool was missing: that is recorded in the
