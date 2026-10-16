@@ -191,7 +191,7 @@ Common user requests mapped to the action this skill takes. Use these as pattern
 | User says | This skill does |
 |-----------|-----------------|
 | ANY of the patterns below | First: read the `Contents of <path>` headers in your context to see what is already loaded. Grep those files for the topic. Cross-check against the CC built-in system prompt list in `${CLAUDE_SKILL_DIR}/references/layered-context.md`. Decide skip / edit-in-place / move / new BEFORE drafting. |
-| "Add X to CLAUDE.md" / "tell Claude X" / "remember X for the team" | After the audit: determine scope (team / user-global / personal), pick shape (inline CLAUDE.md vs `.claude/rules/<topic>.md`), draft with attribution comment, verify the file appears under a `Contents of` header (or ask the user to confirm it in `/memory`). |
+| "Add X to CLAUDE.md" / "tell Claude X" / "remember X for the team" | After the audit: determine scope (team / user-global / personal), pick shape (inline CLAUDE.md vs `.claude/rules/<topic>.md`), draft with attribution comment, then ask the user to confirm the load in `/memory` (or check in a fresh session). |
 | "Init CLAUDE.md" / "set up project memory" / "scaffold CLAUDE.md for this repo" | Copy `${CLAUDE_SKILL_DIR}/assets/CLAUDE.template.md` to `./CLAUDE.md`. Detect stack from manifest files. Fill stack, structure (non-obvious only), commands, verification loop, conventions, off-limits, git etiquette. Add attribution comment. |
 | "Make a rule that only applies to X" / "scoped rule for `src/api/`" | Create `./.claude/rules/<topic>.md` with `paths:` (NOT `globs:`). Verify glob with a mental trace. Warn that path-scoped rules load on Read, on Write or Edit (2.1.288) and on a single-file Bash `cat`, `head`, `tail`, `sed -n` or `grep` (2.1.293), persist after first match, and are summarized by compact. |
 | "My CLAUDE.md is over 200 lines / Claude is ignoring rules" | Confirm the file appears under a `Contents of` header. Identify universal core (stack/commands/off-limits). Move topic content to `.claude/rules/<topic>.md`. Move long content to `@path` imports. Cut every line that fails "would removing this cause Claude to make mistakes?". |
@@ -208,7 +208,7 @@ Walk these in order.
 
 ### 1. Audit the existing layered context
 
-Before any drafting, read the `Contents of <path>` headers in your context: each names one CLAUDE.md, CLAUDE.local.md or rule file loaded in this session, and a path-scoped rule appears only after a matching file was read. `/memory` is a dialog only the user can open; ask them to run it when you need the authoritative list. Then for the topic of the new rule:
+Before any drafting, read the `Contents of <path>` headers in your context: each names one CLAUDE.md, CLAUDE.local.md or rule file loaded in this session, and a path-scoped rule appears only after a matching file was read. The headers are fixed when the session loads its memory files, so they never show a file you write or move during the session. `/memory` is a dialog only the user can open, and opening it reloads the files; ask them to run it when you need the authoritative list, and for every check after writing. Then for the topic of the new rule:
 
 - Grep the loaded files for keywords related to the topic.
 - Check the built-in prompt text in `${CLAUDE_SKILL_DIR}/references/claude-code-builtin-prompts.md` for overlap, on the shape the readers' model gets: section 1 for Opus 5.5, Sonnet 5.5, Haiku 5.5 and other LEAN models, section 3 for Sonnet 5 and earlier, Haiku 4.5 and Opus 4.0 to 4.7, section 5 for what every subagent already receives. If the shape already says it, skip. If the rule contradicts it, write it as an explicit override or drop it.
@@ -222,7 +222,7 @@ Before any drafting, read the `Contents of <path>` headers in your context: each
 3. Cross-check CC built-in defaults: package-manager preference is NOT in the CC system prompt cheat sheet. Not a duplicate with CC.
 4. Decision: user-global already covers it FOR YOU. But teammates may have different user-globals (or none). If the team needs ENFORCEMENT, the rule belongs in project `./CLAUDE.md` (committed, every contributor gets it). If it is just your personal preference, user-global is enough.
 5. Ask the user: "Your `~/.claude/CLAUDE.md` already says 'prefer pnpm over npm'. Do you want this enforced for the whole TEAM (commit to `./CLAUDE.md`), or is your user-global rule enough?"
-6. Based on the answer: skip (user-global is enough), or write to `./CLAUDE.md` with sharper wording ("Use `pnpm`. Do NOT run `npm install`.") + attribution comment + check the file appears under a `Contents of` header after.
+6. Based on the answer: skip (user-global is enough), or write to `./CLAUDE.md` with sharper wording ("Use `pnpm`. Do NOT run `npm install`.") + attribution comment + ask the user to confirm the load in `/memory` after.
 
 Skipping this audit step is the single most common cause of "Claude is not following my CLAUDE.md" complaints later. The model is usually not ignoring the rule; two layers are saying different things and the model is reconciling badly.
 
@@ -306,7 +306,7 @@ Before declaring it done:
 3. **No aspirations, no platitudes, no secrets.** Skim for "we aim", "always", "good code", credentials.
 4. **No file-by-file tours, no standard-language conventions.** Skim for redundancy with what the model already knows.
 5. **Every rule is specific enough to verify.** Skim for vague verbs like "format properly", "handle errors", "test thoroughly".
-6. **No conflicts with other CLAUDE.md files in the hierarchy.** After editing, check the `Contents of` headers (or ask the user to run `/memory`): every file the runtime sees is listed. If you have project-team + project-personal at the same level, scan for contradictions.
+6. **No conflicts with other CLAUDE.md files in the hierarchy.** After editing, ask the user to run `/memory` (the `Contents of` headers still show the session-start load): every file the runtime sees is listed. If you have project-team + project-personal at the same level, scan for contradictions.
 7. **`@path` imports resolve.** Every imported file exists; circular imports detected by the loader but messy in practice.
 8. **`# CLAUDE.md` preface present** for project-team file.
 9. **`CLAUDE.local.md` in `.gitignore`** for project-personal scope. The `/init` command adds this automatically when generating the file.
@@ -364,7 +364,7 @@ Check the items that apply to your file's shape:
 - [ ] (`.claude/rules/<topic>.md` without `paths:`) Topic is universal and one focused subject; not a dumping ground.
 - [ ] (Imports) `@path` references resolve; no chain deeper than four hops; external imports approved if needed.
 - [ ] (HTML comments) Maintainer notes wrapped in `<!-- ... -->` are block-level (own line); inline comments survive injection.
-- [ ] The file appears under a `Contents of` header (or the user confirmed it in `/memory`). If not, the path is wrong, the scope source is disabled, or `claudeMdExcludes` is filtering it.
+- [ ] The user confirmed the file in `/memory`, or it appears under a `Contents of` header in a fresh session. If not, the path is wrong, the scope source is disabled, or `claudeMdExcludes` is filtering it.
 - [ ] (Hook command) No secret or credential appears in the hook command string.
 - [ ] (Hook script) A path-containment guard is present, rejecting any target outside the intended directory.
 - [ ] (Settings merge) A timestamped backup of the settings file was taken before the merge.

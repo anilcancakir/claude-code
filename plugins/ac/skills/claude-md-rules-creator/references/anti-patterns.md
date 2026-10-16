@@ -31,7 +31,7 @@ Symptom: rule loads at session start every session regardless of which files Cla
 
 Why: only `paths:` is recognized by the loader. Any other key (including `globs:`, which appears in many tutorials and old docs) is silently ignored; the rule is treated as if it had no frontmatter and loads unconditionally.
 
-Fix: rename the frontmatter key to `paths:`. Verify in the `Contents of` headers: if the rule appears even when no matching file has been read, it is still unconditional.
+Fix: rename the frontmatter key to `paths:`. Verify in a fresh session's `Contents of` headers: if the rule appears even when no matching file has been read, it is still unconditional.
 
 ```yaml
 # Wrong - rule loads every session
@@ -237,7 +237,7 @@ Symptom: rule applies to you but teammates do not see it. "Consistency" breaks s
 
 Why: `~/.claude/CLAUDE.md` is yours alone. Teammates have their own.
 
-Fix: move team-shared rules to `./CLAUDE.md`. Commit. Check the `Contents of` headers to verify the project loads the file.
+Fix: move team-shared rules to `./CLAUDE.md`. Commit. Ask the user to confirm in `/memory`, or check a fresh session's `Contents of` headers, that the project loads the file.
 
 **Personal config in team CLAUDE.md.**
 
@@ -276,7 +276,7 @@ Possible paths:
 - Local: `<dir>/CLAUDE.local.md` at the project root.
 - Project CLAUDE.md: `<dir>/CLAUDE.md` OR `<dir>/.claude/CLAUDE.md`. Both are read.
 
-Fix: move the file. Confirm it appears under a `Contents of` header.
+Fix: move the file. Ask the user to confirm it in `/memory`; the current session's headers still show the old load.
 
 **Wrong filename case.**
 
@@ -434,7 +434,7 @@ Before shipping a CLAUDE.md or rule file, walk this:
 - [ ] Import graph depth no greater than 2.
 
 **Loading verification:**
-- [ ] The file appears under a `Contents of` header (or the user confirmed it in `/memory`) with the expected scope.
+- [ ] The user confirmed the file in `/memory` with the expected scope, or it appears under a `Contents of` header in a fresh session.
 - [ ] For path-scoped rules: read a matching file in a test session; verify the rule appears in the message stream after the read.
 - [ ] For canonical preface: project-team `./CLAUDE.md` starts with `# CLAUDE.md\n\nThis file provides guidance to Claude Code.`.
 

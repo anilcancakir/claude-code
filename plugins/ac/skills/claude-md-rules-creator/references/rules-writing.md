@@ -203,7 +203,7 @@ Walk these in order.
 
 **6. Add the `paths:` frontmatter for path-scoped files.** Use the most specific glob that captures the intent.
 
-**7. Verify the load.** Every file should appear under a `Contents of <path>` header in your context (a path-scoped rule only after a matching file was read), or in the user's `/memory` dialog if you ask them to open it. If a file is missing, the path is wrong; if it appears but the model is not following it, see the troubleshooting checklist in `loader-and-injection.md`.
+**7. Verify the load.** Ask the user to open `/memory`, which reloads the memory files, or check in a fresh session: every file should be listed (a path-scoped rule only after a matching file was read). The current session's `Contents of` headers still show the load from before you wrote. If a file is missing, the path is wrong; if it appears but the model is not following it, see the troubleshooting checklist in `loader-and-injection.md`.
 
 Before/after sketch for a hypothetical 350-line CLAUDE.md:
 

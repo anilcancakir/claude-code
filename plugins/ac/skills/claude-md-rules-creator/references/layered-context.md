@@ -108,7 +108,7 @@ When in doubt, read the `Contents of` headers (or ask the user to run `/memory`)
 
 Before writing or editing ANY CLAUDE.md or rule file:
 
-1. **Read the `Contents of <path>` headers in your context.** Each names one file loaded in this session; a path-scoped rule appears only after a matching file was read. `/memory` is a dialog only the user can open; ask them to run it when you need the authoritative list.
+1. **Read the `Contents of <path>` headers in your context.** Each names one file loaded in this session; a path-scoped rule appears only after a matching file was read. The headers are fixed when the session loads its memory files, so a file written or moved during the session does not show in them. `/memory` is a dialog only the user can open, and opening it reloads the files; ask them to run it when you need the authoritative list.
 2. **Identify the scope of the new rule.** Is it the team's? Yours alone? Org-wide?
 3. **Search the loaded stack for the topic.** Use Grep across the loaded files (and `~/.claude/CLAUDE.md`, the project's `./CLAUDE.md`, any `.claude/rules/*.md`, the global rules, and the CC system prompt sections you can audit).
 4. **For each existing mention of the topic, decide one of three actions:**
@@ -118,7 +118,7 @@ Before writing or editing ANY CLAUDE.md or rule file:
 5. **Check the CC built-in system prompt list above** for overlap. If the rule is already a built-in default, do NOT add it.
 6. **Check for conflicts:** does the new rule contradict any existing layer? If yes, either drop one or explicitly note the override in the higher-priority file.
 7. **Now write the new content** in the layer that best matches its scope, following the file shape (`CLAUDE.md` / `CLAUDE.local.md` / `.claude/rules/<topic>.md`).
-8. **Check again after writing**: the new file should appear under a `Contents of` header (or in the user's `/memory`) with no unexpected duplicates.
+8. **Check again after writing**: ask the user to run `/memory` (or check in a fresh session); the new file should be listed with no unexpected duplicates.
 
 The audit step takes a minute. It saves hours of "why is Claude ignoring this rule?" debugging later.
 
