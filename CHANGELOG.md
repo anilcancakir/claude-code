@@ -5,7 +5,9 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.30.0] - 2026-10-17
+
+Moves the ac workflow rules out of the global CLAUDE.md and into the main thread only. Measured on Claude Code 2.1.301, every subagent spawn re-wrote its CLAUDE.md as cache creation, so the roughly 2,200 tokens of workflow text were paid fresh on each of nine agents' spawns. The rules now ship as `references/working-rules.md` and reach the main thread through `--append-system-prompt-file` on a wrapper launch or a SessionStart hook otherwise; the CLAUDE.md block keeps the personal rules subagents still need. A Claude Mod was the first choice and is deferred: `prompt.compose` is bypassed for user-installed plugins on managed or Team sign-ins. Also adds the `ac-php-lsp` plugin, per-spawn effort, and an `ac:qa` hardened for background testers.
 
 ### Added
 
