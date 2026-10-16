@@ -79,7 +79,7 @@ Skip this phase when `NO_PUSH = true` or the Phase 1 upstream check printed `NO_
    On "Skip push", jump to Phase 5 with a note that the push was skipped.
 2. **Push strategy** (from the skill's Phase 5):
    - New commits only, no rewritten history → `git push`.
-   - Fixup commits applied or rebase happened → `git push --force-with-lease`. Plain `--force` is never used.
+   - Fixup commits applied or rebase happened → the push rewrites published history, which invoking `/ac:commit` did not ask for. Ask first with `AskUserQuestion` (header `Force push?`, options `Push with --force-with-lease` / `Skip push`), the same way the branch guard asks; on `Skip push`, jump to Phase 5 with a note. Plain `--force` is never used.
 3. Capture the push output (success line + remote ref). On failure, print the error and stop; the user resolves and re-invokes.
 
 ## Phase 5: Report
