@@ -35,6 +35,30 @@
                 "hooks",
                 "mcp"
             ]
+        },
+        {
+            "name": "ac-php-lsp",
+            "source": "./plugins/ac-php-lsp",
+            "description": "Intelephense for Claude Code, tuned for nested worktrees and Flutter monorepos: skips .claude/worktrees and build output so indexing finishes.",
+            "version": "0.1.0",
+            "author": {
+                "name": "Anilcan Cakir",
+                "email": "anilcan.cakir@gmail.com"
+            },
+            "homepage": "https://github.com/anilcancakir/claude-code",
+            "license": "MIT",
+            "category": "development",
+            "tags": [
+                "lsp",
+                "php"
+            ],
+            "keywords": [
+                "claude-code",
+                "lsp",
+                "php",
+                "intelephense",
+                "worktree"
+            ]
         }
     ]
 }
