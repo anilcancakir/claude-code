@@ -91,6 +91,8 @@ Run this even under `--dry-run`. Both briefs and the Phase 3 preview print these
 
 An earlier install leaves at least one of these: `RECORD`, the ac fence markers in `~/.claude/CLAUDE.md`, either `.bak-ac-install` backup, or the Group C fingerprint (`Agent(Plan)` in `permissions.deny` together with `env.CLAUDE_CODE_DISABLE_EXPLORE_PLAN_AGENTS`). With none of them there is nothing to upgrade from: say so, drop `UPGRADE`, and run the full install. Without `RECORD` but with any of the others, this is a setup from before the record existed; carry on, and the reference's "what counts as answered" rule infers the earlier answers from the keys on disk. When `PRIOR_VERSION` is newer than `PLUGIN_VERSION`, stop and say the plugin is older than the setup it would upgrade, since its templates would roll the CLAUDE.md block back.
 
+Without `--upgrade`, check the same evidence right after 0b. When any of it is present, ask once (header `Upgrade?`, options `Run as an upgrade (Recommended)` / `Full install`): a plain run on an installed machine re-asks every question an upgrade would infer from disk. On `Run as an upgrade`, set `UPGRADE` and continue.
+
 Per phase, under `UPGRADE`:
 
 - **0d.** Read both languages from the current CLAUDE.md and do not ask. Ask only when that file does not state one of them.
@@ -196,6 +198,7 @@ On an upgrade the current file is the answer sheet. Identity, conversation langu
 An old-layout file is one whose block still carries any of the workflow headings `${CLAUDE_PLUGIN_ROOT}/references/working-rules.md` now delivers (every `# ` heading between its `ac:working-rules` markers after the title), or a `## Watching something over time` section. Read those sections only to carry the operator's own fragments into `## My workflow`, then drop them; everything else in them is plugin text that working-rules.md now ships:
 
 - The end-to-end trigger words: the quoted phrases in the `Reading the request` row that ends "treat real usage as the finish line", every phrase kept.
+- The stop phrasings in the conversation language: the quoted examples in the `Run to completion` bullets ("Announcing the next step", "Offering to continue") that are not English. working-rules.md carries English examples only, and the operator's own phrasings are what the model actually sees.
 - The stack-specific verification line: the `Before you call it done` bullet shaped "On <stack>, <command> clean".
 - The real-world test tools: the parenthetical in the `Before you call it done` bullet "When I name the tool for the test (...)".
 - The blocked-pages bullet: any `Web research` bullet beyond the built-in, `mcp__plugin_ac_ac__web-fetch` and `gh` bullets that working-rules.md carries, carried with its facts kept.
@@ -279,7 +282,7 @@ On either apply path, write the file and delete the sidecar. On Skip, leave both
 
 ### 3d. Deliver the working rules
 
-Exactly one copy of the working rules may reach a main-thread context. The SessionStart hook (`${CLAUDE_PLUGIN_ROOT}/hooks/session-start-working-rules.sh`) emits them on every launch unless the global CLAUDE.md still carries a moved heading or the launch sets `AC_WORKING_RULES_APPENDED=1`; a wrapper that passes the file sets that variable on the same command, so the hook stays silent behind it.
+Exactly one copy of the working rules may reach a main-thread context. The SessionStart hook (`${CLAUDE_PLUGIN_ROOT}/hooks/session-start-working-rules.sh`) emits them on every launch unless the global CLAUDE.md still carries two or more moved headings or the launch sets `AC_WORKING_RULES_APPENDED=1`; a wrapper that passes the file sets that variable on the same command, so the hook stays silent behind it. One exception it handles itself: `--resume` and `-c` restore a session's first system prompt and ignore the new launch's append flags, so for a session first opened without the wrapper the hook reads the transcript's `prompt_snapshot` and emits anyway. Say in Phase 5 that the wrapper reaches the system prompt of new sessions only; a resumed older session gets the rules through the hook.
 
 1. **Write the stable copy.** `--append-system-prompt-file` passes the whole file it is given, maintainer comment included, so a wrapper points at the text between the `ac:working-rules` markers, never at the plugin file. Write it once now so the first wrapper launch finds it; the hook refreshes it on every later session start. Under `--dry-run`, print the target path and write nothing.
 
@@ -371,11 +374,11 @@ CLAUDE.md:    <written | merged + applied | whole file replaced | unchanged (upg
 Heading clash: <none | comma-list of headings both the block or working-rules.md and the operator's own content carry>
 Layout:       <new (working rules via wrapper) | new (working rules via SessionStart hook) | old (CLAUDE.md still carries <moved headings>; hook silent)>
 Rules copy:   <~/.claude/ac/working-rules.md written | empty (markers not found) | dry-run>
-Wrapper:      <added at <rc file>:<line>, backup <rc file>.bak-ac-install | already wired | declined | none found | not offered (<old layout | other append file>) | dry-run>
+Wrapper:      <added at <rc file>:<line>, backup <rc file>.bak-ac-install (new sessions; a resumed older session gets the hook copy) | already wired | declined | none found | not offered (<old layout | other append file>) | dry-run>
 CLAUDE.md backup: <~/.claude/CLAUDE.md.bak-ac-install | kept (pre-existing) | none (file absent, unchanged, or dry-run)>
 settings:     <merged | unchanged | skipped (--skip-settings) | dry-run>
 Group A:      <N tuning keys set | all already present>
-Group B:      <opt-ins applied: comma-list | none selected | all answered (upgrade) | skipped (dry-run)>
+Group B:      <opt-ins written this run: comma-list | none selected | already set (key present, possibly another value): comma-list | all answered (upgrade) | skipped (dry-run)>
 Group D:      <trims applied: comma-list | none selected | all answered (upgrade) | skipped (dry-run)>
 Output style: <set to ac:concise | left off | already set to <existing value>, untouched | skipped (dry-run)>
 Group F:      <auto-update on for: comma-list | left off (false written) | no candidates | none left (already set in /plugin) | skipped (updates disabled by <var>) | skipped (dry-run)>
@@ -396,7 +399,7 @@ Print these when they apply:
 - Restate the tradeoff of any Group B opt-in that was applied, or that the Group C migration made take effect by moving `skipDangerousModePermissionPrompt` to the top level. `skipWebFetchPreflight` drops the Anthropic domain-safety blocklist preflight, a known hang source tracked as anthropics/claude-code#34565. `skipDangerousModePermissionPrompt` and `acceptEdits` reduce confirmation friction by removing a confirmation.
 - `statusLine` needs `bun` or `npx` on PATH to render.
 - When `CLAUDE_CODE_RETRY_WATCHDOG` is set, say that every session, headless `claude -p` runs included, now waits through 429 and 529 errors without limit and up to a usage limit's reset time; an unattended job that must end needs an external timeout.
-- Removed env keys stay set in any Claude Code session that is already running; say that every open session needs a restart for the new settings to apply.
+- Removed env keys stay set in any Claude Code session that is already running; say that every open session needs a restart for the new settings to apply. The same holds for the working rules: a session already running when CLAUDE.md lost the workflow sections gets neither the append file nor the hook copy until it restarts, and resuming it with `-c` gives it the hook copy, not the system-prompt one.
 - For each report-only finding, give the exact line to remove or change and what it costs or duplicates. For an `ENABLE_TOOL_SEARCH` hit in a shell rc file, say the change reaches only a session started from a new shell.
 - When step 9 fired, say so: Group D denied the cron and wakeup tools in this run, so the Watching sentence was added to `My workflow` after Phase 3 had already written it. Name the sentence and the fact that the trim takes effect from the next session on, so nobody reads the new sentence as describing the session they are in.
 - Report the skill-listing cost, and write no setting for it. Claude Code loads every skill's `description` plus `when_to_use` on every main-thread turn under a budget of 1% of the model's context window, and an overflowing listing is trimmed starting with the skills the operator invokes least, silently. Say roughly what the operator's listing now costs, point at `/doctor` for the real figure and the biggest contributors, and name `skillListingBudgetFraction` as their lever if their own skills push them over. Raising that cap is a context tradeoff the operator owns, and the plugin cannot honestly widen a budget it is itself spending; Group D already refuses to make a context-cost change silently, and this is that decision inverted.

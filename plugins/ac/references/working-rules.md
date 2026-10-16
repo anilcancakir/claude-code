@@ -23,6 +23,12 @@ HOW IT IS DELIVERED, all measured 2026-10-16 on 2.1.301 under a Team sign-in:
                 2.1.301 the copy is persisted in the transcript, so every `--resume` adds another
                 one; on source=resume the hook reads `transcript_path` and stays silent when the
                 first line is already there. That is what the exact first line is for.
+  resume        `--resume` and `-c` restore the session's first system prompt from its
+                prompt_snapshot record and ignore the new launch's append flags (2.1.301 and
+                2.1.302), so a session first opened without the wrapper never gets the append
+                copy. Outside a fresh startup the hook reads the latest snapshot instead of
+                trusting the wrapper variable; /clear re-takes the system prompt from the
+                running launch's flags.
   subagents     never. Neither channel reaches a subagent (0 markers in both probes), which is why
                 the template's subagent sentences (the wait-in-the-foreground line in Run to
                 completion and the "In a subagent ... put it in your report" clause in Decisions)

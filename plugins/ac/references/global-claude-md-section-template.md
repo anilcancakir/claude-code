@@ -257,6 +257,7 @@ When a task needs an author, owner, name, or email (`@author`, package manifest,
 - <end-to-end bullet, shaped "- When I say <end-to-end trigger words from the interview, e.g. "ship it", "make it work">, treat real usage as the finish line, not a green build.">
 <stack-specific verification bullet, if any, shaped "- On <stack>, <command> clean": a framework analyzer, a linter, a type checker>
 - <real-world test bullet, shaped "- When I name the tool for a test (<real-world-test tools, e.g. SSH, browser automation, HTTP client, REPL>), run it through that tool and report what happened.">
+<optional stop-phrasings bullet, written only when the conversation language is not English: "- In <conversation language>, the needless stops in the working rules sound like <the operator's phrasings for announcing the next step and offering to continue, quoted>." The working rules quote English examples only.>
 <optional Blocked pages bullet: written only when the 3a interview reports a third fetch path. Shape: "- When the built-in and plugin fetch tools both fail on a WAF, use `<tool>`; name the failure, and <the one thing that is easy to get wrong about it>.">
 <optional Watching sentence, written as a plain line below the bullets only when 0b reports SCHEDULING_TRIMMED true. Emit exactly this, substituting nothing: "Cron and wakeup are denied in my settings, so there is no scheduled-job route; do not plan around one." Drop it when SCHEDULING_TRIMMED is false: cron still works for that operator and the sentence would be false.>
 
