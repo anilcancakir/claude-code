@@ -112,6 +112,7 @@ The CLI source at `cli/ac/` builds to `plugins/ac/cli/ac.js` as Node-targeted ES
 
 - Claude Code with plugin and marketplace support.
 - Node.js >= 22.13.0 for the bundled MCP runtime. The floor is 22.13.0 rather than 20 because the history archive uses the `node:sqlite` builtin, which is unflagged only from that version. The import is lazy, so an older Node loses `search-history` rather than the whole server.
+- On Windows, Git for Windows (Git Bash). The plugin's hooks are `sh` scripts; without Git Bash Claude Code runs them in PowerShell, where a guard that fails blocks the call.
 - [Bun](https://bun.sh) >= 1.1.0, for CLI development and builds only. Not needed to use the plugin.
 
 ## Contributing

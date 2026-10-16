@@ -31,7 +31,7 @@ Symptom: rule loads at session start every session regardless of which files Cla
 
 Why: only `paths:` is recognized by the loader. Any other key (including `globs:`, which appears in many tutorials and old docs) is silently ignored; the rule is treated as if it had no frontmatter and loads unconditionally.
 
-Fix: rename the frontmatter key to `paths:`. Verify by running `/memory`: if the rule appears even when no matching file has been touched, it is still unconditional.
+Fix: rename the frontmatter key to `paths:`. Verify in the `Contents of` headers: if the rule appears even when no matching file has been read, it is still unconditional.
 
 ```yaml
 # Wrong - rule loads every session
@@ -237,7 +237,7 @@ Symptom: rule applies to you but teammates do not see it. "Consistency" breaks s
 
 Why: `~/.claude/CLAUDE.md` is yours alone. Teammates have their own.
 
-Fix: move team-shared rules to `./CLAUDE.md`. Commit. Run `/memory` to verify the project loads the file.
+Fix: move team-shared rules to `./CLAUDE.md`. Commit. Check the `Contents of` headers to verify the project loads the file.
 
 **Personal config in team CLAUDE.md.**
 
@@ -261,13 +261,13 @@ Symptom: same rule in `~/.claude/CLAUDE.md` AND `./CLAUDE.md`. Wastes attention 
 
 Why: copy-paste. Or rule moved between scopes without removing the original.
 
-Fix: each rule lives in exactly one scope. Run `/memory`, scan for duplication.
+Fix: each rule lives in exactly one scope. Scan the `Contents of` headers for duplication.
 
 ## Loading failures
 
 **File at wrong path.**
 
-Symptom: rule written, `/memory` does not list the file.
+Symptom: rule written, no `Contents of` header names the file.
 
 Possible paths:
 
@@ -276,7 +276,7 @@ Possible paths:
 - Local: `<dir>/CLAUDE.local.md` at the project root.
 - Project CLAUDE.md: `<dir>/CLAUDE.md` OR `<dir>/.claude/CLAUDE.md`. Both are read.
 
-Fix: move the file. Run `/memory` to confirm it loaded.
+Fix: move the file. Confirm it appears under a `Contents of` header.
 
 **Wrong filename case.**
 
@@ -288,7 +288,7 @@ Fix: rename to exactly `CLAUDE.md`.
 
 **Settings-source disabled.**
 
-Symptom: file is on disk but `/memory` does not show it. Other CLAUDE.md files load fine.
+Symptom: file is on disk but no `Contents of` header (and not the user's `/memory`) shows it. Other CLAUDE.md files load fine.
 
 Why: `--setting-sources` flag may exclude `user`, `project`, or `local` settings (and corresponding CLAUDE.md files). Or `CLAUDE_CODE_DISABLE_CLAUDE_MDS=1` is set.
 
@@ -434,7 +434,7 @@ Before shipping a CLAUDE.md or rule file, walk this:
 - [ ] Import graph depth no greater than 2.
 
 **Loading verification:**
-- [ ] Run `/memory`: the file appears in the loaded list with the expected scope.
+- [ ] The file appears under a `Contents of` header (or the user confirmed it in `/memory`) with the expected scope.
 - [ ] For path-scoped rules: read a matching file in a test session; verify the rule appears in the message stream after the read.
 - [ ] For canonical preface: project-team `./CLAUDE.md` starts with `# CLAUDE.md\n\nThis file provides guidance to Claude Code.`.
 

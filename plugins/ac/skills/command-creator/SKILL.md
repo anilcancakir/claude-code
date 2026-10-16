@@ -45,7 +45,7 @@ Is a slash command the right tool at all?
 ├── Single fact, no action → CLAUDE.md note, route through `ac:claude-md-rules-creator`. Not a command.
 ├── Reference content for the model (conventions, style) → reference skill, route through `ac:skill-creator`. Not a command.
 ├── Deterministic enforcement (must run on every edit) → hook, route through `update-config`. Not a command.
-├── Custom subagent (isolated worker the orchestrator delegates to) → route through `agent-creator` if available.
+├── Custom subagent (isolated worker the orchestrator delegates to) → route through `ac:agent-creator`.
 └── User-driven slash invocation with arguments / side effects / context gathering → COMMAND, continue.
 
 Does the command need bundled files (references, scripts, assets) the body points to?
@@ -302,7 +302,7 @@ This skill stays focused on command-specific concerns. Everything else routes th
 |---|---|---|
 | The surrounding skill shape (frontmatter, scope, invocation, bundling, char budget) | `ac:skill-creator` | Command-specific patterns (arguments, shell injection, phase structure) |
 | The prompt body itself | `ac:prompt-writer` | Command-specific patterns (this file) |
-| A subagent definition that the command delegates to | `agent-creator` (when available) | Whether to write a command at all (vs a subagent) |
+| A subagent definition that the command delegates to | `ac:agent-creator` | Whether to write a command at all (vs a subagent) |
 | CLAUDE.md or `.claude/rules/<topic>.md` | `ac:claude-md-rules-creator` | Whether to write a command at all (vs a CLAUDE.md note) |
 | Hook configuration | `update-config` | Whether to write a command at all (vs a deterministic hook) |
 

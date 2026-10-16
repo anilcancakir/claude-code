@@ -44,10 +44,10 @@ On Opus 5.5, lower effort first: Anthropic reports it cuts thinking more reliabl
 ### Force step-by-step reasoning at low effort
 
 ```text
-This task involves multi-step reasoning. Think carefully through the problem before responding. Use a `<thinking>` tag to lay out your reasoning, then an `<answer>` tag for the final response.
+This task involves multi-step reasoning. Think carefully through the problem before responding.
 ```
 
-Not for Opus 5.5. Thinking is always on there, and a prompt that pushes the model to reproduce its reasoning in the response text can be declined with the `reasoning_extraction` refusal category. Raise effort instead, and read reasoning from `display: "summarized"` thinking blocks when you need it.
+Do not ask for the reasoning to be written into `<thinking>` and `<answer>` tags on current Opus (5 and 5.5), Sonnet (5.5) or Fable (5 and 5.1) models. They run with adaptive or always-on thinking, and a prompt that pushes the model to reproduce its reasoning in the response text risks being declined with the `reasoning_extraction` refusal category. Raise effort, and read reasoning from `display: "summarized"` thinking blocks when you need it.
 
 ### Self-check pattern
 

@@ -30,37 +30,21 @@ Parse the actual request. Do not default to COMMIT mode.
 
 ---
 
-## CORE PRINCIPLE: MULTIPLE COMMITS BY DEFAULT
+## CORE PRINCIPLE: ONE COMMIT PER ATOMIC UNIT
 
-**ONE COMMIT FROM MANY FILES = FAILURE**
+An atomic unit is what can be reviewed and reverted alone: a function with its test, a migration with the model change that needs it. Make one commit per unit. File count is a hint, not the rule: a rename across callers is one unit in many files, and two files can be two units. A commit that holds two units is a planning bug, so split it before executing.
 
-Default behavior is to CREATE MULTIPLE COMMITS. Single commit from multiple files is a bug in your logic.
+**Signals that a change set holds more than one unit:**
 
-**Hard rule:**
+| Signal | Reading |
+|--------|---------|
+| Different directories/modules | Likely separate units |
+| Different component types (model/service/view) | Likely separate units |
+| Can be reverted independently | Separate units |
+| Different concerns (UI/logic/config/test) | Likely separate units |
+| New file vs modification | Separate units unless one needs the other |
 
-```
-3+  files changed → MUST be 2+ commits
-5+  files changed → MUST be 3+ commits
-10+ files changed → MUST be 5+ commits
-```
-
-If about to make 1 commit from multiple files - STOP AND SPLIT.
-
-**Split criteria:**
-
-| Criterion | Action |
-|-----------|--------|
-| Different directories/modules | SPLIT |
-| Different component types (model/service/view) | SPLIT |
-| Can be reverted independently | SPLIT |
-| Different concerns (UI/logic/config/test) | SPLIT |
-| New file vs modification | SPLIT |
-
-**Only combine when ALL true:**
-
-- Exact same atomic unit (e.g., function + its test)
-- Splitting would break compilation
-- One-sentence justification exists
+**Keep files in one commit when** splitting would leave a commit that does not build or cannot be reverted alone (a function and its test, a migration and the model change that needs it).
 
 ---
 
@@ -155,20 +139,9 @@ ELSE IF pushed but not merged:
 
 ### Phase 3: Atomic Unit Planning (BLOCKING OUTPUT)
 
-**Calculate minimum commit count first:**
+**Split by directory/module first, then by concern, then check that each group is one atomic unit.**
 
-```
-min_commits = ceil(file_count / 3)
-
- 3 files → min 1 commit
- 5 files → min 2 commits
- 9 files → min 3 commits
-15 files → min 5 commits
-```
-
-**Split by directory/module FIRST, then by concern.**
-
-**Test pairing rule:** Test files MUST be in same commit as implementation.
+**Test pairing rule:** Test files go in the same commit as their implementation.
 
 ```
 Test patterns to match:
@@ -177,41 +150,21 @@ Test patterns to match:
   __tests__/*.ts ↔ *.ts  tests/*.py ↔ src/*.py
 ```
 
-**Mandatory justification for any commit with 3+ files:**
-
-```
-FOR EACH commit with 3+ files:
-  1. List all files
-  2. Write ONE sentence explaining why they MUST be together
-  3. Cannot justify → SPLIT
-
-VALID: "implementation + its direct test file"
-VALID: "type definition + the only file using it"
-VALID: "migration + model change (breaks without both)"
-
-INVALID: "all related to feature X" (too vague)
-INVALID: "part of the same PR" (not a reason)
-INVALID: "they were changed together" (not a reason)
-```
-
-**Mandatory output:**
+**Output:**
 
 ```
 COMMIT PLAN
 ===========
 Files changed: N
-Minimum commits required: ceil(N/3) = M
 Planned commits: K
-Status: K >= M ✓ | K < M ✗ (must split more)
 
 COMMIT 1: [message in detected style]
   - path/to/file1.py
   - path/to/file1_test.py
-  Justification: implementation + its test
+  Together because: implementation + its test
 
 COMMIT 2: [message in detected style]
   - path/to/file2.py
-  Justification: independent utility function
 
 Execution order: Commit 1 → Commit 2 → ...
 (follows dependency: Level 0 → Level 1 → Level 2 → ...)
@@ -229,13 +182,13 @@ Level 4: Configuration, infrastructure
 
 **Validation before execution:**
 
-- Each commit has ≤4 files (or justified)
+- Each commit is one atomic unit: reviewable and revertable alone
+- A commit with more than one file carries a "Together because" line naming the unit
 - Each message matches detected style
 - Test files paired with implementation
-- Different directories = different commits (or justified)
-- Total commits ≥ min_commits
+- Files from different directories share a commit only when they form one unit
 
-If any check fails - REPLAN.
+If any check fails, replan.
 
 ### Phase 4: Strategy & Execution
 
@@ -278,7 +231,7 @@ git status
 git log --oneline $(git merge-base HEAD main 2>/dev/null || git merge-base HEAD master)..HEAD
 ```
 
-**Push:** Fixups used + upstream → `git push --force-with-lease`. New commits only → `git push`.
+**Push only when the caller asked.** Without a request, leave the commits local and say so in the report. When asked: new commits only → `git push`. A rewritten history (fixups autosquashed, a reset rebuild of pushed commits) needs `--force-with-lease` and its own explicit request; plain `--force` is never used.
 
 Report: strategy used, commits created, history listing, next steps.
 
@@ -492,7 +445,7 @@ ACTIONS:
 
 ## Anti-Patterns
 
-- One commit from 3+ files → SPLIT
+- One commit holding two atomic units → SPLIT
 - Default to semantic without detection → DETECT first
 - Separate test from implementation → same commit always
 - Group by file type → group by feature/module

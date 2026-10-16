@@ -1,10 +1,10 @@
 # Worker Briefing Template (hybrid 6-section)
 
-The briefing shape passed to every worker subagent (`ac:plan-worker-quick`, `-junior`, `-senior`) at Phase 2c. The briefing keeps the worker's CONTRACT fields VERBATIM from the plan (Description, Files, Done when, QA, Must NOT, paraphrasing these silently inverts opt-in/opt-out, the #1 worker failure mode). Auxiliary plan context (Pattern References, Codebase Conventions) is inlined into Section 6, because the worker no longer opens the plan. The briefing is longer for it and the ~8k tokens the worker used to spend re-reading the plan are not. Net savings scale with wave size and per-step References count.
+The briefing shape passed to every worker subagent (`ac:plan-worker-quick`, `-junior`, `-junior-high`, `-senior`) at Phase 2c. The briefing keeps the worker's CONTRACT fields VERBATIM from the plan (Description, Files, Done when, QA, Must NOT, paraphrasing these silently inverts opt-in/opt-out, the #1 worker failure mode). Auxiliary plan context (Pattern References, Codebase Conventions) is inlined into Section 6, because the worker does not open the plan. The briefing is longer for it, and the ~8k tokens a worker would spend re-reading the plan are not spent. Net savings scale with wave size and per-step References count.
 
 ## When to read this
 
-Read in Phase 2c every time you spawn a worker. The fields marked VERBATIM are copied from the plan exactly; the fields marked DERIVED are computed by the orchestrator; fields marked PLAN-READ are NOT duplicated in the briefing because the worker Reads them from the plan file (referenced by path in Section 1).
+Read in Phase 2c every time you spawn a worker. The fields marked VERBATIM are copied from the plan exactly; the fields marked DERIVED are computed by the orchestrator. Nothing is left for the worker to read from the plan file, which it never opens.
 
 ## Template
 
@@ -57,7 +57,7 @@ Examples of what belongs here:
   satisfied without violating your own `Must NOT` or the plan-wide guardrails in Section 6, STOP and report
   under `### Issues` with the literal tag `[CONTRADICTION]` and the shape of the conflict. Do not pragmatically
   violate the constraint to satisfy the criterion, and do not silently leave the criterion unsatisfied.
-  Conflicts BETWEEN steps are not yours to detect any more: you no longer read the plan, so `ac:plan-reviewer`
+  Conflicts BETWEEN steps are not yours to detect: you do not read the plan, so `ac:plan-reviewer`
   catches them before execution and the orchestrator resolves whatever survives at the wave barrier.
 - **Report within-spec pragmatic deviations**: when your implementation deviates from the plan's EXACT prescription but stays within scope (added a defense-in-depth layer the plan did not specify; narrowed a config field; adjusted a snippet shape; introduced a small helper interface to fix a type-system gap), record each deviation in a `### Deviations` section of your Output using the structured 4-field format (Plan prescription / What I did / Why / Touches Must NOT). Within-spec adaptations driven by TDD red phase, framework-completeness gaps, type-system gaps, or library API quirks are encouraged, the orchestrator's Layer B reads this section to triage adaptation-vs-scope-drift transparently. **Crucial distinction**: if the deviation touches YOUR `Must NOT` or a plan-wide guardrail, that is a `[CONTRADICTION]` instead, use the previous bullet's tag and STOP. The Deviations section is for WITHIN-SPEC good-judgment adaptations only. When the implementation matches the plan EXACTLY (no deviation), omit the Deviations section entirely.
 - After implementing, run the verification commands and report results in the Output Format.
@@ -103,7 +103,7 @@ change from breaking the thing the plan exists to deliver.>
 ### Plan-wide guardrails (VERBATIM from the plan's `## Must NOT Have`)
 <The whole block. This is the anti-slop rule set: no scope inflation, no premature abstraction, no copy-paste with
 variation, comments only where WHY is non-obvious, no documentation bloat, no over-validation on trusted inputs.
-Without it inline, the worker sees no anti-slop rule at all, because it no longer reads the plan.>
+Without it inline, the worker sees no anti-slop rule at all, because it does not read the plan.>
 ```
 
 ## Length and verbatim discipline
@@ -116,8 +116,7 @@ The briefing keeps the worker's CONTRACT fields VERBATIM:
 - Must NOT (Section 5): anti-scope guardrails
 
 Paraphrasing any of these silently flips opt-in/opt-out and is the most common worker failure mode. Pattern References, the Codebase Conventions, the Work Objectives invariants and the plan-wide guardrails are
-INLINED into Section 6, verbatim. They used to be left to the worker to read out of the plan; it no longer
-opens the plan, so anything not assembled here is unreachable.
+INLINED into Section 6, verbatim. The worker does not open the plan, so anything not assembled here is unreachable.
 
 The TDD directive is inserted based on the plan's `## Codebase Conventions` → `**TDD**` field, read once at Phase 1f and propagated to every worker briefing for the rest of the run.
 

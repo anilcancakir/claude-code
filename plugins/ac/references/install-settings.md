@@ -37,7 +37,7 @@ Under `env`, all string values:
 | `BASH_MAX_TIMEOUT_MS` | `"900000"` |
 | `BASH_MAX_OUTPUT_LENGTH` | `"50000"` |
 | `CLAUDE_CODE_FILE_READ_MAX_OUTPUT_TOKENS` | `"30000"` |
-| `CLAUDE_CODE_RETRY_WATCHDOG` | `"1"` (retries 429 and 529 capacity errors without limit, backing off up to 5 minutes or until the reset time the response carries; a 429 that reports a spend limit or exhausted credits still fails at once. Other transient errors get 300 attempts. Do not also write `CLAUDE_CODE_MAX_RETRIES`: under the watchdog its value replaces the 300, uncapped) |
+| `CLAUDE_CODE_RETRY_WATCHDOG` | `"1"` (retries 429 and 529 capacity errors without limit, backing off up to 5 minutes or until the reset time the response carries; a 429 that reports a spend limit or exhausted credits still fails at once. Other transient errors get 300 attempts. Do not also write `CLAUDE_CODE_MAX_RETRIES`: under the watchdog its value replaces the 300, uncapped. Claude Code 2.1.301 added `CLAUDE_CODE_RETRY_WATCHDOG_MAX_USAGE_LIMIT_WAIT_MS`, which ends a request at a usage limit that resets too far away; no value is written here, because an unattended run otherwise waits out a limit that may be hours off and the cap is the operator's preference) |
 | `CLAUDE_CODE_THRIFTY_SONIC` | `"0"` (Opus 5.5 otherwise forces a steer toward editing files through `sed` and heredocs, which skips post-edit LSP diagnostics, the stale-write guard, the user-visible diff, and every `Edit|Write` hook including the plugin's file-scope gate) |
 
 ## Group C: core ac parity
@@ -105,10 +105,10 @@ AskUserQuestion({
   questions: [
     {
       header: "Permissions?",
-      question: "These loosen a permission gate and are off by default. Each is added only when the key is absent; nothing you already set is changed.",
+      question: "These change a permission default and are off by default. Each is added only when the key is absent; nothing you already set is changed.",
       multiSelect: true,
       options: [
-        {label: "Auto-accept edits", description: "permissions.defaultMode=acceptEdits. Edits apply without a per-edit prompt."},
+        {label: "Auto-accept edits", description: "permissions.defaultMode=acceptEdits. Pins acceptEdits over the auto-mode default (Claude Code 2.1.284 and later): edits apply without a per-edit prompt, and Bash and MCP prompts come back."},
         {label: "Skip dangerous prompt", description: "skipDangerousModePermissionPrompt=true (top level). No confirmation when entering bypass mode."}
       ]
     },
@@ -128,7 +128,7 @@ AskUserQuestion({
 
 | Checked option | Keys written |
 |---|---|
-| Auto-accept edits | `permissions.defaultMode = "acceptEdits"` |
+| Auto-accept edits | `permissions.defaultMode = "acceptEdits"` (pins that mode over the auto default; Bash and MCP prompts return) |
 | Skip dangerous prompt | `skipDangerousModePermissionPrompt = true`, at the top level: Claude Code reads it there and nowhere else (2.1.286 binary; the settings reference lists it under permission settings by topic, and its example is top-level) |
 | All project MCP | `enableAllProjectMcpServers = true` |
 | Skip fetch preflight | `skipWebFetchPreflight = true` |
@@ -165,7 +165,7 @@ AskUserQuestion({
       multiSelect: true,
       options: [
         {label: "Rarely-used bundled skills", description: "Hides run, keybindings-help, fewer-permission-prompts, simplify, init, claude-api and update-config from the model. Every one stays reachable by typing /name."},
-        {label: "Auto-mode classifier off", description: "env.CLAUDE_CODE_ENABLE_AUTO_MODE=0. Stops the separate model call that classifies every permission decision under permissions.defaultMode=auto. Saves no context; removes latency and per-call cost."}
+        {label: "Auto-mode classifier off", description: "env.CLAUDE_CODE_ENABLE_AUTO_MODE=0. Stops the separate model call that classifies every permission decision, which runs by default when no permissions.defaultMode is set. Saves no context; removes latency and per-call cost."}
       ]
     }
   ]

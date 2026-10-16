@@ -53,7 +53,7 @@ If no preflight commands are discoverable, log `Preflight: no commands found in 
 
 1. Invoke the `ac:git-master` skill via the Skill tool. The skill's body carries the full COMMIT MODE workflow (Phase 0 parallel context, Phase 1 style detection with blocking output, Phase 2 branch safety, Phase 3 atomic-unit planning with blocking output, Phase 4 strategy and execution, Phase 5 verification).
 2. Honor every blocking output the skill prints: the STYLE DETECTION block and the COMMIT PLAN block both have to render in the chat before any `git commit` runs.
-3. Honor the skill's split discipline. Apply the file-count rule to every change set, not only the first: 3+ files require 2+ commits, 5+ files require 3+ commits, 10+ files require 5+ commits. A single commit spanning multiple unrelated directories is a planning bug; resplit before executing.
+3. Honor the skill's split discipline. Apply the atomic-unit rule to every change set, not only the first: one commit per unit that can be reviewed and reverted alone, with file count as a hint and not the rule. A commit holding two units is a planning bug; resplit before executing.
 4. Keep test files paired with their implementation in the same commit. The skill enumerates the test-path patterns.
 5. Stay on the current branch. Never rebase or rewrite published history without a separate explicit user request.
 
@@ -104,7 +104,7 @@ When `/ac:commit` was invoked from `/ac:execute` Phase 4, the report block is th
 
 - **Nothing to commit**: Phase 1 detected a clean tree. Print the clean-tree line and exit; do not run preflight, the skill, or push.
 - **Preflight failure**: print the failing step and first ~30 lines of output. Do not stage anything, do not invoke the skill, do not push. The user fixes and re-invokes.
-- **Skill split refused**: the skill prints a `COMMIT PLAN` with `K < min_commits`. Tell the user the split is too coarse, show the planned-vs-required counts, and re-run the planning step (the skill's own validation should catch this; this is a backstop).
+- **Skill split refused**: the skill prints a `COMMIT PLAN` that leaves two atomic units in one commit. Tell the user the split is too coarse, name the units that were merged, and re-run the planning step (the skill's own validation should catch this; this is a backstop).
 - **Merge conflicts mid-rebase**: the skill is in COMMIT MODE, not REBASE MODE; conflicts here mean a fixup or `--autosquash` raced with concurrent edits. Stop, print `git status`, surface the conflict to the user, and abort the operation (`git rebase --abort` if a rebase is in progress).
 - **Push rejected (non-fast-forward)**: the remote has commits the local branch does not. Stop. Do not force-push without an explicit user request. Print the remote's view (`git log <upstream>..HEAD` and `git log HEAD..<upstream>`) and let the user decide.
 - **Force-push needed on protected branch**: refuse and ask. Force-pushing `main`/`master` requires an explicit user "yes" via `AskUserQuestion`; plain `--force` stays off the table regardless.
@@ -112,6 +112,6 @@ When `/ac:commit` was invoked from `/ac:execute` Phase 4, the report block is th
 ## Reminders
 
 - The `ac:git-master` skill drives the actual commit planning and message writing. Phase 3 of this command is the entry point; do not duplicate its style-detection or splitting logic in the command body.
-- Apply the split rule to every change set, not only the first. One commit from 3+ unrelated files is a planning bug.
+- Apply the split rule to every change set, not only the first. One commit holding two atomic units is a planning bug.
 - Use `--force-with-lease` when rewriting history. Plain `--force` is not used by this command.
 - `/ac:execute` always invokes with `--skip-preflight` because Phase 2d's per-wave 4-layer check and the Phase 3 review already covered the same ground.

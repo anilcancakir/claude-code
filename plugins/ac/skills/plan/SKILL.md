@@ -181,7 +181,6 @@ The main agent runs the directory survey itself; it is not delegated. Subagents 
 you build the map and pass it down through the briefs. Write it to `RESEARCH_DIR/00-directory-survey.md`.
 
 Read `${CLAUDE_SKILL_DIR}/references/research-fanout.md` for the survey command block, the dedicated reuse explore brief, and the brief shape every spawn follows.
-dedicated reuse explore brief, and the brief shape every spawn follows.
 
 Counts policy, which governs the fan-out and stays here:
 
@@ -225,15 +224,12 @@ The order to reach for, cheapest first:
 
 Trace call sites with `LSP findReferences` when a candidate sits in a chain you intend to change.
 
-This is the same correction D2 made on the execute side, and it exists for the same reason: an earlier
-version of this stage said to Read every referenced path in full, which admits an entire candidate set
-into the context that then carries it for the rest of the planning run. What the stage is actually for
-is owning the mental model, and a symbol you confirmed with `hover` is owned just as well as one you
-read 400 lines to confirm.
+Reading every referenced path in full admits the whole candidate set into a context that carries it for the
+rest of the planning run. The stage exists to own the mental model, and a symbol confirmed with `hover` is
+owned just as well as one read across 400 lines.
 
-What has NOT changed: cover every candidate. Reaching each one cheaply is the point; skipping the fourth
-because the first three were interesting is the failure this paragraph used to guard against, and it
-still is.
+Cover every candidate. Reaching each one cheaply is the point; skipping the fourth because the first three
+were interesting is the failure to avoid.
 
 ### 2a.1. Verify before you trust
 
@@ -278,8 +274,8 @@ Distill these from the files read:
 That is nine, `TDD` from 2c.1 makes ten, and `QA learnings` makes eleven. All eleven go into the checkpoint and
 into the plan template's `## Codebase Conventions` section verbatim.
 
-Extract all eleven, not the first six. The executor now inlines this whole section into every worker briefing
-and the worker no longer opens the plan, so a convention this stage does not set is a convention no worker
+Extract all eleven, not the first six. The executor inlines this whole section into every worker briefing
+and the worker does not open the plan, so a convention this stage does not set is a convention no worker
 ever sees. Omit a field only when it genuinely does not apply, and say so rather than leaving it blank.
 
 ### 2c.1. Test infrastructure detection (drives TDD interview node)
@@ -460,7 +456,7 @@ Write the plan to `PLAN_PATH` using the markdown structure at `${CLAUDE_SKILL_DI
 
 Fill placeholders with concrete content; remove placeholder text inside angle brackets. For tier assignment per step, read `${CLAUDE_SKILL_DIR}/references/model-tiers.md` (capability summaries + decision heuristic). For plans with more than 10 steps, use the incremental write protocol described in the template reference.
 
-**Write the plan as if no reviewer will look at it.** Stage 5.5 is a single advisory pass now, not a loop that will grind a draft into shape, so a plan that arrives there needing work simply ships with the findings deferred. Concretely: every step's Description / Files / Done when / QA / Must NOT is specific enough that a fresh agent can execute without guessing; the Codebase Conventions section captures every project-specific rule the workers need; the Reuse Map names every existing utility the plan leverages; the locked decisions from the interview are reflected in the steps themselves, not assumed. The Stage 5.5 reviewer caps at 3 passes with a stall test; plans that converge in 0-1 are the goal.
+**Write the plan as if no reviewer will look at it.** Stage 5.5 is a single advisory pass, not a loop that will grind a draft into shape, so a plan that arrives there needing work simply ships with the findings deferred. Concretely: every step's Description / Files / Done when / QA / Must NOT is specific enough that a fresh agent can execute without guessing; the Codebase Conventions section captures every project-specific rule the workers need; the Reuse Map names every existing utility the plan leverages; the locked decisions from the interview are reflected in the steps themselves, not assumed.
 
 **Test-driven literal-pattern audit (Stage 5 quality discipline)**: when a step's Description names a literal regex pattern, a literal config snippet (package.json fragment, tsconfig field, command-line invocation), or a literal API chain (`.X().Y().Z()`), AND the same step's QA or Done when field lists concrete test inputs that exercise it, execute the pattern against each of those inputs in your head BEFORE plan write. If any listed input would fail the literal as written, either fix the literal in the plan or flag the gap in the step's Description as `regex-needs-validation`, `snippet-needs-validation`, or `chain-needs-validation`. The worker's TDD red phase is the safety net for what this misses; catching it at planning time is cheaper. The template reference carries a worked example of the class of bug this finds.
 
@@ -517,8 +513,8 @@ The reviewer returns findings tagged CRITICAL or IMPORTANT, with no verdict. You
 
 After any edit, grep the plan for each string tied to the changed substance and patch every survivor.
 One step restates the same rule across `Description`, `Why this tier`, `Done when`, `QA`, `Must NOT` and
-`References`, so a single-field edit leaves contradictions behind. This sweep used to be carried by the
-loop's later passes; with one pass it has to happen here.
+`References`, so a single-field edit leaves contradictions behind. No later pass catches the survivors, so
+the sweep happens here.
 
 Re-run `plan-check` after the last edit. A reviewer fix is the likeliest way to break the shape the gate just
 confirmed: splitting a step or dropping one changes the count the `Steps` frontmatter declares, and nothing else

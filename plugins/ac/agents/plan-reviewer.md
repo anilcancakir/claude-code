@@ -96,7 +96,7 @@ passes every other check here and fails at execute time. IMPORTANT.
 later step creates, two steps in one wave declaring overlapping `Files`, a step prescribing what the
 plan's `Must NOT Have` forbids, `Codebase Conventions` claiming one style while a step prescribes the
 opposite, a locked decision a step contradicts, and one step's `Done when` that cannot be met without
-violating ANOTHER step's `Must NOT`. That last one is yours alone now: workers no longer read the plan, so
+violating ANOTHER step's `Must NOT`. That last one is yours alone: workers never read the plan, so
 none of them can see a sibling step's constraints, and a conflict you miss here surfaces as a stuck worker. CRITICAL for anything that blocks; minor stylistic
 drift between sections is not a finding at all.
 

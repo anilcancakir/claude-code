@@ -253,19 +253,19 @@ Phase 2; once execution starts, auto-continue applies until Phase 4 or a BLOCKER
 
 Every worker invocation receives the 6-section briefing. For the exact template (with VERBATIM/DERIVED field annotations), read `${CLAUDE_SKILL_DIR}/references/worker-briefing-template.md`.
 
-**The briefing is the worker's whole world.** It no longer reads the plan, so Section 6 carries the step's
+**The briefing is the worker's whole world.** The worker does not read the plan, so Section 6 carries the step's
 pattern references, the codebase conventions, the invariants it must preserve and the plan-wide guardrails
-inline.
+inline. Assemble all four from the plan you are holding; anything you leave out, the worker cannot go and
+find.
 
 **Resolve every sibling-step pointer before you send it.** Measured across 1,914 steps, 23% of Descriptions
-say things like "call Step 4's parser" or "same constraint as Step 10". Those resolved when the worker read
-the plan and dangle now. Wherever the step's `Description`, `QA` or `Must NOT` names another step by number,
+say things like "call Step 4's parser" or "same constraint as Step 10". The worker has no plan to resolve
+them against, so they dangle. Wherever the step's `Description`, `QA` or `Must NOT` names another step by number,
 replace the pointer with what the worker actually needs: the sibling's `Files` path and a one-line statement
 of the contract, or the `file:line` the thing will live at. A forward pointer to a step that has not run yet
-is the dangerous case, because there is no source to fall back on. This applies to every plan, including the
-ones written before the briefing changed. Assemble all four from the plan you are holding; anything you leave out, the worker cannot go and
-find. Dropping the plan read saves roughly 8k tokens of subagent input per worker, which is where the cost
-of a rich briefing is paid back.
+is the dangerous case, because there is no source to fall back on. This applies to every plan, whatever its
+age. Keeping the plan read out of the worker saves roughly 8k tokens of subagent input per worker, which is
+where the cost of a rich briefing is paid back.
 
 Length rule: under 30 lines is too short; under-spec'd briefings produce drift. Copy the contract fields
 verbatim rather than paraphrasing, because paraphrase inverts opt-in and opt-out.
@@ -303,7 +303,7 @@ Say which steps the wave is running in one line before the spawns, so a reader c
 ### 2d. Wave verification (4-layer, runs once per wave)
 
 Every worker in the wave has returned. Now verify, once, for the whole wave. You are the QA gate.
-Subagents lie. Automated checks alone are NOT enough.
+A worker's report is a claim, and automated checks alone do not confirm it.
 
 The unit is the wave, not the step. One typecheck, one build, one test run, one `git diff`, one linter
 pass for the wave, however many steps it held. The step-level record is Layer D's checkbox and the
@@ -341,13 +341,13 @@ because an untracked path has no committed side to compare against: verified in 
 Without the staging step every file a wave creates is invisible to Layer B, and every claim its worker
 made becomes a false "claim with no hunk" finding. Staging does not commit; 2g still decides that.
 
-Measured on one 24-step run, the old per-step shape spent 261 Bash calls and 69 whole-file reads across
+Measured on one 24-step run, per-step verification spent 261 Bash calls and 69 whole-file reads across
 389 turns, with the same test suite running scoped per step, again at the barrier, and a third time in
-Phase 3. The wave suite is a strict superset of the scoped runs, so the scoped runs bought nothing that
-this shape does not.
+Phase 3. The wave suite is a strict superset of any scoped run, so a scoped run buys nothing the wave
+suite does not.
 
-**This barrier is mandatory and cannot be skipped.** It is now the only place a failure surfaces, which
-is the trade the per-step checks were dropped for.
+**This barrier is mandatory and cannot be skipped.** It is the only place a failure surfaces, because
+verification has no per-step checks.
 
 **Issue the wave's independent actions in ONE message.** The mutation check, the diff, the typecheck,
 the build, the test run and the linter do not depend on each other's results, so they are one message
@@ -365,7 +365,7 @@ and not the orchestrator's cwd), that sub-project's local typecheck wins: `cd <s
 sub-project deps, so its diagnostics on those files are Class 5 boundary noise. With no sub-project boundary, the
 orchestrator's LSP is authoritative.
 
-1. Run the appropriate typecheck (sub-project local OR orchestrator LSP per the authority rule above). Classify each diagnostic into one of six noise classes before deciding:
+1. Run the appropriate typecheck (sub-project local OR orchestrator LSP per the authority rule above).
 
    Classify every diagnostic into one of six noise classes before acting on it. The classes, with what each one
    looks like and how to tell a transient from a real error, are at
@@ -388,8 +388,8 @@ orchestrator's LSP is authoritative.
 
 **Layer B: Manual Code Review (read the wave diff, do not skip)**
 
-This is the layer you are most tempted to skip. Do not skip it. What changed is that you review the
-DIFF rather than re-reading whole files. The diff is the stronger instrument against a worker that
+This is the layer you are most tempted to skip. Do not skip it. Review the DIFF rather than re-reading
+whole files. The diff is the stronger instrument against a worker that
 overstates what it did: it is the delta itself, where a full read shows an end state and asks you to
 remember the before.
 
@@ -480,10 +480,10 @@ inside a wave finished, which the marker's `current_wave` cannot express after a
 
 ### 2e. Verification outcome routing
 
-Verification now runs per wave, so route per step off what Layer B attributed. A wave-suite failure or a
+Verification runs per wave, so route per step off what Layer B attributed. A wave-suite failure or a
 Layer B finding belongs to the step whose claimed hunks explain it; a failure no step's hunks explain is a
-cross-step interaction and goes to 2f remediation, not to a retry. That attribution is what the per-step
-scoped test used to provide, and it is why Layer B's hunk-to-claim match is not optional.
+cross-step interaction and goes to 2f remediation, not to a retry. No per-step test run exists to attribute
+a failure, which is why Layer B's hunk-to-claim match is not optional.
 
 **All four layers pass**: append the wave's files to `MODIFIED_FILES` and continue.
 
@@ -544,9 +544,8 @@ Commit the wave's paths explicitly, never `git add -A`. The parent repo may carr
 that hazard at the final commit; the per-wave commit has to avoid it by construction rather than by a
 check that runs later.
 
-The old gate was the plan's `Complexity` field, which no longer exists. "Did this wave change anything" is
-answerable from `git status` and never needed a plan-wide label; that label's other two consumers, the
-reviewer tier and the oracle default, are gone for the same reason.
+The gate is "did this wave change anything", which `git status` answers. No plan-wide label is consulted
+for it, nor for the reviewer tier or the oracle default.
 
 A commit failure here is a BLOCKER: print the git error and take the branch in
 `${CLAUDE_SKILL_DIR}/references/execution-state.md`. Never auto-retry, because a failed commit usually means the
@@ -582,10 +581,9 @@ investigate`).
 in the Phase 4 report. The other two delete the marker first, then pause or halt. This is a BLOCKER even under auto
 mode: three accumulated failures is systemic enough that the `(Recommended)` qualifier stops being safe to assume.
 
-The two-wave span is what makes the count mean the same thing it used to. The counter was calibrated when
-failures arrived one step at a time; now that a wave's steps are verified together, three failures inside a
-single four-step wave is one bad wave rather than a systemic pattern, and halting on it would stop an auto
-run early and often. Three failures across two waves is the signal the rule was built for.
+The two-wave span is what keeps the count meaningful. A wave's steps are verified together, so three failures
+inside a single four-step wave is one bad wave rather than a systemic pattern, and halting on it would stop
+an auto run early and often. Three failures across two waves is the signal the rule was built for.
 
 ### 2k. Loop until all waves complete
 
@@ -630,8 +628,8 @@ Modified files: <MODIFIED_FILES, newline-separated>
 Wisdom: <wisdom.md path>" })
 ```
 
-One reviewer, whatever the plan's size. The standard and deep variants were a fiction: measured across
-139 review runs the standard one ran twice, so every plan was already getting the deep body.
+One reviewer, whatever the plan's size. A standard and deep split would be a fiction: measured across
+139 review runs a lighter standard variant ran twice, so size almost never changed which body reviewed.
 
 **Spawn `ac:oracle` alongside it only when the change touches a criticality surface.** Three signals,
 any one of which fires it, and `--no-oracle` forces the skip either way:
@@ -649,10 +647,9 @@ Signal 1 alone is weak on its own: a file path rarely announces "cryptographic o
 "destructive migration", where signals 2 and 3 are the planner's own conclusions written into the file
 you are already holding.
 
-This is the same trigger shape `/ac:plan` Stage 3.5 already uses at planning time, so the pattern is
-proven in this pipeline rather than invented here. It also replaces the old routing, which reached the
-oracle through the plan's `Complexity` field; that field is gone, and reading the surfaces directly is
-what it was standing in for anyway.
+This is the same trigger shape `/ac:plan` Stage 3.5 uses at planning time, so the pattern is proven in
+this pipeline rather than invented here. The trigger reads the surfaces directly, with no plan-wide label
+standing in for them.
 
 ```
 Agent({ subagent_type: "ac:oracle", description: "Oracle strategic review for <plan title>",
@@ -670,9 +667,9 @@ line, Confidence)." })
 ### 3c. Act on the findings
 
 The reviewer returns findings tagged CRITICAL, IMPORTANT or MINOR, each with a confidence. There is no
-verdict and no revision loop, for the same reason the plan reviewer lost its: measured, the code
-reviewer blocked 33 times against 12 approvals, and the plan-side loop it mirrored produced five
-approvals across 88 passes while 80% of plans left it by hitting the cap. A gate that opens by timeout
+verdict and no revision loop, and the plan reviewer has none either: measured, a verdict-gated code
+reviewer blocked 33 times against 12 approvals, and a plan-side loop produced five approvals across 88
+passes while 80% of plans left it by hitting the cap. A gate that opens by timeout
 is a tax, not a gate.
 
 You are the filter, and you are a better one than the reviewer because you have the plan, the wave
@@ -717,7 +714,7 @@ evidence reaches the tester as `Existing evidence`, and the tester skips those s
 
    Its tester runs in the background, so `ac:qa` may end a turn with `QA: tester running for run <run id>; resuming on
    its notification`. That wait is expected: the notification resumes inside `ac:qa`, and the `Stop` guards allow the
-   stop because they count a running subagent (`plugins/ac/hooks/lib/wake-count.jq:16-20`). Do not poll, sleep or
+   stop because they count a running subagent (`${CLAUDE_PLUGIN_ROOT}/hooks/lib/wake-count.jq:16-20`). Do not poll, sleep or
    read the tester's output file, and do not treat that turn end as the QA result.
 3. When the skill finishes, read `result.txt` in the directory of the block's `report:` path, the file `ac:qa` wrote
    before printing its block, and append that content to `.ac/plans/<slug>/review-log.md` under
@@ -733,7 +730,7 @@ evidence reaches the tester as `Existing evidence`, and the tester skips those s
 Every QA status (`passed`, `findings`, `could-not-run`, `skipped`) continues to Phase 4, and none is a BLOCKER. An
 unattended run must not stop because a dev server would not boot or a QA tool was missing: that is recorded in the
 QA report and carried into the Phase 4b report, and the run still delivers. Findings the skill left unfixed live in
-its report, with mediums already added to the plan's `## Deferred Ideas`.
+its report, with open lows and unfixed mediums added to the plan's `## Deferred Ideas`.
 
 The pass sits before 4a because 4a deletes the marker first and then commits and pushes. QA after it would test
 code that already shipped, outside the `Stop` guard, and its fixes would miss the final commit.

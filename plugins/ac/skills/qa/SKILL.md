@@ -18,7 +18,7 @@ These hold for the whole run, including after a compaction (a re-attached skill 
 
 - Never call `AskUserQuestion` and never raise a BLOCKER. An environment failure (app will not boot, tool missing, browser missing, credentials absent) ends the run as `could-not-run`, recorded in the report and in `## Known gaps`, and the run still prints its `QA result:` block.
 - Spawn `ac:qa-tester` at most twice per invocation: one initial run, one retest. Claude Code runs every subagent in the background in an interactive session and the Agent tool offers no foreground (fork mode); under `claude -p` the call may return the report inline, and where the Agent tool does offer `run_in_background`, pass `false`. A returned report continues Phase 3 at once. An async launch ends the turn with one line (`QA: tester running for run <run id>; resuming on its notification`), and the notification resumes at the report handling. Never wait with `sleep`, a poll loop or by reading the tester's output file.
-- Standalone, and plan mode outside execute, the turn ends on the `QA result:` block. Chained (`--plan` under `/ac:execute`) that block hands control back to `/ac:execute`, which continues to Phase 4a in the same turn, so never end the turn there and never summarise to the user as if the work were over. A wait turn during `--plan` is allowed, because execute's Stop guards count a running subagent (`plugins/ac/hooks/lib/wake-count.jq:16-20`).
+- Standalone, and plan mode outside execute, the turn ends on the `QA result:` block. Chained (`--plan` under `/ac:execute`) that block hands control back to `/ac:execute`, which continues to Phase 4a in the same turn, so never end the turn there and never summarise to the user as if the work were over. A wait turn during `--plan` is allowed, because execute's Stop guards count a running subagent (`${CLAUDE_PLUGIN_ROOT}/hooks/lib/wake-count.jq`).
 - Never commit, never push, never touch the `.ac/state/` markers (`active-execution.json` must still exist when `/ac:execute` resumes).
 - Only you edit application code and `.ac/qa/learnings.md`; the tester writes only inside its run directory.
 
@@ -76,7 +76,7 @@ Write `<Run dir>/brief.md`, one `**Label**:` line per field:
 **Security target**: <localhost or dev URL only, else none>
 ```
 
-`${CLAUDE_SKILL_DIR}` expands in this body but `ac:qa-tester` cannot expand it, so write the literal absolute path. `Security target` is the `Target` URL when its host is localhost or 127.0.0.1, or a dev URL the project's own docs name; anything else is `none`. Never put a credential value in the brief; name its source (env var, seeder) at most.
+The skill-directory variable expands in this body but not in the brief you hand `ac:qa-tester`, so write the literal absolute path. `Security target` is the `Target` URL when its host is localhost or 127.0.0.1, or a dev URL the project's own docs name; anything else is `none`. Never put a credential value in the brief; name its source (env var, seeder) at most.
 
 Then spawn, passing only the path (a fresh context is the point: your account of the build would replace the evidence the tester is meant to gather):
 

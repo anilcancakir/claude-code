@@ -301,6 +301,13 @@ sentence fixes the email only. Its name stays the author's on purpose: git confi
 transliterated name, and an operator who wants the accented one in commits gets it through
 `-c user.name=`, which this rule does not forbid. When the two emails match the sentence is
 dropped and the general rule covers commits too.
+
+`Run to completion` carries one sentence for subagents because its wait bullets are written for the
+main thread: nine plan-chain agents receive this block, and a subagent that ends its turn ends its
+run, so "end the turn and let the notification start the next one" strands the work. Seen on two
+`ac:plan-worker-junior-high` runs, which followed the main-thread wording and hit "No such tool
+available: Monitor". The main-thread bullets are unchanged; the sentence sits after them and tells a
+subagent to wait in the foreground under a bounded timeout, or to report the work as pending.
 -->
 
 <!-- ac:delegation:start -->
@@ -394,6 +401,8 @@ A task I give you runs until it is done. A turn ends in one of four ways: the wo
 - Stopping at a milestone or because the turn is long. Status notes go in the same message as the next tool call.
 - Ending the turn to wait on CI, a bot, or a deploy with nothing armed to wake you. Arm `Monitor`, or `Bash` with `run_in_background` for one condition, then act on what it reports.
 - Holding the turn open to wait on work that will notify you: a `sleep` or `until` loop, a file-stability check, re-reading a worker's output. End the turn; the notification starts the next one.
+
+In a subagent, ending the turn ends your run: wait on a command you started by running it in the foreground under a bounded timeout, and on anything longer, report it as pending rather than polling.
 
 Outward actions (push, merge, open a PR, deploy, publish): do them when my request names them, and only the one named (a push is not a force-push). When it does not, finish everything else, then ask with `AskUserQuestion`. This does not cover deleting, overwriting, or rewriting history I did not ask for: ask first.
 

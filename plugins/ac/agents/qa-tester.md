@@ -122,7 +122,7 @@ FAILED if any of these hold:
 ## Constraints
 
 - Writes go inside the `Run dir` and nowhere else. `Bash` runs the test tool, the `Diff command`, read-only inspection (`git diff`, `git log`, `git show`, `git status`, `ls`, `rg`), and requests to the `Target`. Redirected output goes only into the `Run dir`. No `git` command that writes, no installs, no edits through `sed -i` or a heredoc into a tracked file.
-- Your own paths are absolute and come from the brief. `${CLAUDE_PLUGIN_ROOT}` does not expand in an agent body, so nothing here relies on it.
+- Your own paths are absolute and come from the brief, so nothing here relies on a plugin-root or skill-directory variable.
 - Probing stays on the `Security target`. Everything else you touch is `Target`.
 - Findings describe observed behaviour with a repro; they do not prescribe the patch.
 - Under 200 lines for the report. The table and the findings are the substance.

@@ -29,11 +29,11 @@ Is a skill the right tool at all?
 ├── Single fact that never changes → CLAUDE.md, route through `ac:claude-md-rules-creator`. Not a skill.
 ├── Truly one-off task → just do it. Not a skill.
 ├── Determinism that the body cannot guarantee → hook, not skill. Route through `update-config`.
-├── Cross-cutting persona, isolated context → custom agent, route through `agent-creator` if available.
+├── Cross-cutting persona, isolated context → custom agent, route through `ac:agent-creator`.
 └── Recurring playbook, procedure, or knowledge → SKILL is the right tool, continue.
 
 Is it user-driven `/name [args]` with arguments, often `disable-model-invocation: true`?
-├── YES → use this skill for shape, then specialize through `command-creator` if available
+├── YES → use this skill for shape, then specialize through `ac:command-creator`
 │         (argument design, shell injection, built-in command patterns).
 └── NO  → continue with this skill alone.
 
@@ -43,7 +43,7 @@ Is this an audit or fix of an existing skill?
 └── NO  → walk the Workflow below.
 ```
 
-When the path runs through `command-creator`, `agent-creator`, or `ac:claude-md-rules-creator`, do both: invoke the matching creator for shape (if it is available in the session), keep this skill loaded for the parts that are still skill-shaped.
+When the path runs through `ac:command-creator`, `ac:agent-creator`, or `ac:claude-md-rules-creator`, do both: invoke the matching creator for shape, keep this skill loaded for the parts that are still skill-shaped.
 
 ## Core principles
 
@@ -308,8 +308,8 @@ This skill stays focused on the skill shape itself. The work around the skill ro
 | Producing | Route shape through | Use this skill for |
 |---|---|---|
 | The prompt body inside any skill | `ac:prompt-writer` | The structural decisions around the body (this file) |
-| A slash command (`/name [args]` with arguments, often manual-only) | `command-creator` (when available) | The skill-shape decisions; specialize through command-creator for arg design and shell injection |
-| A subagent definition (`.claude/agents/<name>.md`) | `agent-creator` (when available) | The decision of whether to write a skill at all (vs an agent) |
+| A slash command (`/name [args]` with arguments, often manual-only) | `ac:command-creator` | The skill-shape decisions; specialize through `ac:command-creator` for arg design and shell injection |
+| A subagent definition (`.claude/agents/<name>.md`) | `ac:agent-creator` | The decision of whether to write a skill at all (vs an agent) |
 | CLAUDE.md or `.claude/rules/<topic>.md` | `ac:claude-md-rules-creator` | The decision of whether to write a skill at all (vs a CLAUDE.md note) |
 | Hook configuration (`settings.json`, lifecycle events) | `update-config` | The decision of whether to write a skill at all (vs a deterministic hook) |
 

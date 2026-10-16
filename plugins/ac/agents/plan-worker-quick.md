@@ -75,7 +75,7 @@ Respond with exactly this shape. No preamble, no narration of tool calls.
 - `file:start-end`: <what changed and why>
   Give a line RANGE, not a single line, and one entry per changed region. The orchestrator walks the
   wave diff against these entries and flags any hunk no worker claimed, which is how a failure gets
-  attributed to a step now that per-step test runs are gone.
+  attributed to a step since the orchestrator runs one test pass for the whole wave.
 
 ### Verification
 - LSP diagnostics: <0 errors, N warnings logged in Issues>

@@ -9,7 +9,7 @@ This reference teaches the full stack, what each layer already provides "for fre
 - The full layered context stack
 - What is already in Claude Code's built-in system prompt
 - Conflict precedence between layers
-- The audit protocol: `/memory` first, then write
+- The audit protocol: read the loaded files first, then write
 - Duplicate detection between layers
 - Conflict resolution rules
 - Cross-layer worked examples
@@ -102,13 +102,13 @@ What this means in practice:
 - A managed CLAUDE.md saying "never log PII" cannot be overridden by anything: it loads first, but the rule is unambiguous and the runtime forbids excluding managed files via `claudeMdExcludes`.
 - CC's built-in system prompt is the FIRST layer, and its rules are reinforced by the runtime's own behavior (e.g., the harness gates destructive actions regardless of what CLAUDE.md says). User CLAUDE.md cannot reliably override harness-level rules: the model is conditioned to treat them as authoritative.
 
-When in doubt, run `/memory` and read the full loaded stack. If two files in the list say different things on the same topic, the model is guessing.
+When in doubt, read the `Contents of` headers (or ask the user to run `/memory`) and read the full loaded stack. If two files in the list say different things on the same topic, the model is guessing.
 
-## The audit protocol: `/memory` first, then write
+## The audit protocol: read the loaded files first, then write
 
 Before writing or editing ANY CLAUDE.md or rule file:
 
-1. **Run `/memory` in the target session.** List every file currently loaded. Read each one if needed.
+1. **Read the `Contents of <path>` headers in your context.** Each names one file loaded in this session; a path-scoped rule appears only after a matching file was read. `/memory` is a dialog only the user can open; ask them to run it when you need the authoritative list.
 2. **Identify the scope of the new rule.** Is it the team's? Yours alone? Org-wide?
 3. **Search the loaded stack for the topic.** Use Grep across the loaded files (and `~/.claude/CLAUDE.md`, the project's `./CLAUDE.md`, any `.claude/rules/*.md`, the global rules, and the CC system prompt sections you can audit).
 4. **For each existing mention of the topic, decide one of three actions:**
@@ -118,7 +118,7 @@ Before writing or editing ANY CLAUDE.md or rule file:
 5. **Check the CC built-in system prompt list above** for overlap. If the rule is already a built-in default, do NOT add it.
 6. **Check for conflicts:** does the new rule contradict any existing layer? If yes, either drop one or explicitly note the override in the higher-priority file.
 7. **Now write the new content** in the layer that best matches its scope, following the file shape (`CLAUDE.md` / `CLAUDE.local.md` / `.claude/rules/<topic>.md`).
-8. **Run `/memory` again after writing** to confirm the new file is picked up and no unexpected duplicates remain.
+8. **Check again after writing**: the new file should appear under a `Contents of` header (or in the user's `/memory`) with no unexpected duplicates.
 
 The audit step takes a minute. It saves hours of "why is Claude ignoring this rule?" debugging later.
 
@@ -135,7 +135,7 @@ The most common duplicates and how to spot them:
 | "Validate inputs at API boundaries" in CC system prompt AND `.claude/rules/api.md` | CC system prompt says "validate only at system boundaries". The rule restates it. Tighten the rule to the project-specific schema/library (`use Zod schemas in src/api/schemas/`), or drop. |
 | "Confirm before destructive actions" in CLAUDE.md AND CC system prompt | CC system prompt covers this exhaustively. CLAUDE.md restating it is noise. |
 
-Run `/memory` periodically and Grep for redundancy. Every duplicate you remove returns attention budget to the rules that matter.
+Review the loaded files periodically and Grep for redundancy. Every duplicate you remove returns attention budget to the rules that matter.
 
 ## Conflict resolution rules
 
@@ -224,11 +224,11 @@ If a user says "add to CLAUDE.md" vs "remember this", the routing differs:
 
 When generating CLAUDE.md content, consider whether the user actually wants CLAUDE.md (durable, shared) or auto memory (the kind of soft preference Claude learns over time). Ask if ambiguous.
 
-## When in doubt, run `/memory` and Grep
+## When in doubt, read the loaded files and Grep
 
 The single most useful debug step is to see what the model actually sees:
 
-1. `/memory` lists every loaded CLAUDE.md, CLAUDE.local.md, and rule file.
+1. The `Contents of <path>` headers name every loaded CLAUDE.md, CLAUDE.local.md, and rule file; the user's `/memory` dialog lists the same authoritatively.
 2. Open each and Grep for the topic you are about to write about.
 3. If anyone else's file already covers it (or CC built-ins do), decide skip / edit / move BEFORE writing.
 

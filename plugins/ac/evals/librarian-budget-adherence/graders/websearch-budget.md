@@ -7,7 +7,7 @@ weight: 1
 ---
 
 The `BUDGET: two web searches` in the brief binds. This is the property the agent body claims at
-`plugins/ac/agents/librarian.md:47`, and the number is what makes it checkable.
+`plugins/ac/agents/librarian.md:46-48`, and the number is what makes it checkable.
 
 `min: 0` is deliberate: answering from a direct fetch without searching at all is a better outcome,
 not a worse one. Only overshooting the stated ceiling is the failure.

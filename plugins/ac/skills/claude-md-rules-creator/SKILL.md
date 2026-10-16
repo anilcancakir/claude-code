@@ -116,7 +116,7 @@ These ten rules drive every authoring decision. Detail and source in the referen
 6. **Match the scope to the audience.** Project-team CLAUDE.md is shared via git; write what the team agrees on. User-global is yours alone. Project-personal CLAUDE.local.md is your private fixture for this repo. Rules leaking into the wrong scope is the most common source of friction.
 7. **Point at sources of truth; do not duplicate them.** A one-line `@docs/architecture.md` import beats a ten-line summary that drifts. Use `@path` imports for content that lives elsewhere. Never inline answers that change faster than the file.
 8. **No aggressive caps.** "CRITICAL", "you MUST", "ALWAYS" wording produces compliance brittleness on modern Claude. The runtime already prepends `MEMORY_INSTRUCTION_PROMPT` which contains an explicit "IMPORTANT: These instructions OVERRIDE any default behavior and you MUST follow them exactly as written." Your file does not need to repeat that authority; state the rule plainly.
-9. **Audit the existing layered context before writing.** Your new content does not land alone. It joins a stack: CC's built-in system prompt + managed CLAUDE.md + user-global + project + local + auto memory + path-scoped rules. Adding a rule that the CC system prompt already provides ("reference code as file:line", "confirm before destructive actions") or that another layer already covers is pure tax. What the host provides depends on the model: Opus 5.5 gets the LEAN prompt, which lacks "be concise", "no comments unless non-obvious", "no speculative abstraction" and "no compatibility shims", so for a 5.5 user those lines are not duplicates. `${CLAUDE_SKILL_DIR}/references/claude-code-builtin-prompts.md` carries the built-in text verbatim, per shape and per model; check a candidate line against it before writing, and never contradict a line there except as a stated override ("Push to `main` without asking; this overrides the default confirmation."). Adding a rule that contradicts a higher-precedence layer creates a silent conflict. Before writing, run `/memory` to see what is already loaded, Grep the loaded files for the topic, and decide one of three actions: skip (already covered), edit in place (existing file is wrong/outdated), or move to the right scope. See `${CLAUDE_SKILL_DIR}/references/layered-context.md` for the audit protocol and the "do not restate" cheat sheet covering ~12 CC built-in defaults.
+9. **Audit the existing layered context before writing.** Your new content does not land alone. It joins a stack: CC's built-in system prompt + managed CLAUDE.md + user-global + project + local + auto memory + path-scoped rules. Adding a rule that the CC system prompt already provides ("reference code as file:line", "confirm before destructive actions") or that another layer already covers is pure tax. What the host provides depends on the model: Opus 5.5 gets the LEAN prompt, which lacks "be concise", "no comments unless non-obvious", "no speculative abstraction" and "no compatibility shims", so for a 5.5 user those lines are not duplicates. `${CLAUDE_SKILL_DIR}/references/claude-code-builtin-prompts.md` carries the built-in text verbatim, per shape and per model; check a candidate line against it before writing, and never contradict a line there except as a stated override ("Push to `main` without asking; this overrides the default confirmation."). Adding a rule that contradicts a higher-precedence layer creates a silent conflict. Before writing, read the `Contents of <path>` headers in your context to see what is already loaded, Grep those files for the topic, and decide one of three actions: skip (already covered), edit in place (existing file is wrong/outdated), or move to the right scope. See `${CLAUDE_SKILL_DIR}/references/layered-context.md` for the audit protocol and the "do not restate" cheat sheet covering ~12 CC built-in defaults.
 10. **Write for Opus 5.5 specifically.** On 5.5 the host prompt says little about behavior, so CLAUDE.md carries it, and a few 5.5 facts decide what earns a line:
     - Name the concrete behavior, not the category. Anthropic documents 5.5 as "responsive to instructions that name the specific kinds of early stop" (a summary that announces the next step instead of taking it), and a generic "avoid a generic AI look" as merely swapping one design default for another.
     - A delegation limit belongs here if the user wants one: the host dropped the Opus 5 line that suppressed Agent use, and the 5.5 Agent tool encourages it.
@@ -190,11 +190,11 @@ Common user requests mapped to the action this skill takes. Use these as pattern
 
 | User says | This skill does |
 |-----------|-----------------|
-| ANY of the patterns below | First: run `/memory` to see what is already loaded. Grep loaded files for the topic. Cross-check against the CC built-in system prompt list in `${CLAUDE_SKILL_DIR}/references/layered-context.md`. Decide skip / edit-in-place / move / new BEFORE drafting. |
-| "Add X to CLAUDE.md" / "tell Claude X" / "remember X for the team" | After the audit: determine scope (team / user-global / personal), pick shape (inline CLAUDE.md vs `.claude/rules/<topic>.md`), draft with attribution comment, verify with `/memory`. |
+| ANY of the patterns below | First: read the `Contents of <path>` headers in your context to see what is already loaded. Grep those files for the topic. Cross-check against the CC built-in system prompt list in `${CLAUDE_SKILL_DIR}/references/layered-context.md`. Decide skip / edit-in-place / move / new BEFORE drafting. |
+| "Add X to CLAUDE.md" / "tell Claude X" / "remember X for the team" | After the audit: determine scope (team / user-global / personal), pick shape (inline CLAUDE.md vs `.claude/rules/<topic>.md`), draft with attribution comment, verify the file appears under a `Contents of` header (or ask the user to confirm it in `/memory`). |
 | "Init CLAUDE.md" / "set up project memory" / "scaffold CLAUDE.md for this repo" | Copy `${CLAUDE_SKILL_DIR}/assets/CLAUDE.template.md` to `./CLAUDE.md`. Detect stack from manifest files. Fill stack, structure (non-obvious only), commands, verification loop, conventions, off-limits, git etiquette. Add attribution comment. |
 | "Make a rule that only applies to X" / "scoped rule for `src/api/`" | Create `./.claude/rules/<topic>.md` with `paths:` (NOT `globs:`). Verify glob with a mental trace. Warn that path-scoped rules load on Read, on Write or Edit (2.1.288) and on a single-file Bash `cat`, `head`, `tail`, `sed -n` or `grep` (2.1.293), persist after first match, and are summarized by compact. |
-| "My CLAUDE.md is over 200 lines / Claude is ignoring rules" | Run `/memory` to confirm load. Identify universal core (stack/commands/off-limits). Move topic content to `.claude/rules/<topic>.md`. Move long content to `@path` imports. Cut every line that fails "would removing this cause Claude to make mistakes?". |
+| "My CLAUDE.md is over 200 lines / Claude is ignoring rules" | Confirm the file appears under a `Contents of` header. Identify universal core (stack/commands/off-limits). Move topic content to `.claude/rules/<topic>.md`. Move long content to `@path` imports. Cut every line that fails "would removing this cause Claude to make mistakes?". |
 | "Claude is not following my CLAUDE.md" | Walk the troubleshooting checklist in `${CLAUDE_SKILL_DIR}/references/loader-and-injection.md`: file loaded? rule specific enough? conflicts? size? compact? wrong shape (should be hook)? path-scoped not triggering? settings-source disabled? `claudeMdExcludes` filtering? |
 | "Global preferences" / "user-level instructions" / "add to my dotfiles" | Edit `~/.claude/CLAUDE.md` (cross-project preferences) or `~/.claude/rules/<topic>.md` (split by topic). Do NOT include project-specific stack or commands here. |
 | "Personal preference for this project" / "sandbox URL" / "don't commit this" | Edit `./CLAUDE.local.md`. Add to `.gitignore` first. Use it for sandbox URLs, test accounts (POINTER not credentials), default branch, project-specific communication preferences. |
@@ -208,7 +208,7 @@ Walk these in order.
 
 ### 1. Audit the existing layered context
 
-Before any drafting, run `/memory` to list every CLAUDE.md, CLAUDE.local.md, and rule file currently loaded. Then for the topic of the new rule:
+Before any drafting, read the `Contents of <path>` headers in your context: each names one CLAUDE.md, CLAUDE.local.md or rule file loaded in this session, and a path-scoped rule appears only after a matching file was read. `/memory` is a dialog only the user can open; ask them to run it when you need the authoritative list. Then for the topic of the new rule:
 
 - Grep the loaded files for keywords related to the topic.
 - Check the built-in prompt text in `${CLAUDE_SKILL_DIR}/references/claude-code-builtin-prompts.md` for overlap, on the shape the readers' model gets: section 1 for Opus 5.5, Sonnet 5.5, Haiku 5.5 and other LEAN models, section 3 for Sonnet 5 and earlier, Haiku 4.5 and Opus 4.0 to 4.7, section 5 for what every subagent already receives. If the shape already says it, skip. If the rule contradicts it, write it as an explicit override or drop it.
@@ -217,12 +217,12 @@ Before any drafting, run `/memory` to list every CLAUDE.md, CLAUDE.local.md, and
 
 **Concrete audit walkthrough.** User says: "Add to CLAUDE.md that we always use pnpm not npm." Walk the audit:
 
-1. Run `/memory`. See files loaded: `~/.claude/CLAUDE.md`, `./CLAUDE.md`, `./.claude/rules/testing.md`, `./CLAUDE.local.md`.
+1. Read the `Contents of` headers. Files loaded: `~/.claude/CLAUDE.md`, `./CLAUDE.md`, `./.claude/rules/testing.md`, `./CLAUDE.local.md`.
 2. Grep them for `pnpm` and `npm`. Found in `~/.claude/CLAUDE.md`: "Prefer `pnpm` over `npm`, `uv` over `pip`."
 3. Cross-check CC built-in defaults: package-manager preference is NOT in the CC system prompt cheat sheet. Not a duplicate with CC.
 4. Decision: user-global already covers it FOR YOU. But teammates may have different user-globals (or none). If the team needs ENFORCEMENT, the rule belongs in project `./CLAUDE.md` (committed, every contributor gets it). If it is just your personal preference, user-global is enough.
 5. Ask the user: "Your `~/.claude/CLAUDE.md` already says 'prefer pnpm over npm'. Do you want this enforced for the whole TEAM (commit to `./CLAUDE.md`), or is your user-global rule enough?"
-6. Based on the answer: skip (user-global is enough), or write to `./CLAUDE.md` with sharper wording ("Use `pnpm`. Do NOT run `npm install`.") + attribution comment + verify with `/memory` after.
+6. Based on the answer: skip (user-global is enough), or write to `./CLAUDE.md` with sharper wording ("Use `pnpm`. Do NOT run `npm install`.") + attribution comment + check the file appears under a `Contents of` header after.
 
 Skipping this audit step is the single most common cause of "Claude is not following my CLAUDE.md" complaints later. The model is usually not ignoring the rule; two layers are saying different things and the model is reconciling badly.
 
@@ -306,7 +306,7 @@ Before declaring it done:
 3. **No aspirations, no platitudes, no secrets.** Skim for "we aim", "always", "good code", credentials.
 4. **No file-by-file tours, no standard-language conventions.** Skim for redundancy with what the model already knows.
 5. **Every rule is specific enough to verify.** Skim for vague verbs like "format properly", "handle errors", "test thoroughly".
-6. **No conflicts with other CLAUDE.md files in the hierarchy.** Run `/memory` after editing - every file the runtime sees is listed. If you have project-team + project-personal at the same level, scan for contradictions.
+6. **No conflicts with other CLAUDE.md files in the hierarchy.** After editing, check the `Contents of` headers (or ask the user to run `/memory`): every file the runtime sees is listed. If you have project-team + project-personal at the same level, scan for contradictions.
 7. **`@path` imports resolve.** Every imported file exists; circular imports detected by the loader but messy in practice.
 8. **`# CLAUDE.md` preface present** for project-team file.
 9. **`CLAUDE.local.md` in `.gitignore`** for project-personal scope. The `/init` command adds this automatically when generating the file.
@@ -316,7 +316,7 @@ Before declaring it done:
 
 | Symptom | Fix |
 |---------|-----|
-| Claude is not following the rule | Check `/memory` to confirm load. Tighten specificity. Check for conflicts. Consider whether a hook is the right shape instead. See `${CLAUDE_SKILL_DIR}/references/loader-and-injection.md` troubleshooting. |
+| Claude is not following the rule | Confirm load under the `Contents of` headers (or ask the user to run `/memory`). Tighten specificity. Check for conflicts. Consider whether a hook is the right shape instead. See `${CLAUDE_SKILL_DIR}/references/loader-and-injection.md` troubleshooting. |
 | File is over 200 lines | Run the cut/move pass: remove "removing-this-would-not-cause-mistakes" lines, move topic content to `.claude/rules/<topic>.md`, move references to `@path` imports. |
 | Rule keeps disappearing after `/compact` | The rule is in a nested-subdir CLAUDE.md or a `paths:`-scoped rule. Move to project-root CLAUDE.md if it must persist. |
 | Personal preferences are showing up in PRs | The team file (CLAUDE.md / `.claude/rules/`) absorbed personal content. Split: move to `CLAUDE.local.md` or `~/.claude/CLAUDE.md`. |
@@ -342,7 +342,7 @@ When the user request implies any row above, do both: invoke the matching creato
 
 Always check:
 
-- [ ] Layered audit done. `/memory` was run, loaded files were Grep'd for the topic, `claude-code-builtin-prompts.md` was checked for the readers' model shape, and no duplicate or unstated contradiction remains with any layer.
+- [ ] Layered audit done. The `Contents of` headers were read, loaded files were Grep'd for the topic, `claude-code-builtin-prompts.md` was checked for the readers' model shape, and no duplicate or unstated contradiction remains with any layer.
 - [ ] Block-level HTML attribution comment: `<!-- Generated by ac:claude-md-rules-creator on YYYY-MM-DD. -->` with the real ISO date, at the top of a CLAUDE.md and DIRECTLY AFTER the closing `---` of a rule file. Stripped at injection (zero token cost), visible when humans Read the file. Above a rule's frontmatter it silently breaks `paths:`: the loader only parses frontmatter that starts at byte 0, so the rule loads unconditionally.
 - [ ] Right scope (managed / user-global / project-team / project-personal).
 - [ ] Right shape (`CLAUDE.md` / `CLAUDE.local.md` / `.claude/rules/<topic>.md`).
@@ -364,7 +364,7 @@ Check the items that apply to your file's shape:
 - [ ] (`.claude/rules/<topic>.md` without `paths:`) Topic is universal and one focused subject; not a dumping ground.
 - [ ] (Imports) `@path` references resolve; no chain deeper than four hops; external imports approved if needed.
 - [ ] (HTML comments) Maintainer notes wrapped in `<!-- ... -->` are block-level (own line); inline comments survive injection.
-- [ ] (Run `/memory`) The file appears in the loaded list. If not, the path is wrong, the scope source is disabled, or `claudeMdExcludes` is filtering it.
+- [ ] The file appears under a `Contents of` header (or the user confirmed it in `/memory`). If not, the path is wrong, the scope source is disabled, or `claudeMdExcludes` is filtering it.
 - [ ] (Hook command) No secret or credential appears in the hook command string.
 - [ ] (Hook script) A path-containment guard is present, rejecting any target outside the intended directory.
 - [ ] (Settings merge) A timestamped backup of the settings file was taken before the merge.
@@ -375,7 +375,7 @@ Check the items that apply to your file's shape:
 | File | Load when... |
 |------|--------------|
 | `${CLAUDE_SKILL_DIR}/references/claude-code-builtin-prompts.md` | Before writing or cutting any line: the verbatim Claude Code 2.1.280 system prompt text per shape (LEAN for Opus 5.5, Sonnet 5.5 and Haiku 5.5, CLASSIC for Sonnet 5 and earlier, Haiku 4.5 and Opus 4.0 to 4.7), the per-model bundle sections, the CLAUDE.md wrapper as the model sees it, and what every subagent already receives. The duplicate-and-contradiction check runs against this file. |
-| `${CLAUDE_SKILL_DIR}/references/layered-context.md` | Auditing the existing stack (CC built-in system prompt + managed + user + project + local + auto memory + path-scoped rules) BEFORE writing. Includes the full "do not restate" cheat sheet of CC built-in defaults, the audit protocol (`/memory` + Grep + decide), conflict-precedence rules, duplicate-detection patterns, and cross-layer worked examples. Read this FIRST when generating or editing a CLAUDE.md or rule. |
+| `${CLAUDE_SKILL_DIR}/references/layered-context.md` | Auditing the existing stack (CC built-in system prompt + managed + user + project + local + auto memory + path-scoped rules) BEFORE writing. Includes the full "do not restate" cheat sheet of CC built-in defaults, the audit protocol (`Contents of` headers + Grep + decide), conflict-precedence rules, duplicate-detection patterns, and cross-layer worked examples. Read this FIRST when generating or editing a CLAUDE.md or rule. |
 | `${CLAUDE_SKILL_DIR}/references/loader-and-injection.md` | Understanding the runtime mechanics: how files are discovered, concatenated, where they land in the API call (the `<system-reminder>` wrapper), compact survival rules, the `InstructionsLoaded` hook, troubleshooting "Claude is not following my CLAUDE.md". |
 | `${CLAUDE_SKILL_DIR}/references/scopes.md` | Deep dive on the four scopes (managed / user-global / project-team / project-personal): platform-specific managed paths, `--add-dir` behavior, `CLAUDE_CODE_DISABLE_CLAUDE_MDS` env, `--bare` mode, AGENTS.md interop, worktree handling, monorepo `claudeMdExcludes`, the loader filters. |
 | `${CLAUDE_SKILL_DIR}/references/rules-writing.md` | Splitting CLAUDE.md into `.claude/rules/`, choosing topic boundaries, `paths:` glob design, common rule topics (testing, security, frontend, api, migrations), user-level rules at `~/.claude/rules/`, recursive rule directories, symlink sharing. |

@@ -11,9 +11,9 @@
 # thread or from any other agent, a missing jq, an unwritable counter, and any parse uncertainty.
 #
 # Why a hook and not a sentence in the agent body. Measured on Haiku 4.5 across 309 real runs,
-# ac:explore averages 36.6 tool calls and peaks at 183, while its own body asks for "two to three
-# parallel passes" and "under 500 words total". Its sibling ac:librarian carries the same shape
-# of instruction and lands inside its budget. Same author, same phrasing, different model: prose
+# ac:explore averaged 36.6 tool calls and peaked at 183, although its body then carried a
+# pass-count and a word-count bound. Its sibling ac:librarian carried the same shape of
+# instruction and landed inside its budget. Same author, same phrasing, different model: prose
 # numbers bind on Sonnet and do not bind on Haiku, so the bound for this agent has to sit
 # outside its token stream. On Haiku 5.5 (the `haiku` alias since Claude Code 2.1.293) explore
 # still averaged 30.9 tool calls over 150 runs, measured 2026-10-12, so the hook stays.

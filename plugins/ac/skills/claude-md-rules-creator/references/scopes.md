@@ -253,4 +253,4 @@ Common scope-misplacement mistakes and how to spot them:
 | `--bare` script loads project files anyway | `CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD=1` is set AND `--add-dir` points at the project | Unset the env var, or remove `--add-dir`. |
 | User-rules dir is empty but you put files there | Wrong path: `~/.claude/.claude/rules/` instead of `~/.claude/rules/` | Move. User rules are one level shallower than project rules. |
 
-Run `/memory` to see the truth: every file the runtime actually loaded, plus its scope label. If a file you expected is not in the list, the scope is wrong, a `--setting-sources` flag dropped it, `claudeMdExcludes` filtered it, or the path on disk does not match. Fast, definitive, and the most common debug step skipped.
+The `Contents of <path>` headers in context show what the runtime loaded; the user's `/memory` dialog is the authoritative list, with scope labels. If a file you expected is not there, the scope is wrong, a `--setting-sources` flag dropped it, `claudeMdExcludes` filtered it, or the path on disk does not match. Fast, definitive, and the most common debug step skipped.

@@ -236,7 +236,7 @@ When you open the file with the Read tool directly, comments remain visible. Str
 | `tengu_paper_halyard` feature flag | server-side | Skips Project and Local files entirely from the listing | |
 | `tengu_moth_copse` feature flag | server-side | Skips AutoMem and TeamMem from the inline listing (those route through attachments instead) | |
 
-To see exactly which files load in your current session, run `/memory`. The dialog lists every file plus its scope label.
+To see which files load in your current session, read the `Contents of <path>` headers in context. For the authoritative list, ask the user to run `/memory`; the dialog lists every file plus its scope label.
 
 ## The `InstructionsLoaded` hook
 
@@ -271,10 +271,10 @@ The hook is fire-and-forget, audit-only. It cannot block loading. AutoMem and Te
 
 Diagnostic checklist by symptom. Apply in order.
 
-1. **Run `/memory`.** Is the file in the list? If not: wrong path, wrong scope, `claudeMdExcludes` filtering it, settings-source disabled (`--setting-sources`), or the runtime hard-off (`CLAUDE_CODE_DISABLE_CLAUDE_MDS`). The fastest check is also the most often skipped.
+1. **Check the `Contents of <path>` headers** (or ask the user to run `/memory`). Is the file in the list? If not: wrong path, wrong scope, `claudeMdExcludes` filtering it, settings-source disabled (`--setting-sources`), or the runtime hard-off (`CLAUDE_CODE_DISABLE_CLAUDE_MDS`). The fastest check is also the most often skipped.
 2. **Is the rule specific?** "Use 2-space indentation in TypeScript" is verifiable; "format code properly" is not. The runtime delivers your content; the model still picks which vague rules to fall back on its priors for.
 3. **Is the file too long?** Anthropic's docs target under 200 lines per file, and adherence drops as the file grows past it. Target 60 to 120 lines: measured across eight production repositories read at a pinned commit SHA, the median is 105 to 110 and six of the eight sit above 80. The hard cap is 40,000 chars (`MAX_MEMORY_CHARACTER_COUNT`).
-4. **Are there conflicting rules?** Two CLAUDE.md files in the hierarchy disagreeing on the same point, or your CLAUDE.md disagreeing with a rule file. Run `/memory` and scan for overlap.
+4. **Are there conflicting rules?** Two CLAUDE.md files in the hierarchy disagreeing on the same point, or your CLAUDE.md disagreeing with a rule file. Scan the `Contents of` headers for overlap.
 5. **Did the session just compact?** Subdirectory CLAUDE.md and `paths:`-scoped rules do NOT survive compact. They reload on the next matching file touch. Project-root and unconditional content reload automatically.
 6. **Is the rule an aspiration?** "We aim for 90% coverage" is not a rule the model can apply. Reframe to a verifiable rule, or move enforcement to a hook.
 7. **Is the rule something a hook would guarantee?** If the rule MUST hold every time, no exceptions, CLAUDE.md is the wrong mechanism. CLAUDE.md is advisory; hooks are deterministic. See [hooks](https://code.claude.com/docs/en/hooks.md).
@@ -292,5 +292,5 @@ For genuine system-prompt-level rules, use `--append-system-prompt` or `--system
 - **Survives compaction**: eager files (re-read from disk). Not lazy files until re-touched.
 - **Stripped before injection**: block-level HTML comments only.
 - **Path-scoped rules**: trigger on Read, Write or Edit, and a single-file Bash `cat`/`head`/`tail`/`sed -n`/`grep`; persist in context once loaded, never scope out.
-- **Debug**: `/memory` for the loaded list, `InstructionsLoaded` hook for audit log.
+- **Debug**: `Contents of` headers for the loaded list (the user's `/memory` for the authoritative one), `InstructionsLoaded` hook for audit log.
 - **Hard guarantee**: not from CLAUDE.md. Use hooks or system-prompt flags.

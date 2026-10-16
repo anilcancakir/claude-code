@@ -276,10 +276,9 @@ Schema: ${CLAUDE_SKILL_DIR}/references/criteria-schema.md"
 Two paths and nothing else. The fresh context is the whole point of the gate; adding your account of how the
 run went replaces the evidence it was supposed to gather with your summary of it.
 
-The schema path is passed rather than left for the gate to construct because `${CLAUDE_PLUGIN_ROOT}` is
-substituted only in hook and MCP command strings and reaches an agent body unexpanded, while
-`${CLAUDE_SKILL_DIR}` does resolve here, in a skill body. Expand it yourself before the spawn so the gate
-receives a literal absolute path.
+The schema path is passed rather than left for the gate to construct because the gate has no skill directory of
+its own: the skill-directory variable resolves only in the body of the skill that spawns it, and this is that
+body. The prompt above therefore reaches the gate with a literal absolute path.
 
 `Write` the returned body verbatim to `.ac/auto/<slug>/verdict.md`. This write is the only thing that releases
 the Stop guard, and the guard never opens the file, so a verdict of `gaps_found` ends the run exactly as
