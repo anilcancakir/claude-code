@@ -285,6 +285,92 @@ test("APPENDED=1 inherited by a nested claude without the append file still emit
     expect(additionalContext(result.stdout)).toBe(expectedRules());
 });
 
+// On --resume and -c, Claude Code restores the session's first system prompt from its prompt_snapshot
+// record and ignores the new launch's append flags, so the snapshot, not the wrapper, says whether
+// the rules are in the system prompt.
+function snapshotTranscript(systemText: string): string {
+    const transcript = join(root, "session.jsonl");
+    writeFileSync(
+        transcript,
+        `${JSON.stringify({ type: "attachment", attachment: { type: "prompt_snapshot", system: [systemText] } })}\n`,
+    );
+
+    return transcript;
+}
+
+test("a resume whose restored system prompt lacks the rules emits even behind the wrapper", () => {
+    const transcript = snapshotTranscript("You are Claude Code. The organization policy line.");
+    const env = fakePs("claude --append-system-prompt-file /x/.claude/ac/working-rules.md -c");
+
+    const result = runHook("resume", env, { transcript_path: transcript });
+
+    expect(additionalContext(result.stdout)).toBe(expectedRules());
+});
+
+test("a resume whose restored system prompt carries the rules is silent", () => {
+    const transcript = snapshotTranscript(`You are Claude Code.\n${FIRST_LINE}\nbody`);
+
+    const result = runHook("resume", {}, { transcript_path: transcript });
+
+    expect(result.stdout).toBe("");
+});
+
+test("a resume ignores a non-hook attachment that only quotes the first line", () => {
+    const transcript = snapshotTranscript("You are Claude Code. No rules here.");
+    writeFileSync(
+        transcript,
+        `${JSON.stringify({ type: "attachment", attachment: { type: "queued_command", prompt: `result quotes ${FIRST_LINE}` } })}\n`,
+        { flag: "a" },
+    );
+
+    const result = runHook("resume", {}, { transcript_path: transcript });
+
+    expect(additionalContext(result.stdout)).toBe(expectedRules());
+});
+
+test("a resume ignores a hook copy from before the last compaction", () => {
+    const transcript = snapshotTranscript("You are Claude Code. No rules here.");
+    writeFileSync(
+        transcript,
+        [
+            JSON.stringify({ type: "attachment", attachment: { type: "hook_additional_context", content: [FIRST_LINE] } }),
+            JSON.stringify({ type: "system", subtype: "compact_boundary" }),
+            "",
+        ].join("\n"),
+        { flag: "a" },
+    );
+
+    const result = runHook("resume", {}, { transcript_path: transcript });
+
+    expect(additionalContext(result.stdout)).toBe(expectedRules());
+});
+
+test("a compact whose snapshot lacks the rules emits behind the wrapper", () => {
+    const transcript = snapshotTranscript("You are Claude Code. No rules here.");
+    const env = fakePs("claude --append-system-prompt-file /x/.claude/ac/working-rules.md");
+
+    const result = runHook("compact", env, { transcript_path: transcript });
+
+    expect(additionalContext(result.stdout)).toBe(expectedRules());
+});
+
+test("a startup ignores a snapshot and trusts the wrapper", () => {
+    const transcript = snapshotTranscript("You are Claude Code. No rules here.");
+    const env = fakePs("claude --append-system-prompt-file /x/.claude/ac/working-rules.md");
+
+    const result = runHook("startup", env, { transcript_path: transcript });
+
+    expect(result.stdout).toBe("");
+});
+
+test("a compact is decided by the session's snapshot too", () => {
+    const transcript = snapshotTranscript(`You are Claude Code.\n${FIRST_LINE}\nbody`);
+
+    const result = runHook("compact", {}, { transcript_path: transcript });
+
+    expect(result.stdout).toBe("");
+});
+
 test("APPENDED=1 is trusted when the process table cannot be read", () => {
     const result = runHook("startup", fakePs(null));
 

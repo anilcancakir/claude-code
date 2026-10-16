@@ -5,12 +5,14 @@
 # delivery paths exist, and exactly one copy may reach a context: a wrapper launches claude with
 # --append-system-prompt-file pointing at the stable copy this hook keeps current, and this hook's
 # own additionalContext covers every other launch. A SessionStart payload cannot tell the hook
-# which path ran, so the wrapper sets AC_WORKING_RULES_APPENDED=1 and the hook stays silent.
+# which path ran, so on a fresh startup the wrapper's AC_WORKING_RULES_APPENDED=1, checked
+# against the claude process's own arguments, keeps the hook silent.
 #
-# Silent as well when AC_WORKING_RULES=0, when the global CLAUDE.md still carries one of the
-# moved headings (old layout, one copy already), and on a resume whose transcript holds the
-# earlier copy as a hook_additional_context record (measured on 2.1.301: resume re-fires
-# SessionStart and the persisted copy stays in context, so a second emit doubles the rules).
+# Outside a startup the transcript decides instead, because a resume restores the session's
+# first system prompt and ignores the new launch's flags: the latest prompt_snapshot carries the
+# rules or it does not, and on a resume a hook copy still in context counts too. Silent as well
+# when AC_WORKING_RULES=0 or when the global CLAUDE.md still carries two or more moved headings
+# (old layout, one copy already).
 #
 # Fail open, and never silent because of a missing tool: without jq the text goes out as plain
 # stdout, which an exit-0 SessionStart hook delivers as context too. Exits 0 on every path.
@@ -63,9 +65,6 @@ appended_here() {
     done
     return 0
 }
-if [ "${AC_WORKING_RULES_APPENDED:-}" = "1" ] && appended_here; then
-    exit 0
-fi
 
 # Old layout: an /ac:install from before the move left the eight workflow sections in CLAUDE.md, so
 # one copy already reaches the context. Two headings are required because a user may well have
@@ -94,14 +93,39 @@ payload_field() {
         }'
 }
 
-# Any hook attachment record carrying the first line counts: the JSON path records
-# hook_additional_context, the plain-stdout path records hook_success.
-if [ "$(payload_field source)" = "resume" ]; then
-    transcript="$(payload_field transcript_path)"
-    if [ -n "$transcript" ] && [ -r "$transcript" ] \
-        && grep -F '"attachment"' "$transcript" 2>/dev/null | grep -qF '# Working rules (ac plugin)'; then
+source_kind="$(payload_field source)"
+transcript="$(payload_field transcript_path)"
+[ -n "$transcript" ] && [ -r "$transcript" ] || transcript=""
+
+# A copy this hook delivered earlier and that a resume still loads: a hook_additional_context
+# (JSON path) or hook_success (plain stdout) record carrying the first line, after the last
+# compaction boundary. Any other record that merely quotes the line, such as a subagent result in
+# a task notification, does not count.
+hook_copy_in_context() {
+    awk '/"subtype":"compact_boundary"/ { found = 0 }
+         /"type":"(hook_additional_context|hook_success)"/ && index($0, "# Working rules (ac plugin)") { found = 1 }
+         END { exit !found }' "$transcript" 2>/dev/null
+}
+
+# Measured on 2.1.301 and 2.1.302: --resume and -c restore the session's first system prompt from
+# its prompt_snapshot record and ignore the new launch's append flags, so a session first opened
+# without the wrapper has no rules in its system prompt however it is resumed. Outside a fresh
+# startup the latest snapshot decides: it carries the rules (silent), or it does not and only a
+# hook copy still in context keeps the hook silent; the wrapper variable is not consulted. With
+# no snapshot to read, fall through to the wrapper check.
+if [ "$source_kind" != "startup" ] && [ -n "$transcript" ]; then
+    snapshot="$(grep -aF '"prompt_snapshot"' "$transcript" 2>/dev/null | tail -n 1)"
+    case "$snapshot" in
+        *'# Working rules (ac plugin)'*) exit 0 ;;
+    esac
+    if [ "$source_kind" = "resume" ] && hook_copy_in_context; then
         exit 0
     fi
+    [ -n "$snapshot" ] && appended_check=skip
+fi
+
+if [ "${appended_check:-}" != "skip" ] && [ "${AC_WORKING_RULES_APPENDED:-}" = "1" ] && appended_here; then
+    exit 0
 fi
 
 # 3. Emit.
