@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - `ac:plan` asks `Proceed?`, `TDD?` and `QA?` in a single `AskUserQuestion` call.
+- The dash rule in the global CLAUDE.md template and `language-style-template.md` now covers only artifacts a person reads (commits, PRs, code comments, public docs, tickets, emails), and drops the "anything you cannot place counts as an artifact" fallback, which pulled plans into scope. Working files (plans, logs, evidence, reports, notes, memory) are written LLM-friendly and never checked for dashes; `ac:plan` and `ac:execute` say so for everything under `.ac/`.
 - The `<auto_mode>` tables in `execute` and `plan` gain an "On AFK timeout" column.
 - `working-rules.md` gains a hand-off line, and plan resume restores `topic`.
 

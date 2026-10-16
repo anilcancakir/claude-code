@@ -61,7 +61,7 @@ call, which is also the only way its cost stays visible.
 - Decide nothing for the user when uncertainty remains. Surface the decision via `AskUserQuestion` with a recommended option grounded in research.
 - Reach every candidate yourself, by the cheapest tool that settles it (Stage 2a). A subagent report is a candidate list, not a decision.
 - Apply the routing rule in Stage 3b before every `AskUserQuestion`: if code or docs can answer the question, do that first.
-- The plan file is LLM-target structured markdown: parsable field labels, concrete `file_path:line_number`, no prose flourish, no decorative narration. Downstream agents read it as a spec.
+- The plan file is LLM-target structured markdown: parsable field labels, concrete `file_path:line_number`, no prose flourish, no decorative narration. Downstream agents read it as a spec. It and every other file under `.ac/` are working files, not artifacts a person reads, so the dash rule does not reach them: spend no tool call and no `Done when` criterion checking them for dashes. A step whose output ships (a commit message, a public doc, a plugin body) can still carry that check.
 - Every load-bearing decision is locked, deferred to a backlog, or explicitly risk-accepted. The plan file contains zero open questions.
 - Do not call `EnterPlanMode`. Native plan mode locks writes outside one designated file; this workflow needs to write plan.md plus interview-log.md plus checkpoint.json plus research/*.md.
 - Revise `PLAN_PATH` with `Edit`, never through `Bash`. Not `python3 -c`, not `sed -i`, not `perl -pi`, not a `cat >`

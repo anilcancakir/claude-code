@@ -189,11 +189,11 @@ The operator's global CLAUDE.md already states the short unconditional rules, th
      than that line ships two rules that contradict each other. The numbered rules after them
      are placeholders; delete any the interview did not fill rather than inventing one. -->
 
-### 1. No em-dash, no en-dash in a finished artifact
+### 1. No em-dash, no en-dash in an artifact a person reads
 
-Em-dash (U+2014) and en-dash (U+2013) are out in anything a person reads as a finished artifact: a document, an article, a commit message, a PR body, a code comment or doc block, an email, a message the operator will pass on to someone else. Use comma, colon, semicolon, period, parentheses, or plain conjunctions instead.
+Em-dash (U+2014) and en-dash (U+2013) are out in anything a person reads as authored text: a document, an article, a commit message, a PR body, a code comment or doc block, a ticket, an email, a message the operator will pass on to someone else. Use comma, colon, semicolon, period, parentheses, or plain conjunctions instead.
 
-The conversation and our own working files (a plan, a report, session notes) are free. Two things keep that carve-out from turning into a leak. The rule follows the content and not the channel, so a commit message drafted inside a chat reply is still a commit message and still takes the hyphen. And anything you cannot confidently place counts as an artifact: a hyphen in a scratch file costs nothing, while an em-dash in a merged commit is exactly what the rule exists to prevent.
+The rule follows the content and not the channel, so a commit message drafted inside a chat reply is still a commit message and still takes the hyphen. The conversation and the working files written for a model or for us (a plan, an interview log, evidence, a report, session notes, memory) are not artifacts. Write those LLM-friendly, with structure and `file:line` anchors rather than polished prose, and spend no tool call checking them for dashes: the check costs tokens and protects nobody.
 
 ### 2. Length is set by the content, not by the format
 

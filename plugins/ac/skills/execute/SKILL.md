@@ -71,6 +71,8 @@ the only way its cost stays visible.
 - Wave-after commits whenever the wave changed tracked files; the final commit always.
 - Do not call `EnterPlanMode`; the plan is approved. Do not modify `plan.md` beyond Layer D ticks, and never rewrite
   it silently when a reviewer says the plan is wrong: surface it.
+- `plan.md`, `wisdom.md`, `review-log.md`, `evidence/` and `report.md` are working files written for a model, not
+  artifacts a person reads: no tool call checks them for dashes. The dash check belongs only to what ships.
 - Mutate a file with `Edit` or `Write`, never through `Bash`. Not `python3 -c`, not a `cat >>` heredoc, not `sed -i`,
   not `perl -pi`, not `tee`. Two reasons, both measured on one run: a Bash rewrite spends the old text AND the new
   text AND the script wrapper as output tokens, which put 34 `plan.md` rewrites among that run's largest payloads at
