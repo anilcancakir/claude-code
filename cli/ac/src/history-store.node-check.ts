@@ -12,6 +12,7 @@ import {
 } from "./history-store.ts";
 import type { HistoryIngestResult, HistoryResultRow, HistoryStore } from "./history-store.ts";
 import type { DistillRow } from "./history-distill.ts";
+import type { HistoryQueryFilters } from "./history-query.ts";
 import {
     buildContentQuery,
     buildCountQuery,
@@ -672,4 +673,52 @@ test("multi-token AND still excludes a row holding only one of the tokens", () =
 test("both spellings of a multi-token Turkish query select the same row", () => {
     assert.equal(matchCount(["çalışıyor bilgi"], "calisiyor bilgi"), 1);
     assert.equal(matchCount(["calisiyor bılgı"], "çalışıyor bilgi"), 1);
+});
+
+/** One value per filter the search modes accept, so the plan test below can try every subset. */
+const PLAN_FILTER_VALUES: Required<HistoryQueryFilters> = {
+    path: "proj",
+    since: 1_750_000_000_000,
+    until: 1_760_000_000_000,
+    role: "assistant",
+    kind: "tool_use",
+    includeSubagents: false,
+    agentType: "ac:oracle",
+};
+
+/** Every subset of {@link PLAN_FILTER_VALUES}, the empty one included: 128 filter sets. */
+function everyFilterSubset(): HistoryQueryFilters[] {
+    const keys = Object.keys(PLAN_FILTER_VALUES) as (keyof HistoryQueryFilters)[];
+    const subsets: HistoryQueryFilters[] = [];
+
+    for (let mask = 0; mask < 1 << keys.length; mask += 1) {
+        const picked = keys.filter((_, bit) => (mask & (1 << bit)) !== 0);
+        subsets.push(Object.fromEntries(picked.map((key) => [key, PLAN_FILTER_VALUES[key]])));
+    }
+
+    return subsets;
+}
+
+test("content and sessions search start their plan at the FTS table for every filter combination", async () => {
+    // With a plain JOIN, `kind` plus `since` or `until` let the planner put the `turns_kind_ts` index
+    // outside FTS and re-run MATCH once per outer row: minutes to hours on a real archive, with the
+    // MCP server's event loop blocked throughout. No `sqlite_stat1` is ever written, so an empty
+    // archive plans exactly as a full one does.
+    const store = await openTempStore();
+    const match = toMatchExpression("alpha", { prefix: true });
+
+    for (const build of [buildContentQuery, buildSessionsQuery]) {
+        for (const filters of everyFilterSubset()) {
+            const statement = build({ match, filters, limit: 20, offset: 0 });
+            const plan = store.select({
+                sql: `EXPLAIN QUERY PLAN ${statement.sql}`,
+                params: statement.params,
+            });
+            const firstLoop = plan
+                .map((row) => String(row["detail"]))
+                .find((detail) => /^(SCAN|SEARCH) /.test(detail));
+
+            assert.match(firstLoop ?? "", /^SCAN turns_fts /, `${build.name} ${JSON.stringify(filters)}`);
+        }
+    }
 });

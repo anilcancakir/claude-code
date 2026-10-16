@@ -404,6 +404,24 @@ test("content mode joins the FTS table into the outer FROM so snippet and bm25 r
     expect(statement.sql).toContain("WHERE turns_fts MATCH ?");
 });
 
+test("content and sessions modes pin the FTS table as the outer loop with a CROSS JOIN", () => {
+    // A plain JOIN let sqlite put the `turns_kind_ts` index outside FTS once `kind` met `since`,
+    // re-running MATCH per outer row. The plan itself is proven in history-store.node-check.ts.
+    for (const build of [buildContentQuery, buildSessionsQuery]) {
+        const statement = build({
+            match: "\"alpha\"*",
+            filters: {
+                kind: "tool_use",
+                since: 1_750_000_000_000,
+            },
+            limit: 20,
+            offset: 0,
+        });
+
+        expect(statement.sql).toContain("CROSS JOIN turns t ON t.id = turns_fts.rowid");
+    }
+});
+
 test("content mode orders by bm25 ascending with a recency nudge, since FTS5 negates bm25", () => {
     const statement = buildContentQuery({
         match: "\"alpha\"*",

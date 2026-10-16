@@ -253,6 +253,12 @@ export function toMatchExpression(pattern: string, opts: { prefix: boolean }): s
  * FTS table stays unaliased; aliasing it breaks the implicit MATCH operand. Selects the `turns`
  * metadata columns under their own names plus a `snippet` column.
  *
+ * The join is a `CROSS JOIN` because SQLite never reorders one, so FTS stays the outer loop and
+ * MATCH runs once. With a plain `JOIN`, a `kind` plus `since` or `until` filter made the planner
+ * drive the loop from the `turns_kind_ts` index and re-run MATCH per outer row: 260 s against 59 ms
+ * on a real archive, with the MCP server's event loop blocked throughout. The sessions block below
+ * uses the same join for the same reason.
+ *
  * @throws Error when `match` is empty, which FTS5 rejects rather than treating as "match all".
  */
 export function buildContentQuery(query: HistorySearchQuery): SqlStatement {
@@ -268,7 +274,7 @@ export function buildContentQuery(query: HistorySearchQuery): SqlStatement {
     const sql = [
         `SELECT ${columns.join(", ")}`,
         "FROM turns_fts",
-        "JOIN turns t ON t.id = turns_fts.rowid",
+        "CROSS JOIN turns t ON t.id = turns_fts.rowid",
         whereClause(filters.clauses),
         `ORDER BY ${RANK_EXPRESSION} ASC`,
         "LIMIT ? OFFSET ?",
@@ -328,7 +334,7 @@ export function buildSessionsQuery(query: HistorySearchQuery): SqlStatement {
         "WITH hit AS MATERIALIZED (",
         `    SELECT ${hitColumns.join(", ")}`,
         "    FROM turns_fts",
-        "    JOIN turns t ON t.id = turns_fts.rowid",
+        "    CROSS JOIN turns t ON t.id = turns_fts.rowid",
         `    ${whereClause(filters.clauses, { indent: "    " })}`,
         ")",
         `SELECT ${columns.join(", ")}`,
