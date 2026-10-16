@@ -292,15 +292,17 @@ audited stops were exactly that. `AskUserQuestion` keeps the turn open, and with
 `askUserQuestionTimeout` at "never" and `CLAUDE_AFK_TIMEOUT_MS` unset (install-settings Group A, plus the Group C strip for the value a prior install wrote)
 it also never auto-submits while the operator is away.
 
-`Identity` splits git work off when the author and git emails differ, because one identity for
-everything made the model override the git email. Seen from 2026-09-17 to 2026-10-15 in six
-projects: worker briefs and commits carried `git -c user.email=<author email>` or `--author`, so
-commits went out under the author address instead of the global `git config user.email`, which is
-also the operator's primary GitHub email, and the operator rewrote the rule on 2026-10-15. The
-sentence fixes the email only. Its name stays the author's on purpose: git config often holds a
-transliterated name, and an operator who wants the accented one in commits gets it through
-`-c user.name=`, which this rule does not forbid. When the two emails match the sentence is
-dropped and the general rule covers commits too.
+`Identity` keeps git work out of the author rule, because every wording that mentioned trailers
+was read as an instruction to add one. With "commit trailer" in the author rule's list (from
+2026-09-23), a my-car commit on 2026-10-08 carried a `Co-Authored-By` naming the operator, who was
+already the author; the next wording listed `Co-Authored-By` and `Signed-off-by` with the git email,
+and a watchools commit twelve minutes after it shipped (2026-10-16) carried that trailer too. Seen
+from 2026-09-17 to 2026-10-15 in six projects, briefs and commits also passed
+`git -c user.email=<author email>` or `--author`, so commits went out under the author address
+instead of the global `git config user.email`. The sentence leaves git config alone and bans both
+trailers when they name the operator, except a DCO sign-off through `git commit -s`. PR sign-offs
+fall under the author rule again, on purpose. Claude's own attribution trailer is not this rule's:
+that is the `attribution.commit` setting.
 
 `Run to completion` carries one sentence for subagents because its wait bullets are written for the
 main thread: nine ac agents (every one without `omitClaudeMd`) receive this block, and a subagent that ends its turn ends its
@@ -331,7 +333,7 @@ When you disagree with a request, say so with a concrete tradeoff, name the assu
 
 ## Identity
 
-When a task needs an author, owner, name, or email (`@author`, package manifest, LICENSE, byline, config default), use `<author name and email>`.<git-identity sentence, emitted only when the git email differs from the author email: " Git work is the exception: commit author, `Co-Authored-By` and `Signed-off-by` trailers, and PR sign-offs use `<author name with git email>`, which is the global `git config user.email` on this machine.", keeping any qualifier the operator's current file adds before that period, such as " and the primary email on GitHub"> Never a placeholder; ask only when a different identity is clearly required.
+When a task needs an author, owner, name, or email (`@author`, package manifest, LICENSE, byline, config default), use `<author name and email>`. Git work is the exception: commits take their identity from `git config` as it stands, so never pass `-c user.name`, `-c user.email` or `--author`, and add no `Co-Authored-By` or `Signed-off-by` trailer naming me (a repository that requires a DCO sign-off gets `git commit -s`, which signs with that same git config). Never a placeholder; ask only when a different identity is clearly required.
 
 ## Anti-patterns
 
