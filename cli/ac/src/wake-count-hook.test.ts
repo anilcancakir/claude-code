@@ -61,6 +61,12 @@ const notCounted: string[] = [
     "F=1 && claude -p x",
     "timeout 60 a && rm -rf x",
     "timeout 3601 npm run thing",
+    'cd "$(sleep 99999)" && timeout 60 a',
+    'F="$(yes)" && timeout 60 a',
+    'F="$(yes)" timeout 60 a',
+    "export F=`yes` && timeout 60 a",
+    "cd\nyes && timeout 60 a",
+    "export\nyes && timeout 60 a",
 ];
 
 test.each(counted)("strict mode counts a bounded wait: %s", (command) => {

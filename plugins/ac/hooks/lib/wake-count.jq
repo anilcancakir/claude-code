@@ -72,22 +72,27 @@ def long_lived:
 # shapes are not a second command and are let through: a redirect (`2>&1`, `&>log`, `>&log`, which
 # carry an `&` that is not a background marker) and a leading run of `cd <word> &&`, `NAME=<word> &&`
 # and `export NAME[=word]... &&` segments, since a wait script is usually started from its own
-# directory or with an env var. Those prefix words exclude a backtick and parentheses, so a
-# substitution cannot hide an unbounded command in front of the `timeout`. N must lie in (0, 1
-# hour]: `timeout 0` disables the limit, and `timeout 86400 npm run dev` is a dev server that
-# would switch the run guard off for a day.
+# directory or with an env var. A substitution (`$(`, a backtick, `<(`, `>(`) anywhere before the
+# `timeout` disqualifies it, double quotes included, since a quoted substitution still runs: the
+# check reads the command with only single-quoted spans blanked. The prefix separators are spaces
+# and tabs, never a newline. N must lie in (0, 1 hour]: `timeout 0` disables the limit, and
+# `timeout 86400 npm run dev` is a dev server that would switch the run guard off for a day.
 def bounded:
-  (gsub("'[^']*'"; "''") | gsub("\"(\\\\.|[^\"\\\\])*\""; "\"\"")
+  (gsub("'[^']*'"; "''")) as $sq
+  | ($sq | gsub("\"(\\\\.|[^\"\\\\])*\""; "\"\"")
     | gsub("[0-9]*>&[0-9-]+"; "") | gsub("&>>?|>&"; ">")) as $bare
   | ("[^\\s;&|`()]+") as $word
   | ($bare | sub(
-      "^\\s*((cd\\s+" + $word + "|[A-Za-z_][A-Za-z0-9_]*=(" + $word + ")?"
-      + "|export(\\s+[A-Za-z_][A-Za-z0-9_]*(=" + $word + ")?)+)\\s*&&\\s*)*"; "")) as $rest
+      "^[ \\t]*((cd[ \\t]+" + $word + "|[A-Za-z_][A-Za-z0-9_]*=(" + $word + ")?"
+      + "|export([ \\t]+[A-Za-z_][A-Za-z0-9_]*(=" + $word + ")?)+)[ \\t]*&&[ \\t]*)*"; "")) as $rest
+  | ([$sq | capture("^(?<pre>[^\\n]*?)\\bg?timeout\\b")] | first) as $head
   | ([$rest | capture(
       "^\\s*([A-Za-z_][A-Za-z0-9_]*=\\S*\\s+)*g?timeout"
       + "(\\s+(-k\\s*\\S+|--kill-after=\\S+|-s\\s*\\S+|--signal=\\S+|--foreground|--preserve-status|-v|--verbose))*"
       + "\\s+(?<n>[0-9]+(\\.[0-9]+)?)(?<u>[smhd]?)\\s")] | first) as $t
   | $t != null
+    and $head != null
+    and ($head.pre | test("\\$\\(|`|[<>]\\(") | not)
     and (($t.n | tonumber) * {"": 1, "s": 1, "m": 60, "h": 3600, "d": 86400}[$t.u] | . > 0 and . <= 3600)
     and ($rest | test("[;&|\\n]") | not)
     and (test("\\[\\+[0-9]+ chars\\]$") | not);
