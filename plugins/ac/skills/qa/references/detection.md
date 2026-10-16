@@ -19,7 +19,18 @@ Record the result in `brief.md` as the tool name plus the exact boot, suite and 
 
 ## Boot and readiness
 
-Boot the app only when `Target` is a URL and nothing already answers on it. The boot commands below are written without a trailing `&`: `ac:qa` backgrounds them itself (Bash `run_in_background`, output to `<run dir>/server.log`, PID kept) and stops the server when the run ends. Probe readiness with curl until HTTP 200, capped at 60 seconds:
+`ac:qa` boots the Target; `ac:qa-tester` never does. Read the Target kind and its start and ready instructions from the project's `CLAUDE.md`, `README` or `.ac/qa/learnings.md` first, and boot only when nothing already answers.
+
+| Target kind | Boot | Ready when |
+|---|---|---|
+| URL server | the dev command from the tool section below | `curl` returns HTTP 200 (loop below) |
+| Project start script | the documented script | its documented ready line appears in `<run dir>/server.log`, or a documented health command exits 0 |
+| Simulator or emulator | the documented launch command | it reports booted: `xcrun simctl list devices booted` names the device, or `adb wait-for-device` returns |
+| Desktop app | the documented launch command | its process is up (`pgrep -f <name>`), or the documented ready line appears in `server.log` |
+
+Boot with Bash `run_in_background` and `timeout: 7200000`, output to `<run dir>/server.log`, with no `nohup` and no trailing `&`. Claude Code stops a process the shell detaches that way a few minutes after the reply, while a background Bash call is kept for 30 minutes by default and up to 2 hours with an explicit `timeout`, in unattended sessions. Stop the process when the run ends.
+
+Probe readiness in one foreground Bash call with `timeout: 660000`, as a bounded `for` loop: 60 s by default, up to 600 s when the project documents a cold build. Never start the command with `sleep N`; Claude Code blocks a leading sleep, and a `for` loop does not trigger that block. For a URL server:
 
 ```bash
 URL=http://127.0.0.1:8000
@@ -30,7 +41,9 @@ done
 [ "$(curl -s -o /dev/null -w '%{http_code}' "$URL")" = "200" ] || echo "app did not become ready"
 ```
 
-No 200 after 60 seconds is an environment failure: `could-not-run`, add the boot command and the last lines of `server.log` to the report, and add a bullet to `## Known gaps`.
+For the other kinds, replace the `curl` test with the ready check from the table (`grep -q '<ready line>' server.log`, `pgrep -f <name>`, the health command) and raise the `seq` bound for a documented cold build.
+
+Not ready within the bound is an environment failure: `could-not-run`, add the boot command and the last lines of `server.log` to the report, and add a bullet to `## Known gaps`.
 
 ## Viewports
 
@@ -50,7 +63,7 @@ Device emulation (user agent, touch, `isMobile`) and a bare resize are different
 ### Playwright Test
 
 - Marker: `playwright.config.ts`, `.js` or `.mjs` at the project root, or `@playwright/test` in `package.json`.
-- Boot: usually the config's `webServer` block starts the app. If the config has none, use the dev command from `package.json` or `CLAUDE.md`, then the readiness probe.
+- Boot: usually the config's `webServer` block starts the app. If the config has none, `ac:qa` boots the dev command from `package.json` or `CLAUDE.md`, then runs the readiness probe.
 - Existing suite: `npx playwright test`.
 - Throwaway spec: a positional path does not widen discovery (tests are collected from `testDir`), so write a temp config in the run dir at `<run dir>/playwright.config.ts` and point `-c` at it. Playwright resolves `testDir`, `outputDir` and `webServer.cwd` against the config file's directory (`config.ts` L174, `webServerPlugin.ts` L76), so each must be reset:
 
@@ -76,7 +89,7 @@ Device emulation (user agent, touch, `isMobile`) and a bare resize are different
 ### Cypress
 
 - Marker: `cypress.config.ts`, `.js` or `.mjs`, or `cypress` in `package.json`.
-- Boot: the dev command from `package.json` or `CLAUDE.md`, then the readiness probe. Cypress does not start the app.
+- Boot: Cypress does not start the app; `ac:qa` boots the dev command from `package.json` or `CLAUDE.md`, then runs the readiness probe.
 - Existing suite: `npx cypress run`.
 - Throwaway spec: unverified out of tree. Try once with an absolute spec path and a `specPattern` override, `npx cypress run --spec <run dir>/specs/<name>.cy.ts --config specPattern=<run dir>/specs/**/*.cy.ts`. If Cypress reports no spec found or fails to load the support file, record the attempt under `### Could not run` for that tool and fall back to playwright-cli. Do not retry variations.
 - Preflight: `npx cypress verify` exits 0.
@@ -84,7 +97,7 @@ Device emulation (user agent, touch, `isMobile`) and a bare resize are different
 ### Laravel Dusk
 
 - Marker: `laravel/dusk` in `composer.json` `require-dev`, plus `tests/Browser/` or `phpunit.dusk.xml`.
-- Boot: Dusk does not start a server (https://laravel.com/docs/12.x/dusk). Start one yourself, `php artisan serve --no-reload --port=8000`, on the host and port that `APP_URL` names, then the readiness probe. `APP_URL` has to match the served URL exactly or Dusk's requests miss the app.
+- Boot: Dusk does not start a server (https://laravel.com/docs/12.x/dusk). `ac:qa` starts one, `php artisan serve --no-reload --port=8000`, on the host and port that `APP_URL` names, then the readiness probe. `APP_URL` has to match the served URL exactly or Dusk's requests miss the app.
 - Existing suite: `php artisan dusk`.
 - Throwaway spec: `php artisan dusk <path>` forwards the path to PHPUnit and always loads `phpunit.dusk.xml` (`DuskCommand.php` L139). Whether a file outside `tests/Browser` is picked up is unverified, so try once with `<run dir>/specs/<name>Test.php`; on "no tests executed" or a class-not-found error, fall back to playwright-cli. Dusk still writes its own screenshots to `tests/Browser/screenshots`; name that stray path in the report.
 - Preflight, all of which have to hold:
@@ -95,7 +108,7 @@ Device emulation (user agent, touch, `isMobile`) and a bare resize are different
 ### Pest browser
 
 - Marker: `pestphp/pest-plugin-browser` in `composer.json`.
-- Boot: as the project documents it; the plugin drives Playwright, so `node_modules` needs `playwright` and its browsers. Use the readiness probe for any URL you need yourself.
+- Boot: as the project documents it; the plugin drives Playwright, so `node_modules` needs `playwright` and its browsers. `ac:qa` runs the readiness probe for any URL the suite needs.
 - Existing suite: `./vendor/bin/pest tests/Browser`.
 - Throwaway spec: a file path argument works in-tree. Out of tree, the `Pest.php` `in()` bindings do not apply, so the spec has to carry its own `pest()->extend(...)`. That path is unverified: try once with `./vendor/bin/pest <run dir>/specs/<name>.php`, then fall back to playwright-cli on any failure.
 - Preflight: `composer show pestphp/pest-plugin-browser` and record the version in the report; the plugin has had heavy API churn (PRs #275 and #284), so a case written against another version may not run. `npx playwright --version` exits 0.
@@ -103,7 +116,7 @@ Device emulation (user agent, touch, `isMobile`) and a bare resize are different
 ### Flutter integration_test
 
 - Marker: `integration_test` under `dev_dependencies` (with `sdk: flutter`) in `pubspec.yaml`, and an `integration_test/` directory.
-- Boot: no server. A device or browser target is needed: list with `flutter devices`. For a web build that playwright-cli can reach, serve it with `flutter run -d web-server --web-port 8080` and use the readiness probe against `http://127.0.0.1:8080`.
+- Boot: no server. A device or browser target is needed: list with `flutter devices`. For a web build that playwright-cli can reach, `ac:qa` serves it with `flutter run -d web-server --web-port 8080` and runs the readiness probe against `http://127.0.0.1:8080`.
 - Existing suite: `flutter test integration_test -d <device id>`. For web, `flutter drive --driver=test_driver/integration_test.dart --target=integration_test/<name>_test.dart -d chrome` with ChromeDriver on port 4444.
 - Throwaway spec: unverified out of tree. Try once with `flutter test <run dir>/specs/<name>_test.dart -d <device id>`; a package-resolution error means fall back, which is only possible for a served web build. With no web target, the cases are `BLOCKED` and the reason goes under `### Could not run`.
 - Preflight: `flutter doctor -v` shows no error for the chosen platform, and the device id appears in `flutter devices`.
@@ -111,7 +124,7 @@ Device emulation (user agent, touch, `isMobile`) and a bare resize are different
 ### Unit runners only
 
 - Marker: a test runner is present (`package.json` `test` script, `vitest.config.*`, `jest.config.*`, `bun` tests, `pytest.ini`, `go test`, `phpunit.xml`, `cargo test`) and no browser tool above matched. This is the same detection `ac:plan` runs in its test infrastructure stage (2c.1); prefer the `testing: {command, single, quirks}` values in `CLAUDE.md` (the shape `/ac:init-project` writes) over re-deriving them.
-- Boot: none for a library or CLI; for a web app with no browser tool, boot it as in the section above and test it with the playwright-cli fallback.
+- Boot: none for a library or CLI; for a web app with no browser tool, `ac:qa` boots it as in the section above and the tester tests it with the playwright-cli fallback.
 - Existing suite: `testing.command`, falling back to the detected test command. Run it first as the regression case.
 - Throwaway spec: write the file under `<run dir>/specs/` and run it with the `testing.single` form for one file. Whether the runner discovers files outside its configured roots varies; if it reports no tests found, run the case as a shell command against the CLI or function entry point instead and record the output as evidence.
 - Preflight: the test command exits 0 on the unchanged suite or its failures are recorded as pre-existing before any case runs.
@@ -119,7 +132,7 @@ Device emulation (user agent, touch, `isMobile`) and a bare resize are different
 ### Static site
 
 - Marker: no server code and no runner; an `index.html` at the root, or a build output directory (`dist/`, `public/`, `_site/`, `build/`) from a static generator (Astro, Eleventy, Hugo, Jekyll).
-- Boot: build first if the generator's build command is in `package.json` or `CLAUDE.md`, then serve the output over HTTP: `python3 -m http.server 8080 --directory <output dir>`, then the readiness probe. Do not open `file://` URLs: root-relative links and fetches break there and produce false failures.
+- Boot: build first if the generator's build command is in `package.json` or `CLAUDE.md`, then `ac:qa` serves the output over HTTP: `python3 -m http.server 8080 --directory <output dir>`, then runs the readiness probe. Do not open `file://` URLs: root-relative links and fetches break there and produce false failures.
 - Existing suite: none; the page checks are the cases.
 - Throwaway spec: use the playwright-cli fallback below for every case.
 - Preflight: the output directory exists and contains the page under test.

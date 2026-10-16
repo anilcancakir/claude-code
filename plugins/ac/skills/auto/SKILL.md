@@ -237,9 +237,9 @@ Skill: skill "ac:plan", args "--auto <request>"
 
 Three things about that call decide this phase's shape:
 
-- Its Stage 3 interview is this run's single question round. `ac:plan`'s `<auto_mode>` table classifies 3a, 3b.1
-  and 3c as interview gates that surface whatever the mode, deliberately, because they are preference content
-  rather than process flow. That is why this body runs no question round of its own.
+- Its Stage 3 interview is this run's single question round. `ac:plan`'s `<auto_mode>` table classifies
+  3a, 3b.1, 3b.2 and 3c as interview gates that surface whatever the mode, deliberately, because they are
+  preference content rather than process flow. That is why this body runs no question round of its own.
 - Its Stage 6a chains `ac:execute` with `<slug> --auto` in the same turn. Do not invoke `ac:execute` yourself.
 - Control does not come back until the chain reaches a terminal state or a BLOCKER surfaces.
 

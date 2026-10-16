@@ -74,7 +74,7 @@ Plan-then-execute is a crowded category. Three things here are not common:
 | Command | What it does |
 |---------|--------------|
 | `/ac:plan` | Parallel research, an intent interview, a reuse and efficiency audit, then a tier-assigned plan at `.ac/plans/<slug>/plan.md`. Skill. |
-| `/ac:execute` | Runs an approved plan wave by wave with four-layer verification and a checkpoint commit per wave, closing with one code review. Skill. |
+| `/ac:execute` | Runs an approved plan wave by wave with four-layer verification and a checkpoint commit per wave, closing with one code review and, when the plan asks for one, a QA pass after it. Skill. |
 | `/ac:auto` | Freezes completion criteria under a hash, chains plan into execute, then gates the result with a read-only verifier. Never pushes. Skill. |
 | `/ac:qa` | QA-engineer pass over a session's or a plan's work with the project's own test tool (playwright-cli as the fallback): functional, responsive, design and security checks, critical and high findings fixed with one bounded retest, learnings kept in `.ac/qa/learnings.md`. Skill. |
 | `/ac:install` | Writes your global `CLAUDE.md`, generates the `my-coding` and `my-language` skills, merges `settings.json` parity, and offers the opt-in `ac:concise` output style. `--upgrade` re-applies it after a plugin update and asks only what is new. |
