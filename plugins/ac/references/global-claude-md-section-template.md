@@ -303,7 +303,7 @@ transliterated name, and an operator who wants the accented one in commits gets 
 dropped and the general rule covers commits too.
 
 `Run to completion` carries one sentence for subagents because its wait bullets are written for the
-main thread: nine plan-chain agents receive this block, and a subagent that ends its turn ends its
+main thread: nine ac agents (every one without `omitClaudeMd`) receive this block, and a subagent that ends its turn ends its
 run, so "end the turn and let the notification start the next one" strands the work. Seen on two
 `ac:plan-worker-junior-high` runs, which followed the main-thread wording and hit "No such tool
 available: Monitor". The main-thread bullets are unchanged; the sentence sits after them and tells a

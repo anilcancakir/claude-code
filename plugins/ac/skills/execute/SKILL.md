@@ -714,7 +714,7 @@ evidence reaches the tester as `Existing evidence`, and the tester skips those s
 
    Its tester runs in the background, so `ac:qa` may end a turn with `QA: tester running for run <run id>; resuming on
    its notification`. That wait is expected: the notification resumes inside `ac:qa`, and the `Stop` guards allow the
-   stop because they count a running subagent (`${CLAUDE_PLUGIN_ROOT}/hooks/lib/wake-count.jq:16-20`). Do not poll, sleep or
+   stop because they count a running subagent (`${CLAUDE_PLUGIN_ROOT}/hooks/lib/wake-count.jq`). Do not poll, sleep or
    read the tester's output file, and do not treat that turn end as the QA result.
 3. When the skill finishes, read `result.txt` in the directory of the block's `report:` path, the file `ac:qa` wrote
    before printing its block, and append that content to `.ac/plans/<slug>/review-log.md` under
