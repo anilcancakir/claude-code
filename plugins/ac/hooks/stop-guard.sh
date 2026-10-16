@@ -106,7 +106,7 @@ age=$((now_epoch - started_epoch))
 qw_lib="$(dirname "$0")/lib/question-wait.sh"
 if [ -f "$qw_lib" ]; then
     . "$qw_lib"
-    qw_active "$hook_session" && exit 0
+    qw_active "$hook_session" "$transcript_path" && exit 0
 fi
 
 # 3b. Work in flight that will wake the session. A wave's workers run with run_in_background, and

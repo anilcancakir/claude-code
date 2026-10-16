@@ -91,6 +91,7 @@ jq -e . "$marker" >/dev/null 2>&1 || exit 0
 #    still matches (services/compact/compact.ts:591-592 only fires the SessionStart hooks;
 #    utils/sessionRestore.ts:436-446 reuses the resumed id).
 hook_session="$(printf '%s' "$input" | jq -r '.session_id // empty' 2>/dev/null)"
+transcript_path="$(printf '%s' "$input" | jq -r '.transcript_path // empty' 2>/dev/null)"
 marker_session="$(jq -r '.session_id // empty' "$marker" 2>/dev/null)"
 [ -n "$hook_session" ] || exit 0
 [ -n "$marker_session" ] || exit 0
@@ -119,7 +120,7 @@ age=$((now_epoch - started_epoch))
 qw_lib="$(dirname "$0")/lib/question-wait.sh"
 if [ -f "$qw_lib" ]; then
     . "$qw_lib"
-    qw_active "$hook_session" && exit 0
+    qw_active "$hook_session" "$transcript_path" && exit 0
 fi
 
 # 3b. Work in flight that will wake the session (a background worker, a monitor, a finite shell):

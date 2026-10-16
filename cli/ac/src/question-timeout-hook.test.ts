@@ -96,15 +96,18 @@ function latchPath(session: string = SESSION): string {
     return join(scratch, `ac-question-wait-${session}`);
 }
 
-function critPath(): string {
-    return join(scratch, `ac-question-crit-${SESSION}-${SLUG}`);
+// An allowance counter is keyed on session, slug and the marker's started_at as an epoch, so a second
+// run with the same slug in the same session starts with a fresh allowance.
+function counterPath(kind: "crit" | "premise", startedAt: string): string {
+    return join(scratch, `ac-question-${kind}-${SESSION}-${SLUG}-${Date.parse(startedAt) / 1000}`);
 }
 
 function isoAgo(hours: number): string {
     return new Date(Date.now() - hours * 3600 * 1000).toISOString().replace(/\.\d+Z$/, "Z");
 }
 
-function seedAutoRun(overrides: { session?: string; startedAt?: string } = {}): void {
+function seedAutoRun(overrides: { session?: string; startedAt?: string } = {}): string {
+    const startedAt = overrides.startedAt ?? isoAgo(0);
     mkdirSync(join(project, ".ac", "state"), { recursive: true });
     mkdirSync(join(project, ".ac", "auto", SLUG), { recursive: true });
     writeFileSync(
@@ -112,11 +115,13 @@ function seedAutoRun(overrides: { session?: string; startedAt?: string } = {}): 
         JSON.stringify({
             session_id: overrides.session ?? SESSION,
             slug: SLUG,
-            started_at: overrides.startedAt ?? isoAgo(0),
+            started_at: startedAt,
             phase: "planning",
             pid: 0,
         }),
     );
+
+    return startedAt;
 }
 
 function seedExecuteMarker(session: string = SESSION): void {
@@ -248,9 +253,16 @@ test("an execute marker owned by another session does not stop the continue", ()
 test("blocker headers wait even with an owned marker", () => {
     seedAutoRun();
 
-    for (const header of ["Topic?", "Agent fail?", "Write fail?", "Dep failed?", "Halted?"]) {
+    for (const header of ["Topic?", "Agent fail?", "Write fail?", "Dep failed?", "Halted?", "Budget?"]) {
         expectWait(runHook(payload([question(header)])));
     }
+});
+
+test("a Budget? question waits and arms the latch even with an owned fresh marker", () => {
+    seedAutoRun();
+
+    expectWait(runHook(payload([question("Budget?")])));
+    expect(existsSync(latchPath())).toBe(true);
 });
 
 test("one blocker header among several questions makes the whole prompt wait", () => {
@@ -260,26 +272,60 @@ test("one blocker header among several questions makes the whole prompt wait", (
 });
 
 test("Oracle CRIT? continues once per run and waits the second time", () => {
-    seedAutoRun();
+    const startedAt = seedAutoRun();
     const crit = payload([question("Oracle CRIT?")]);
 
     expectContinue(runHook(crit));
-    expect(existsSync(critPath())).toBe(true);
+    expect(existsSync(counterPath("crit", startedAt))).toBe(true);
 
     expectWait(runHook(crit));
 });
 
-test("a wait for another reason does not spend the Oracle CRIT? allowance", () => {
+test("Premise failed? continues once per run and waits the second time", () => {
+    const startedAt = seedAutoRun();
+    const premise = payload([question("Premise failed?")]);
+
+    expectContinue(runHook(premise));
+    expect(existsSync(counterPath("premise", startedAt))).toBe(true);
+
+    expectWait(runHook(premise));
+});
+
+test("Premise failed? and Oracle CRIT? each keep their own allowance", () => {
     seedAutoRun();
+
+    expectContinue(runHook(payload([question("Premise failed?")])));
+    expectContinue(runHook(payload([question("Oracle CRIT?")])));
+    expectWait(runHook(payload([question("Premise failed?")])));
+    expectWait(runHook(payload([question("Oracle CRIT?")])));
+});
+
+test("a second run with the same slug but another started_at gets a fresh allowance", () => {
+    seedAutoRun({ startedAt: isoAgo(2) });
+    for (const header of ["Oracle CRIT?", "Premise failed?"]) {
+        expectContinue(runHook(payload([question(header)])));
+        expectWait(runHook(payload([question(header)])));
+    }
+
+    seedAutoRun({ startedAt: isoAgo(1) });
+    for (const header of ["Oracle CRIT?", "Premise failed?"]) {
+        expectContinue(runHook(payload([question(header)])));
+    }
+});
+
+test("a wait for another reason does not spend the Oracle CRIT? or Premise failed? allowance", () => {
+    const startedAt = seedAutoRun();
     seedExecuteMarker();
 
     expectWait(runHook(payload([question("Oracle CRIT?")])));
-    expect(existsSync(critPath())).toBe(false);
+    expectWait(runHook(payload([question("Premise failed?")])));
+    expect(existsSync(counterPath("crit", startedAt))).toBe(false);
+    expect(existsSync(counterPath("premise", startedAt))).toBe(false);
 });
 
 test("a symlinked Oracle CRIT? counter is refused", () => {
-    seedAutoRun();
-    symlinkSync(join(root, "missing"), critPath());
+    const startedAt = seedAutoRun();
+    symlinkSync(join(root, "missing"), counterPath("crit", startedAt));
 
     expectWait(runHook(payload([question("Oracle CRIT?")])));
     expect(readdirSync(root)).not.toContain("missing");

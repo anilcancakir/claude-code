@@ -97,13 +97,14 @@ counter="${TMPDIR:-/tmp}/ac-announce-guard-$session_id"
 [ -L "$counter" ] && exit 0
 stop_hook_active="$(printf '%s' "$input" | jq -r '.stop_hook_active // false' 2>/dev/null)"
 [ "$stop_hook_active" = "true" ] || rm -f "$counter" 2>/dev/null
+transcript_path="$(printf '%s' "$input" | jq -r '.transcript_path // empty' 2>/dev/null)"
 
 # A question that timed out armed the latch: the turn ends to wait for the answer, so allow. Read,
 # never consumed, because the other two Stop guards see this same event (lib/question-wait.sh).
 qw_lib="$(dirname "$0")/lib/question-wait.sh"
 if [ -f "$qw_lib" ]; then
     . "$qw_lib"
-    qw_active "$session_id" && exit 0
+    qw_active "$session_id" "$transcript_path" && exit 0
 fi
 
 # Something already armed will wake the session; ending the turn is correct. A long-lived shell
@@ -174,7 +175,6 @@ fi
 [ -n "$kind" ] || exit 0
 
 # Reset the count when tool activity appeared since the last block: a new stall gets a fresh budget.
-transcript_path="$(printf '%s' "$input" | jq -r '.transcript_path // empty' 2>/dev/null)"
 tsize=0
 if [ -n "$transcript_path" ] && [ -f "$transcript_path" ]; then
     tsize="$(wc -c < "$transcript_path" 2>/dev/null | tr -d ' ')"

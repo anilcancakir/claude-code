@@ -8,7 +8,9 @@
 #   - wait:     the question is open; end the turn with one line naming it. This is the default, and
 #               the only thing printed on any parse failure, a missing jq or any doubt.
 #   - continue: only when this session owns a live /ac:auto run (confirmed below), the question is
-#               not an execute BLOCKER, and its header is not on the always-wait list.
+#               not an execute BLOCKER, and its header is not on the always-wait list (Topic?,
+#               Agent fail?, Write fail?, Dep failed?, Halted?, Budget?). Oracle CRIT? and Premise
+#               failed? continue once per run each, then wait.
 # The wait branch arms the question-wait latch (lib/question-wait.sh) so the three Stop guards let
 # the turn end; an answered question retires an old latch.
 #
@@ -25,8 +27,14 @@
 
 set -u
 
-wait_text="AskUserQuestion timed out with the user away, so it carries no answer. Either this session is not in an ac:auto run or the question is a blocker, so proceeding on your own judgment is not authorised. End the turn with one line naming the open question and any selection already made. The user's reply will arrive as the next message."
-continue_text="AskUserQuestion timed out with the user away. This session owns the active ac:auto run and the question is not a blocker, so the run continues: take the selection already made, or otherwise the option marked Recommended, and record the choice as 'timed out, not user-approved' in the plan's Risks Accepted section and in the run report."
+wait_text="AskUserQuestion timed out with the user away, so it carries no answer."
+wait_text="$wait_text Either this session is not in an ac:auto run or the question is a blocker, so proceeding"
+wait_text="$wait_text on your own judgment is not authorised. End the turn with one line naming the open question"
+wait_text="$wait_text and any selection already made. The user's reply will arrive as the next message."
+continue_text="AskUserQuestion timed out with the user away. This session owns the active ac:auto run and the"
+continue_text="$continue_text question is not a blocker, so the run continues: take the selection already made, or"
+continue_text="$continue_text otherwise the option marked Recommended, and record the choice as"
+continue_text="$continue_text 'timed out, not user-approved' in the plan's Risks Accepted section and in the run report."
 
 # 0. Off switch, then the payload. An empty read has no afkTimeoutMs either, so it ends silently.
 [ "${AC_QUESTION_TIMEOUT:-}" = "0" ] && exit 0
@@ -140,22 +148,33 @@ confirmed_auto_run() {
             >/dev/null 2>&1 || return 1
     headers="$(printf '%s' "$input" | jq -r '.tool_response.questions[] | (.header // "")' 2>/dev/null)" || return 1
     crit=""
+    premise=""
     while IFS= read -r header; do
         case "$header" in
-            'Topic?' | 'Agent fail?' | 'Write fail?' | 'Dep failed?' | 'Halted?') return 1 ;;
+            'Topic?' | 'Agent fail?' | 'Write fail?' | 'Dep failed?' | 'Halted?' | 'Budget?') return 1 ;;
             'Oracle CRIT?') crit=1 ;;
+            'Premise failed?') premise=1 ;;
         esac
     done <<EOF
 $headers
 EOF
 
-    # Oracle CRIT? continues once per run. The exclusive create is the allowance, and it is spent
-    # last so a wait for any other reason leaves it intact; noclobber refuses an existing file and a
-    # symlink alike.
-    if [ -n "$crit" ]; then
+    # Oracle CRIT? and Premise failed? each continue once per run, on a counter of their own so one
+    # does not spend the other. The key is session, slug and the marker's started_at epoch, so a later
+    # run with the same slug in this session starts with a fresh allowance. The exclusive create is the
+    # allowance, and it is spent last so a wait for any other reason leaves it intact; noclobber
+    # refuses an existing file and a symlink alike.
+    if [ -n "$crit" ] || [ -n "$premise" ]; then
         case "$sid" in *[!A-Za-z0-9-]*) return 1 ;; esac
         case "$slug" in *[!A-Za-z0-9._-]*) return 1 ;; esac
-        (set -C; : > "${TMPDIR:-/tmp}/ac-question-crit-$sid-$slug") 2>/dev/null || return 1
+        case "$started_epoch" in '' | *[!0-9]*) return 1 ;; esac
+        run_key="$sid-$slug-$started_epoch"
+    fi
+    if [ -n "$crit" ]; then
+        (set -C; : > "${TMPDIR:-/tmp}/ac-question-crit-$run_key") 2>/dev/null || return 1
+    fi
+    if [ -n "$premise" ]; then
+        (set -C; : > "${TMPDIR:-/tmp}/ac-question-premise-$run_key") 2>/dev/null || return 1
     fi
     return 0
 }
