@@ -290,6 +290,47 @@ AskUserQuestion({
 Writing `false` changes nothing about how the marketplace behaves; it records the answer on disk,
 so the next run and `--upgrade` see an entry that already carries the key and do not ask again.
 
+## Group G: session titles, opt-in, default off
+
+Claude Code titles an interactive session once, from its first prompt, and never again, so a long
+session keeps the name of whatever it opened with. The plugin's
+`hooks/userpromptsubmit-session-title.sh` renames it on the first typed prompt and every tenth
+after, from the active context (the latest compaction summary, then the last 50 prompts, replies and
+tool calls), through a detached Haiku call that costs one small request per rename. It stays silent until `AC_SESSION_TITLE` is `1`, and a title the operator sets with
+`/rename` or `--name` stops it for that session. Only that hook reads the key, so it does nothing
+once ac is disabled.
+
+```
+AskUserQuestion({
+  header: "Titles?",
+  question: "Keep session titles current? Every 10 prompts a Haiku call renames the session from its recent turns (2 to 4 kebab-case words by default); a name you give with /rename always wins. The naming prompt can be replaced per machine or per project.",
+  options: [
+    {label: "Turn it on", description: "Sets env.AC_SESSION_TITLE=1. Takes effect in a new session."},
+    {label: "Leave it off", description: "Nothing is written; sessions keep the title of their first prompt."}
+  ]
+})
+```
+
+| Answer | Key written |
+|---|---|
+| Turn it on | `env.AC_SESSION_TITLE = "1"` |
+| Leave it off | nothing |
+
+ADD-only: skip the question when `env.AC_SESSION_TITLE` already holds any value. Under
+`--dry-run`, skip it and say the key would not be set. The rest of the hook's settings are the
+operator's own and this command writes none of them; Phase 5 names them:
+
+| Key | Effect |
+|---|---|
+| `AC_SESSION_TITLE_EVERY` | prompts between renames after the first, default 10 |
+| `AC_SESSION_TITLE_PROMPT` | absolute path to a naming prompt of the operator's own (a relative one resolves against whatever directory the session runs in); without it `~/.claude/ac/session-title.md` is used when readable, then the built-in one. `{{CURRENT}}` and `{{CONVERSATION}}` are filled in, and the answer is `{"title": "..."}` |
+| `AC_SESSION_TITLE_PATTERN` | the jq regex a title must match; defaults to 2 to 4 kebab-case words for the built-in prompt and to any title for one of the operator's own. A title is always one line of at most 80 characters with no control character, whatever the pattern |
+| `AC_SESSION_TITLE_MODEL` | the namer's model, default `haiku` |
+
+A project that names sessions after its tracker keys sets `AC_SESSION_TITLE_PROMPT` and
+`AC_SESSION_TITLE_PATTERN` (for example `^[A-Z]+-[0-9]+( .+)?$`, which accepts `RYTC-123 login fix`)
+in its own `.claude/settings.json` `env`.
+
 ## Report-only checks
 
 Three things cost context or duplicate work but live where this command does not write, or were
@@ -383,6 +424,7 @@ and `"declined"` means the operator chose Skip for a missing one. Group F record
 | `D.rarely-used-skills` | Rarely-used bundled skills |
 | `D.auto-mode-classifier-off` | Auto-mode classifier off |
 | `E.output-style` | Output style |
+| `G.session-title` | Session titles (`env.AC_SESSION_TITLE`) |
 | `S.my-coding` | The `my-coding` skill, under `--upgrade` only |
 | `S.my-language` | The `my-language` skill, under `--upgrade` only |
 | `W.wrapper` | The working-rules line in a shell `claude` wrapper (`/ac:install` 3d); `"applied"` when the wrapper passes the append file, `"declined"` when the operator chose Skip |
