@@ -291,6 +291,16 @@ against 113, confounded by length), which is too small to count as a measurement
 audited stops were exactly that. `AskUserQuestion` keeps the turn open, and with
 `askUserQuestionTimeout` at "never" and `CLAUDE_AFK_TIMEOUT_MS` unset (install-settings Group A, plus the Group C strip for the value a prior install wrote)
 it also never auto-submits while the operator is away.
+
+`Identity` splits git work off when the author and git emails differ, because one identity for
+everything made the model override the git email. Seen from 2026-09-17 to 2026-10-15 in six
+projects: worker briefs and commits carried `git -c user.email=<author email>` or `--author`, so
+commits went out under the author address instead of the global `git config user.email`, which is
+also the operator's primary GitHub email, and the operator rewrote the rule on 2026-10-15. The
+sentence fixes the email only. Its name stays the author's on purpose: git config often holds a
+transliterated name, and an operator who wants the accented one in commits gets it through
+`-c user.name=`, which this rule does not forbid. When the two emails match the sentence is
+dropped and the general rule covers commits too.
 -->
 
 <!-- ac:delegation:start -->
@@ -314,7 +324,7 @@ When you disagree with a request, say so with a concrete tradeoff, name the assu
 
 ## Identity
 
-When a task needs an author, owner, name, or email (commit trailer, PR author, `@author`, package manifest, LICENSE, byline, config default), use `<author name and email>`. Never a placeholder; ask only when a different identity is clearly required.
+When a task needs an author, owner, name, or email (`@author`, package manifest, LICENSE, byline, config default), use `<author name and email>`.<git-identity sentence, emitted only when the git email differs from the author email: " Git work is the exception: commit author, `Co-Authored-By` and `Signed-off-by` trailers, and PR sign-offs use `<author name with git email>`, which is the global `git config user.email` on this machine.", keeping any qualifier the operator's current file adds before that period, such as " and the primary email on GitHub"> Never a placeholder; ask only when a different identity is clearly required.
 
 ## Anti-patterns
 
