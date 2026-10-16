@@ -112,7 +112,7 @@ test("AC_WORKING_RULES=0 is silent", () => {
 });
 
 test("AC_WORKING_RULES_APPENDED=1 is silent while the stable copy is still written", () => {
-    const result = runHook("startup", { AC_WORKING_RULES_APPENDED: "1" });
+    const result = runHook("startup", fakePs("claude --append-system-prompt-file /x/.claude/ac/working-rules.md"));
 
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toBe("");
@@ -151,15 +151,21 @@ test("no temp file is left beside the stable copy", () => {
     expect(Bun.spawnSync(["ls", stableDir]).stdout.toString().trim()).toBe("working-rules.md");
 });
 
-test("an old-layout CLAUDE.md with a moved heading is silent", () => {
-    for (const heading of ["Run to completion", "Grounding"]) {
-        writeFileSync(claudeMd, `# Role\n\n## ${heading}\n\nSome rule text.\n`);
+test("an old-layout CLAUDE.md with two moved headings is silent", () => {
+    writeFileSync(claudeMd, "# Role\n\n## Grounding\n\nSome rule text.\n\n## Run to completion\n\nMore.\n");
 
-        const result = runHook("startup");
+    const result = runHook("startup");
 
-        expect(result.exitCode).toBe(0);
-        expect(result.stdout).toBe("");
-    }
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toBe("");
+});
+
+test("a single generic heading the user wrote does not silence the rules", () => {
+    writeFileSync(claudeMd, "# My notes\n\n## Decisions\n\nPrefer Postgres.\n");
+
+    const result = runHook("startup");
+
+    expect(additionalContext(result.stdout)).toBe(expectedRules());
 });
 
 test("a CLAUDE.md without a whole-line moved heading still emits", () => {
@@ -208,6 +214,21 @@ test("a resume whose transcript already holds the rules is silent", () => {
     expect(result.stdout).toBe("");
 });
 
+test("a resume after a plain-stdout delivery is silent too", () => {
+    const transcript = join(root, "session.jsonl");
+    writeFileSync(
+        transcript,
+        `${JSON.stringify({
+            type: "attachment",
+            attachment: { type: "hook_success", content: `${FIRST_LINE}\nbody` },
+        })}\n`,
+    );
+
+    const result = runHook("resume", {}, { transcript_path: transcript });
+
+    expect(result.stdout).toBe("");
+});
+
 test("a resume whose transcript lacks the rules emits", () => {
     const transcript = join(root, "session.jsonl");
     writeFileSync(
@@ -237,6 +258,37 @@ test("a startup ignores a transcript that holds the rules", () => {
     const result = runHook("startup", {}, { transcript_path: transcript });
 
     expect(additionalContext(result.stdout)).toBe(expectedRules());
+});
+
+// A fake `ps` stands in for the process table: every ancestor query answers with FAKE_PS_ARGS, so the
+// first ancestor already reads as the claude process the hook looks for.
+function fakePs(args: string | null): Record<string, string> {
+    const bin = join(root, "ps-bin");
+    mkdirSync(bin, { recursive: true });
+    const script = args === null
+        ? "#!/bin/sh\nexit 1\n"
+        : `#!/bin/sh\ncase "$*" in\n  *ppid=*) echo 1 ;;\n  *) printf '%s\\n' "${args}" ;;\nesac\n`;
+    writeFileSync(join(bin, "ps"), script, { mode: 0o755 });
+
+    return { PATH: `${bin}:${process.env.PATH ?? ""}`, AC_WORKING_RULES_APPENDED: "1" };
+}
+
+test("APPENDED=1 stays silent when the claude ancestor passed the append file", () => {
+    const result = runHook("startup", fakePs("claude --append-system-prompt-file /x/.claude/ac/working-rules.md"));
+
+    expect(result.stdout).toBe("");
+});
+
+test("APPENDED=1 inherited by a nested claude without the append file still emits", () => {
+    const result = runHook("startup", fakePs("claude -p hello"));
+
+    expect(additionalContext(result.stdout)).toBe(expectedRules());
+});
+
+test("APPENDED=1 is trusted when the process table cannot be read", () => {
+    const result = runHook("startup", fakePs(null));
+
+    expect(result.stdout).toBe("");
 });
 
 test("without jq the rules go out as plain stdout", () => {

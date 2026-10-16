@@ -41,16 +41,49 @@ fi
 
 # 2. Stay silent when another copy of the rules already reaches this context.
 [ "${AC_WORKING_RULES:-}" = "0" ] && exit 0
-[ "${AC_WORKING_RULES_APPENDED:-}" = "1" ] && exit 0
 
-global_md="${AC_GLOBAL_CLAUDE_MD:-$HOME/.claude/CLAUDE.md}"
-if [ -f "$global_md" ] && grep -qxE '## (Reading the request|Grounding|Decisions|Research and review|Plan or work directly|Web research|Run to completion|Before you call it done)' "$global_md" 2>/dev/null; then
+# The variable is inherited by every process the wrapped session starts, so a nested `claude` run
+# from its Bash tool would read it too while carrying no append file. Trust it only when the nearest
+# `claude` ancestor passed --append-system-prompt-file, or when the process table cannot be read.
+appended_here() {
+    pid=$PPID
+    depth=0
+    while [ "$depth" -lt 6 ] && [ -n "$pid" ] && [ "$pid" != "0" ]; do
+        args="$(ps -ww -o args= -p "$pid" 2>/dev/null)" || return 0
+        case "${args%% *}" in
+            claude|*/claude)
+                case "$args" in
+                    *--append-system-prompt-file*) return 0 ;;
+                    *) return 1 ;;
+                esac
+                ;;
+        esac
+        pid="$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d ' ')" || return 0
+        depth=$((depth + 1))
+    done
+    return 0
+}
+if [ "${AC_WORKING_RULES_APPENDED:-}" = "1" ] && appended_here; then
     exit 0
 fi
 
-# awk, not jq, reads the payload: this runs on the path where jq may be absent.
+# Old layout: an /ac:install from before the move left the eight workflow sections in CLAUDE.md, so
+# one copy already reaches the context. Two headings are required because a user may well have
+# written one generic `## Decisions` of their own.
+moved='## (Reading the request|Grounding|Decisions|Research and review|Plan or work directly'
+moved="$moved|Web research|Run to completion|Before you call it done)"
+global_md="${AC_GLOBAL_CLAUDE_MD:-$HOME/.claude/CLAUDE.md}"
+if [ -f "$global_md" ] && [ "$(grep -cxE "$moved" "$global_md" 2>/dev/null)" -ge 2 ]; then
+    exit 0
+fi
+
 input="$(cat 2>/dev/null)"
 payload_field() {
+    if command -v jq >/dev/null 2>&1; then
+        printf '%s' "$input" | jq -r --arg key "$1" '.[$key] // empty' 2>/dev/null
+        return
+    fi
+    # Without jq, a plain match: good enough for the two string fields read here.
     printf '%s' "$input" | awk -v key="$1" '
         match($0, "\"" key "\" *: *\"[^\"]*\"") {
             s = substr($0, RSTART, RLENGTH)
@@ -61,10 +94,12 @@ payload_field() {
         }'
 }
 
+# Any hook attachment record carrying the first line counts: the JSON path records
+# hook_additional_context, the plain-stdout path records hook_success.
 if [ "$(payload_field source)" = "resume" ]; then
     transcript="$(payload_field transcript_path)"
     if [ -n "$transcript" ] && [ -r "$transcript" ] \
-        && grep -F 'hook_additional_context' "$transcript" 2>/dev/null | grep -qF '# Working rules (ac plugin)'; then
+        && grep -F '"attachment"' "$transcript" 2>/dev/null | grep -qF '# Working rules (ac plugin)'; then
         exit 0
     fi
 fi
