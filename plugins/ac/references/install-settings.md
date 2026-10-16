@@ -363,6 +363,7 @@ and `"declined"` means the operator chose Skip for a missing one. Group F record
 | `E.output-style` | Output style |
 | `S.my-coding` | The `my-coding` skill, under `--upgrade` only |
 | `S.my-language` | The `my-language` skill, under `--upgrade` only |
+| `W.wrapper` | The working-rules line in a shell `claude` wrapper (`/ac:install` 3d); `"applied"` when the wrapper passes the append file, `"declined"` when the operator chose Skip |
 
 A new option gets a new id. Never reuse or rename one: a renamed id reads as unanswered and asks
 everyone again, and a reused one carries an old answer onto a different question.

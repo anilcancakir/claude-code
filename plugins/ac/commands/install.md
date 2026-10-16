@@ -291,7 +291,7 @@ Exactly one copy of the working rules may reach a main-thread context. The Sessi
 
    Confirm the result is non-empty; an empty file means the markers moved, so report it and offer no wrapper.
 
-2. **Check the layout.** When `~/.claude/CLAUDE.md` as it now stands still has any moved heading (3a's set) as a whole `## ` line, because 3c was skipped, stopped on the markers, left a `.proposed` file, or kept an out-of-fence copy, offer no wrapper: the wrapper would add a second copy beside the one CLAUDE.md still carries. Say a re-run after resolving 3c offers it.
+2. **Check the layout.** When `~/.claude/CLAUDE.md` as it now stands still has two or more moved headings (3a's set) as whole `## ` lines, the same test the hook applies (one alone can be a heading the operator wrote), because 3c was skipped, stopped on the markers, left a `.proposed` file, or kept an out-of-fence copy, offer no wrapper: the wrapper would add a second copy beside the one CLAUDE.md still carries. Say a re-run after resolving 3c offers it.
 
 3. **Find a wrapper.** Grep `~/.zshrc`, `~/.bashrc` and `~/.config/fish/config.fish` for a `claude` function or alias, using ERE because macOS `grep` has no `-P`:
 
@@ -324,7 +324,7 @@ Exactly one copy of the working rules may reach a main-thread context. The Sessi
    })
    ```
 
-   Edit the rc file only on `Add the line`, after `cp -n <rc file> <rc file>.bak-ac-install`, and apply exactly the lines shown. Under `--dry-run`, print the edit and ask nothing.
+   Edit the rc file only on `Add the line`, after `cp -n <rc file> <rc file>.bak-ac-install`, and apply exactly the lines shown. Under `--dry-run`, print the edit and ask nothing. Record the answer as `W.wrapper` in `~/.claude/ac-install.json` (`references/install-settings.md` `## Answer record`); under `--upgrade`, skip this question when the record already says `"declined"`, and say the hook covers it.
 
 ## Phase 4: settings.json
 
