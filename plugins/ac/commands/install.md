@@ -331,7 +331,7 @@ Exactly one copy of the working rules may reach a main-thread context. The Sessi
 
 5. **Offer the question timeout.** Skip unless `test -r "${CLAUDE_PLUGIN_ROOT}/hooks/posttooluse-question-timeout.sh"` succeeds: the two keys go in only where that hook exists, because the timer without it would auto-submit questions in supervised sessions with nothing telling the model to wait. Skip too under `--upgrade` when the record holds `W.afk`, and under `--dry-run` print the edit and ask nothing. Both keys are listed in `references/install-settings.md` `## Question timeout (W.afk)`; write no other value. The question depends on where the keys would go:
 
-   - **A wrapper was found** (3, whatever 4 answered, an already-wired one included): put `CLAUDE_AFK_TIMEOUT_MS=180000 AC_AFK_TIMER=1` on every `command claude` call the wrapper makes, next to `AC_WORKING_RULES_APPENDED=1` when that is there, leaving every other part of the call as it is. Back up with `cp -n <rc file> <rc file>.bak-ac-install` and apply only on yes. For the call shown in 4:
+   - **A wrapper was found** (3, whatever 4 answered, an already-wired one included): put `CLAUDE_AFK_TIMEOUT_MS=180000 AC_AFK_TIMER=1` on every `command claude` call the wrapper makes, next to `AC_WORKING_RULES_APPENDED=1` when that is there, leaving every other part of the call as it is. Back up with `cp -n <rc file> <rc file>.bak-ac-install` and apply only on yes. The wrapper keeps the keys after ac is disabled, when no hook is left to hold supervised questions open, so the question says in one line that disabling ac means removing them from the wrapper too. For the call shown in 4:
 
      ```
      AC_WORKING_RULES_APPENDED=1 CLAUDE_AFK_TIMEOUT_MS=180000 AC_AFK_TIMER=1 command claude <args> --append-system-prompt-file "$HOME/.claude/ac/working-rules.md"
@@ -343,7 +343,7 @@ Exactly one copy of the working rules may reach a main-thread context. The Sessi
    ```
    AskUserQuestion({
      header: "AFK timeout?",
-     question: "A question asked during an ac:auto run continues on its own after 3 minutes away (unfocused or detached terminal), and the choice is recorded as 'timed out, not user-approved'. Supervised sessions keep waiting for you, and a plain /ac:plan --auto or /ac:execute --auto waits too. <the exact edit, plus for the settings branch: Disabling ac means removing both keys from settings.json.>",
+     question: "A question asked during an ac:auto run continues on its own after 3 minutes away (unfocused or detached terminal), and the choice is recorded as 'timed out, not user-approved'. Supervised sessions keep waiting for you, and a plain /ac:plan --auto or /ac:execute --auto waits too. <the exact edit, then: Disabling ac means removing both keys from <the wrapper | settings.json>.>",
      options: [
        {label: "Add the keys", description: "<Back up <rc file> and apply the edit shown | Write both keys to settings.json env>. It takes effect in a new session."},
        {label: "Skip", description: "Nothing is written; every question waits for you."}

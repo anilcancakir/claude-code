@@ -89,7 +89,7 @@ Auto mode automates system-process flow gates. It never auto-decides user-prefer
 | 3c Every decision node | interview | surfaces | continues with the Recommended option |
 | 3d Stalled? | flow | auto-pick `Continue` | n/a, auto-picked |
 | 3.5c Oracle returned CRITICAL | BLOCKER | surfaces | continues with `Revise plan`, at most once per run |
-| 3.5c Premise failed? | BLOCKER | surfaces | continues with `Re-research and re-decide` |
+| 3.5c Premise failed? | BLOCKER | surfaces | continues with `Re-research and re-decide`, at most once per run |
 | 4 Lock all | flow | auto-pick `Lock all and run on auto mode` | n/a, auto-picked |
 | Stage 5 write fails twice | BLOCKER | surfaces | waits |
 | Subagent malformed twice | BLOCKER | surfaces | waits |
@@ -102,7 +102,9 @@ gate on without the user is the AFK timeout column, and only in the session that
 (`.ac/state/active-auto.json`): the plugin's PostToolUse hook decides which session may continue, and every other
 session, plain `--auto` included, waits by ending the turn naming the open question. A continued gate takes the answers
 already given plus the `(Recommended)` option for the rest, and is recorded in `## Risks Accepted` as
-`timed out, not user-approved`.
+`timed out, not user-approved`. One case asks nothing: when this session owns that marker and its `note` records
+that no timer runs (ac:auto adopted the run with `AC_AFK_TIMER` unset), a question would wait for a user who has
+left, so Stage 3 locks every remaining node through 3d Force-finalize, recorded as `no timer, not user-approved`.
 
 The anti-runaway guards are the loop bounds, not this table: Stage 3d fires after three non-progress
 interview turns, and the chained `/ac:execute` bounds its own side. Heartbeat is one short line
@@ -386,7 +388,7 @@ hold, so every decision downstream of it is now unsupported whatever else the or
 anything else, naming the premise and the quote, then `AskUserQuestion` (header `Premise failed?`, options
 `Re-research and re-decide (Recommended)` back to Stage 1 for that angle only / `Revise the decision without new
 research`, when the refutation itself tells you enough / `Accept as Risk`, which locks it into `## Risks Accepted`
-with the refutation quoted). On an AFK timeout it continues with `Re-research and re-decide` under the same carve-out. A premise marked UNSUPPORTED does not halt; carry it into the Stage 4 preview so the
+with the refutation quoted). On an AFK timeout it continues with `Re-research and re-decide` under the same carve-out, at most once per run, so a second `Premise failed?` waits. A premise marked UNSUPPORTED does not halt; carry it into the Stage 4 preview so the
 user sees which claims nobody could source.
 
 IMPORTANT findings do not halt: inline them into the Stage 4 preview under `### Oracle Sanity-Check Findings`. No

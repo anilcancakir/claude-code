@@ -1,7 +1,7 @@
 ---
 name: auto
 description: "Carry a request through plan, execute and a final verification on a branch, without supervision, or take over the work in progress when the user leaves mid-session. Never pushes."
-when_to_use: "Use when you can say up front what done means, or when the user is leaving and asks, in any language, to continue with ac:auto until done (\"I'm leaving, keep going until it's finished\", \"ben bilgisayar basindan gidiyorum, ac:auto ile devam et, bitirene kadar durma\"); not for open-ended audits or exploration."
+when_to_use: "Use when you can say up front what done means, or when the user is leaving and asks, in any language, to continue with ac:auto until done (\"I'm leaving, keep going until it's finished\"); not for open-ended audits or exploration."
 argument-hint: "<request description>"
 effort: high
 ---
@@ -29,7 +29,8 @@ describing what you would do next, and never propose that the user open a fresh 
 
 **Marker path.** `.ac/state/active-auto.json` is the single live-run record; the run directory is
 `.ac/auto/<slug>/`. Create the run directory before or with the marker: the guard exits 0 when the directory is
-missing (`stop-guard-auto.sh:129`), so a marker written first leaves the guard silently inert for the whole run.
+missing (the run-directory check in `stop-guard-auto.sh`), so a marker written first leaves the guard silently
+inert for the whole run.
 
 **Questions reach the user; only plan-side ones continue on a timeout.** Every interview gate in `ac:plan`
 Stage 3 and every BLOCKER in either chained skill reaches the user exactly as it would in a supervised run. You
@@ -40,13 +41,14 @@ with its Recommended option once the question-timeout hook says so, recorded as 
 an Oracle CRITICAL (plan 3.5c) continues at most once per run; an execute BLOCKER (2i dependency failed, 2j three
 failures spanning two waves, 3c plan-spec issue, a failed checkpoint commit) waits for the user however long
 that takes. No timed-out answer is ever written as `overrides[].accepted_by`: that field exists only when a real
-user answer produced it. With `AC_AFK_TIMER` unset nothing times out, and an adopted run locks its remaining plan
+user answer produced it. With `AC_AFK_TIMER` unset this skill treats the timer as absent, and an adopted run locks its remaining plan
 questions through Force-finalize instead (Phase A4). The promise this skill makes is that it does not stop for
 anything else.
 
 **Turn budget.** `turn_budget` in the run's `criteria.md` (default 40) is the turn count the user agreed to.
 Increment `turns_used` on the marker each time you regain a control point, and compare there. On reaching the
-budget without a verdict, ask the user through `AskUserQuestion` whether to extend the budget, accept partial
+budget without a verdict, ask the user through `AskUserQuestion` (header `Budget?`, which the question-timeout hook
+always holds open, so this question waits on a timeout like an execute BLOCKER) whether to extend the budget, accept partial
 progress and gate now, or abort. Do not pass the number silently.
 
 **Failure budget.** `failure_budget` in `criteria.md` (default 0.2) is a fraction of total plan steps. Continue
@@ -150,8 +152,9 @@ owned by another session refuses, exactly as there.
 
 ### A1. Pick the source
 
-Check in this order and take the first match. The source fixes where the criteria come from, the `adopted_from`
-value the schema defines, how the work continues, and the branch.
+Check (b) first, then (a), (c) and (d), and take the first match: a live execute run outranks a plan checkpoint
+left over in the conversation, which would otherwise chain `ac:plan --auto` over it. The source fixes where the
+criteria come from, the `adopted_from` value the schema defines, how the work continues, and the branch.
 
 | Source | Evidence | `adopted_from` | Criteria from | Continue with | Branch |
 |---|---|---|---|---|---|
@@ -174,7 +177,10 @@ value the schema defines, how the work continues, and the branch.
   by another session is that session's run: refuse, naming its slug, as 1a0 does for a foreign marker.
 - **(c)** The carve-out in `<constraints>` covers this one invocation. Phase 2's failure-budget and BLOCKER rules
   apply to the run it starts exactly as to a chained one.
-- **(d)** Apply 0a and 0b to the conversation goal written as one request, then 0c. Admissible: continue at A3.
+- **(d)** When the goal's work is already complete by the time the hand-off arrives, there is nothing to adopt:
+  end on a closing report with no run directory, no marker and no branch (measured 2026-10-17: a finished
+  two-file task still went through a full plan and execute chain). Otherwise apply 0a and 0b to the conversation
+  goal written as one request, then 0c. Admissible: continue at A3.
   Inadmissible: no refusal, because the user has left and asked for the work to be finished. Finish the task
   under the working rules with no run directory, no marker and no branch, and end on a closing report of what
   is done and what is still open.
@@ -193,7 +199,7 @@ Phase 1 in its usual order, so every adopted run has its run directory and crite
 
 1. Slug (1a), from the source's plan slug, or from the goal under (d).
 2. Run directory, then `criteria.md` with `adopted_from` set, then the digest (1b). The guard exits 0 without
-   the directory (`stop-guard-auto.sh:128-129`).
+   the directory (the run-directory check in `stop-guard-auto.sh`).
 3. Marker (1c), `phase: "planning"` for (a) and (d), `"executing"` for (b) and (c).
 4. Branch (1d) for (a), (c) and (d). Under (b) stay on the current branch: the run's earlier wave commits are
    already there, and a switch mid-loop would split one plan's history across two branches.

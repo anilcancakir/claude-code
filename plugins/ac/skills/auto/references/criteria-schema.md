@@ -145,11 +145,14 @@ Written once at run start with `slug`, `session_id`, `started_at` fixed for the 
 `.ac/auto/<slug>/` holds three files, not one. The other two are named here because a hook already keys on
 them and a reader of this document would otherwise not know they exist.
 
-- `criteria.md`: the contract above, written before any work starts.
+- `criteria.md`: the contract above, written before any work starts, except on an adopted run (`adopted_from`),
+  where it is written when the run takes the work over: copied verbatim from a plan for `execute` and `plan`, and
+  capped at `human_needed` by the gate for `adhoc`.
 - `verdict.md`: written once, at the end, by the `/ac:auto` skill from the body its read-only gate returns. Its
-  presence is the entire predicate of `plugins/ac/hooks/stop-guard-auto.sh:140-141`, which blocks a turn from
-  ending while the marker exists and this file does not, and never opens it. Contents are the gate's
-  `status` (`passed`, `gaps_found` or `human_needed`), its `gaps[]`, and a per-criterion evidence table.
+  presence is the entire predicate of the verdict check in `plugins/ac/hooks/stop-guard-auto.sh`, which blocks a
+  turn from ending while the marker exists and this file does not, and never opens it. Contents are the gate's
+  `status` (`passed`, `gaps_found` or `human_needed`), its `gaps[]`, a per-criterion evidence table, and on an
+  adopted run its `adopted_from` plus an Adoption section listing each criterion's `anchor`.
   A verdict reporting an unmet criterion is a complete ending; the guard does not distinguish.
 - `stop-guard-auto.json`: the block counter that same hook keeps, `{run, blocks, spent}` keyed on the marker's
   `started_at`. It lives beside the run rather than in `.ac/state/` so deleting a run directory takes its

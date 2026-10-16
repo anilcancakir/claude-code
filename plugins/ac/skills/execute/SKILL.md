@@ -92,7 +92,7 @@ here. Auto mode resolves flow gates; it never skips verification, the wave-after
 | Wave checkpoint commit failed | BLOCKER | surfaces | waits; re-surfaces when the user returns, never picks an option |
 | Verification failed on a step a later wave needs | BLOCKER | surfaces | waits; re-surfaces when the user returns, never picks an option |
 
-When `.ac/state/active-auto.json` owned by this session appears mid-run (ac:auto adopted the run), keep running in context with `AUTO_MODE` true and do not re-invoke yourself. The final commit's `--no-push` already keys on that file (SKILL.md:778).
+When `.ac/state/active-auto.json` owned by this session appears mid-run (ac:auto adopted the run), keep running in context with `AUTO_MODE` true and do not re-invoke yourself. The final commit's `--no-push` already keys on that file (Phase 4a).
 
 Flow gates resolve to the `(Recommended)` option and emit one heartbeat line. BLOCKER gates surface whatever the mode,
 because each needs judgment auto mode cannot supply: a dependency failure, three accumulated failures, a wrong plan, a
