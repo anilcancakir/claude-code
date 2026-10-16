@@ -75,4 +75,4 @@ On `/ac:plan` invocation, if `CHECKPOINT_PATH` exists:
 - When `AUTO_MODE = false`: ask the user via `AskUserQuestion` (`Resume?` / `Start fresh`). Default: Resume.
 - When `AUTO_MODE = true`: auto-pick Resume.
 
-On Resume: restore working memory from the JSON (locked_decisions, locked_requirements, canonical_refs, deferred_ideas, codebase_state, conventions, reuse_map, qa, last_stage) and jump to the stage indicated by `last_stage`. On Start fresh: delete the checkpoint and re-enter Stage 0f.
+On Resume: restore working memory from the JSON (topic, locked_decisions, locked_requirements, canonical_refs, deferred_ideas, codebase_state, conventions, reuse_map, qa, last_stage) and jump to the stage indicated by `last_stage`. A resume invocation passes the checkpoint slug verbatim as the topic so Stage 0b re-derives the same slug and finds this file; the restored `topic` then replaces it as the request. On Start fresh: delete the checkpoint and re-enter Stage 0f.

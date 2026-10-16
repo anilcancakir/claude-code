@@ -75,6 +75,25 @@ the digest and read as a rewritten contract.
   - `command`: required when `verification: command`, absent when `verification: judgment`. The literal shell command the gate runs.
   - `expected_exit_code`: required when `verification: command`. The exit code that counts as a pass; the gate treats any other code as a fail, not a crash.
   - A `judgment`-tier criterion carries no `command` and no `expected_exit_code`. The gate reads the artifact or the transcript and states pass or fail with a one-line reason; it never invents a command for a criterion that named none.
+  - `anchor`: present only on a criterion copied from a plan file (`adopted_from: execute` or `plan`), as `"<plan path>:<line>"`. It names where the verbatim text came from, so a reader can confirm the criterion predates the work. The gate lists anchors and does not evaluate them.
+- `adopted_from`: present only when `/ac:auto` adopted work already under way in the session (its Phase A) rather than starting from a request. Absent on a fresh run. One of:
+  - `plan-interview`: an `ac:plan` interview was in progress; criteria come from the checkpoint's topic and locked decisions, which precede the work.
+  - `execute`: an `ac:execute` run was in progress; criteria are every Definition of Done item and every `Done when` command of its plan, copied verbatim with an `anchor` each.
+  - `plan`: a written plan nobody had executed; criteria copied from it the same way.
+  - `adhoc`: no plan existed; criteria come from the session's own account of the conversation goal. The gate caps this run at `human_needed`, because the session that already did part of the work also wrote down what done means, so a machine pass over those criteria proves only that the work matches its author's description of it.
+
+  Like every frontmatter line it sits inside the digest span, so an adopted run cannot later be relabelled as a fresh one, or `adhoc` as anything else, without the gate seeing a mismatch.
+
+  ```yaml
+  adopted_from: "execute"
+  criteria:
+    - id: "c1"
+      statement: "bun test passes"
+      verification: "command"
+      command: "bun test"
+      expected_exit_code: 0
+      anchor: ".ac/plans/reset-flow/plan.md:88"
+  ```
 - `turn_budget`: an integer turn count. When the run's turn counter reaches this number without reaching a verdict, the run stops and asks the user how to proceed (extend the budget, accept partial progress, abort) rather than continuing silently past the number the user agreed to at the start.
 - `failure_budget`: a fraction between 0 and 1, applied to total step count across the run (not to `criteria` count). When the proportion of failed steps exceeds this fraction, the run hard-stops before reaching the gate, on the reasoning that a run already failing this often will not self-correct by continuing; a `0.2` value tolerates one failing step in five before it stops.
 - `criteria_sha256`: the sha256 hex digest of the frontmatter, taken over every line between the two `---` delimiters EXCEPT the `criteria_sha256` line itself, joined with newlines and hashed as UTF-8. Dropping that one line is what resolves the circularity of digesting a block that contains its own digest; it is ordinary checksum-line practice, the same trick a checksum embedded in the file it describes has always used.

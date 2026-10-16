@@ -98,6 +98,14 @@ counter="${TMPDIR:-/tmp}/ac-announce-guard-$session_id"
 stop_hook_active="$(printf '%s' "$input" | jq -r '.stop_hook_active // false' 2>/dev/null)"
 [ "$stop_hook_active" = "true" ] || rm -f "$counter" 2>/dev/null
 
+# A question that timed out armed the latch: the turn ends to wait for the answer, so allow. Read,
+# never consumed, because the other two Stop guards see this same event (lib/question-wait.sh).
+qw_lib="$(dirname "$0")/lib/question-wait.sh"
+if [ -f "$qw_lib" ]; then
+    . "$qw_lib"
+    qw_active "$session_id" && exit 0
+fi
+
 # Something already armed will wake the session; ending the turn is correct. A long-lived shell
 # (a dev server, a mock) is not counted: it never finishes, so it wakes nothing, and counting it
 # switched this guard off for as long as one ran. lib/wake-count.jq decides; a jq failure allows.

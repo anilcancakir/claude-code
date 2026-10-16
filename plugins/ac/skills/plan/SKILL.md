@@ -78,25 +78,31 @@ skip the one gate where the user sees whether the rest of the run is autonomous.
 
 Auto mode automates system-process flow gates. It never auto-decides user-preference content.
 
-| Call site | Class | Under `AUTO_MODE = true` |
-|---|---|---|
-| 0a Topic missing | BLOCKER | surfaces |
-| 0e Resume? | flow | auto-pick `Resume` |
-| 0f Plan collision | flow | auto-pick `Append suffix`, deliberately NOT the first option; preservation beats silent destruction |
-| 3a Proceed after synthesis | interview | surfaces |
-| 3b.1 TDD node | interview | surfaces |
-| 3b.2 QA node | interview | surfaces |
-| 3c Every decision node | interview | surfaces |
-| 3d Stalled? | flow | auto-pick `Continue` |
-| 3.5c Oracle returned CRITICAL | BLOCKER | surfaces |
-| 4 Lock all | flow | auto-pick `Lock all and run on auto mode` |
-| Stage 5 write fails twice | BLOCKER | surfaces |
-| Subagent malformed twice | BLOCKER | surfaces |
+| Call site | Class | Under `AUTO_MODE = true` | On AFK timeout |
+|---|---|---|---|
+| 0a Topic missing | BLOCKER | surfaces | waits |
+| 0e Resume? | flow | auto-pick `Resume` | n/a, auto-picked |
+| 0f Plan collision | flow | auto-pick `Append suffix`, deliberately NOT the first option; preservation beats silent destruction | n/a, auto-picked |
+| 3a Proceed after synthesis | interview | surfaces | continues with `Proceed` |
+| 3b.1 TDD node | interview | surfaces | continues with the Recommended option |
+| 3b.2 QA node | interview | surfaces | continues with the Recommended option |
+| 3c Every decision node | interview | surfaces | continues with the Recommended option |
+| 3d Stalled? | flow | auto-pick `Continue` | n/a, auto-picked |
+| 3.5c Oracle returned CRITICAL | BLOCKER | surfaces | continues with `Revise plan`, at most once per run |
+| 3.5c Premise failed? | BLOCKER | surfaces | continues with `Re-research and re-decide` |
+| 4 Lock all | flow | auto-pick `Lock all and run on auto mode` | n/a, auto-picked |
+| Stage 5 write fails twice | BLOCKER | surfaces | waits |
+| Subagent malformed twice | BLOCKER | surfaces | waits |
 
 Flow gates resolve to the `(Recommended)` option and emit one heartbeat line, `Auto mode: <header> -> <option>`.
 Interview gates surface whatever the mode, because they are preference content rather than process flow; the Stage 3
 recommendations are grounded in Stage 1 research and Stage 2 deep read, and the user picks among them. BLOCKER gates
-surface whatever the mode, because they need judgment auto mode cannot supply.
+surface whatever the mode, because they need judgment auto mode cannot supply. The only thing that moves a surfaced
+gate on without the user is the AFK timeout column, and only in the session that owns the `ac:auto` marker
+(`.ac/state/active-auto.json`): the plugin's PostToolUse hook decides which session may continue, and every other
+session, plain `--auto` included, waits by ending the turn naming the open question. A continued gate takes the answers
+already given plus the `(Recommended)` option for the rest, and is recorded in `## Risks Accepted` as
+`timed out, not user-approved`.
 
 The anti-runaway guards are the loop bounds, not this table: Stage 3d fires after three non-progress
 interview turns, and the chained `/ac:execute` bounds its own side. Heartbeat is one short line
@@ -159,7 +165,7 @@ If `CHECKPOINT_PATH` exists:
 - When `AUTO_MODE = false`: Read it and call `AskUserQuestion` (header `Resume?`, options `Resume (Recommended)` / `Start fresh`).
 - When `AUTO_MODE = true`: auto-pick `Resume (Recommended)` without surfacing the question. Emit one line: `Auto mode: Resume detected, restoring from checkpoint.`
 
-On Resume: restore working memory from the JSON (locked_decisions, locked_requirements, canonical_refs, deferred_ideas, codebase_state, conventions, reuse_map, qa, last_stage), jump to the stage indicated by `last_stage`. On Start fresh: delete the checkpoint, continue to 0f.
+On Resume: restore working memory from the JSON (topic, locked_decisions, locked_requirements, canonical_refs, deferred_ideas, codebase_state, conventions, reuse_map, qa, last_stage), jump to the stage indicated by `last_stage`. A resume invocation passes the checkpoint slug verbatim as the topic, so 0b re-derives the same slug; the restored `topic` then replaces it as the request. On Start fresh: delete the checkpoint, continue to 0f.
 
 For the checkpoint JSON schema and write points, read `${CLAUDE_SKILL_DIR}/references/checkpoint-schema.md`.
 
@@ -309,8 +315,10 @@ Goal: walk down the decision tree with the user until every load-bearing decisio
 Read `${CLAUDE_SKILL_DIR}/references/interview-procedure.md` and follow it. It carries the synthesis preview, the
 routing rule with its worked examples, the TDD and QA nodes, and the walk-down with its pruning and batching heuristics.
 
-Three bounds hold whatever that file says, because they govern the whole stage rather than one node:
+Four bounds hold whatever that file says, because they govern the whole stage rather than one node:
 
+- **Every interview gate is asked.** An AFK timeout continues one only in the session that owns the `ac:auto` marker,
+  as the `<auto_mode>` table says; every other session waits.
 - **The routing rule gates every question.** Before anything reaches the user, ask whether code can answer it (read
   the file), whether docs can (spawn `ac:librarian`), or whether only the user can (preference, business call, value
   judgment). Only the third class becomes an `AskUserQuestion`.
@@ -367,7 +375,9 @@ Wait for the oracle the way 1e waits, by ending the turn until its notification 
 
 Any CRITICAL finding is a BLOCKER: surface it before Stage 4 even under auto mode, via `AskUserQuestion` (header
 `Oracle CRIT?`, options `Revise plan (Recommended)` back to Stage 3 at the affected decision / `Accept as Risk`,
-which locks the concern into `## Risks Accepted` / `Abandon`, which writes `abandoned.md` and exits).
+which locks the concern into `## Risks Accepted` / `Abandon`, which writes `abandoned.md` and exits). It is still asked
+under auto mode; on an AFK timeout it follows the `<auto_mode>` carve-out and continues with `Revise plan` at most once
+per run, so a second `Oracle CRIT?` in the same run waits.
 
 **A REFUTED premise is its own branch, and it outranks the finding severities.** The oracle returns a `**Premises**`
 block classifying the claims your brief rested on. A premise it marks REFUTED, with a quote from the source that
@@ -376,7 +386,7 @@ hold, so every decision downstream of it is now unsupported whatever else the or
 anything else, naming the premise and the quote, then `AskUserQuestion` (header `Premise failed?`, options
 `Re-research and re-decide (Recommended)` back to Stage 1 for that angle only / `Revise the decision without new
 research`, when the refutation itself tells you enough / `Accept as Risk`, which locks it into `## Risks Accepted`
-with the refutation quoted). A premise marked UNSUPPORTED does not halt; carry it into the Stage 4 preview so the
+with the refutation quoted). On an AFK timeout it continues with `Re-research and re-decide` under the same carve-out. A premise marked UNSUPPORTED does not halt; carry it into the Stage 4 preview so the
 user sees which claims nobody could source.
 
 IMPORTANT findings do not halt: inline them into the Stage 4 preview under `### Oracle Sanity-Check Findings`. No

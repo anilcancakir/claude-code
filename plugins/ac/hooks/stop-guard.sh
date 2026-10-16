@@ -100,6 +100,15 @@ age=$((now_epoch - started_epoch))
 # widest offset); accept that skew rather than going inert for the run.
 { [ "$age" -ge -50400 ] && [ "$age" -le 86400 ]; } || exit 0
 
+# 3a. A question that timed out armed the latch (lib/question-wait.sh): the turn ends to wait for the
+#     answer, which is correct, so allow. The latch is read, never consumed, because the other two
+#     Stop guards see this same event.
+qw_lib="$(dirname "$0")/lib/question-wait.sh"
+if [ -f "$qw_lib" ]; then
+    . "$qw_lib"
+    qw_active "$hook_session" && exit 0
+fi
+
 # 3b. Work in flight that will wake the session. A wave's workers run with run_in_background, and
 #     each completion arrives as a task-notification that starts the next turn, so ending the turn
 #     is how the orchestrator waits for them. Blocking that stop is what made runs poll evidence
@@ -249,7 +258,7 @@ No background worker of this session is running, so do not wait with a sleep, un
 
 Context pressure is not a stopping condition. Auto-compaction summarizes older turns and the run continues; do not announce a context or token-budget concern in place of finishing, and do not hand the remainder back as a next step for a new session. If a compaction just happened, only the first 5,000 tokens of the ac:execute body survived it: re-invoke the ac:execute skill to restore the full body, then continue from the plan file.
 
-If the user asked you to stop, pause, or hand off, that is a legitimate halt and outranks this guard: delete .ac/state/active-execution.json and stop. Do not argue with the user or keep working through their request to stop.
+If the user asked you to stop, pause, or take back control, that is a legitimate halt and outranks this guard: delete .ac/state/active-execution.json and stop. Do not argue with the user or keep working through their request to stop.
 
 The internal halts each have a branch in the execute skill: Phase 2i wave dependency failed, Phase 2j 3-strike, Phase 3d plan-spec issue, a wave checkpoint commit failure. Every one of them surfaces an AskUserQuestion and deletes the marker before the run stops. Take that branch if one genuinely applies; the marker's absence is what lets this turn end.
 

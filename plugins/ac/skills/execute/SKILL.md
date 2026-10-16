@@ -83,14 +83,16 @@ the only way its cost stays visible.
 `--auto` in the argument string sets `AUTO_MODE = true` for the run, and `/ac:plan` Stage 6a passes it when it chains
 here. Auto mode resolves flow gates; it never skips verification, the wave-after commit, or the final code-review.
 
-| Call site | Class | Under `AUTO_MODE = true` |
-|---|---|---|
-| 2a Execute? | flow | auto-pick `Execute` |
-| 2i Dep failed? | BLOCKER | surfaces |
-| 2j Halted? (3 failures spanning 2+ waves) | BLOCKER | surfaces |
-| 3c plan-spec issue | BLOCKER | surfaces |
-| Wave checkpoint commit failed | BLOCKER | surfaces |
-| Verification failed on a step a later wave needs | BLOCKER | surfaces |
+| Call site | Class | Under `AUTO_MODE = true` | On AFK timeout |
+|---|---|---|---|
+| 2a Execute? | flow | auto-pick `Execute` | n/a |
+| 2i Dep failed? | BLOCKER | surfaces | waits; re-surfaces when the user returns, never picks an option |
+| 2j Halted? (3 failures spanning 2+ waves) | BLOCKER | surfaces | waits; re-surfaces when the user returns, never picks an option |
+| 3c plan-spec issue | BLOCKER | surfaces | waits; re-surfaces when the user returns, never picks an option |
+| Wave checkpoint commit failed | BLOCKER | surfaces | waits; re-surfaces when the user returns, never picks an option |
+| Verification failed on a step a later wave needs | BLOCKER | surfaces | waits; re-surfaces when the user returns, never picks an option |
+
+When `.ac/state/active-auto.json` owned by this session appears mid-run (ac:auto adopted the run), keep running in context with `AUTO_MODE` true and do not re-invoke yourself. The final commit's `--no-push` already keys on that file (SKILL.md:778).
 
 Flow gates resolve to the `(Recommended)` option and emit one heartbeat line. BLOCKER gates surface whatever the mode,
 because each needs judgment auto mode cannot supply: a dependency failure, three accumulated failures, a wrong plan, a

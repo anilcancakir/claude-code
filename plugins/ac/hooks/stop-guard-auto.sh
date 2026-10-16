@@ -113,6 +113,15 @@ age=$((now_epoch - started_epoch))
 # widest offset); accept that skew rather than going inert for the run.
 { [ "$age" -ge -50400 ] && [ "$age" -le 86400 ]; } || exit 0
 
+# 3a. A question that timed out armed the latch (lib/question-wait.sh): the turn ends to wait for the
+#     answer, which is correct, so allow. The latch is read, never consumed, because the other two
+#     Stop guards see this same event.
+qw_lib="$(dirname "$0")/lib/question-wait.sh"
+if [ -f "$qw_lib" ]; then
+    . "$qw_lib"
+    qw_active "$hook_session" && exit 0
+fi
+
 # 3b. Work in flight that will wake the session (a background worker, a monitor, a finite shell):
 #     ending the turn is how the run waits for it, so allow the stop without spending budget.
 #     stop-guard.sh carries the measurement behind this; lib/wake-count.jq decides what counts.
@@ -232,7 +241,7 @@ Context pressure is not a stopping condition. Auto-compaction summarizes older t
 continues; do not announce a context or token-budget concern in place of finishing, and do not
 hand the remainder back as a next step for a new session.
 
-If the user asked you to stop, pause, or hand off, that is a legitimate halt and outranks this
+If the user asked you to stop, pause, or take back control, that is a legitimate halt and outranks this
 guard: delete .ac/state/active-auto.json and stop. Do not argue with the user or keep working
 through their request to stop."
 

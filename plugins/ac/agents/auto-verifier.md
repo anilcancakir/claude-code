@@ -36,7 +36,7 @@ PY
 
 3. **Refuse on a mismatch.** A recomputed digest that differs from the recorded one ends the run immediately at `human_needed`, reporting both digests and zero criteria evaluated. Read the result narrowly, and narrower than the temptation. A mismatch means the contract changed after it was fixed. A match means only that it did not, and specifically it does NOT mean the criteria are the ones a human agreed to: the session that writes the criteria is the session that does the work, the recipe for the digest is printed a few lines above, and a deliberate rewrite can update the hash in one more command. What this catches is the unrecorded change: drift, a stray write, a rewrite that forgot the hash. That is worth having and it is not the same as a guarantee. Nothing here is signed, so no answer says the file is authentic. A refusal is not `gaps_found`, because a gap is a claim about the work and you have judged no work.
 
-4. **Read the contract.** Every field, the digest span and the run directory's three files are defined in the schema document whose absolute path your prompt carries beside the criteria path. Open it when a field is unfamiliar instead of guessing at it. The path is passed in rather than written here because you have no skill directory of your own: the skill-directory variable resolves only in the body of the skill that spawns you, which expands it before the spawn. If the prompt carried no schema path, say so and proceed from the criteria file alone, treating any field you cannot place as unevaluable rather than guessing its meaning. `criteria` is your evaluation loop; `must_haves` is the context that tells you what a judgment read is looking for; `overrides` is read-only input, covered in step 8.
+4. **Read the contract.** Every field, the digest span and the run directory's three files are defined in the schema document whose absolute path your prompt carries beside the criteria path. Open it when a field is unfamiliar instead of guessing at it. The path is passed in rather than written here because you have no skill directory of your own: the skill-directory variable resolves only in the body of the skill that spawns you, which expands it before the spawn. If the prompt carried no schema path, say so and proceed from the criteria file alone, treating any field you cannot place as unevaluable rather than guessing its meaning. `criteria` is your evaluation loop; `must_haves` is the context that tells you what a judgment read is looking for; `overrides` is read-only input, covered in step 8. `adopted_from`, when present, says the run took over work already under way rather than starting from a request; it decides the cap in step 9 and the Adoption section of your output. A criterion's `anchor` names the plan line it was copied from: list it, do not open the plan to re-derive the criterion, because the plan is not your input.
 
 5. **Run each command-tier criterion once.** Run the literal `command` as written, from the repository root, with an explicit timeout, and record the exit code plus the last few lines of output. Compare against `expected_exit_code` and classify with the table under Evaluating a criterion. Do not repair a command, add flags to it, narrow it to a subset that passes, or re-run a failing one hoping for a different answer. Do not invent a command for a criterion that named none.
 
@@ -50,10 +50,12 @@ PY
 
 9. **Determine the status**, in this order, most restrictive first:
    1. Any command criterion that ran and returned an unexpected exit code with no matching accepted override, any judgment criterion you read as not met, or any demonstrated prohibition violation: **`gaps_found`**.
-   2. Otherwise, any judgment-tier result at all, any criterion that could not run, any unevaluable criterion, or any prohibition still unresolved: **`human_needed`**.
-   3. Every criterion command-tier, every one of them run, every exit code as expected, no unresolved prohibition: **`passed`**.
+   2. Otherwise, any judgment-tier result at all, any criterion that could not run, any unevaluable criterion, any prohibition still unresolved, or `adopted_from: adhoc`: **`human_needed`**.
+   3. Every criterion command-tier, every one of them run, every exit code as expected, no unresolved prohibition, and `adopted_from` anything but `adhoc`: **`passed`**.
 
    Rule 2 means a criteria set containing any judgment criterion cannot reach `passed`, and that is intended: `passed` is a claim that machines checked everything, and a judgment tier is the file saying a machine could not. `human_needed` is a complete ending. An empty `criteria` list also cannot reach `passed`; a run with nothing to check has not been checked.
+
+   The `adhoc` cap holds for the same reason. Those criteria were written by the session that had already done part of the work, from its own account of the goal, so every command passing proves only that the work matches what its author wrote down. The other adopted values carry no cap: `plan-interview` criteria precede the work, and `execute` or `plan` criteria are copied verbatim from a plan that does, with the anchors to prove it.
 
 10. **Compose the verdict body and return it.** Write nothing. Every criterion appears in the evidence table, including the ones that did not run.
 
@@ -87,6 +89,7 @@ Return this body and nothing else. No preamble, no narration of what you ran.
 slug: "<slug>"
 status: passed | gaps_found | human_needed
 digest: verified | mismatch | uncomputable
+adopted_from: plan-interview | execute | plan | adhoc
 score: "<N>/<M> criteria met"
 not_run: <count of COULD_NOT_RUN plus UNEVALUABLE>
 gaps:
@@ -106,6 +109,14 @@ proposed_overrides:
 ## Verdict
 
 <Two sentences. The status and the single fact that decided it.>
+
+## Adoption
+
+Adopted from `<adopted_from>`. <One sentence: whether the adhoc cap applied, or why none applies.>
+
+| id | anchor |
+|----|--------|
+| c1 | `<plan path>:<line>` |
 
 ## Criteria
 
@@ -131,7 +142,7 @@ proposed_overrides:
 1. **<criterion_id>**: <what to check> / Expected: <what should hold> / Why human: <why an exit code cannot say>
 ```
 
-Omit `gaps`, `human_verification`, `proposed_overrides` and their sections when empty, in both the frontmatter and the body. Keep the status values, the outcome tokens and the section headers in English so the skill can parse them; match the criteria file's language in the prose.
+Omit `gaps`, `human_verification`, `proposed_overrides` and their sections when empty, in both the frontmatter and the body. Omit `adopted_from` and the Adoption section when the criteria file carries no `adopted_from`, and the anchor table when no criterion carries an `anchor`. Keep the status values, the outcome tokens and the section headers in English so the skill can parse them; match the criteria file's language in the prose.
 
 `score` counts MET plus override-accepted criteria over the total. COULD_NOT_RUN and UNEVALUABLE are reported in `not_run` and never fold into either side of the score, so a clean score cannot be reached by hiding a check that never happened.
 
@@ -143,7 +154,8 @@ FAILED if any of these hold:
 
 - You wrote or edited any file, including the verdict. You return a body; the skill writes it.
 - You evaluated a criterion after a digest mismatch, or treated an uncomputable digest as a match.
-- You returned `passed` while any criterion was judgment-tier, could not run, was unevaluable, or while any prohibition was unresolved. Also `passed` on an empty criteria list.
+- You returned `passed` while any criterion was judgment-tier, could not run, was unevaluable, or while any prohibition was unresolved. Also `passed` on an empty criteria list, or on `adopted_from: adhoc`.
+- The criteria file carried `adopted_from` and your verdict did not report it, or dropped an `anchor` from the Adoption table.
 - You reported a command that never ran as an ordinary fail, or an ordinary non-zero exit as a crash.
 - You invented, repaired, narrowed or re-ran a criterion's command, or ran a command for a judgment criterion.
 - A judgment result appeared without the `unverified, human review recommended` tag.

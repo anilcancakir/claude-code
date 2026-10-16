@@ -1,7 +1,7 @@
 ---
 name: auto
-description: "Carry a request through plan, execute and a final verification on a branch, without supervision. Never pushes."
-when_to_use: "Use when you can say up front what done means; not for open-ended audits or exploration."
+description: "Carry a request through plan, execute and a final verification on a branch, without supervision, or take over the work in progress when the user leaves mid-session. Never pushes."
+when_to_use: "Use when you can say up front what done means, or when the user is leaving and asks, in any language, to continue with ac:auto until done (\"I'm leaving, keep going until it's finished\", \"ben bilgisayar basindan gidiyorum, ac:auto ile devam et, bitirene kadar durma\"); not for open-ended audits or exploration."
 argument-hint: "<request description>"
 effort: high
 ---
@@ -31,11 +31,17 @@ describing what you would do next, and never propose that the user open a fresh 
 `.ac/auto/<slug>/`. Create the run directory before or with the marker: the guard exits 0 when the directory is
 missing (`stop-guard-auto.sh:129`), so a marker written first leaves the guard silently inert for the whole run.
 
-**No BLOCKER is auto-answered.** Every interview gate in `ac:plan` Stage 3 and every BLOCKER in either chained
-skill (execute 2i dependency failed, 2j three failures spanning two waves, 3c plan-spec issue, a failed
-checkpoint commit) reaches the user exactly as it would in a supervised run. You never answer one on the user's
-behalf, never infer the answer from the request prose, and never write `overrides[].accepted_by`: that field
-exists only when a real user answer produced it. The promise this skill makes is that it does not stop for
+**Questions reach the user; only plan-side ones continue on a timeout.** Every interview gate in `ac:plan`
+Stage 3 and every BLOCKER in either chained skill reaches the user exactly as it would in a supervised run. You
+never answer one ahead of the user and never infer the answer from the request prose. What happens when nobody
+answers is set by the `On AFK timeout` column of each chained skill's `<auto_mode>` table, and only in this
+session while it owns `.ac/state/active-auto.json`: a plan interview gate or another plan-side question continues
+with its Recommended option once the question-timeout hook says so, recorded as "timed out, not user-approved";
+an Oracle CRITICAL (plan 3.5c) continues at most once per run; an execute BLOCKER (2i dependency failed, 2j three
+failures spanning two waves, 3c plan-spec issue, a failed checkpoint commit) waits for the user however long
+that takes. No timed-out answer is ever written as `overrides[].accepted_by`: that field exists only when a real
+user answer produced it. With `AC_AFK_TIMER` unset nothing times out, and an adopted run locks its remaining plan
+questions through Force-finalize instead (Phase A4). The promise this skill makes is that it does not stop for
 anything else.
 
 **Turn budget.** `turn_budget` in the run's `criteria.md` (default 40) is the turn count the user agreed to.
@@ -80,7 +86,7 @@ chained skills route to the user.
 </role>
 
 <scope>
-Two files you write, both under `.ac/auto/<slug>/`: `criteria.md` (Phase 1, frozen thereafter) and `verdict.md`
+Two files you write, both under `.ac/auto/<slug>/`: `criteria.md` (Phase 1 or Phase A3, frozen thereafter) and `verdict.md`
 (Phase 4, verbatim from the gate). Plus the run marker at `.ac/state/active-auto.json` and one working branch.
 
 Everything else on disk belongs to the chained skills: `.ac/plans/<slug>/` is `ac:plan`'s, source code is the
@@ -90,7 +96,8 @@ file, and do not touch either `stop-guard` script.
 
 <capabilities>
 The base tools plus `AskUserQuestion`, which arrives directly rather than deferred. `Skill` invokes
-`ac:plan` once, at Phase 2. `Agent` spawns `ac:auto-verifier` once, at Phase 4. `Write` creates the two files in
+`ac:plan` once, at Phase 2, or `ac:execute` once for the one adopted source that has no plan run to chain it
+(Phase A1, source c). `Agent` spawns `ac:auto-verifier` once, at Phase 4. `Write` creates the two files in
 `<scope>`; `Edit` patches the digest line into `criteria.md`. `Bash` is for the digest computation, the branch
 creation, and read-only checks, all within the deny list above.
 
@@ -101,16 +108,21 @@ adding a fact.
 
 <constraints>
 - The criteria are frozen before the chain starts and are never rewritten afterwards. A run that authors its own
-  passing conditions after seeing what got built has no gate, only a mirror.
+  passing conditions after seeing what got built has no gate, only a mirror. An adopted execute run (Phase A1,
+  source b) is the one case where they land mid-chain, which is why they are copied verbatim from a plan that
+  predates the work rather than authored.
 - The gate is read-only and is never the agent that did the work. It returns a body; you write the file.
 - A verdict reporting an unmet criterion is a complete and correct ending. Write it as returned. Do not go back
   and try to make it pass, and do not edit the gate's words into a better result.
 - Mutate a file with `Write` or `Edit`, never through `Bash`. Not `python3 -c`, not a `cat >` heredoc, not
   `sed -i`. `Bash` computes and reads; it does not write project state. One exception, because every terminal branch needs it: removing a file is `Bash: rm -f <path>`, which no `Edit` or `Write` call can do and which plain `rm` reaches without touching the guard's deny list.
 - Do not invoke `ac:execute`. `ac:plan` Stage 6a chains it, so a second invocation runs the wave loop twice over
-  the same plan.
+  the same plan. The one carve-out is Phase A1 source (c), a written plan nobody has executed: no `ac:plan` run
+  exists to chain it, so there is no first wave loop for yours to duplicate. An execute run already in this
+  session (source b) is never re-invoked.
 - Do not run your own question round. The single round the user agreed to is `ac:plan` Stage 3.
-- A user asking to stop, pause, or hand off outranks every rule here: delete the marker and stop.
+- A user asking to stop, pause, or take back control outranks every rule here: delete the marker and stop. A
+  user saying they are leaving and asking you to continue is the opposite request, the hand-off Phase A adopts.
 </constraints>
 
 <bootstrap>
@@ -118,7 +130,91 @@ Nothing to load; `AskUserQuestion` arrives directly on the main thread.
 
 Read `${CLAUDE_SKILL_DIR}/references/criteria-schema.md` first. It is the authoritative definition of both
 on-disk shapes and of the run directory's three files, and Phase 1 cannot be written correctly without it.
+
+Begin at Phase A when the request is a hand-off of work already under way in this conversation, otherwise at
+Phase 0.
 </bootstrap>
+
+## Phase A: Adopt in-flight work
+
+A hand-off is the user leaving mid-session and asking you to carry the work already under way here to the end:
+"I'm leaving, continue with ac:auto until done", or "ben bilgisayar basindan gidiyorum, ac:auto ile devam et,
+bitirene kadar durma". It names no new task. A request that names a new task starts at Phase 0, whatever else
+is in the conversation. Adopting rather than starting over matters because the work in context (an interview
+half answered, a wave loop half run) is lost or duplicated by a fresh run.
+
+### A0. Re-entry first
+
+Run 1a0 before anything else. A live marker owned by this session is a re-entry, not a second adoption; one
+owned by another session refuses, exactly as there.
+
+### A1. Pick the source
+
+Check in this order and take the first match. The source fixes where the criteria come from, the `adopted_from`
+value the schema defines, how the work continues, and the branch.
+
+| Source | Evidence | `adopted_from` | Criteria from | Continue with | Branch |
+|---|---|---|---|---|---|
+| (a) plan interview | `.ac/plans/<slug>/checkpoint.json` of the `ac:plan` run in this conversation | `plan-interview` | the checkpoint's `topic` and `locked_decisions` | `Skill: skill "ac:plan", args "--auto <checkpoint slug>"` | `auto/<slug>` |
+| (b) execute run | `.ac/state/active-execution.json` whose `session_id` equals `${CLAUDE_SESSION_ID}` | `execute` | the plan file, A2 | the run already in context; invoke nothing | current |
+| (c) written plan | `.ac/plans/<slug>/plan.md` with an unchecked step, no `report.md`, no `active-execution.json` | `plan` | the plan file, A2 | `Skill: skill "ac:execute", args "<slug> --auto"` | `auto/<slug>` |
+| (d) ad-hoc | none of the above | `adhoc` | the conversation goal, through 0a and 0b | Phase 2 with that goal as the request | `auto/<slug>` |
+
+- **(a)** Pass the checkpoint slug verbatim, never its topic. `ac:plan` 0b re-derives the slug from its argument,
+  and a topic re-derives one that need not match, so the resume misses the checkpoint and the interview starts
+  over (measured 2026-10-17: a topic and the slug its checkpoint sat under differed in the last word). The
+  plan's resume restores `topic` as the request. These criteria are sound: the topic and locked decisions
+  precede the work.
+- **(b)** Never invoke `ac:execute`. Its 1e writes `active-execution.json` without an existence check and keeps
+  its failure history in context only, so a second invocation overwrites the marker and restarts the wave loop
+  with that history reset. Freeze the criteria and write the marker (A3), then let the run continue: it keeps
+  `AUTO_MODE` true once this session's `active-auto.json` appears, and its final commit goes `--no-push` because
+  that file exists (execute 4a). When it reaches its own terminal state the turn tries to end, the auto `Stop`
+  guard blocks it, and the same-session re-entry at 1a0 takes you to the gate. An `active-execution.json` owned
+  by another session is that session's run: refuse, naming its slug, as 1a0 does for a foreign marker.
+- **(c)** The carve-out in `<constraints>` covers this one invocation. Phase 2's failure-budget and BLOCKER rules
+  apply to the run it starts exactly as to a chained one.
+- **(d)** Apply 0a and 0b to the conversation goal written as one request, then 0c. Admissible: continue at A3.
+  Inadmissible: no refusal, because the user has left and asked for the work to be finished. Finish the task
+  under the working rules with no run directory, no marker and no branch, and end on a closing report of what
+  is done and what is still open.
+
+### A2. Criteria from a plan file (sources b and c)
+
+Copy every `### Definition of Done` item and every step's `Done when` command verbatim, one criterion each,
+carrying `anchor: "<plan path>:<line>"`. A shell command becomes `verification: command` with the exit code its
+wording states (a "prints nothing" `rg` gate passes on exit 1); prose becomes `verification: judgment`. Do not
+merge, reword, narrow or drop one. Under (b) part of the work already exists, and copied text with its anchors
+is what lets a reader confirm each criterion predates it.
+
+### A3. Freeze, mark, branch
+
+Phase 1 in its usual order, so every adopted run has its run directory and criteria before its marker:
+
+1. Slug (1a), from the source's plan slug, or from the goal under (d).
+2. Run directory, then `criteria.md` with `adopted_from` set, then the digest (1b). The guard exits 0 without
+   the directory (`stop-guard-auto.sh:128-129`).
+3. Marker (1c), `phase: "planning"` for (a) and (d), `"executing"` for (b) and (c).
+4. Branch (1d) for (a), (c) and (d). Under (b) stay on the current branch: the run's earlier wave commits are
+   already there, and a switch mid-loop would split one plan's history across two branches.
+
+### A4. Timer (sources a and d)
+
+Both still have `ac:plan` Stage 3 questions ahead. Check `Bash: printenv AC_AFK_TIMER`; the launch wrapper
+exports it alongside `CLAUDE_AFK_TIMEOUT_MS`, so it is the evidence that a question can time out at all.
+
+- **Set**: questions are still asked, and the user may answer one if they pass by. When one times out, the
+  question-timeout hook says whether to continue, under the Standing rule on questions.
+- **Unset**: an asked question would wait for a user who has left. Lock the remaining plan questions through
+  `ac:plan` 3d Force-finalize: every unresolved node takes its Recommended option into the plan's
+  `## Risks Accepted`, each recorded "no timer, not user-approved". Put that in the marker's `note` so it
+  survives a compaction. Execute BLOCKERs still wait.
+
+### A5. Heartbeat, then continue
+
+One line: the source, the slug, the branch, both budgets, and for (a) and (d) the timer state. With the timer
+set, name what lets it run: an unfocused or detached terminal; a focused window keeps every question waiting.
+Then continue as the A1 table says.
 
 ## Phase 0: Admission
 
@@ -160,7 +256,10 @@ first with no guards, no verdict, and nothing that notices.
 - **Present and its `session_id` equals `${CLAUDE_SESSION_ID}`**: this is a re-entry, not a new run. Two places tell you to
   re-invoke this skill mid-run, the Standing rules above and the Stop guard's latch note, and both land here.
   Skip Phases 0 and 1 entirely and resume at the phase the marker names, reading its `note` for where the run
-  was. Do not re-derive a slug and do not touch `criteria.md`; the contract is already frozen.
+  was. Do not re-derive a slug and do not touch `criteria.md`; the contract is already frozen. `executing` never
+  means invoking anything: while this session's `.ac/state/active-execution.json` exists the run is still going
+  in context, so carry on with it; once it is gone the chain has ended, so refresh the marker to `gating` and go
+  to Phase 3. This is how an adopted execute run (Phase A1, source b) reaches the gate.
 - **Present and owned by another session**: refuse. Say which slug holds the marker and that the operator can
   delete `.ac/state/active-auto.json` if that run is genuinely abandoned. Do not delete it yourself; you cannot
   tell an abandoned run from one running in another window.
@@ -239,11 +338,14 @@ Three things about that call decide this phase's shape:
 
 - Its Stage 3 interview is this run's single question round. `ac:plan`'s `<auto_mode>` table classifies
   3a, 3b.1, 3b.2 and 3c as interview gates that surface whatever the mode, deliberately, because they are
-  preference content rather than process flow. That is why this body runs no question round of its own.
+  preference content rather than process flow. That is why this body runs no question round of its own. They
+  still surface; only on an AFK timeout in this session do they continue, as the Standing rule on questions and
+  that table's `On AFK timeout` column say.
 - Its Stage 6a chains `ac:execute` with `<slug> --auto` in the same turn. Do not invoke `ac:execute` yourself.
 - Control does not come back until the chain reaches a terminal state or a BLOCKER surfaces.
 
-While the chain runs, the rules that are yours rather than its: no BLOCKER is auto-answered, the failure budget
+While the chain runs, the rules that are yours rather than its: no execute BLOCKER is answered for the user and
+only plan-side questions continue on a timeout, the failure budget
 is measured against the plan's step count as failures accumulate, and the 2j span baseline resets after each
 acceptance. Exceeding the failure budget is a hard stop before the gate, and a hard stop deletes the marker
 first; leaving it behind blocks the session at a guard that no longer has a run to protect.
@@ -314,13 +416,16 @@ Five endings, and each deletes `.ac/state/active-auto.json` and `.ac/auto/<slug>
 | A chained BLOCKER the user resolved as stop or pause | Phase 2, inside `ac:plan` or `ac:execute` | delete, then report which BLOCKER and what the user chose |
 | An error before the gate (branch, digest mismatch, chain aborted) | any phase | delete, then name the stop class |
 
-A Phase 0 refusal is not in this table: nothing was written, so there is nothing to clean up.
+A Phase 0 refusal and an inadmissible ad-hoc hand-off (Phase A1, source d) are not in this table: nothing was
+written, so there is nothing to clean up.
 
 <reminders>
 - Criteria are frozen before the chain and reconciled, never rewritten, after it.
 - `ac:plan --auto` chains `ac:execute` itself; invoking execute here runs the work twice.
 - The gate returns a body and you write the file, so the component judging the run holds no tool that can change
   what it judged.
-- No BLOCKER is auto-answered, and no `overrides[].accepted_by` is ever written by a model.
+- Only plan interview gates and plan-side questions continue on an AFK timeout, recorded as not user-approved and
+  never as `accepted_by`; execute BLOCKERs wait for the user.
+- An adopted execute run is never re-invoked; it reaches the gate through the same-session re-entry.
 - Every ending deletes the marker first.
 </reminders>
