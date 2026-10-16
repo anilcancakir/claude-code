@@ -22,7 +22,7 @@ _Updated: <YYYY-MM-DD> by ac:qa (run <run id>)_
 - (<YYYY-MM-DD>) <pages or flows that failed intermittently and the observed trigger>
 
 ## Known gaps
-- (<YYYY-MM-DD>) <what QA could not cover or could not run, and why>
+- (<YYYY-MM-DD>) <a standing capability gap QA cannot cover, or behaviour the project documents as not representative of production, and why>
 
 ## Recurring defects
 - (<YYYY-MM-DD>) <defect class seen in more than one run, with the file or area>
@@ -36,7 +36,7 @@ Keep all six headers, in this order, in every write. A section with nothing to r
 - Update in place. Before adding a bullet, look for one on the same topic (same selector, same page, same boot step, same defect) and replace it with the new wording and today's date. Append only when no bullet matches, so the file does not grow with every run.
 - Mark a defect fixed by prefixing its text with `[resolved <YYYY-MM-DD>]` instead of deleting it; resolved bullets are the first to be pruned.
 - Record the name of a credential source (an env var, a seeder class, a `.env.example` key), never a password, token or key value.
-- A `## Known gaps` bullet records a standing capability gap (a tool, platform or environment the project cannot cover), never a run id and never a list of cases one run did not walk; that list stays in the run's report.
+- A `## Known gaps` bullet records a standing capability gap (a tool, platform or environment the project cannot cover) or behaviour the project documents as not representative of production (dev-only debug output), never a run id and never a list of cases one run did not walk; that list stays in the run's report.
 
 ## Size cap and pruning
 
@@ -45,7 +45,7 @@ The file stays within 150 lines. When a write would pass 150, prune in this orde
 1. Resolved `## Recurring defects` bullets, oldest first.
 2. `## Flaky areas` bullets not confirmed in the latest run, oldest first.
 3. `## Stable selectors` bullets for pages that no longer exist, oldest first.
-4. `## Known gaps` bullets not reconfirmed within 30 days, oldest first.
+4. `## Known gaps` bullets not reconfirmed within 30 days, oldest first. A bullet a run skipped a case on counts as reconfirmed that day.
 
 `## Boot and run`, `## Auth and fixtures` and unresolved defects are not pruned; if the file is still over 150 lines, merge bullets on related topics rather than drop one.
 

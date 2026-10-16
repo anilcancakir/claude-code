@@ -25,7 +25,7 @@ Record the result in `brief.md` as the tool name plus the exact boot, suite and 
 |---|---|---|
 | URL server | the dev command from the tool section below | `curl` returns HTTP 200 (loop below) |
 | Project start script | the documented script | its documented ready line appears in `<run dir>/server.log`, or a documented health command exits 0 |
-| Simulator or emulator | the documented launch command | it reports booted: `xcrun simctl list devices booted` names the device, or `adb wait-for-device` returns |
+| Simulator or emulator | the documented launch command | the app is up on the device: its documented ready line appears in `server.log` (for example `flutter run`'s key-commands banner) or its process runs there; the device reporting booted (`xcrun simctl list devices booted`, `adb wait-for-device`) is only the precondition |
 | Desktop app | the documented launch command | its process is up (`pgrep -f <name>`), or the documented ready line appears in `server.log` |
 
 Boot with Bash `run_in_background` and `timeout: 7200000`, output to `<run dir>/server.log`, with no `nohup` and no trailing `&`. Claude Code stops a process the shell detaches that way a few minutes after the reply, while a background Bash call is kept for 30 minutes by default and up to 2 hours with an explicit `timeout`, in unattended sessions. Stop the process when the run ends.
