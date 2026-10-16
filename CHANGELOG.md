@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `ac-php-lsp` 0.1.0, a second plugin in the marketplace: Intelephense with `**/build/**` and `**/.claude/worktrees/**` added to its default excludes. On the stock `php-lsp`, a Flutter `build/` of 62,788 files and 823 symlinks, mostly Xcode SourcePackages, stalled Intelephense's file search: no index within 150 s rooted at that checkout and none within 6 minutes from the main checkout holding it as a worktree, so cross-file LSP requests returned nothing. With the exclude it indexed 11,614 files in 9.4 s. Nested worktrees cost a main-checkout server 378 MB for one worktree, plus a duplicate definition per copy.
 
+### Changed
+
+- `ac:init-project` Phase 5 and `lsp-wiring.md` Rule 1b: the language-server proposal now drops extensions an enabled plugin already serves and plugins the user set to `false`, so it cannot re-enable `php-lsp@claude-plugins-official` over `ac-php-lsp`.
+
 ## [0.29.0] - 2026-10-13
 
 Adds a QA-engineer pass. Until now `ac` verified work per step (execute Layer C) and kept learnings per plan; nothing tested a finished change as a whole the way a person would. Measured on 2026-10-13 with one live `/ac:qa` run on a static fixture page carrying a deliberate fixed-width nav: the tester derived 20 cases (7 functional, 4 responsive, 4 design, 5 security, 1 regression) through the playwright-cli fallback, found the overflow at 375 and 768 px plus a form submit that reloaded the page, the orchestrator fixed both, and one retest confirmed the fixes, one sample. The tester returns its report as text and `ac:qa` writes `report.md`, because Claude Code 2.1.296 refuses a subagent `Write` to any `report*.md`, `summary*.md`, `findings*.md` or `analysis*.md` (read off the binary, `tengu_subagent_md_report_blocked`).

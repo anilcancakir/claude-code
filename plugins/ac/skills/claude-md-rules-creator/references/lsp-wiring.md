@@ -49,6 +49,19 @@ error rather than an empty list, so a single marketplace without one would abort
 return zero rows. Measured on this machine: the naive glob form dies at the first such marketplace,
 while the form above returns 112 rows across two marketplaces.
 
+## Rule 1b: respect what is already enabled or disabled
+
+Read `enabledPlugins` from `~/.claude/settings.json`, the project's `.claude/settings.json` and its
+`.claude/settings.local.json` before proposing anything, and merge them in that order, the later
+file winning. Then drop from the candidate list:
+
+- every extension an enabled plugin already claims, whichever marketplace it comes from;
+- every plugin set to `false` at any scope, because a disable is a choice the user already made.
+
+Without this step Rule 2 undoes a deliberate swap. `ac-php-lsp@ac` replaces
+`php-lsp@claude-plugins-official` for `.php`; Rule 2 alone would propose the official one again,
+write it as `true` at user scope, and leave `.php` to whichever of the two loads first.
+
 ## Rule 2: prefer the official marketplace, fall back explicitly
 
 When the detected language is covered by a plugin in `claude-plugins-official`, propose from there
