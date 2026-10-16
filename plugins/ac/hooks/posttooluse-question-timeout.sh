@@ -16,6 +16,8 @@
 #   AC_QUESTION_TIMEOUT        0 turns the hook off
 #   AC_QUESTION_TIMEOUT_SHAPE  context (default): hookSpecificOutput.additionalContext
 #                              block: decision "block" with the text as the reason
+#                              The experiment of 2026-10-17 (Claude Code 2.1.302, Opus 5.5) ended the turn
+#                              on the wait text 3/3 in both shapes, so context stays the default.
 #
 # Both texts are fixed ASCII with no quote or backslash, so printf can build valid JSON without jq.
 # updatedToolOutput is deliberately not used: the AskUserQuestion output shape is undocumented and a
@@ -67,7 +69,8 @@ case "$input" in
 esac
 
 emit() {
-    if [ "${AC_QUESTION_TIMEOUT_SHAPE:-}" = "block" ]; then
+    shape="${AC_QUESTION_TIMEOUT_SHAPE:-context}"
+    if [ "$shape" = "block" ]; then
         printf '{"decision":"block","reason":"%s"}\n' "$1"
     else
         printf '{"hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":"%s"}}\n' "$1"

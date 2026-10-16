@@ -318,6 +318,28 @@ finding by file and line.
    `~/.claude/settings.json` whose command names `memory-index-budget` is an earlier hand-installed
    copy, and both blocks fire on the same write. Report the entry and its command path.
 
+## Question timeout (W.afk), opt-in, default off
+
+Asked by `/ac:install` 3d step 5, beside the wrapper offer, and only where the plugin's
+`hooks/posttooluse-question-timeout.sh` exists. It makes an `AskUserQuestion` time out after 3
+minutes away (unfocused or detached terminal) instead of waiting indefinitely. The hook decides what
+the timeout means: a session that owns the live `/ac:auto` run continues with the selection already
+made or the Recommended option, recorded as not user-approved; every other session is told to end
+the turn and wait. Plain `/ac:plan --auto` and `/ac:execute --auto` do not own that marker, so they
+wait too. The hook's default shape is `context`: the 2026-10-17 experiment (Claude Code 2.1.302,
+Opus 5.5) ended the turn on the wait text 3/3 in both shapes, and sessions owning the marker
+continued 3/3.
+
+| Place | Keys written |
+|---|---|
+| A wrapper's `claude` call (preferred) | `CLAUDE_AFK_TIMEOUT_MS=180000 AC_AFK_TIMER=1` as command-prefix assignments |
+| No wrapper | `env.CLAUDE_AFK_TIMEOUT_MS = "180000"` and `env.AC_AFK_TIMER = "1"`, each only when absent |
+
+`AC_AFK_TIMER` is what `ac:auto` reads (`printenv AC_AFK_TIMER`) to know a question can time out; with
+it unset, `ac:auto` locks the remaining plan questions instead. `CLAUDE_AFK_TIMEOUT_MS` is the
+variable that turns the timeout on, and it overrides Group A's `askUserQuestionTimeout`. The settings
+branch applies to every session, ac enabled or not, so disabling ac means removing both keys.
+
 ## Answer record
 
 `~/.claude/ac-install.json` remembers what this command did and what the operator turned down, so
@@ -364,6 +386,7 @@ and `"declined"` means the operator chose Skip for a missing one. Group F record
 | `S.my-coding` | The `my-coding` skill, under `--upgrade` only |
 | `S.my-language` | The `my-language` skill, under `--upgrade` only |
 | `W.wrapper` | The working-rules line in a shell `claude` wrapper (`/ac:install` 3d); `"applied"` when the wrapper passes the append file, `"declined"` when the operator chose Skip |
+| `W.afk` | The question timeout (`/ac:install` 3d step 5); `"applied"` when a wrapper's `claude` call or settings `env` carries both keys, `"declined"` when the operator chose Skip |
 
 A new option gets a new id. Never reuse or rename one: a renamed id reads as unanswered and asks
 everyone again, and a reused one carries an old answer onto a different question.

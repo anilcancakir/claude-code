@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- `ac:auto` adopts in-flight work when a session hands off to it mid-run. Phase A admits four sources: an `ac:plan` interview checkpoint (the slug is passed verbatim), an execute run in this session (never re-invoked, staying on the current branch), a written plan not yet executed, and ad-hoc work. Ad-hoc work with inadmissible criteria finishes normally with a closing report and no marker. Criteria gain `adopted_from` and a per-criterion `anchor`, and `ac:auto-verifier` caps `adopted_from: adhoc` at `human_needed`.
+- `hooks/posttooluse-question-timeout.sh`, a PostToolUse hook that answers a timed-out `AskUserQuestion` with a wait by default. `AC_QUESTION_TIMEOUT=0` turns it off, and `AC_QUESTION_TIMEOUT_SHAPE` (`context` or `block`) selects how the answer is delivered. On an idle timeout only plan interview gates and plan-side questions continue, at most one Oracle CRIT? per run, recorded as "timed out, not user-approved" and only in the session that owns `.ac/state/active-auto.json`. Execute BLOCKERs still wait.
+- `hooks/lib/question-wait.sh`, a latch that lets the three Stop guards allow a turn waiting on a timed-out question. The guards' halt clause now reads "stop, pause, or take back control".
+- AFK timeout opt-in in `/ac:install` (W.afk). It adds `CLAUDE_AFK_TIMEOUT_MS=180000` and `AC_AFK_TIMER=1` to the `claude` shell wrapper, or to the user settings `env` when no wrapper is used. Measured on Claude Code 2.1.302 with Opus 5.5 on 2026-10-17: supervised sessions waited in 3 of 3 runs on the hook's wait text, and sessions owning the `ac:auto` marker continued in 3 of 3.
+
+### Changed
+
+- `ac:plan` asks `Proceed?`, `TDD?` and `QA?` in a single `AskUserQuestion` call.
+- The `<auto_mode>` tables in `execute` and `plan` gain an "On AFK timeout" column.
+- `working-rules.md` gains a hand-off line, and plan resume restores `topic`.
+
 ## [0.30.0] - 2026-10-17
 
 Moves the ac workflow rules out of the global CLAUDE.md and into the main thread only. Measured on Claude Code 2.1.301, every subagent spawn re-wrote its CLAUDE.md as cache creation, so the roughly 2,200 tokens of workflow text were paid fresh on each of nine agents' spawns. The rules now ship as `references/working-rules.md` and reach the main thread through `--append-system-prompt-file` on a wrapper launch or a SessionStart hook otherwise; the CLAUDE.md block keeps the personal rules subagents still need. A Claude Mod was the first choice and is deferred: `prompt.compose` is bypassed for user-installed plugins on managed or Team sign-ins. Also adds the `ac-php-lsp` plugin, per-spawn effort, and an `ac:qa` hardened for background testers.
