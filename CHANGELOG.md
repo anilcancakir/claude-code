@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- `plugins/ac/docs/terminal-setup.md` now also turns off iTerm2's Advanced setting `AlternateMouseScroll` ("Scroll wheel sends arrow keys when in alternate screen mode"). With it on, a two-finger swipe in a fullscreen Claude Code tab still did not switch tabs after `ReportHorizontalScrollEvents` was off: iTerm2 3.7.6 sends the horizontal scroll as `←` and `→` keys before it tries swipe to switch tabs (`PTYMouseHandler.m`, `scrollWheelShouldSendDataForEvent:at:`), and its own settings text says "Alternate mouse scroll takes priority over swipe to switch tabs." Captured on 2.1.302: Claude Code sets mouse modes 1000, 1002, 1003 and 1006 and never `?1007h`, so the profile's own alternate scroll stays off and only the Advanced setting was in the way. CI also installs ripgrep, which the announce guard tests need and the runner image lacks.
+
 ## [0.31.0] - 2026-10-17
 
 Lets an `ac` session carry on while you are away. A question that times out under the new opt-in AFK timer gets a wait by default, and only plan-side questions in an `ac:auto` run continue on their Recommended option; `ac:auto` can also adopt work already under way when you hand off mid-session. An opt-in hook keeps session titles current instead of frozen on the first prompt, with your own naming prompt or a tracker-key format, and never over a manual `/rename`. The dash rule now covers only artifacts a person reads, so plans and logs are no longer dash-checked. Also adds an iTerm2 terminal setup guide.

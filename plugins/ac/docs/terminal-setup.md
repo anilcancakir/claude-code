@@ -10,7 +10,7 @@ A machine setup for running one Claude Code session per iTerm2 tab, independent 
 | Copied text carries the reply's indentation and a newline at every wrap point | Native selection copies the screen cells, gutter and wrap points included | Copy inside Claude Code, or `/copy` |
 | Selecting text copies it at once | iTerm2 "Copy to clipboard on selection", and Claude Code's own Copy on select | Both off |
 | `←` on an empty prompt backgrounds the session and opens agent view | `leftArrowOpensAgents` defaults to on | Off |
-| A two-finger horizontal swipe no longer switches tabs | With mouse reporting on, iTerm2 sends horizontal scrolls to the app | Stop reporting horizontal scrolls |
+| A two-finger horizontal swipe no longer switches tabs | In the alternate screen, iTerm2 hands a horizontal scroll to the app as a mouse report or, with alternate mouse scroll on, as `←` and `→` keys; both take priority over swipe to switch tabs | Stop reporting horizontal scrolls, and keep alternate mouse scroll off or vertical only |
 
 ## Apply
 
@@ -33,7 +33,10 @@ jq '.leftArrowOpensAgents = false | .copyOnSelect = false' "$f" > "$t" && chmod 
 # iTerm2: no copy on select, and horizontal swipes stay with iTerm2 for tab switching.
 defaults write com.googlecode.iterm2 CopySelection -bool false
 defaults write com.googlecode.iterm2 ReportHorizontalScrollEvents -bool false
+defaults write com.googlecode.iterm2 AlternateMouseScroll -bool false
 ```
+
+`AlternateMouseScroll` is the Advanced setting "Scroll wheel sends arrow keys when in alternate screen mode". It is off by default, but a machine that ever turned it on keeps it, and while it is on iTerm2 turns every horizontal swipe in a fullscreen Claude Code tab into `←` and `→` keys instead of a tab switch. Claude Code does not need it: it takes the vertical wheel through mouse reporting. To keep wheel scrolling in `less`, `man` or a mouseless `vim`, tick "Automatically enable alternate mouse scroll" and "Restrict alternate mouse scroll to vertical scrolling" in the profile instead (Profiles, Terminal); the restriction leaves horizontal swipes to iTerm2.
 
 Then, in iTerm2 Settings, Profiles, Terminal, untick "Save lines to scrollback in alternate screen mode" for every profile you run Claude Code in. It is on by default and is a per-profile key that `defaults write` cannot reach; left on, fullscreen frames pile up in the native scrollback. Keep "Enable mouse reporting" on in the same pane (the default): wheel scrolling, clicks and selection inside Claude Code need it.
 
@@ -87,8 +90,9 @@ f=$(realpath ~/.claude/settings.json); t=$(mktemp "$f.XXXX"); jq '.tui = "defaul
 f=$(realpath ~/.claude.json); t=$(mktemp "$f.XXXX"); jq 'del(.leftArrowOpensAgents, .copyOnSelect)' "$f" > "$t" && chmod 600 "$t" && mv "$t" "$f"
 defaults delete com.googlecode.iterm2 CopySelection
 defaults delete com.googlecode.iterm2 ReportHorizontalScrollEvents
+defaults delete com.googlecode.iterm2 AlternateMouseScroll
 ```
 
 Then quit iTerm2 with Cmd+Q and open it again.
 
-Sources: [Fullscreen rendering](https://code.claude.com/docs/en/fullscreen.md), [Agent view](https://code.claude.com/docs/en/agent-view.md), [Terminal configuration](https://code.claude.com/docs/en/terminal-config.md), and the iTerm2 3.7.6 note "When mouse reporting is on, horizontal scrolling does not switch tabs."
+Sources: [Fullscreen rendering](https://code.claude.com/docs/en/fullscreen.md), [Agent view](https://code.claude.com/docs/en/agent-view.md), [Terminal configuration](https://code.claude.com/docs/en/terminal-config.md), the iTerm2 3.7.6 notes "When mouse reporting is on, horizontal scrolling does not switch tabs." and "Alternate mouse scroll takes priority over swipe to switch tabs.", and its source at `v3.7.6` (`PTYMouseHandler.m`, `scrollWheelShouldSendDataForEvent:at:`).
