@@ -18,6 +18,7 @@ import {
     addLease,
     defaultLeaseDeps,
     LeaseError,
+    releaseLeases,
     sweepLeases,
 } from "./lease.ts";
 import type { LeaseDeps, ProcessProbe, RunOutcome } from "./lease.ts";
@@ -60,11 +61,21 @@ function testDeps(overrides: Partial<LeaseDeps> = {}, outcome: RunOutcome = { st
 } {
     const runs: RunCall[] = [];
     const relaunches: string[][] = [];
+    const defaults = defaultLeaseDeps();
     const deps: LeaseDeps = {
-        ...defaultLeaseDeps(),
+        ...defaults,
         env: {
             CLAUDE_CODE_SESSION_ID: session,
         },
+        // A scratch sandbox store, so no test ever reads this machine's real /tmp/claude-<uid> store.
+        sandboxLeaseDir: sandboxDir(),
+        // The runner may sit on a terminal when a person runs the suite; its children would inherit it.
+        probe: {
+            ...defaults.probe,
+            tty: (): string => "??",
+        },
+        // No real adb is ever asked for an AVD name.
+        output: (): string | undefined => undefined,
         findOwner: () => process.pid,
         run: async (file: string, args: string[]): Promise<RunOutcome> => {
             runs.push({
@@ -89,8 +100,19 @@ function leaseDir(): string {
     return join(scratch, "ac-leases");
 }
 
-function leaseFile(id: string = session): string {
-    return join(leaseDir(), `${id}.jsonl`);
+function sandboxDir(): string {
+    return join(scratch, "sandbox", "claude-test", "ac-leases");
+}
+
+function leaseFile(id: string = session, dir: string = leaseDir()): string {
+    return join(dir, `${id}.jsonl`);
+}
+
+function storedLeases(id: string = session, dir: string = leaseDir()): Record<string, unknown>[] {
+    return readFileSync(leaseFile(id, dir), "utf8")
+        .split("\n")
+        .filter((line) => line !== "")
+        .map((line) => JSON.parse(line) as Record<string, unknown>);
 }
 
 function startSleep(): Subprocess {
@@ -130,11 +152,11 @@ function isAlive(pid: number): boolean {
 }
 
 /** Writes a lease directory and file by hand, the way Step 6's hook test does. */
-function writeLeaseLines(id: string, lines: Record<string, unknown>[]): void {
-    mkdirSync(leaseDir(), { mode: 0o700, recursive: true });
-    chmodSync(leaseDir(), 0o700);
-    writeFileSync(leaseFile(id), lines.map((line) => JSON.stringify(line) + "\n").join(""), { mode: 0o600 });
-    chmodSync(leaseFile(id), 0o600);
+function writeLeaseLines(id: string, lines: Record<string, unknown>[], dir: string = leaseDir()): void {
+    mkdirSync(dir, { mode: 0o700, recursive: true });
+    chmodSync(dir, 0o700);
+    writeFileSync(leaseFile(id, dir), lines.map((line) => JSON.stringify(line) + "\n").join(""), { mode: 0o600 });
+    chmodSync(leaseFile(id, dir), 0o600);
 }
 
 function ownLstart(): string {
@@ -695,4 +717,437 @@ test("the CLI sweep with --reason resume exits 0 and leaves the file", async () 
 
     expect(result.exitCode).toBe(0);
     expect(existsSync(leaseFile())).toBe(true);
+});
+
+/** A probe where every pid is alive with one start time and runs `sleep 300`; tests using it never signal for real. */
+function fakeProbe(lstart: string): ProcessProbe {
+    return {
+        lstart: (): string => lstart,
+        command: (): string => "sleep 300",
+        comm: (): string => "sleep",
+        ppid: (): undefined => undefined,
+        pgid: (): undefined => undefined,
+        tty: (): string => "??",
+    };
+}
+
+function fakePidLease(id: string, pid: number, ownerLstart: string): Record<string, unknown> {
+    return {
+        session: id,
+        kind: "pid",
+        pid,
+        lstart: "Sat Oct 17 12:00:00 2026",
+        command: "sleep 300",
+        match: "sleep 300",
+        ownerPid: 4000,
+        ownerLstart,
+        createdAt: new Date().toISOString(),
+    };
+}
+
+const ADB_KILL_5554: RunCall = {
+    file: "adb",
+    args: [
+        "-s",
+        "emulator-5554",
+        "emu",
+        "kill",
+    ],
+};
+
+test("--stale stops only the entries whose own owner is gone and keeps the live owner's in the file", async () => {
+    writeLeaseLines("test-resumed", [
+        serialLease("test-resumed", await deadPid(), "Sat Oct 17 09:00:00 2026"),
+        {
+            ...serialLease("test-resumed", process.pid, ownLstart()),
+            serial: "emulator-5556",
+        },
+    ]);
+    const { deps, runs } = testDeps({ env: {} });
+
+    await sweepLeases({ stale: true }, deps);
+
+    expect(runs).toEqual([
+        ADB_KILL_5554,
+    ]);
+    expect(storedLeases("test-resumed").map((lease) => lease.serial)).toEqual([
+        "emulator-5556",
+    ]);
+});
+
+test("--stale leaves a dead owner's target that a live entry in the same file still leases", async () => {
+    writeLeaseLines("test-resumed", [
+        serialLease("test-resumed", await deadPid(), "Sat Oct 17 09:00:00 2026"),
+        serialLease("test-resumed", process.pid, ownLstart()),
+    ]);
+    const { deps, runs } = testDeps({ env: {} });
+
+    const report = await sweepLeases({ stale: true }, deps);
+
+    expect(runs).toEqual([]);
+    expect(report.outcomes.map((outcome) => outcome.status)).toEqual([
+        "skipped",
+    ]);
+    expect(storedLeases("test-resumed").map((lease) => lease.ownerPid)).toEqual([
+        process.pid,
+    ]);
+});
+
+test("release removes only the matching entry, and a later sweep stops nothing for it", async () => {
+    const { deps, runs } = testDeps();
+    addLease(
+        {
+            kind: "adb-emu",
+            serial: "emulator-5554",
+        },
+        deps,
+    );
+    addLease(
+        {
+            kind: "simctl",
+            udid: "0A1B2C3D-4E5F-6789-ABCD-EF0123456789",
+        },
+        deps,
+    );
+
+    const released = releaseLeases(
+        {
+            kind: "simctl",
+            udid: "0a1b2c3d-4e5f-6789-abcd-ef0123456789",
+        },
+        deps,
+    );
+
+    expect(released.removed).toBe(1);
+    expect(storedLeases().map((lease) => lease.kind)).toEqual([
+        "adb-emu",
+    ]);
+
+    await sweepLeases({ session }, deps);
+
+    expect(runs).toEqual([
+        ADB_KILL_5554,
+    ]);
+});
+
+test("release of a pid lease works after the process is gone and deletes the emptied file", async () => {
+    const child = startSleep();
+    const { deps } = testDeps();
+    addLease(
+        {
+            kind: "pid",
+            pid: String(child.pid),
+            match: "sleep 300",
+        },
+        deps,
+    );
+    child.kill("SIGKILL");
+    await child.exited;
+
+    const released = releaseLeases(
+        {
+            kind: "pid",
+            pid: String(child.pid),
+            match: "sleep 300",
+        },
+        deps,
+    );
+
+    expect(released.removed).toBe(1);
+    expect(existsSync(leaseFile())).toBe(false);
+});
+
+test("release without CLAUDE_CODE_SESSION_ID is rejected", () => {
+    const { deps } = testDeps({ env: {} });
+
+    expect(() => releaseLeases(
+        {
+            kind: "adb-emu",
+            serial: "emulator-5554",
+        },
+        deps,
+    )).toThrow(/CLAUDE_CODE_SESSION_ID/);
+});
+
+test("an adb-emu lease records the AVD name and is skipped when a different emulator holds the serial", async () => {
+    let avd = "Pixel_A";
+    const asked: string[][] = [];
+    const { deps, runs } = testDeps({
+        output: (file: string, args: string[]): string => {
+            asked.push([
+                file,
+                ...args,
+            ]);
+            return `${avd}\r\nOK\r\n`;
+        },
+    });
+
+    const lease = addLease(
+        {
+            kind: "adb-emu",
+            serial: "emulator-5554",
+        },
+        deps,
+    );
+    avd = "Pixel_B";
+    const report = await sweepLeases({ session }, deps);
+
+    expect(lease.avd).toBe("Pixel_A");
+    expect(asked[0]).toEqual([
+        "adb",
+        "-s",
+        "emulator-5554",
+        "emu",
+        "avd",
+        "name",
+    ]);
+    expect(runs).toEqual([]);
+    expect(report.outcomes[0]).toMatchObject({
+        status: "skipped",
+        detail: "a different emulator now holds emulator-5554",
+    });
+});
+
+test("an adb-emu lease whose AVD name still matches is stopped, and one that cannot be read is skipped", async () => {
+    let avd: string | undefined = "Pixel_A\nOK\n";
+    const { deps, runs } = testDeps({ output: (): string | undefined => avd });
+    addLease(
+        {
+            kind: "adb-emu",
+            serial: "emulator-5554",
+        },
+        deps,
+    );
+
+    await sweepLeases({ session }, deps);
+    expect(runs).toEqual([
+        ADB_KILL_5554,
+    ]);
+
+    addLease(
+        {
+            kind: "adb-emu",
+            serial: "emulator-5554",
+        },
+        deps,
+    );
+    avd = undefined;
+    const report = await sweepLeases({ session }, deps);
+
+    expect(runs).toHaveLength(1);
+    expect(report.outcomes[0]?.status).toBe("skipped");
+});
+
+test("a pid lease on a process with a controlling terminal is refused, and one without is accepted", () => {
+    const child = startSleep();
+    const withTty = (tty: string): LeaseDeps => testDeps({
+        probe: {
+            ...defaultLeaseDeps().probe,
+            tty: (): string => tty,
+        },
+    }).deps;
+    const input = {
+        kind: "pid",
+        pid: String(child.pid),
+        match: "sleep 300",
+    };
+
+    expect(() => addLease(input, withTty("ttys003"))).toThrow(/terminal ttys003/);
+    expect(existsSync(leaseFile())).toBe(false);
+    expect(addLease(input, withTty("??")).pid).toBe(child.pid);
+});
+
+test("add refuses pid 1", () => {
+    const { deps } = testDeps();
+
+    expect(() => addLease(
+        {
+            kind: "pid",
+            pid: "1",
+            match: "launchd",
+        },
+        deps,
+    )).toThrow(/greater than 1/);
+});
+
+test("a stored pid lease for pid 1 is malformed and never signalled", async () => {
+    const signals: number[] = [];
+    const { deps } = testDeps({
+        kill: (target: number): void => {
+            signals.push(target);
+        },
+    });
+    writeLeaseLines(session, [
+        {
+            session,
+            kind: "pid",
+            pid: 1,
+            lstart: "Sat Oct 17 09:00:00 2026",
+            command: "launchd",
+            match: "launchd",
+            ownerPid: process.pid,
+            ownerLstart: ownLstart(),
+            createdAt: new Date().toISOString(),
+        },
+    ]);
+
+    const report = await sweepLeases({ session }, deps);
+
+    expect(report.malformed).toBe(1);
+    expect(signals).toEqual([]);
+});
+
+test("a kill refused with EPERM is a failed outcome kept in its file, and the sweep goes on", async () => {
+    const live = "Sat Oct 17 12:00:00 2026";
+    writeLeaseLines("test-first", [
+        fakePidLease("test-first", 4242, "Sat Oct 17 08:00:00 2026"),
+        fakePidLease("test-first", 4343, "Sat Oct 17 08:00:00 2026"),
+    ]);
+    writeLeaseLines("test-second", [
+        fakePidLease("test-second", 4444, "Sat Oct 17 08:00:00 2026"),
+    ]);
+    const signalled: number[] = [];
+    const { deps } = testDeps({
+        env: {},
+        probe: fakeProbe(live),
+        kill: (target: number): void => {
+            if (target === 4242) {
+                throw Object.assign(new Error("kill EPERM"), { code: "EPERM" });
+            }
+            signalled.push(target);
+        },
+    });
+
+    const report = await sweepLeases({ stale: true }, deps);
+
+    expect(report.outcomes.map((outcome) => outcome.status).sort()).toEqual([
+        "failed",
+        "stopped",
+        "stopped",
+    ]);
+    expect(signalled.sort()).toEqual([
+        4343,
+        4444,
+    ]);
+    expect(storedLeases("test-first").map((lease) => lease.pid)).toEqual([
+        4242,
+    ]);
+    expect(existsSync(leaseFile("test-second"))).toBe(false);
+});
+
+test("a failed stop keeps its entry and the stopped one is dropped", async () => {
+    const { deps } = testDeps({
+        run: async (file: string): Promise<RunOutcome> => (
+            file === "adb"
+                ? {
+                    status: "failed",
+                    detail: "adb: device offline",
+                }
+                : { status: "ok" }
+        ),
+    });
+    addLease(
+        {
+            kind: "adb-emu",
+            serial: "emulator-5554",
+        },
+        deps,
+    );
+    addLease(
+        {
+            kind: "simctl",
+            udid: "0A1B2C3D-4E5F-6789-ABCD-EF0123456789",
+        },
+        deps,
+    );
+
+    const report = await sweepLeases({ session }, deps);
+
+    expect(report.outcomes.map((outcome) => outcome.status)).toEqual([
+        "failed",
+        "stopped",
+    ]);
+    expect(storedLeases().map((lease) => lease.kind)).toEqual([
+        "adb-emu",
+    ]);
+});
+
+test("a --session sweep finds the session's lease in the sandbox store", async () => {
+    writeLeaseLines(
+        session,
+        [
+            serialLease(session, process.pid, ownLstart()),
+        ],
+        sandboxDir(),
+    );
+    const { deps, runs } = testDeps();
+
+    await sweepLeases({ session }, deps);
+
+    expect(runs).toEqual([
+        ADB_KILL_5554,
+    ]);
+    expect(existsSync(leaseFile(session, sandboxDir()))).toBe(false);
+});
+
+test("two store paths that resolve to one directory are swept once", async () => {
+    writeLeaseLines(session, [
+        serialLease(session, process.pid, ownLstart()),
+    ]);
+    symlinkSync(scratch, join(scratch, "alias"));
+    const { deps, runs } = testDeps({ sandboxLeaseDir: join(scratch, "alias", "ac-leases") });
+
+    await sweepLeases({ session }, deps);
+
+    expect(runs).toEqual([
+        ADB_KILL_5554,
+    ]);
+});
+
+test("the sandbox store follows CLAUDE_CODE_TMPDIR and defaults to /tmp", () => {
+    const original = process.env.CLAUDE_CODE_TMPDIR;
+    const uid = process.getuid?.();
+    try {
+        process.env.CLAUDE_CODE_TMPDIR = join(scratch, "cct");
+        expect(defaultLeaseDeps().sandboxLeaseDir).toBe(join(scratch, "cct", `claude-${uid}`, "ac-leases"));
+        delete process.env.CLAUDE_CODE_TMPDIR;
+        expect(defaultLeaseDeps().sandboxLeaseDir).toBe(`/tmp/claude-${uid}/ac-leases`);
+    } finally {
+        if (original === undefined) {
+            delete process.env.CLAUDE_CODE_TMPDIR;
+        } else {
+            process.env.CLAUDE_CODE_TMPDIR = original;
+        }
+    }
+});
+
+test("the CLI registers lease release and removes the matching entry", () => {
+    writeLeaseLines(session, [
+        serialLease(session, process.pid, ownLstart()),
+    ]);
+
+    const result = Bun.spawnSync(
+        [
+            "bun",
+            INDEX,
+            "lease",
+            "release",
+            "--kind",
+            "adb-emu",
+            "--serial",
+            "emulator-5554",
+        ],
+        {
+            env: {
+                ...process.env,
+                TMPDIR: scratch,
+                CLAUDE_CODE_TMPDIR: join(scratch, "sandbox"),
+                CLAUDE_CODE_SESSION_ID: session,
+            },
+        },
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout.toString()).toContain("released 1");
+    expect(existsSync(leaseFile())).toBe(false);
 });

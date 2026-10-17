@@ -116,6 +116,21 @@ function monitorStarted(id: string): string {
     });
 }
 
+function toolUse(id: string, name: string): string {
+    return JSON.stringify({
+        type: "assistant",
+        message: { content: [{ type: "tool_use", id, name, input: {} }] },
+    });
+}
+
+function toolResult(toolUseId: string, text: string, toolUseResult?: unknown): string {
+    return JSON.stringify({
+        type: "user",
+        message: { content: [{ type: "tool_result", tool_use_id: toolUseId, content: text }] },
+        toolUseResult,
+    });
+}
+
 function stringResult(): string {
     return JSON.stringify({
         type: "user",
@@ -196,23 +211,72 @@ test("a task type the guard has not seen before still blocks", () => {
     expect(blockReason(runHook(payload({ background_tasks: [task] })).stdout)).toContain("mon1");
 });
 
-test("an id found only in the tool result text blocks", () => {
+test("an id found only in a Bash tool result text blocks, in every anchored shape", () => {
+    const texts = [
+        "Command running in background with ID: txt1. Output is being written to: /tmp/txt1.output",
+        "Command did not complete within its 120s timeout and was moved to the background (ID: txt1).",
+        "Command was manually backgrounded by user with ID: txt1. Output is being written to: /tmp/txt1.output",
+    ];
+
+    texts.forEach((text, index) => {
+        writeTranscript(
+            toolUse("tu1", "Bash"),
+            JSON.stringify({
+                type: "user",
+                message: { content: [{ type: "tool_result", tool_use_id: "tu1", content: [{ type: "text", text }] }] },
+                toolUseResult: "plain string result",
+            }),
+        );
+
+        const result = runHook(payload({ agent_id: `agent-${index}`, background_tasks: [shellTask("txt1", "make")] }));
+
+        expect(blockReason(result.stdout)).toContain("txt1");
+    });
+});
+
+test("a Monitor tool result text blocks without a structured result", () => {
+    writeTranscript(toolUse("tu1", "Monitor"), toolResult("tu1", "Monitor started (task mon2, expires in 30m)."));
+
+    expect(blockReason(runHook(payload({ background_tasks: [shellTask("mon2", "tail -f x")] })).stdout)).toContain("mon2");
+});
+
+test("an id quoted in a Read result is not owned", () => {
     writeTranscript(
-        JSON.stringify({
-            type: "user",
-            message: {
-                content: [
-                    {
-                        type: "tool_result",
-                        content: [{ type: "text", text: "Command did not complete and was moved to the background (ID: txt1)." }],
-                    },
-                ],
-            },
-            toolUseResult: "plain string result",
-        }),
+        toolUse("tu1", "Read"),
+        toolResult("tu1", "Command running in background with ID: bparent1. Output is being written to: /tmp/x"),
     );
 
-    expect(blockReason(runHook(payload({ background_tasks: [shellTask("txt1", "make")] })).stdout)).toContain("txt1");
+    expect(runHook(payload({ background_tasks: [shellTask("bparent1", "npm run dev")] }))).toEqual(SILENT);
+});
+
+test("an id quoted mid-text in a Bash result is not owned", () => {
+    writeTranscript(
+        toolUse("tu1", "Bash"),
+        toolResult("tu1", "grep hit: Command running in background with ID: bparent1. Output is being written to: /tmp/x"),
+    );
+
+    expect(runHook(payload({ background_tasks: [shellTask("bparent1", "npm run dev")] }))).toEqual(SILENT);
+});
+
+test("a tool result whose tool_use_id has no Bash or Monitor tool_use is not owned", () => {
+    writeTranscript(toolResult("orphan", "Command running in background with ID: bparent1. Output is being written to: /tmp/x"));
+
+    expect(runHook(payload({ background_tasks: [shellTask("bparent1", "npm run dev")] }))).toEqual(SILENT);
+});
+
+test("a TaskUpdate-shaped result is not a started task", () => {
+    writeTranscript(
+        toolUse("tu1", "TaskUpdate"),
+        toolResult("tu1", "Updated task #1 status", { success: true, taskId: "t1", updatedFields: ["status"], statusChange: { from: "pending", to: "completed" } }),
+    );
+
+    expect(runHook(payload({ background_tasks: [shellTask("t1", "make")] }))).toEqual(SILENT);
+});
+
+test("a Monitor-shaped structured result blocks on persistent alone", () => {
+    writeTranscript(toolResult("tu1", "started", { taskId: "m1", persistent: true }));
+
+    expect(blockReason(runHook(payload({ background_tasks: [shellTask("m1", "tail -f x")] })).stdout)).toContain("m1");
 });
 
 test("an id mentioned only in assistant text is not owned", () => {

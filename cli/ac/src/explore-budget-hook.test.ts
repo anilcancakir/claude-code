@@ -90,6 +90,19 @@ const denied = [
     "tee out.txt",
     "cat .env",
     "git log | tee out.txt",
+    'echo "$(git log -1 > src/x.ts)"',
+    'echo "`date > src/y.ts`"',
+    'sh -c "echo x > src/a.ts"',
+    "bash -c 'echo; rm -rf src'",
+    'perl -e "open F, q(>x)"',
+    "eval 'echo x > src/a.ts'",
+    'echo "$(bash -c \'echo x > src/a.ts\')"',
+    "ls 2>err.txt",
+    "ls 2>>err.txt",
+    "cmd &>out.txt",
+    "cmd &>>out.txt",
+    "cmd 1>out.txt",
+    "echo x > /var/folders/zz/other/T/a.log",
 ];
 
 const allowed = [
@@ -116,6 +129,15 @@ const allowed = [
     "ls 2>/dev/null",
     "echo x >&2",
     "sed -n '/ -i /p' f.txt",
+    'rg -n "\\$(foo)" src',
+    'echo "$(git rev-parse HEAD)"',
+    'echo "$(git log 2>/dev/null)"',
+    "cmd &>/dev/null",
+    "cmd 2>>/dev/null",
+    'cmd > "$TMPDIR/a.log" 2>&1',
+    "bash -n script.sh",
+    "perl -ne 'print if /a/' f.txt",
+    "python3 -c 'print(1)'",
 ];
 
 describe("Bash denials", () => {
@@ -127,6 +149,30 @@ describe("Bash denials", () => {
 describe("Bash read-only searches", () => {
     test.each(allowed)("allows %s", (command) => {
         expect(bash(command)).toEqual(SILENT);
+    });
+});
+
+describe("a redirect to the expanded temp directory", () => {
+    test.each([
+        ["without a trailing slash", (dir: string) => `git log > ${dir}/a.log`],
+        ["after the /private prefix", (dir: string) => `git log > /private${dir}/a.log`],
+        ["when the target is quoted", (dir: string) => `git log > "${dir}/a.log" 2>&1`],
+    ])("is allowed %s", (_name, build) => {
+        expect(bash(build(scratch.replace(/^\/private/, "")))).toEqual(SILENT);
+    });
+
+    test("is allowed when TMPDIR carries a trailing slash", () => {
+        const env = { TMPDIR: `${scratch}/` };
+
+        expect(runHook("Bash", { command: `git log > ${scratch}/a.log` }, { env })).toEqual(SILENT);
+    });
+
+    test("is denied when it climbs out with ..", () => {
+        expectDenied(bash(`git log > ${scratch}/../a.log`));
+    });
+
+    test("is denied for a sibling directory sharing the prefix", () => {
+        expectDenied(bash(`git log > ${scratch}x/a.log`));
     });
 });
 

@@ -12,10 +12,16 @@
 # sibling agent's test run are in the same list. The guard intersects it with the ids this
 # agent's own transcript records. Confirmed against real transcripts (2026-10-17): a Bash that
 # outgrew its timeout carries `toolUseResult.backgroundTaskId` and the text "moved to the
-# background (ID: <id>)" in its tool_result; a Monitor carries `toolUseResult.taskId` and
+# background (ID: <id>)" in its tool_result; a Monitor carries `toolUseResult.taskId` (with
+# `timeoutMs` and `persistent`, which a TaskUpdate result, also keyed `taskId`, lacks) and
 # "Monitor started (task <id>". `toolUseResult` is an object on most records and a plain string
 # on some, hence the `objects` and `strings` guards in the filter. The task `type` is not
 # filtered: only `shell` is confirmed in the research, so any running own id counts.
+#
+# The text forms count only at the start of a tool_result that answers a Bash or Monitor call of
+# this transcript. An id quoted inside a Read or Grep result (the live session's own jsonl, say)
+# is somebody else's, and TaskStop checks no owner, so claiming it would stop the orchestrator's
+# dev server.
 #
 # Scope and bounds. It acts on ac agents only (`ac:<name>`, or one of the eleven bare names for an
 # agent installed unprefixed), never on the main thread, and blocks at most once per agent_id:
@@ -26,6 +32,10 @@
 
 set -u
 
+# shellcheck source=lib/ac-agent-scope.sh
+[ -r "$(dirname "$0")/lib/ac-agent-scope.sh" ] || exit 0
+. "$(dirname "$0")/lib/ac-agent-scope.sh"
+
 # 0. Read the payload. jq is the only parser; without it we cannot judge, so allow.
 input="$(cat 2>/dev/null)" || exit 0
 [ -n "$input" ] || exit 0
@@ -34,11 +44,7 @@ printf '%s' "$input" | jq -e . >/dev/null 2>&1 || exit 0
 
 # 1. Scope. A main-thread stop carries no agent_type, which is what leaves the orchestrator alone.
 agent_type="$(printf '%s' "$input" | jq -r '.agent_type // empty' 2>/dev/null)"
-case "$agent_type" in
-    ac:* | explore | librarian | oracle | plan-worker-quick | plan-worker-junior | plan-worker-junior-high \
-        | plan-worker-senior | plan-reviewer | plan-code-review | auto-verifier | qa-tester) ;;
-    *) exit 0 ;;
-esac
+ac_agent_in_scope "$agent_type" || exit 0
 
 agent_id="$(printf '%s' "$input" | jq -r '.agent_id // empty' 2>/dev/null)"
 [ -n "$agent_id" ] || exit 0
@@ -63,20 +69,24 @@ transcript="$(printf '%s' "$input" | jq -r '.agent_transcript_path // empty' 2>/
 printf '%s' "$input" | jq -e '[.background_tasks | arrays | .[] | objects | select(.status == "running")] | length > 0' \
     >/dev/null 2>&1 || exit 0
 
-# -R with fromjson? skips a torn line instead of failing the whole read.
-own="$(jq -R -r '
-    def id: "[A-Za-z0-9_-]+";
-    def spotted: scan("running in background with ID: (" + id + ")"
-        + "|moved to the background \\(ID: (" + id + ")\\)"
-        + "|manually backgrounded by user with ID: (" + id + ")"
-        + "|Monitor started \\(task (" + id + ")") | .[] | select(. != null);
-    fromjson? | objects
-    | (.toolUseResult | objects | (.backgroundTaskId, .taskId) | strings),
-      (.toolUseResult | strings | spotted),
+# -R with fromjson? skips a torn line instead of failing the whole read. The first pass collects the
+# tool_use ids of Bash and Monitor calls: only their results may announce a task.
+own="$(jq -n -R -r '
+    def started: scan("^(?:Command running in background with ID: "
+        + "|Command did not complete within .* moved to the background \\(ID: "
+        + "|Command was manually backgrounded by user with ID: "
+        + "|Monitor started \\(task )([A-Za-z0-9_-]+)") | .[0];
+    [inputs | fromjson? | objects] as $records
+    | [$records[] | select(.type == "assistant") | .message | objects | .content | arrays | .[] | objects
+        | select(.type == "tool_use" and (.name == "Bash" or .name == "Monitor")) | .id | strings] as $shell
+    | $records[]
+    | (.toolUseResult | objects
+        | (.backgroundTaskId, (select(has("timeoutMs") or has("persistent")) | .taskId)) | strings),
       (select(.type == "user") | .message | objects | .content | arrays | .[] | objects
-        | select(.type == "tool_result") | .content
+        | select(.type == "tool_result" and (.tool_use_id | IN($shell[])))
+        | .content
         | if type == "string" then . else (arrays | .[] | objects | .text | strings) end
-        | spotted)
+        | started)
 ' "$transcript" 2>/dev/null)" || exit 0
 [ -n "$own" ] || exit 0
 

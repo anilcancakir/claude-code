@@ -39011,6 +39011,8 @@ import {
   openSync,
   readdirSync as readdirSync3,
   readFileSync as readFileSync4,
+  realpathSync,
+  renameSync,
   unlinkSync,
   writeSync
 } from "node:fs";
@@ -39032,6 +39034,10 @@ var PW_SESSION_PATTERN = /^[A-Za-z0-9._-]{1,64}$/;
 var SESSION_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 var PID_PATTERN = /^[1-9][0-9]*$/;
 var STOP_TIMEOUT_MILLIS = 1e4;
+var NO_TTY = new Set([
+  "??",
+  "?"
+]);
 var MONTHS = [
   "Jan",
   "Feb",
@@ -39051,9 +39057,11 @@ function defaultLeaseDeps() {
   return {
     env: process.env,
     leaseDir: join8(tmpdir(), "ac-leases"),
+    sandboxLeaseDir: join8(process.env.CLAUDE_CODE_TMPDIR || "/tmp", `claude-${currentUid()}`, "ac-leases"),
     probe,
     findOwner: () => findClaudeAncestor(probe),
     run: runArgv,
+    output: captureArgv,
     kill: (target, signal) => {
       process.kill(target, signal);
     },
@@ -39063,11 +39071,7 @@ function defaultLeaseDeps() {
 }
 function addLease(input, deps) {
   const target = parseTarget(input);
-  const session = deps.env.CLAUDE_CODE_SESSION_ID;
-  if (session === undefined || session === "") {
-    throw new LeaseError("CLAUDE_CODE_SESSION_ID is not set; lease add must run inside a Claude Code session");
-  }
-  assertSessionId(session);
+  const session = currentSession(deps, "add");
   const ownerPid = deps.findOwner();
   if (ownerPid === undefined) {
     throw new LeaseError("no claude process found among this process's ancestors");
@@ -39076,7 +39080,7 @@ function addLease(input, deps) {
   if (ownerLstart === undefined) {
     throw new LeaseError(`owning claude process ${ownerPid} is not running`);
   }
-  const identity = target.kind === "pid" ? pinProcess(target, ownerLstart, deps.probe) : {};
+  const identity = target.kind === "pid" ? pinProcess(target, ownerLstart, deps.probe) : target.kind === "adb-emu" ? pinEmulator(target.serial, deps) : {};
   const lease = {
     session,
     ...target,
@@ -39087,9 +39091,40 @@ function addLease(input, deps) {
     createdAt: deps.now().toISOString()
   };
   ensureLeaseDir(deps.leaseDir);
-  appendLine(join8(deps.leaseDir, `${session}.jsonl`), JSON.stringify(lease) + `
+  appendLine(leaseFilePath(deps.leaseDir, session), JSON.stringify(lease) + `
 `);
   return lease;
+}
+function leaseFilePath(dir, session) {
+  return join8(dir, `${session}.jsonl`);
+}
+function releaseLeases(input, deps) {
+  const target = parseTarget(input);
+  const session = currentSession(deps, "release");
+  const lstart = target.kind === "pid" ? deps.probe.lstart(target.pid) : undefined;
+  const released = (lease) => target.kind === "pid" && lstart === undefined ? lease.kind === "pid" && lease.pid === target.pid : targetKey(lease) === targetKey({
+    ...target,
+    lstart
+  });
+  const report = {
+    removed: 0,
+    files: []
+  };
+  for (const dir of leaseStores(deps)) {
+    const path = leaseFilePath(dir, session);
+    const leases = readLeaseFile(path, { malformed: 0 }, true);
+    if (leases === undefined) {
+      continue;
+    }
+    const remaining = leases.filter((lease) => !released(lease));
+    if (remaining.length === leases.length) {
+      continue;
+    }
+    writeRemaining(path, remaining);
+    report.removed += leases.length - remaining.length;
+    report.files.push(path);
+  }
+  return report;
 }
 async function sweepLeases(input, deps) {
   const report = {
@@ -39113,21 +39148,23 @@ async function sweepLeases(input, deps) {
     report.detached = true;
     return report;
   }
-  if (lstatOrUndefined(deps.leaseDir) === undefined) {
-    return report;
-  }
-  assertPrivate(deps.leaseDir, "directory");
-  const files = new Set;
-  if (session !== undefined) {
-    files.add(`${session}.jsonl`);
+  const sessionName = session === undefined ? undefined : `${session}.jsonl`;
+  const files = readStores(leaseStores(deps), sessionName, report);
+  const swept = new Set;
+  const held = liveTargets(files.filter((other) => other.name !== sessionName), deps.probe);
+  for (const file of files.filter((candidate) => candidate.name === sessionName)) {
+    await sweepEntries(file, file.leases, [], held, deps, report);
+    swept.add(file);
   }
   if (input.stale === true) {
-    for (const name of staleFiles(deps, report)) {
-      files.add(name);
+    for (const file of files.filter((candidate) => !swept.has(candidate))) {
+      const dead = file.leases.filter((lease) => !ownerAlive(lease, deps.probe));
+      if (dead.length === 0) {
+        continue;
+      }
+      const live = file.leases.filter((lease) => !dead.includes(lease));
+      await sweepEntries(file, dead, live, liveTargets(files, deps.probe), deps, report);
     }
-  }
-  for (const name of files) {
-    await sweepFile(name, deps, report);
   }
   return report;
 }
@@ -39171,12 +39208,23 @@ function requirePattern(flag, value, pattern) {
   }
   return value;
 }
+function currentSession(deps, verb) {
+  const session = deps.env.CLAUDE_CODE_SESSION_ID;
+  if (session === undefined || session === "") {
+    throw new LeaseError(`CLAUDE_CODE_SESSION_ID is not set; lease ${verb} must run inside a Claude Code session`);
+  }
+  assertSessionId(session);
+  return session;
+}
 function assertSessionId(session) {
   if (!SESSION_ID_PATTERN.test(session)) {
     throw new LeaseError(`session id must match ${SESSION_ID_PATTERN.source}, got "${session}"`);
   }
 }
 function pinProcess(target, ownerLstart, probe) {
+  if (target.pid <= 1) {
+    throw new LeaseError(`--pid must be greater than 1, got ${target.pid}`);
+  }
   const lstart = probe.lstart(target.pid);
   const command = probe.command(target.pid);
   if (lstart === undefined || command === undefined) {
@@ -39193,10 +39241,30 @@ function pinProcess(target, ownerLstart, probe) {
   if (started < ownerStarted) {
     throw new LeaseError(`pid ${target.pid} started before the owning claude process; it is not this session's`);
   }
+  const tty = probe.tty(target.pid);
+  if (tty !== undefined && !NO_TTY.has(tty)) {
+    throw new LeaseError(`pid ${target.pid} has controlling terminal ${tty}; it was started from a terminal, not by this session`);
+  }
   return {
     lstart,
     command
   };
+}
+function pinEmulator(serial, deps) {
+  const avd = readAvd(serial, deps);
+  return avd === undefined ? {} : { avd };
+}
+function readAvd(serial, deps) {
+  const output = deps.output("adb", [
+    "-s",
+    serial,
+    "emu",
+    "avd",
+    "name"
+  ]);
+  const name = output?.split(`
+`)[0]?.trim();
+  return name === undefined || name === "" ? undefined : name;
 }
 function parseLstart(lstart) {
   const parts = /^\w{3}\s+(\w{3})\s+(\d{1,2})\s+(\d{2}):(\d{2}):(\d{2})\s+(\d{4})$/.exec(lstart);
@@ -39230,6 +39298,28 @@ function appendLine(path, line) {
   } finally {
     closeSync(fd);
   }
+}
+function writeRemaining(path, leases) {
+  if (leases.length === 0) {
+    try {
+      unlinkSync(path);
+    } catch (error) {
+      if (!isErrno(error, "ENOENT")) {
+        throw error;
+      }
+    }
+    return;
+  }
+  const temporary = `${path}.${process.pid}.tmp`;
+  const flags = constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW;
+  const fd = openSync(temporary, flags, 384);
+  try {
+    writeSync(fd, leases.map((lease) => JSON.stringify(lease) + `
+`).join(""));
+  } finally {
+    closeSync(fd);
+  }
+  renameSync(temporary, path);
 }
 function assertPrivate(path, type) {
   const stats = lstatSync(path);
@@ -39265,36 +39355,59 @@ function lstatOrUndefined(path) {
 function isErrno(error, code) {
   return error instanceof Error && error.code === code;
 }
-function readOtherFiles(exclude, deps, report) {
-  const files = [];
-  for (const name of readdirSync3(deps.leaseDir)) {
-    if (name === exclude || !name.endsWith(".jsonl")) {
+function leaseStores(deps) {
+  const stores = new Map;
+  for (const dir of [
+    deps.leaseDir,
+    deps.sandboxLeaseDir
+  ]) {
+    if (lstatOrUndefined(dir) === undefined) {
       continue;
     }
-    const leases = readLeaseFile(join8(deps.leaseDir, name), report, false);
-    if (leases !== undefined) {
-      files.push({
-        name,
-        leases
-      });
+    assertPrivate(dir, "directory");
+    const real = realpathSync(dir);
+    if (!stores.has(real)) {
+      stores.set(real, dir);
+    }
+  }
+  return [...stores.values()];
+}
+function readStores(stores, strictName, report) {
+  const files = [];
+  for (const dir of stores) {
+    for (const name of readdirSync3(dir)) {
+      if (!name.endsWith(".jsonl")) {
+        continue;
+      }
+      const path = join8(dir, name);
+      const leases = readLeaseFile(path, report, name === strictName);
+      if (leases !== undefined) {
+        files.push({
+          name,
+          path,
+          leases
+        });
+      }
     }
   }
   return files;
 }
 function readLeaseFile(path, report, strict) {
-  if (lstatOrUndefined(path) === undefined) {
-    return;
-  }
+  let text;
   try {
     assertPrivate(path, "file");
+    text = readFileSync4(path, "utf8");
   } catch (error) {
+    if (isErrno(error, "ENOENT")) {
+      return;
+    }
     if (strict || !(error instanceof LeaseError)) {
       throw error;
     }
     return;
   }
   const leases = [];
-  for (const line of readFileSync4(path, "utf8").split(`
+  for (const line of text.split(`
 `)) {
     if (line.trim() === "") {
       continue;
@@ -39328,7 +39441,7 @@ function parseLeaseLine(line) {
   const valid = (() => {
     switch (entry.kind) {
       case "pid":
-        return Number.isInteger(entry.pid) && entry.pid > 0 && typeof entry.lstart === "string" && typeof entry.match === "string" && entry.match !== "";
+        return Number.isInteger(entry.pid) && entry.pid > 1 && typeof entry.lstart === "string" && typeof entry.match === "string" && entry.match !== "";
       case "adb-emu":
         return typeof entry.serial === "string" && SERIAL_PATTERN.test(entry.serial);
       case "simctl":
@@ -39344,11 +39457,16 @@ function parseLeaseLine(line) {
 function ownerAlive(lease, probe) {
   return probe.lstart(lease.ownerPid) === lease.ownerLstart;
 }
-function staleFiles(deps, report) {
-  return readOtherFiles("", deps, report).filter((file) => {
-    const owner = file.leases[0];
-    return owner !== undefined && !ownerAlive(owner, deps.probe);
-  }).map((file) => file.name);
+function liveTargets(files, probe) {
+  const held = new Set;
+  for (const file of files) {
+    for (const lease of file.leases) {
+      if (ownerAlive(lease, probe)) {
+        held.add(targetKey(lease));
+      }
+    }
+  }
+  return held;
 }
 function targetKey(lease) {
   switch (lease.kind) {
@@ -39362,41 +39480,28 @@ function targetKey(lease) {
       return `playwright:${lease.pwSession}`;
   }
 }
-async function sweepFile(name, deps, report) {
-  const path = join8(deps.leaseDir, name);
-  const leases = readLeaseFile(path, report, true);
-  if (leases === undefined) {
-    return;
-  }
-  const heldElsewhere = new Set;
-  for (const other of readOtherFiles(name, deps, report)) {
-    for (const lease of other.leases) {
-      if (ownerAlive(lease, deps.probe)) {
-        heldElsewhere.add(targetKey(lease));
-      }
-    }
-  }
-  for (const lease of leases) {
+async function sweepEntries(file, targets, keep, held, deps, report) {
+  const remaining = [...keep];
+  for (const lease of targets) {
     const target = targetKey(lease);
-    if (heldElsewhere.has(target)) {
-      report.outcomes.push({
-        file: name,
-        target,
-        status: "skipped",
-        detail: "another live session still leases it"
-      });
-      continue;
-    }
-    const [status, detail] = lease.kind === "pid" ? stopProcess(lease, deps) : await stopResource(lease, deps);
+    const [status, detail] = held.has(target) ? ["skipped", "another live session still leases it"] : lease.kind === "pid" ? stopProcess(lease, deps) : await stopResource(lease, deps);
     report.outcomes.push({
-      file: name,
+      file: file.path,
       target,
       status,
       detail
     });
+    if (status === "failed") {
+      remaining.push(lease);
+    }
   }
-  unlinkSync(path);
-  report.filesRemoved.push(name);
+  if (remaining.length === 0 || remaining.length < file.leases.length) {
+    writeRemaining(file.path, remaining);
+  }
+  if (remaining.length === 0) {
+    report.filesRemoved.push(file.path);
+  }
+  file.leases = remaining;
 }
 function stopProcess(lease, deps) {
   const pid = lease.pid;
@@ -39413,18 +39518,31 @@ function stopProcess(lease, deps) {
   }
   const pgid = deps.probe.pgid(pid);
   const ownPgid = deps.probe.pgid(process.pid);
-  const target = pgid === pid && pgid !== ownPgid ? -pid : pid;
+  const target = pgid === pid && pid > 1 && pgid !== ownPgid ? -pid : pid;
   try {
     deps.kill(target, "SIGTERM");
   } catch (error) {
     if (isErrno(error, "ESRCH")) {
       return ["skipped", "exited before the signal"];
     }
+    if (error instanceof Error && typeof error.code === "string") {
+      return ["failed", `SIGTERM to ${target < 0 ? "process group" : "pid"} ${pid}: ${error.message}`];
+    }
     throw error;
   }
   return ["stopped", target < 0 ? `SIGTERM to process group ${pid}` : `SIGTERM to pid ${pid}`];
 }
 async function stopResource(lease, deps) {
+  if (lease.kind === "adb-emu" && lease.avd !== undefined) {
+    const serial = lease.serial;
+    const avd = readAvd(serial, deps);
+    if (avd === undefined) {
+      return ["skipped", `cannot read the AVD name on ${serial}; not stopping an emulator it cannot identify`];
+    }
+    if (avd !== lease.avd) {
+      return ["skipped", `a different emulator now holds ${serial}`];
+    }
+  }
   const [file, args] = stopCommand(lease);
   const outcome = await deps.run(file, args);
   switch (outcome.status) {
@@ -39509,6 +39627,13 @@ function runArgv(file, args) {
     });
   });
 }
+function captureArgv(file, args) {
+  const result = spawnSync(file, args, {
+    encoding: "utf8",
+    timeout: STOP_TIMEOUT_MILLIS
+  });
+  return result.status === 0 ? result.stdout : undefined;
+}
 function psProbe() {
   const field = (pid, name, wide = false) => {
     const result = spawnSync("ps", [
@@ -39533,7 +39658,8 @@ function psProbe() {
     command: (pid) => field(pid, "command", true),
     comm: (pid) => field(pid, "comm", true),
     ppid: (pid) => integer(field(pid, "ppid")),
-    pgid: (pid) => integer(field(pid, "pgid"))
+    pgid: (pid) => integer(field(pid, "pgid")),
+    tty: (pid) => field(pid, "tty")
   };
 }
 function findClaudeAncestor(probe) {
@@ -39612,18 +39738,25 @@ program2.command("plan-stats").description("Scan a directory tree for `.ac/plans
 `);
 });
 var lease = program2.command("lease").description("Record test resources a session started (a pid, an Android emulator, an iOS simulator, a " + "playwright-cli session) and stop them when the session ends or at the next session start.");
-lease.command("add").description("Append a lease to <tmpdir>/ac-leases/<CLAUDE_CODE_SESSION_ID>.jsonl, owned by the nearest " + "claude ancestor. A pid lease pins the process's start time and command, and is refused " + "for a process that started before that claude process.").requiredOption("--kind <value>", "pid|adb-emu|simctl|playwright").option("--pid <value>", "pid kind: the process id to stop.").option("--match <value>", "pid kind: a substring the process's command line must contain.").option("--serial <value>", "adb-emu kind: the emulator serial, emulator-<port>.").option("--udid <value>", "simctl kind: the simulator UDID.").option("--session <value>", "playwright kind: the playwright-cli session name (not the Claude session).").option("--label <value>", "Free text shown in sweep output.").action((opts) => {
+function withLeaseTargetOptions(command) {
+  return command.requiredOption("--kind <value>", "pid|adb-emu|simctl|playwright").option("--pid <value>", "pid kind: the process id to stop.").option("--match <value>", "pid kind: a substring the process's command line must contain.").option("--serial <value>", "adb-emu kind: the emulator serial, emulator-<port>.").option("--udid <value>", "simctl kind: the simulator UDID.").option("--session <value>", "playwright kind: the playwright-cli session name (not the Claude session).");
+}
+function leaseTargetInput(opts) {
+  return {
+    kind: opts.kind,
+    pid: opts.pid,
+    match: opts.match,
+    serial: opts.serial,
+    udid: opts.udid,
+    pwSession: opts.session,
+    label: opts.label
+  };
+}
+withLeaseTargetOptions(lease.command("add").description("Append a lease to <tmpdir>/ac-leases/<CLAUDE_CODE_SESSION_ID>.jsonl, owned by the nearest " + "claude ancestor, and print that file. A pid lease pins the process's start time and " + "command, and is refused for a process that started before that claude process or " + "that has a controlling terminal. An adb-emu lease records the emulator's AVD name.")).option("--label <value>", "Free text shown in sweep output.").action((opts) => {
   try {
-    const added = addLease({
-      kind: opts.kind,
-      pid: opts.pid,
-      match: opts.match,
-      serial: opts.serial,
-      udid: opts.udid,
-      pwSession: opts.session,
-      label: opts.label
-    }, defaultLeaseDeps());
-    process.stdout.write(`leased ${added.kind} for session ${added.session}
+    const deps = defaultLeaseDeps();
+    const added = addLease(leaseTargetInput(opts), deps);
+    process.stdout.write(`leased ${added.kind} for session ${added.session} in ${leaseFilePath(deps.leaseDir, added.session)}
 `);
   } catch (error) {
     if (!(error instanceof LeaseError)) {
@@ -39634,7 +39767,22 @@ lease.command("add").description("Append a lease to <tmpdir>/ac-leases/<CLAUDE_C
     process.exitCode = 1;
   }
 });
-lease.command("sweep").description("Stop what a Claude session leased and delete its lease file; a target another live session " + "also leases is left running. No-op for --reason resume.").option("--session <value>", "Claude session id to sweep (defaults to CLAUDE_CODE_SESSION_ID).").option("--reason <value>", "SessionEnd reason; resume sweeps nothing.").option("--stale", "Also sweep every lease file whose owning claude process is gone.").option("--detach", "Relaunch the sweep detached and exit at once (SessionEnd allows 1.5 s).").action(async (opts) => {
+withLeaseTargetOptions(lease.command("release").description("Remove the current session's leases on one target without stopping anything. Run it after " + "stopping a leased resource yourself, so the session-end sweep does not stop a later " + "device that reuses the serial or UDID.")).action((opts) => {
+  try {
+    const report = releaseLeases(leaseTargetInput(opts), defaultLeaseDeps());
+    const where = report.files.length === 0 ? "" : ` from ${report.files.join(", ")}`;
+    process.stdout.write(`released ${report.removed} lease(s)${where}
+`);
+  } catch (error) {
+    if (!(error instanceof LeaseError)) {
+      throw error;
+    }
+    process.stderr.write(`${error.message}
+`);
+    process.exitCode = 1;
+  }
+});
+lease.command("sweep").description("Stop what a Claude session leased, in both the TMPDIR and the sandbox lease store; a target " + "another live session also leases is left running, and a failed stop stays in the file. " + "No-op for --reason resume.").option("--session <value>", "Claude session id to sweep (defaults to CLAUDE_CODE_SESSION_ID).").option("--reason <value>", "SessionEnd reason; resume sweeps nothing.").option("--stale", "Also sweep every lease entry whose own owning claude process is gone.").option("--detach", "Relaunch the sweep detached and exit at once (SessionEnd allows 1.5 s).").action(async (opts) => {
   try {
     const report = await sweepLeases(opts, defaultLeaseDeps());
     for (const outcome of report.outcomes) {
@@ -39738,4 +39886,4 @@ function formatSyncReport(report) {
 }
 await program2.parseAsync(process.argv);
 
-//# debugId=81AF927CD6594E8664756E2164756E21
+//# debugId=20C05F0F0654355D64756E2164756E21

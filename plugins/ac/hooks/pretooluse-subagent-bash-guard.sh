@@ -17,8 +17,10 @@
 #
 # What it denies, for ac agents only (`ac:<name>`, or one of the eleven bare names for an agent
 # installed unprefixed):
-#   a. `find`, recursive `grep`, `rg` or `fd` whose search root is `/` or the home directory.
-#   b. `grep`, `rg` or `cat` over ~/.claude/projects.
+#   a. `find`, recursive `grep`, `rg` or `fd` whose search root is `/` or the home directory, unless
+#      `-maxdepth` (find) or `--max-depth`/`-d` (rg, fd) limits the walk to 2 levels or fewer.
+#   b. recursive `grep`, `rg`, or `cat` of a directory, over ~/.claude/projects itself or one project
+#      directory under it. A regular file there (one transcript, memory/MEMORY.md) is a bounded read.
 #   c. `strings`, or `grep`/`rg` in text mode (-a, --text, --binary-files=text), on a regular file
 #      over 100 MiB.
 #
@@ -36,6 +38,9 @@ set -u
 # shellcheck source=lib/blank-quotes.sh
 [ -r "$(dirname "$0")/lib/blank-quotes.sh" ] || exit 0
 . "$(dirname "$0")/lib/blank-quotes.sh"
+# shellcheck source=lib/ac-agent-scope.sh
+[ -r "$(dirname "$0")/lib/ac-agent-scope.sh" ] || exit 0
+. "$(dirname "$0")/lib/ac-agent-scope.sh"
 
 max_bytes=104857600
 
@@ -47,13 +52,10 @@ printf '%s' "$input" | jq -e . >/dev/null 2>&1 || exit 0
 
 # 1. Scope. A main-thread call carries no agent_type, which is what leaves the orchestrator alone.
 agent_type="$(printf '%s' "$input" | jq -r '.agent_type // empty' 2>/dev/null)"
-case "$agent_type" in
-    ac:* | explore | librarian | oracle | plan-worker-quick | plan-worker-junior | plan-worker-junior-high \
-        | plan-worker-senior | plan-reviewer | plan-code-review | auto-verifier | qa-tester) ;;
-    *) exit 0 ;;
-esac
+ac_agent_in_scope "$agent_type" || exit 0
 
-# The agents whose tool list has no Grep over a path they can aim at a transcript get search-history.
+# Oracle, librarian, plan-reviewer and plan-code-review inherit the MCP search-history tool through a
+# denylist, while the other agents are allowlisted without it, so only these four are pointed at it.
 case "$agent_type" in
     oracle | ac:oracle | librarian | ac:librarian | plan-reviewer | ac:plan-reviewer \
         | plan-code-review | ac:plan-code-review) history=1 ;;
@@ -120,7 +122,22 @@ scan_src='
   }
 
   sub is_root { my $p = shift; return $p eq "/" || ($home ne "" && $p eq $home); }
-  sub in_projects { my $p = shift; return $projects ne "" && ($p eq $projects || index($p, "$projects/") == 0); }
+  # Only the projects directory itself or one project directory under it holds every transcript or a
+  # whole project of them; a file or a deeper directory (memory/, one .jsonl) is a bounded read.
+  sub near_projects {
+    my $p = shift;
+    return 0 if $projects eq "";
+    return 1 if $p eq $projects;
+    return 0 unless index($p, "$projects/") == 0;
+    my @below = split m{/}, substr($p, length($projects) + 1);
+    return @below == 1 ? 1 : 0;
+  }
+  # A find or rg depth limit of 2 or less keeps the walk off the tree; the largest stated limit counts.
+  sub shallow {
+    my $max;
+    for (@_) { $max = $_ if /^\d+$/ && (!defined $max || $_ > $max); }
+    return defined $max && $max <= 2;
+  }
 
   my %short = (grep => "efmABCdD", rg => "efgtTABCmMjEdr", fd => "etEdxXcjSo", strings => "ntTe", cat => "");
   my %long = (
@@ -244,6 +261,8 @@ scan_src='
     if ($cmd eq "find") {
       my $j = 0;
       $j++ while $j < @args && $args[$j]{b} =~ /^-[HLP]$/;
+      my @depth = map { $args[$_ + 1]{r} } grep { $args[$_]{b} eq "-maxdepth" } 0 .. $#args - 1;
+      next if shallow(@depth);
       for (; $j < @args && $args[$j]{b} !~ /^[-!]/; $j++) {
         my $p = resolve($args[$j]{r}, $args[$j]{b});
         push @found, join("\t", "ROOT", $cmd, $p) if defined $p && is_root($p);
@@ -267,11 +286,14 @@ scan_src='
 
     my $recursive = $kind eq "rg" || $kind eq "fd" || $flag->{r} || $flag->{R} || $flag->{recursive}
       || $flag->{"dereference-recursive"} || grep { $_ eq "recurse" } @{ $val->{d} // [] }, @{ $val->{directories} // [] };
-    if ($recursive) {
+    my $limited = ($kind eq "rg" || $kind eq "fd")
+      && shallow(@{ $val->{d} // [] }, @{ $val->{"max-depth"} // [] }, @{ $val->{maxdepth} // [] });
+    if ($recursive && !$limited) {
       push @found, join("\t", "ROOT", $cmd, $_) for grep { is_root($_) } @paths;
     }
     if ($kind eq "grep" || $kind eq "rg" || $kind eq "cat") {
-      push @found, join("\t", "TRANSCRIPT", $cmd, $_) for grep { in_projects($_) } @paths;
+      my $sweep = $kind eq "cat" ? sub { -d $_[0] } : sub { $recursive };
+      push @found, join("\t", "TRANSCRIPT", $cmd, $_) for grep { near_projects($_) && $sweep->($_) } @paths;
     }
     my $text = $kind eq "strings" || $flag->{a} || $flag->{text} || grep { $_ eq "text" } @{ $val->{"binary-files"} // [] };
     if ($text && $kind =~ /^(?:grep|rg|strings)$/) {

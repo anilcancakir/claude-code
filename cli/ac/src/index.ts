@@ -5,7 +5,15 @@ import { scaffoldPlan } from "./plan-scaffold.ts";
 import { formatCheckResult, runPlanCheck } from "./plan-check.ts";
 import { collectPlanStats, formatPlanStats } from "./plan-stats.ts";
 import { resolveTranscriptPath, runRunStats } from "./run-stats.ts";
-import { addLease, defaultLeaseDeps, LeaseError, sweepLeases } from "./lease.ts";
+import {
+    addLease,
+    defaultLeaseDeps,
+    leaseFilePath,
+    LeaseError,
+    releaseLeases,
+    sweepLeases,
+} from "./lease.ts";
+import type { LeaseAddInput } from "./lease.ts";
 import {
     HISTORY_HEAD_LIMIT_DEFAULT,
     HISTORY_HEAD_LIMIT_MAX,
@@ -142,7 +150,7 @@ const lease = program
             + "playwright-cli session) and stop them when the session ends or at the next session start.",
     );
 
-interface LeaseAddOpts {
+interface LeaseTargetOpts {
     readonly kind: string;
     readonly pid?: string;
     readonly match?: string;
@@ -152,35 +160,70 @@ interface LeaseAddOpts {
     readonly label?: string;
 }
 
-lease
-    .command("add")
-    .description(
-        "Append a lease to <tmpdir>/ac-leases/<CLAUDE_CODE_SESSION_ID>.jsonl, owned by the nearest "
-            + "claude ancestor. A pid lease pins the process's start time and command, and is refused "
-            + "for a process that started before that claude process.",
-    )
-    .requiredOption("--kind <value>", "pid|adb-emu|simctl|playwright")
-    .option("--pid <value>", "pid kind: the process id to stop.")
-    .option("--match <value>", "pid kind: a substring the process's command line must contain.")
-    .option("--serial <value>", "adb-emu kind: the emulator serial, emulator-<port>.")
-    .option("--udid <value>", "simctl kind: the simulator UDID.")
-    .option("--session <value>", "playwright kind: the playwright-cli session name (not the Claude session).")
+/** `add` and `release` name a target with the same flags, so a release always matches what was added. */
+function withLeaseTargetOptions(command: Command): Command {
+    return command
+        .requiredOption("--kind <value>", "pid|adb-emu|simctl|playwright")
+        .option("--pid <value>", "pid kind: the process id to stop.")
+        .option("--match <value>", "pid kind: a substring the process's command line must contain.")
+        .option("--serial <value>", "adb-emu kind: the emulator serial, emulator-<port>.")
+        .option("--udid <value>", "simctl kind: the simulator UDID.")
+        .option("--session <value>", "playwright kind: the playwright-cli session name (not the Claude session).");
+}
+
+function leaseTargetInput(opts: LeaseTargetOpts): LeaseAddInput {
+    return {
+        kind: opts.kind,
+        pid: opts.pid,
+        match: opts.match,
+        serial: opts.serial,
+        udid: opts.udid,
+        pwSession: opts.session,
+        label: opts.label,
+    };
+}
+
+withLeaseTargetOptions(
+    lease
+        .command("add")
+        .description(
+            "Append a lease to <tmpdir>/ac-leases/<CLAUDE_CODE_SESSION_ID>.jsonl, owned by the nearest "
+                + "claude ancestor, and print that file. A pid lease pins the process's start time and "
+                + "command, and is refused for a process that started before that claude process or "
+                + "that has a controlling terminal. An adb-emu lease records the emulator's AVD name.",
+        ),
+)
     .option("--label <value>", "Free text shown in sweep output.")
-    .action((opts: LeaseAddOpts): void => {
+    .action((opts: LeaseTargetOpts): void => {
         try {
-            const added = addLease(
-                {
-                    kind: opts.kind,
-                    pid: opts.pid,
-                    match: opts.match,
-                    serial: opts.serial,
-                    udid: opts.udid,
-                    pwSession: opts.session,
-                    label: opts.label,
-                },
-                defaultLeaseDeps(),
+            const deps = defaultLeaseDeps();
+            const added = addLease(leaseTargetInput(opts), deps);
+            process.stdout.write(
+                `leased ${added.kind} for session ${added.session} in ${leaseFilePath(deps.leaseDir, added.session)}\n`,
             );
-            process.stdout.write(`leased ${added.kind} for session ${added.session}\n`);
+        } catch (error) {
+            if (!(error instanceof LeaseError)) {
+                throw error;
+            }
+            process.stderr.write(`${error.message}\n`);
+            process.exitCode = 1;
+        }
+    });
+
+withLeaseTargetOptions(
+    lease
+        .command("release")
+        .description(
+            "Remove the current session's leases on one target without stopping anything. Run it after "
+                + "stopping a leased resource yourself, so the session-end sweep does not stop a later "
+                + "device that reuses the serial or UDID.",
+        ),
+)
+    .action((opts: LeaseTargetOpts): void => {
+        try {
+            const report = releaseLeases(leaseTargetInput(opts), defaultLeaseDeps());
+            const where = report.files.length === 0 ? "" : ` from ${report.files.join(", ")}`;
+            process.stdout.write(`released ${report.removed} lease(s)${where}\n`);
         } catch (error) {
             if (!(error instanceof LeaseError)) {
                 throw error;
@@ -200,12 +243,13 @@ interface LeaseSweepOpts {
 lease
     .command("sweep")
     .description(
-        "Stop what a Claude session leased and delete its lease file; a target another live session "
-            + "also leases is left running. No-op for --reason resume.",
+        "Stop what a Claude session leased, in both the TMPDIR and the sandbox lease store; a target "
+            + "another live session also leases is left running, and a failed stop stays in the file. "
+            + "No-op for --reason resume.",
     )
     .option("--session <value>", "Claude session id to sweep (defaults to CLAUDE_CODE_SESSION_ID).")
     .option("--reason <value>", "SessionEnd reason; resume sweeps nothing.")
-    .option("--stale", "Also sweep every lease file whose owning claude process is gone.")
+    .option("--stale", "Also sweep every lease entry whose own owning claude process is gone.")
     .option("--detach", "Relaunch the sweep detached and exit at once (SessionEnd allows 1.5 s).")
     .action(async (opts: LeaseSweepOpts): Promise<void> => {
         try {

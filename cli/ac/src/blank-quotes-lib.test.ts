@@ -39,6 +39,14 @@ const cases: Array<[string, string, string]> = [
     ["separator inside quotes is hidden, outside kept", "echo 'a; b' ; ls", "echo '____' ; ls"],
     ["escaped quote outside quotes does not open a span", "echo \\' > out", "echo \\' > out"],
     ["empty input", "", ""],
+    ["command substitution inside double quotes stays readable", 'echo "$(git log -1 > f)"', 'echo "$(git log -1 > f)"'],
+    ["quotes nested in a command substitution are blanked inside it", 'echo "a $(b "c") d"', 'echo "__$(b "_")__"'],
+    ["single quotes nested in a command substitution", `echo "$(rg 'a>b' f)"`, `echo "$(rg '___' f)"`],
+    ["parentheses inside a command substitution are balanced", 'echo "$(a (b) c) d"', 'echo "$(a (b) c)__"'],
+    ["backtick span inside double quotes stays readable", 'echo "x `date > f` y"', 'echo "__`date > f`__"'],
+    ["escaped dollar in double quotes is not a substitution", 'rg -n "\\$(foo)" src', 'rg -n "_______" src'],
+    ["command substitution inside single quotes stays blanked", "echo '$(x > f)'", "echo '________'"],
+    ["unterminated command substitution reads to the end", 'echo "$(a "b', 'echo "$(a "_'],
 ];
 
 test.each(cases)("%s", (_name, input, expected) => {

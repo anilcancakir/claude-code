@@ -84,6 +84,57 @@ is_secret() {
     return 1
 }
 
+# Succeeds when the command writes. $1 is the raw command, $2 the text to judge: the command with
+# quoted spans blanked, or the raw command again for the stricter reading.
+is_write() {
+    # A redirect into a file, anywhere in the command; 2>/dev/null, >/dev/null and >&2 are the forms
+    # explore uses constantly and write nothing, and so is a scratch file under a temp directory
+    # (the hook's own expanded TMPDIR included, since a tool may print it expanded). `2>f`, `1>f` and
+    # `&>f` redirect too; `2>&1` duplicates a descriptor and does not. Blanking keeps byte offsets:
+    # the `>` is found in $2 and its target word is read from $1, quotes stripped, so a quoted
+    # "$TMPDIR/a.log" is judged by its text. A target ends at `)` or a backtick so that the
+    # `2>/dev/null` in `$(git log 2>/dev/null)` still reads as /dev/null.
+    redirect="$(perl -e '
+        my ($raw, $blank) = @ARGV;
+        my $dirs = qr{/tmp|/private/tmp|\$TMPDIR|\$\{TMPDIR\}|\$\{TMPDIR:-/tmp\}};
+        my $dir = $ENV{TMPDIR} // "";
+        $dir =~ s!/+\z!!;
+        $dirs = qr{$dirs|\Q$dir\E|\Q/private$dir\E} if $dir =~ m!^/.!;
+        my $scratch = qr{^(?:/dev/null|(?:$dirs)/.+)$};
+        while ($blank =~ /(?<!>)(?:&|\d*)>>?\s*(?!&)(?=\S)/g) {
+            my $start = $+[0];
+            $blank =~ /\G[^\s;|&<>)\x60]*/gc;
+            my $target = substr($raw, $start, $+[0] - $start);
+            $target =~ tr/"\x27//d;
+            next if $target =~ $scratch && $target !~ m{(?:^|/)\.\.(?:/|$)};
+            print "deny";
+            last;
+        }
+    ' -- "$1" "$2" 2>/dev/null)"
+    [ "$redirect" = "deny" ] && return 0
+    printf '%s\n' "$2" | tr ';|&\n' '\n\n\n\n' | sed -e 's/^[[:space:]]*//' -e 's/^\([A-Za-z_][A-Za-z0-9_]*=[^ ]* \)*//' \
+    | rg --no-config -q --pcre2 -e \
+'^(\S*/)?(npx\s+|bunx\s+|pnpm\s+exec\s+|yarn\s+)?(prettier|biome)\b.*\s(--write|-w)\b'\
+'|^(\S*/)?(npx\s+)?eslint\b.*\s--fix\b'\
+'|^(\S*/)?ruff\s+(format\b(?!.*--(check|diff))|check\b.*--fix)'\
+'|^(\S*/)?black\b(?!.*--(check|diff|version|help))'\
+'|^(\S*/)?(gofmt\b.*\s-w\b|go\s+(fmt|get|mod\s+tidy)\b|rustfmt\b(?!.*--(check|version)))'\
+'|^(\S*/)?cargo\s+(fmt|add|remove|install|update|fix)\b'\
+'|^(\S*/)?dart\s+(format|fix)\b(?!.*(--output[= ]none|--dry-run|--set-exit-if-changed|--version))'\
+'|^(\S*/)?(dart|flutter)\s+pub\s+(get|add|remove|upgrade|downgrade)\b'\
+'|^(\S*/)?pint\b(?!.*(--test|--version|--help))|^(\S*/)?php-cs-fixer\s+fix\b(?!.*--dry-run)'\
+'|^(\S*/)?(php\s+)?artisan\s+(?!(list|about|route:list|--version|help)\b)\S'\
+'|^(npm|pnpm|yarn|bun)\s+(i|install|ci|add|remove|update|upgrade|up)\b|^yarn\s*$'\
+'|^(npm|pnpm|yarn|bun)\s+(run\s+)?(format|fix|lint:fix|format:write)\b|^(npm|pnpm|yarn|bun)\b.*\s--\s.*--fix\b'\
+'|^(composer\s+(install|update|require|remove)|pip3?\s+install|gem\s+install|bundle(\s+install)?\s*$)\b'\
+'|^git\b(\s+-C\s+\S+)?\s+(checkout|switch|reset|clean|commit|push|rebase|merge|restore|apply|cherry-pick|am|rm|mv|branch\s+-[dDmM])(?![-\w])'\
+'|^git\b(\s+-C\s+\S+)?\s+tag(?![-\w])(?!\s*$|\s+(-l|--list|-n\d*|--contains|--points-at|--merged|--no-merged|--sort)(\s|=|$))'\
+'|^git\b(\s+-C\s+\S+)?\s+tag(?![-\w]).*\s(-[adsfmu]+|--delete|--annotate|--sign|--force)(\s|$)'\
+'|^git\b(\s+-C\s+\S+)?\s+stash(?!\s+(list|show))(?![-\w])'\
+'|^(rm|mv|cp|mkdir|touch|chmod|chown|ln|truncate|dd|tee)\b|^sed\b.*\s-i|^perl\b.*\s-\w*i'\
+'|^xargs\b.*\b(rm|mv)\b|^find\b.*\s(-delete|-exec\s+(rm|mv))\b' 2>/dev/null
+}
+
 # 1b. Read-only guard. A secret-shaped file is reported by path, never opened. The project's own
 #     tooling never runs in a mode that writes, and nothing installs, moves, deletes or rewrites git
 #     state. Each Bash check runs per simple command, anchored at the command word, so a search that
@@ -131,47 +182,16 @@ case "$tool_name" in
         if ! command -v rg >/dev/null 2>&1; then
             printf '%s\n' "ac explore guard: ripgrep (rg) not found; write checks inactive." >&2
         elif [ -n "$blanked" ]; then
-            # A redirect into a file, anywhere in the command; 2>/dev/null, >/dev/null and >&2 are
-            # the forms explore uses constantly and write nothing, and so is a scratch file under
-            # a temp directory. Blanking keeps byte offsets: the `>` is found in the blanked text
-            # and its target word is read from the raw command, quotes stripped, so a quoted
-            # "$TMPDIR/a.log" is judged by its text.
-            redirect="$(perl -e '
-                my ($raw, $blank) = @ARGV;
-                my $scratch = qr{^(?:/dev/null|(?:/tmp|/private/tmp|\$TMPDIR|\$\{TMPDIR\}|\$\{TMPDIR:-/tmp\})/.+)$};
-                while ($blank =~ /(?<![0-9&>])>>?\s*(?!&)(?=\S)/g) {
-                    my $start = $+[0];
-                    $blank =~ /\G[^\s;|&<>]*/gc;
-                    my $target = substr($raw, $start, $+[0] - $start);
-                    $target =~ tr/"\x27//d;
-                    next if $target =~ $scratch && $target !~ m{(?:^|/)\.\.(?:/|$)};
-                    print "deny";
-                    last;
-                }
-            ' -- "$cmd" "$blanked" 2>/dev/null)"
-            [ "$redirect" = "deny" ] && deny "$write_reason"
-            printf '%s\n' "$blanked" | tr ';|&\n' '\n\n\n\n' | sed -e 's/^[[:space:]]*//' -e 's/^\([A-Za-z_][A-Za-z0-9_]*=[^ ]* \)*//' \
+            is_write "$cmd" "$blanked" && deny "$write_reason"
+            # A command interpreter's payload is quoted (`sh -c "echo x > f"`, `perl -e "open F, q(>x)"`),
+            # so blanking hides exactly the text it runs. For those calls the raw command is judged as
+            # well, the old stricter reading, at the price of a false deny on a quoted `>` inside the
+            # payload. A command word also counts right after `$(`, `(` or a backtick.
+            if printf '%s\n' "$blanked" | tr ';|&\n' '\n\n\n\n' | sed -e 's/^[[:space:]]*//' \
                 | rg --no-config -q --pcre2 -e \
-'^(\S*/)?(npx\s+|bunx\s+|pnpm\s+exec\s+|yarn\s+)?(prettier|biome)\b.*\s(--write|-w)\b'\
-'|^(\S*/)?(npx\s+)?eslint\b.*\s--fix\b'\
-'|^(\S*/)?ruff\s+(format\b(?!.*--(check|diff))|check\b.*--fix)'\
-'|^(\S*/)?black\b(?!.*--(check|diff|version|help))'\
-'|^(\S*/)?(gofmt\b.*\s-w\b|go\s+(fmt|get|mod\s+tidy)\b|rustfmt\b(?!.*--(check|version)))'\
-'|^(\S*/)?cargo\s+(fmt|add|remove|install|update|fix)\b'\
-'|^(\S*/)?dart\s+(format|fix)\b(?!.*(--output[= ]none|--dry-run|--set-exit-if-changed|--version))'\
-'|^(\S*/)?(dart|flutter)\s+pub\s+(get|add|remove|upgrade|downgrade)\b'\
-'|^(\S*/)?pint\b(?!.*(--test|--version|--help))|^(\S*/)?php-cs-fixer\s+fix\b(?!.*--dry-run)'\
-'|^(\S*/)?(php\s+)?artisan\s+(?!(list|about|route:list|--version|help)\b)\S'\
-'|^(npm|pnpm|yarn|bun)\s+(i|install|ci|add|remove|update|upgrade|up)\b|^yarn\s*$'\
-'|^(npm|pnpm|yarn|bun)\s+(run\s+)?(format|fix|lint:fix|format:write)\b|^(npm|pnpm|yarn|bun)\b.*\s--\s.*--fix\b'\
-'|^(composer\s+(install|update|require|remove)|pip3?\s+install|gem\s+install|bundle(\s+install)?\s*$)\b'\
-'|^git\b(\s+-C\s+\S+)?\s+(checkout|switch|reset|clean|commit|push|rebase|merge|restore|apply|cherry-pick|am|rm|mv|branch\s+-[dDmM])(?![-\w])'\
-'|^git\b(\s+-C\s+\S+)?\s+tag(?![-\w])(?!\s*$|\s+(-l|--list|-n\d*|--contains|--points-at|--merged|--no-merged|--sort)(\s|=|$))'\
-'|^git\b(\s+-C\s+\S+)?\s+tag(?![-\w]).*\s(-[adsfmu]+|--delete|--annotate|--sign|--force)(\s|$)'\
-'|^git\b(\s+-C\s+\S+)?\s+stash(?!\s+(list|show))(?![-\w])'\
-'|^(rm|mv|cp|mkdir|touch|chmod|chown|ln|truncate|dd|tee)\b|^sed\b.*\s-i|^perl\b.*\s-\w*i'\
-'|^xargs\b.*\b(rm|mv)\b|^find\b.*\s(-delete|-exec\s+(rm|mv))\b' 2>/dev/null \
-                && deny "$write_reason"
+'(?:^|[(`])\s*(?:\S*/)?(?:(?:sh|bash|zsh|dash|ksh|eval)(?![\w-])|(?:perl|python3?|node|ruby)\s+(?:-\S+\s+)*-[A-Za-z]*[ecE]\b)' 2>/dev/null; then
+                is_write "$cmd" "$cmd" && deny "$write_reason"
+            fi
         fi
         ;;
 esac

@@ -159,12 +159,54 @@ test("a transcript grep names Grep with path for the other agents", () => {
     }
 });
 
-test("rg and cat over a single transcript are denied too", () => {
-    const transcript = `${home}/.claude/projects/-Users-x-app/abc.jsonl`;
-
-    denyReason(runHook(payload(`rg 4f11 ${transcript}`, "ac:explore")));
-    denyReason(runHook(payload(`cat ${transcript} | head`, "ac:explore")));
+test("rg over the projects directory or one project directory is denied", () => {
     denyReason(runHook(payload("rg -l 4f11 $HOME/.claude/projects", "ac:oracle")));
+    denyReason(runHook(payload("rg x ~/.claude/projects/p", "ac:explore")));
+    denyReason(runHook(payload("grep -R x ~/.claude/projects/-Users-x-app", "ac:explore")));
+});
+
+test("cat of the projects directory itself is denied", () => {
+    mkdirSync(join(home, ".claude", "projects", "p"), { recursive: true });
+
+    denyReason(runHook(payload("cat ~/.claude/projects", "ac:explore")));
+    denyReason(runHook(payload("cat ~/.claude/projects/p", "ac:explore")));
+});
+
+test("a regular file under the projects directory is readable", () => {
+    const project_ = join(home, ".claude", "projects", "p");
+    mkdirSync(join(project_, "memory"), { recursive: true });
+    writeFileSync(join(project_, "memory", "MEMORY.md"), "- note\n");
+    writeFileSync(join(project_, "s.jsonl"), "{}\n");
+
+    for (const command of [
+        "cat ~/.claude/projects/p/memory/MEMORY.md",
+        "rg -n foo ~/.claude/projects/p/s.jsonl",
+        "grep -n foo $HOME/.claude/projects/p/s.jsonl",
+        `cat ${project_}/s.jsonl | head`,
+        "grep -rn foo ~/.claude/projects/p/memory",
+    ]) {
+        expect({ command, result: runHook(payload(command, "ac:explore")) }).toEqual({ command, result: silent });
+    }
+});
+
+test("a find or search shallower than three levels from the home directory is allowed", () => {
+    for (const command of [
+        "find ~ -maxdepth 1 -name .zshrc",
+        "find ~ -maxdepth 2 -name x",
+        "find / -maxdepth 1 -name x",
+        "rg --max-depth 1 x ~",
+        "rg -d 2 x ~",
+        "fd --max-depth=1 foo ~",
+        "fd -d 1 foo /",
+    ]) {
+        expect({ command, result: runHook(payload(command, "ac:explore")) }).toEqual({ command, result: silent });
+    }
+});
+
+test("a find or search of depth three or more from the home directory is still denied", () => {
+    for (const command of ["find ~ -maxdepth 3 -name x", "rg --max-depth 3 x ~", "fd -d 4 foo ~", "find ~ -mindepth 1 -name x"]) {
+        denyReason(runHook(payload(command, "ac:explore")));
+    }
 });
 
 test("strings on a file over 100 MiB is denied with the mmap recipe", () => {

@@ -1,5 +1,14 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import {
+    chmodSync,
+    existsSync,
+    mkdirSync,
+    mkdtempSync,
+    readFileSync,
+    rmSync,
+    symlinkSync,
+    writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -56,6 +65,8 @@ function runHook(stdin: string, env: Record<string, string> = {}): HookResult {
         env: {
             ...process.env,
             TMPDIR: scratch,
+            // Keeps the sandbox store candidate inside scratch, never this machine's /tmp/claude-<uid>.
+            CLAUDE_CODE_TMPDIR: join(scratch, "sandbox"),
             ...env,
         },
     });
@@ -217,4 +228,62 @@ test("a missing node exits silently and sweeps nothing", async () => {
         stderr: "",
     });
     expect(await exitsWithin(sleeper.proc, STAYS_RUNNING_MILLIS)).toBe(false);
+});
+
+/** A PATH with the tools the hook needs and a fake `node` that only records that it was started. */
+function fakeNodePath(): { path: string; marker: string } {
+    const bin = join(scratch, "fake-bin");
+    const marker = join(scratch, "node-started");
+    mkdirSync(bin);
+    for (const tool of ["jq", "cat", "dirname", "id"]) {
+        const path = Bun.which(tool);
+        expect(path).not.toBeNull();
+        symlinkSync(path as string, join(bin, tool));
+    }
+    writeFileSync(join(bin, "node"), `#!/bin/sh\necho "$@" >> '${marker}'\n`, { mode: 0o700 });
+    chmodSync(bin, 0o700);
+
+    return {
+        path: bin,
+        marker,
+    };
+}
+
+test("SessionEnd without the session's lease file in either store exits 0 without starting node", () => {
+    const fake = fakeNodePath();
+    writeFileSync(join(leaseDir, "other.jsonl"), "", { mode: 0o600 });
+
+    const result = runHook(sessionEnd("t1", "other"), { PATH: fake.path });
+
+    expect(result).toMatchObject({
+        exitCode: 0,
+        stdout: "",
+        stderr: "",
+    });
+    expect(existsSync(fake.marker)).toBe(false);
+});
+
+test("SessionStart startup with no lease file in either store exits 0 without starting node", () => {
+    const fake = fakeNodePath();
+    rmSync(leaseDir, { recursive: true });
+
+    const result = runHook(sessionStart("startup"), { PATH: fake.path });
+
+    expect(result.exitCode).toBe(0);
+    expect(existsSync(fake.marker)).toBe(false);
+});
+
+test("a lease file in either store starts the sweep", () => {
+    const fake = fakeNodePath();
+    const sandboxStore = join(scratch, "sandbox", `claude-${process.getuid?.()}`, "ac-leases");
+    mkdirSync(sandboxStore, { mode: 0o700, recursive: true });
+    writeFileSync(join(sandboxStore, "t1.jsonl"), "", { mode: 0o600 });
+
+    runHook(sessionEnd("t1", "other"), { PATH: fake.path });
+    runHook(sessionStart("startup"), { PATH: fake.path });
+
+    expect(readFileSync(fake.marker, "utf8").split("\n").filter((line) => line !== "")).toEqual([
+        expect.stringContaining("lease sweep --session t1 --reason other --detach"),
+        expect.stringContaining("lease sweep --stale --detach"),
+    ]);
 });

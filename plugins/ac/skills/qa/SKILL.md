@@ -108,7 +108,7 @@ Merge `### Proposed learnings` from `report.md` and `report-retest.md` with what
 
 ## Phase 6: Close
 
-1. Stop each kind you started, and only those (`STARTED_SERVER`): first check that `ps -ww -o command= -p <pid>` still shows the boot command, because pids get reused, then `kill $(cat <run dir>/server.pid)` and confirm the URL no longer answers; a leftover child still listening on the port you started (`lsof -ti :<port>`) is killed too. For a simulator you booted, `xcrun simctl shutdown <id>`; for an Android emulator you booted, `adb -s emulator-<port> emu kill`.
+1. Stop each kind you started, and only those (`STARTED_SERVER`): first check that `ps -ww -o command= -p <pid>` still shows the boot command, because pids get reused, then `kill $(cat <run dir>/server.pid)` and confirm the URL no longer answers; a leftover child still listening on the port you started (`lsof -ti :<port>`) is killed too. For a simulator you booted, `xcrun simctl shutdown <id>`; for an Android emulator you booted, `adb -s emulator-<port> emu kill`. After stopping a device or daemon this run leased, run `node "${CLAUDE_PLUGIN_ROOT}/cli/ac.js" lease release --kind <...>` with the same target flags you passed to `lease add`, so the session-end sweep does not stop a later device that reuses its serial or UDID.
 2. `playwright-cli -s=<run id> close`, whenever playwright-cli was available, including after a failure. Not `close-all`, which also closes a parallel run's sessions and the user's own.
 3. Before printing the closing block, `Write` it verbatim to `<Run dir>/result.txt` whenever a Run dir exists. Then print it and follow the standing rules: standalone and plan mode outside execute, end the turn here; chained, continue with the caller.
 
