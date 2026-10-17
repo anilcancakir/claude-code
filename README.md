@@ -115,6 +115,8 @@ The CLI source at `cli/ac/` builds to `plugins/ac/cli/ac.js` as Node-targeted ES
 - On Windows, Git for Windows (Git Bash). The plugin's hooks are `sh` scripts; without Git Bash Claude Code runs them in PowerShell, where a guard that fails blocks the call.
 - [Bun](https://bun.sh) >= 1.1.0, for CLI development and builds only. Not needed to use the plugin.
 
+For iTerm2 with one session per tab (fullscreen renderer, clean copying, no left arrow agent view, swipe between tabs), see [`plugins/ac/docs/terminal-setup.md`](plugins/ac/docs/terminal-setup.md). It is machine setup, independent of the plugin.
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the dev setup, the build, typecheck and test pipeline, and the PR checklist.
