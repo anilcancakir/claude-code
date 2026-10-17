@@ -5,6 +5,7 @@ import { scaffoldPlan } from "./plan-scaffold.ts";
 import { formatCheckResult, runPlanCheck } from "./plan-check.ts";
 import { collectPlanStats, formatPlanStats } from "./plan-stats.ts";
 import { resolveTranscriptPath, runRunStats } from "./run-stats.ts";
+import { addLease, defaultLeaseDeps, LeaseError, sweepLeases } from "./lease.ts";
 import {
     HISTORY_HEAD_LIMIT_DEFAULT,
     HISTORY_HEAD_LIMIT_MAX,
@@ -132,6 +133,96 @@ program
     .option("--dir <value>", "Root to scan.", process.cwd())
     .action((opts: { dir: string }): void => {
         process.stdout.write(formatPlanStats(collectPlanStats(opts.dir)) + "\n");
+    });
+
+const lease = program
+    .command("lease")
+    .description(
+        "Record test resources a session started (a pid, an Android emulator, an iOS simulator, a "
+            + "playwright-cli session) and stop them when the session ends or at the next session start.",
+    );
+
+interface LeaseAddOpts {
+    readonly kind: string;
+    readonly pid?: string;
+    readonly match?: string;
+    readonly serial?: string;
+    readonly udid?: string;
+    readonly session?: string;
+    readonly label?: string;
+}
+
+lease
+    .command("add")
+    .description(
+        "Append a lease to <tmpdir>/ac-leases/<CLAUDE_CODE_SESSION_ID>.jsonl, owned by the nearest "
+            + "claude ancestor. A pid lease pins the process's start time and command, and is refused "
+            + "for a process that started before that claude process.",
+    )
+    .requiredOption("--kind <value>", "pid|adb-emu|simctl|playwright")
+    .option("--pid <value>", "pid kind: the process id to stop.")
+    .option("--match <value>", "pid kind: a substring the process's command line must contain.")
+    .option("--serial <value>", "adb-emu kind: the emulator serial, emulator-<port>.")
+    .option("--udid <value>", "simctl kind: the simulator UDID.")
+    .option("--session <value>", "playwright kind: the playwright-cli session name (not the Claude session).")
+    .option("--label <value>", "Free text shown in sweep output.")
+    .action((opts: LeaseAddOpts): void => {
+        try {
+            const added = addLease(
+                {
+                    kind: opts.kind,
+                    pid: opts.pid,
+                    match: opts.match,
+                    serial: opts.serial,
+                    udid: opts.udid,
+                    pwSession: opts.session,
+                    label: opts.label,
+                },
+                defaultLeaseDeps(),
+            );
+            process.stdout.write(`leased ${added.kind} for session ${added.session}\n`);
+        } catch (error) {
+            if (!(error instanceof LeaseError)) {
+                throw error;
+            }
+            process.stderr.write(`${error.message}\n`);
+            process.exitCode = 1;
+        }
+    });
+
+interface LeaseSweepOpts {
+    readonly session?: string;
+    readonly reason?: string;
+    readonly stale?: boolean;
+    readonly detach?: boolean;
+}
+
+lease
+    .command("sweep")
+    .description(
+        "Stop what a Claude session leased and delete its lease file; a target another live session "
+            + "also leases is left running. No-op for --reason resume.",
+    )
+    .option("--session <value>", "Claude session id to sweep (defaults to CLAUDE_CODE_SESSION_ID).")
+    .option("--reason <value>", "SessionEnd reason; resume sweeps nothing.")
+    .option("--stale", "Also sweep every lease file whose owning claude process is gone.")
+    .option("--detach", "Relaunch the sweep detached and exit at once (SessionEnd allows 1.5 s).")
+    .action(async (opts: LeaseSweepOpts): Promise<void> => {
+        try {
+            const report = await sweepLeases(opts, defaultLeaseDeps());
+            for (const outcome of report.outcomes) {
+                process.stdout.write(`${outcome.status} ${outcome.target} (${outcome.file}): ${outcome.detail}\n`);
+            }
+            if (report.malformed > 0) {
+                process.stderr.write(`ignored ${report.malformed} malformed lease line(s)\n`);
+            }
+        } catch (error) {
+            if (!(error instanceof LeaseError)) {
+                throw error;
+            }
+            process.stderr.write(`${error.message}\n`);
+            process.exitCode = 1;
+        }
     });
 
 const history = program
