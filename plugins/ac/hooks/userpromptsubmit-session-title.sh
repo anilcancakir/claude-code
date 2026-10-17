@@ -33,6 +33,14 @@
 #                           built-in prompt, any single line for a prompt of your own)
 #   AC_SESSION_TITLE_CHILD  set inside the generator's own session, which is skipped
 #
+# Testing it live from inside Claude Code: an interactive `claude` started from a Bash tool joins the
+# parent's live session-name registry through the variables it inherits, and titles then cross between
+# the two sessions (measured 2026-10-17: the child's hook title landed in the parent's transcript and
+# stopped the parent's hook). Start such a child with `env -u CLAUDE_CODE_CHILD_SESSION -u
+# CLAUDE_CODE_SESSION_ID -u CLAUDE_CODE_MESSAGING_SOCKET -u CLAUDE_CODE_MESSAGING_TOKEN -u CLAUDE_JOB_DIR
+# -u CLAUDE_PID -u CLAUDECODE -u CLAUDE_CODE_ENTRYPOINT`. The hook itself cannot tell: the binary sets
+# CLAUDE_CODE_CHILD_SESSION=1 in every hook's env, and CLAUDE_CODE_SESSION_ID to the child's own id.
+#
 # State lives under TMPDIR, keyed by session id: ac-session-title-<sid> (the count or `stopped`, the
 # transcript offset scanned, the last custom title seen, the name applied since the last scan, then
 # the titles this hook set), .pending (a

@@ -384,6 +384,12 @@ it unset, `ac:auto` locks the remaining plan questions instead. `CLAUDE_AFK_TIME
 variable that turns the timeout on, and it overrides Group A's `askUserQuestionTimeout`. The settings
 branch applies to every session, ac enabled or not, so disabling ac means removing both keys.
 
+Neither key does anything in a background session (`/background`, `claude --bg`, a daemon-hosted session):
+Claude Code 2.1.302 arms the timer only when the session kind is not `bg` (`!$t()` in its timer condition), so
+a question there waits for the user, and `ac:auto` treats the timer as absent when `CLAUDE_JOB_DIR` is set. A
+wrapper edit also reaches only a session started from a shell that read it; the daemon keeps the environment
+it started with until `command claude daemon stop`.
+
 ## Answer record
 
 `~/.claude/ac-install.json` remembers what this command did and what the operator turned down, so

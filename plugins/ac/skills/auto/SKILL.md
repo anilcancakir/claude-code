@@ -41,7 +41,7 @@ with its Recommended option once the question-timeout hook says so, recorded as 
 an Oracle CRITICAL (plan 3.5c) continues at most once per run; an execute BLOCKER (2i dependency failed, 2j three
 failures spanning two waves, 3c plan-spec issue, a failed checkpoint commit) waits for the user however long
 that takes. No timed-out answer is ever written as `overrides[].accepted_by`: that field exists only when a real
-user answer produced it. With `AC_AFK_TIMER` unset this skill treats the timer as absent, and an adopted run locks its remaining plan
+user answer produced it. With `AC_AFK_TIMER` unset, or in a background session where Claude Code never arms the timer, this skill treats the timer as absent, and an adopted run locks its remaining plan
 questions through Force-finalize instead (Phase A4). The promise this skill makes is that it does not stop for
 anything else.
 
@@ -206,8 +206,11 @@ Phase 1 in its usual order, so every adopted run has its run directory and crite
 
 ### A4. Timer (sources a and d)
 
-Both still have `ac:plan` Stage 3 questions ahead. Check `Bash: printenv AC_AFK_TIMER`; the launch wrapper
-exports it alongside `CLAUDE_AFK_TIMEOUT_MS`, so it is the evidence that a question can time out at all.
+Both still have `ac:plan` Stage 3 questions ahead. Check `Bash: printenv AC_AFK_TIMER CLAUDE_JOB_DIR`; the launch
+wrapper exports `AC_AFK_TIMER` alongside `CLAUDE_AFK_TIMEOUT_MS`, so it is the evidence that a question can time out
+at all. A background session (`/background`, `claude --bg`, a daemon-hosted session, which is what sets
+`CLAUDE_JOB_DIR`) counts as Unset whatever `AC_AFK_TIMER` says: Claude Code 2.1.302 never arms the question timer
+there (`!$t()` in its timer condition, `$t` being the session kind `bg`), so a question would wait forever.
 
 - **Set**: questions are still asked, and the user may answer one if they pass by. When one times out, the
   question-timeout hook says whether to continue, under the Standing rule on questions.
