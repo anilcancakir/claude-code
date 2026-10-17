@@ -33,6 +33,14 @@
 # The budget is calibrated on the tail, not the mean. At 60 it never fires on a median run and
 # cuts the 183-call outlier. It is a circuit breaker, not a target, and the agent is told to
 # report rather than to stop dead, so a tripped budget still returns usable work.
+#
+# The write checks are quote-aware. Measured over one week to 2026-10-17, the guard denied about
+# 160 read-only searches, and 86 of 99 sampled were a `>` inside a quoted pattern (`rg "=> Foo"`,
+# `awk 'NR>=150'`, a regex `->view(`) read as a redirect or a `|` read as a command separator. The
+# redirect and segment checks now run on the command with quoted spans blanked
+# (lib/blank-quotes.sh, byte offsets kept), a redirect target is read from the raw command, and a
+# scratch file under /tmp, $TMPDIR or /dev/null is allowed. `git tag` is denied only when it
+# creates or deletes a tag; the list forms stay readable. The secret scan still reads raw words.
 
 set -u
 
@@ -113,15 +121,36 @@ case "$tool_name" in
             done
         done
         IFS="$old_ifs"
+        # The write checks judge the command with quoted spans blanked, so a `>` or `|` inside a
+        # search pattern is not a redirect or a separator. No blanker or no perl: cannot judge.
+        blanked=""
+        if [ -r "$(dirname "$0")/lib/blank-quotes.sh" ]; then
+            . "$(dirname "$0")/lib/blank-quotes.sh"
+            blanked="$(ac_blank_quotes "$cmd")" || blanked=""
+        fi
         if ! command -v rg >/dev/null 2>&1; then
             printf '%s\n' "ac explore guard: ripgrep (rg) not found; write checks inactive." >&2
-        else
+        elif [ -n "$blanked" ]; then
             # A redirect into a file, anywhere in the command; 2>/dev/null, >/dev/null and >&2 are
-            # the forms explore uses constantly and write nothing.
-            if printf '%s' "$cmd" | rg --no-config -q --pcre2 -e '(^|[^0-9&>])>>?\s*(?!&|/dev/null)[^\s]' 2>/dev/null; then
-                deny "$write_reason"
-            fi
-            printf '%s\n' "$cmd" | tr ';|&\n' '\n\n\n\n' | sed -e 's/^[[:space:]]*//' -e 's/^\([A-Za-z_][A-Za-z0-9_]*=[^ ]* \)*//' \
+            # the forms explore uses constantly and write nothing, and so is a scratch file under
+            # a temp directory. Blanking keeps byte offsets: the `>` is found in the blanked text
+            # and its target word is read from the raw command, quotes stripped, so a quoted
+            # "$TMPDIR/a.log" is judged by its text.
+            redirect="$(perl -e '
+                my ($raw, $blank) = @ARGV;
+                my $scratch = qr{^(?:/dev/null|(?:/tmp|/private/tmp|\$TMPDIR|\$\{TMPDIR\}|\$\{TMPDIR:-/tmp\})/.+)$};
+                while ($blank =~ /(?<![0-9&>])>>?\s*(?!&)(?=\S)/g) {
+                    my $start = $+[0];
+                    $blank =~ /\G[^\s;|&<>]*/gc;
+                    my $target = substr($raw, $start, $+[0] - $start);
+                    $target =~ tr/"\x27//d;
+                    next if $target =~ $scratch && $target !~ m{(?:^|/)\.\.(?:/|$)};
+                    print "deny";
+                    last;
+                }
+            ' -- "$cmd" "$blanked" 2>/dev/null)"
+            [ "$redirect" = "deny" ] && deny "$write_reason"
+            printf '%s\n' "$blanked" | tr ';|&\n' '\n\n\n\n' | sed -e 's/^[[:space:]]*//' -e 's/^\([A-Za-z_][A-Za-z0-9_]*=[^ ]* \)*//' \
                 | rg --no-config -q --pcre2 -e \
 '^(\S*/)?(npx\s+|bunx\s+|pnpm\s+exec\s+|yarn\s+)?(prettier|biome)\b.*\s(--write|-w)\b'\
 '|^(\S*/)?(npx\s+)?eslint\b.*\s--fix\b'\
@@ -136,7 +165,9 @@ case "$tool_name" in
 '|^(npm|pnpm|yarn|bun)\s+(i|install|ci|add|remove|update|upgrade|up)\b|^yarn\s*$'\
 '|^(npm|pnpm|yarn|bun)\s+(run\s+)?(format|fix|lint:fix|format:write)\b|^(npm|pnpm|yarn|bun)\b.*\s--\s.*--fix\b'\
 '|^(composer\s+(install|update|require|remove)|pip3?\s+install|gem\s+install|bundle(\s+install)?\s*$)\b'\
-'|^git\b(\s+-C\s+\S+)?\s+(checkout|switch|reset|clean|commit|push|rebase|merge|restore|apply|cherry-pick|am|rm|mv|tag|branch\s+-[dDmM])(?![-\w])'\
+'|^git\b(\s+-C\s+\S+)?\s+(checkout|switch|reset|clean|commit|push|rebase|merge|restore|apply|cherry-pick|am|rm|mv|branch\s+-[dDmM])(?![-\w])'\
+'|^git\b(\s+-C\s+\S+)?\s+tag(?![-\w])(?!\s*$|\s+(-l|--list|-n\d*|--contains|--points-at|--merged|--no-merged|--sort)(\s|=|$))'\
+'|^git\b(\s+-C\s+\S+)?\s+tag(?![-\w]).*\s(-[adsfmu]+|--delete|--annotate|--sign|--force)(\s|$)'\
 '|^git\b(\s+-C\s+\S+)?\s+stash(?!\s+(list|show))(?![-\w])'\
 '|^(rm|mv|cp|mkdir|touch|chmod|chown|ln|truncate|dd|tee)\b|^sed\b.*\s-i|^perl\b.*\s-\w*i'\
 '|^xargs\b.*\b(rm|mv)\b|^find\b.*\s(-delete|-exec\s+(rm|mv))\b' 2>/dev/null \
