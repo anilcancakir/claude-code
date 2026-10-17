@@ -5,7 +5,9 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.31.0] - 2026-10-17
+
+Lets an `ac` session carry on while you are away. A question that times out under the new opt-in AFK timer gets a wait by default, and only plan-side questions in an `ac:auto` run continue on their Recommended option; `ac:auto` can also adopt work already under way when you hand off mid-session. An opt-in hook keeps session titles current instead of frozen on the first prompt, with your own naming prompt or a tracker-key format, and never over a manual `/rename`. The dash rule now covers only artifacts a person reads, so plans and logs are no longer dash-checked. Also adds an iTerm2 terminal setup guide.
 
 ### Added
 
