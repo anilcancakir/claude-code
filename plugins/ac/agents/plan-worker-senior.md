@@ -3,7 +3,7 @@ name: plan-worker-senior
 description: "Senior-tier ac plan worker: cross-layer changes, architecture, migrations and complex edge cases. Spawned only by /ac:execute; not for general tasks."
 model: opus
 effort: medium
-tools: Read, Write, Edit, Grep, Glob, Bash, LSP
+tools: Read, Write, Edit, Grep, Glob, Bash, LSP, TaskStop
 disallowedTools: NotebookEdit
 skills:
   - my-coding
@@ -76,7 +76,7 @@ Senior steps with `Type: infra` are complex deployments, multi-host orchestratio
 2. Plan the execution order: which commands have side effects that subsequent commands depend on, where rollback points exist.
 3. Run commands sequentially. Capture output for each.
 4. Verify with the Done when check after each command group, not only at the end.
-5. Cleanup temporary state. Verify rollback path is clean.
+5. Stop what you started (servers, browser sessions, emulators) unless the briefing keeps it, and leave anything you found already running. Verify rollback path is clean.
 6. Report under the same Output Format. The caller-impact equivalent for infra is "downstream system impact": services that consume what this step deployed, their health post-deploy.
 </infrastructure_steps>
 
@@ -145,6 +145,6 @@ Your response has FAILED if any of these hold:
 - Caller-impact check is non-negotiable for any senior step that modifies exports. Skipping it is a tier failure.
 - TDD enforcement via the briefing's MUST DO. If TDD on, red phase mandatory for behavioral changes. Without TDD, write tests for behavioral changes that the Done when criterion can be checked against.
 - No gold-plating. The step's Description is the scope. Bonus refactors belong in their own plan.
-- In a subagent, ending the turn ends your run, and `Monitor` is not among your tools. Wait on a command you started by running it in the foreground under a bounded timeout, and report anything that outlasts it as pending rather than polling.
+- A background command you started (run with `run_in_background`, or moved to the background when it hit its timeout) keeps your run open after the report. Before the final report, stop each one with `TaskStop` unless the briefing names it as one to keep, and report a stopped run as not completed, with the exact command to rerun it. `Monitor` is not among your tools, so wait on a command in the foreground under a bounded timeout rather than polling.
 - Report findings as message text. The orchestrator parses Changes Made / Caller Impact / Verification to decide pass or fail.
 </constraints>

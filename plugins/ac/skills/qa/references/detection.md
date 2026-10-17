@@ -28,7 +28,7 @@ Record the result in `brief.md` as the tool name plus the exact boot, suite and 
 | Simulator or emulator | the documented launch command | the app is up on the device: its documented ready line appears in `server.log` (for example `flutter run`'s key-commands banner) or its process runs there; the device reporting booted (`xcrun simctl list devices booted`, `adb wait-for-device`) is only the precondition |
 | Desktop app | the documented launch command | its process is up (`pgrep -f <name>`), or the documented ready line appears in `server.log` |
 
-Boot with Bash `run_in_background` and `timeout: 7200000`, output to `<run dir>/server.log`, with no `nohup` and no trailing `&`. Claude Code stops a process the shell detaches that way a few minutes after the reply, while a background Bash call is kept for 30 minutes by default and up to 2 hours with an explicit `timeout`, in unattended sessions. Stop the process when the run ends.
+Boot with Bash `run_in_background` and `timeout: 7200000`, output to `<run dir>/server.log`, with no `nohup` and no trailing `&`. Claude Code stops a process the shell detaches that way a few minutes after the reply, while a background Bash call is kept for 30 minutes by default and up to 2 hours with an explicit `timeout`, in unattended sessions. Stop the process when the run ends; an emulator this run booted stops with `adb -s emulator-<port> emu kill`.
 
 Probe readiness in one foreground Bash call with `timeout: 660000`, as a bounded `for` loop: 60 s by default, up to 600 s when the project documents a cold build. Never start the command with `sleep N`; Claude Code blocks a leading sleep, and a `for` loop does not trigger that block. For a URL server:
 

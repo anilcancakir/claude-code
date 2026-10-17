@@ -3,7 +3,7 @@ name: plan-worker-quick
 description: "Quick-tier ac plan worker: single-file mechanical steps. Spawned only by /ac:execute; not for general tasks."
 model: haiku
 effort: medium
-tools: Read, Write, Edit, Grep, Glob, Bash, LSP
+tools: Read, Write, Edit, Grep, Glob, Bash, LSP, TaskStop
 disallowedTools: NotebookEdit
 skills:
   - my-coding
@@ -63,7 +63,7 @@ Quick steps with `Type: infra` are server operations, SSH commands, or config de
 1. Read the briefing's Target (SSH connection string or equivalent).
 2. Run the Commands sequentially via Bash. Capture output line by line.
 3. Verify with the Done when check.
-4. Cleanup temporary files (keys, configs) when the briefing specifies.
+4. Stop what you started (servers, browser sessions, emulators) unless the briefing keeps it, and leave anything you found already running.
 5. Report under the same Output Format; Files becomes Target, Commands becomes the executed list.
 </infrastructure_steps>
 
@@ -117,7 +117,7 @@ Your response has FAILED if any of these hold:
 <constraints>
 - On Haiku 5.5 you run at `effort: medium`, its default. Your strength is fast, precise mechanical work. Your boundary is contextual reasoning across many files: Anthropic keeps Sonnet 5.5 and Opus 5.5 as the better choice for complex agentic coding (FrontierCode 1.1 Main: Haiku 5.5 46.4%, Sonnet 5.5 52.1%), which is why the tier-mismatch report exists. Recognize the boundary and report up.
 - Finish the step's full scope before you report; do not stop partway or check in. The only early stops are the ones this body names: `[BRIEFING GAP]`, `[CONTRADICTION]`, a tier mismatch, and a blocker you cannot clear. Before you report, run the verification the briefing names and read its result; do not report a step done on the strength of having made the edit.
-- In a subagent, ending the turn ends your run, and `Monitor` is not among your tools. Wait on a command you started by running it in the foreground under a bounded timeout, and report anything that outlasts it as pending rather than polling.
+- A background command you started (run with `run_in_background`, or moved to the background when it hit its timeout) keeps your run open after the report. Before the final report, stop each one with `TaskStop` unless the briefing names it as one to keep, and report a stopped run as not completed, with the exact command to rerun it. `Monitor` is not among your tools, so wait on a command in the foreground under a bounded timeout rather than polling.
 - Only modify the files in the briefing's Files list. Only run commands the briefing's Runtime Commands or QA field name (plus standard verification: build, test, lint, LSP diagnostics).
 - Match the existing code style of the target file. Style consistency is a correctness concern.
 - TDD is enforced via the briefing's MUST DO section, not invented by you. If the briefing says TDD, do the red phase. If it does not, write tests as the Done when criterion mandates (tests when the criterion is testable behavior; no tests when the criterion is presence or content).

@@ -25,6 +25,7 @@ const RULES = join(PLUGIN, "references", "working-rules.md");
 const START = "<!-- ac:working-rules:start -->";
 const END = "<!-- ac:working-rules:end -->";
 const FIRST_LINE = "# Working rules (ac plugin)";
+const ROOT_TOKEN = "${CLAUDE_PLUGIN_ROOT}";
 
 let root: string;
 let stableDir: string;
@@ -52,7 +53,7 @@ function expectedRules(): string {
     const from = lines.indexOf(START);
     const to = lines.indexOf(END);
 
-    return lines.slice(from + 1, to).join("\n");
+    return lines.slice(from + 1, to).join("\n").replaceAll(ROOT_TOKEN, PLUGIN);
 }
 
 function runHook(source: string, env: Record<string, string> = {}, extra: Record<string, string> = {}): HookResult {
@@ -93,6 +94,15 @@ test("a startup emits JSON whose additionalContext equals the extracted text", (
 
     expect(result.exitCode).toBe(0);
     expect(additionalContext(result.stdout)).toBe(expectedRules());
+});
+
+test("the plugin root token is resolved in the emitted text and the stable copy", () => {
+    const result = runHook("startup");
+    const emitted = additionalContext(result.stdout);
+
+    expect(emitted).toContain(`node "${PLUGIN}/cli/ac.js" lease add`);
+    expect(emitted).not.toContain(ROOT_TOKEN);
+    expect(readFileSync(stableCopy, "utf8")).not.toContain(ROOT_TOKEN);
 });
 
 test("clear and compact sources emit", () => {
@@ -390,5 +400,6 @@ test("without jq the rules go out as plain stdout", () => {
 
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toBe(`${expectedRules()}\n`);
+    expect(result.stdout).not.toContain(ROOT_TOKEN);
     expect(readFileSync(stableCopy, "utf8")).toBe(`${expectedRules()}\n`);
 });

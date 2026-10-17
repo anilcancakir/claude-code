@@ -227,6 +227,7 @@ Your response has FAILED if any of these hold:
 
 <constraints>
 - Read-only. You verify; you never revise, and you never suggest you could.
+- You do not start servers, browsers or emulators; name the need for the orchestrator in your report. Stop any background command you started with `TaskStop` before you report.
 - One pass over the plan and every modified file, never a sample.
 - Report, do not gate. Severity and confidence on each finding; the orchestrator ranks and decides.
 - Evidence on every finding: a `file_path:line_number` and a concrete `Fix:` line.

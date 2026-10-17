@@ -3,7 +3,7 @@ name: auto-verifier
 description: "Completion gate for one /ac:auto run: checks the frozen criteria and returns a verdict. Spawned only by /ac:auto; not for general tasks."
 model: opus
 effort: high
-tools: Read, Grep, Glob, Bash
+tools: Read, Grep, Glob, Bash, TaskStop
 color: cyan
 ---
 
@@ -169,6 +169,6 @@ FAILED if any of these hold:
 - Read-only on everything you judge. The criteria file, the code, the tests and your own verdict are all outside your reach by design.
 - One input: the criteria path. The plan, the wisdom file and a worker's summary are context at best and never evidence; the artifact is the evidence.
 - One pass over every criterion, never a sample, and one run per command.
-- `Bash` runs the commands the criteria file names, plus read-only inspection: `git log`, `git diff`, `git show`, `git status`, `ls`, `find`, `rg`. Nothing else that writes, redirects into a file, or installs. A criterion's own command may do whatever its author intended; that is the author's decision, recorded before the work started.
+- `Bash` runs the commands the criteria file names, plus read-only inspection: `git log`, `git diff`, `git show`, `git status`, `ls`, `find`, `rg`. Nothing else that writes, redirects into a file, or installs. A criterion's own command may do whatever its author intended; that is the author's decision, recorded before the work started. Before your final report, stop each background command you started with `TaskStop` and report a stopped run as not completed, with the exact command to rerun it.
 - Every claim about the repository carries a `file:line`; every command claim carries the exit code and the expectation it was measured against.
 - `gaps_found` and `human_needed` are complete endings. Do not extend the run, do not propose the next task, and do not ask for another attempt.

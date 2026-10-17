@@ -27,6 +27,21 @@ text="$(awk '
 ' "$rules" 2>/dev/null)"
 [ -n "$text" ] || exit 0
 
+# The token is expanded neither in hook context nor in a file a wrapper appends, so the rules
+# carry the plugin root itself. awk with ENVIRON, not sed: a path may hold characters sed treats
+# as syntax.
+plugin_root="$(cd "$(dirname "$0")/.." && pwd)"
+text="$(printf '%s\n' "$text" | PLUGIN_ROOT="$plugin_root" awk '
+    BEGIN { token = "${CLAUDE_PLUGIN_ROOT}"; root = ENVIRON["PLUGIN_ROOT"] }
+    {
+        out = ""
+        while ((i = index($0, token)) > 0) {
+            out = out substr($0, 1, i - 1) root
+            $0 = substr($0, i + length(token))
+        }
+        print out $0
+    }')"
+
 # 1. Keep the stable copy a wrapper appends current. Same-directory temp plus mv, so a
 #    concurrent launch never reads a half-written file; skip the write when nothing changed.
 stable_dir="${AC_WORKING_RULES_DIR:-$HOME/.claude/ac}"
