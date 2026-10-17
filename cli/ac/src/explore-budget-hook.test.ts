@@ -171,8 +171,18 @@ describe("a redirect to the expanded temp directory", () => {
         expectDenied(bash(`git log > ${scratch}/../a.log`));
     });
 
+    // The temp dir lives outside /tmp here on purpose: on Linux tmpdir() is /tmp, where every path is
+    // already allowed by the /tmp rule, so the prefix test would prove nothing and pass for the wrong reason.
     test("is denied for a sibling directory sharing the prefix", () => {
-        expectDenied(bash(`git log > ${scratch}x/a.log`));
+        const outside = mkdtempSync(join(dirname(fileURLToPath(import.meta.url)), ".explore-tmp-"));
+        try {
+            const env = { TMPDIR: outside };
+
+            expect(runHook("Bash", { command: `git log > ${outside}/a.log` }, { env })).toEqual(SILENT);
+            expectDenied(runHook("Bash", { command: `git log > ${outside}x/a.log` }, { env }));
+        } finally {
+            rmSync(outside, { recursive: true, force: true });
+        }
     });
 });
 
