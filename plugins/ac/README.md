@@ -23,7 +23,7 @@ The two-step form and the setup that follows are in the [repo root README](../..
 | `commands/` | Slash commands, one `.md` file per command |
 | `skills/` | Skills, each in its own `<name>/SKILL.md` folder |
 | `output-styles/` | Output styles, one `.md` file per style; selectable, never forced |
-| `hooks/` | Hook scripts plus the `hooks.json` registration that wires them |
+| `hooks/` | Hook scripts plus the `hooks.json` registration that wires them, including the subagent Bash guard, the `SubagentStop` background guard and the session lease sweep |
 | `cli/` | Bundled MCP runtime (`ac.js`); do not hand-edit, regenerate with `bun run build` |
 | `references/` | Bundled style and CLAUDE.md templates consumed by `/ac:install` |
 | `evals/` | Agent eval cases and graders, run by `claude plugin eval` |
