@@ -57,7 +57,9 @@ function stubGenerator(title: string): void {
     });
     writeFileSync(
         join(bin, "claude"),
-        `#!/bin/sh\ncat > "${join(root, "generator-prompt.txt")}"\nprintf '%s\\n' '${result}'\n`,
+        // Written through a rename so the file appears only once it is complete: waitFor polls for
+        // its existence, and a plain redirect let a read land between the create and the write.
+        `#!/bin/sh\ncat > "${join(root, "generator-prompt.txt.part")}"\nmv "${join(root, "generator-prompt.txt.part")}" "${join(root, "generator-prompt.txt")}"\nprintf '%s\\n' '${result}'\n`,
         {
             mode: 0o755,
         },
