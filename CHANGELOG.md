@@ -7,7 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `plugins/ac/docs/terminal-setup.md` has a Notifications section. A user-level `Notification` hook bounces the iTerm2 dock icon (OSC 1337 `RequestAttention`) when a session is blocked on a question, a permission prompt or an MCP elicitation. `messageIdleNotifThresholdMs` at 24 hours stops the "Claude is waiting for your input" banner that followed every finished turn. Measured with logging hooks on 2.1.302: `AskUserQuestion` fires `PermissionRequest` at once and `permission_prompt` about 6 seconds later, and `idle_prompt` comes about 60 seconds after a turn ends. A hook has no controlling terminal, so the script writes to the tty of the nearest ancestor that has one, and wraps the sequence for tmux.
+
 ### Fixed
+
+- The terminal guide no longer lists `Cmd+c` as a way to copy a Claude Code selection in iTerm2. iTerm2 3.7.6 drops Command-modified keys under the kitty keyboard protocol unless the profile's Command keys are set to Super (`iTermModernKeyMapper.swift`), and setting them to Super sends every Command shortcut to the app ahead of the menus (`PTYSession.m`, `handleKeyDownWithBuckyBits:`), which breaks `Cmd+v`, `Cmd+t` and `Cmd+w` in those tabs. The guide's Apply step therefore leaves Claude Code's Copy on select at its default (on) instead of turning it off, so a drag still lands on the clipboard, and it points to `Ctrl+c` with a selection, `Ctrl+Shift+c` and `/copy`. iTerm2's own copy on select stays off.
 
 - `plugins/ac/docs/terminal-setup.md` now also turns off iTerm2's Advanced setting `AlternateMouseScroll` ("Scroll wheel sends arrow keys when in alternate screen mode"). With it on, a two-finger swipe in a fullscreen Claude Code tab still did not switch tabs after `ReportHorizontalScrollEvents` was off: iTerm2 3.7.6 sends the horizontal scroll as `←` and `→` keys before it tries swipe to switch tabs (`PTYMouseHandler.m`, `scrollWheelShouldSendDataForEvent:at:`), and its own settings text says "Alternate mouse scroll takes priority over swipe to switch tabs." Captured on 2.1.302: Claude Code sets mouse modes 1000, 1002, 1003 and 1006 and never `?1007h`, so the profile's own alternate scroll stays off and only the Advanced setting was in the way. CI also installs ripgrep, which the announce guard tests need and the runner image lacks.
 
