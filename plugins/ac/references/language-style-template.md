@@ -191,9 +191,9 @@ The operator's global CLAUDE.md already states the short unconditional rules, th
 
 ### 1. No em-dash, no en-dash in an artifact a person reads
 
-Em-dash (U+2014) and en-dash (U+2013) are out in anything a person reads as authored text: a document, an article, a commit message, a PR body, a code comment or doc block, a ticket, an email, a message the operator will pass on to someone else. Use comma, colon, semicolon, period, parentheses, or plain conjunctions instead.
+Em-dash (U+2014) and en-dash (U+2013) are out in anything a person reads as authored text: a document, an article, a commit message, a PR body, a code comment or doc block, a ticket, an email, a message the operator will pass on to someone else, and a prompt file that ships (a CLAUDE.md, a skill, agent or command body). Use comma, colon, semicolon, period, parentheses, or plain conjunctions instead.
 
-The rule follows the content and not the channel, so a commit message drafted inside a chat reply is still a commit message and still takes the hyphen. The conversation and the working files written for a model or for us (a plan, an interview log, evidence, a report, session notes, memory) are not artifacts. Write those LLM-friendly, with structure and `file:line` anchors rather than polished prose, and spend no tool call checking them for dashes: the check costs tokens and protects nobody.
+The rule follows the content and not the channel, so a commit message drafted inside a chat reply is still a commit message and still takes the hyphen. The conversation and the working files written for a model or for us (a plan, an interview log, evidence, a report, session notes, memory) are not artifacts. Write those LLM-friendly, with structure and `file:line` anchors rather than polished prose, and never check them for dashes, not even as one clause inside a larger check command: the check costs tokens and protects nobody.
 
 ### 2. Length is set by the content, not by the format
 
