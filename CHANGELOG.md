@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.32.0] - 2026-10-18
+
+Stops `ac:*` subagents from staying open on background work they started, replaces the unbounded searches that timed out in subagents with a deny that carries a working recipe, and makes every ac actor stop the test resources it starts, with `ac lease` stopping anything left behind at session end or at the next session start. Checked in 19 live scenarios in nested Claude Code 2.1.302 sessions with this plugin loaded from the working tree.
+
 ### Added
 
 - `plugins/ac/hooks/pretooluse-subagent-bash-guard.sh`, a PreToolUse hook on Bash that denies an unbounded search from an `ac:*` subagent (or one of the eleven bare names): `find`, a recursive `grep`, `rg` or `fd` rooted at `/` or the home directory, `grep`, `rg` or `cat` over `~/.claude/projects`, `strings`, `grep -a` or `rg -a` on a file over 100 MiB, and a recursive `grep` from a repository root, which ignores `.gitignore` (one ran 31 minutes over a 44 GB repository). Each denial carries a working recipe (Glob, or Grep with `path`, the `search-history` MCP tool, a python `mmap.find`). Measured over the previous week: about 107 Bash timeouts across all projects, of which recursive search was 23, binary grep 21, root or home `find` 10 and transcript grep 4.
