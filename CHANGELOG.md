@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.31.1] - 2026-10-17
+
+Brings the terminal guide in line with what iTerm2 3.7.6 and Claude Code 2.1.302 actually do: a session waiting on you bounces the dock icon while a finished turn stays quiet, `Cmd+c` is no longer offered as a way to copy in fullscreen, and two-finger swipes switch tabs with alternate mouse scroll off. CI installs ripgrep so the announce guard tests run.
+
 ### Added
 
 - `plugins/ac/docs/terminal-setup.md` has a Notifications section. A user-level `Notification` hook bounces the iTerm2 dock icon (OSC 1337 `RequestAttention`) when a session is blocked on a question, a permission prompt or an MCP elicitation. `messageIdleNotifThresholdMs` at 24 hours stops the "Claude is waiting for your input" banner that followed every finished turn. Measured with logging hooks on 2.1.302: `AskUserQuestion` fires `PermissionRequest` at once and `permission_prompt` about 6 seconds later, and `idle_prompt` comes about 60 seconds after a turn ends. A hook has no controlling terminal, so the script writes to the tty of the nearest ancestor that has one, and wraps the sequence for tmux.
