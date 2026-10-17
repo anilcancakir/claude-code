@@ -23,6 +23,9 @@
 #      directory under it. A regular file there (one transcript, memory/MEMORY.md) is a bounded read.
 #   c. `strings`, or `grep`/`rg` in text mode (-a, --text, --binary-files=text), on a regular file
 #      over 100 MiB.
+#   d. recursive `grep` from a repository root (a directory holding `.git`, the cwd when no path is
+#      given): grep ignores .gitignore, which is how `grep -ril x .` over a 44 GB repository ran for
+#      31 minutes. `rg` and the Grep tool honour it, so the deny points there.
 #
 # How it reads the command. Command words and separators are found on the quote-blanked text
 # (lib/blank-quotes.sh), so `rg -n "find / -name" docs` is a search for a string and not a root
@@ -291,6 +294,12 @@ scan_src='
     if ($recursive && !$limited) {
       push @found, join("\t", "ROOT", $cmd, $_) for grep { is_root($_) } @paths;
     }
+    # grep -r ignores .gitignore, so from a repository root it walks dumps and build output too.
+    if ($kind eq "grep" && $recursive) {
+      # No operand at all means the cwd; an operand that does not resolve (a glob, a variable) fails open.
+      my @roots = @ops ? @paths : (!$has_cd && $cwd ne "" ? ($cwd) : ());
+      push @found, join("\t", "REPO", $cmd, $_) for grep { -d $_ && -e "$_/.git" && !is_root($_) } @roots;
+    }
     if ($kind eq "grep" || $kind eq "rg" || $kind eq "cat") {
       my $sweep = $kind eq "cat" ? sub { -d $_[0] } : sub { $recursive };
       push @found, join("\t", "TRANSCRIPT", $cmd, $_) for grep { near_projects($_) && $sweep->($_) } @paths;
@@ -341,6 +350,10 @@ for line in $findings; do
             deny "ac subagent guard: '$name' is rooted at $path, the whole disk or the whole home directory. That search outlives the Bash timeout, Claude Code moves it to the background, and you stay parked on it after your report (about ten such searches timed out in one week).
 
 Search the project or a directory you name instead: spell out the directory (find <dir> -name ...), and use the Glob tool for file names. When the target sits in a gitignored directory, pass that directory as the Grep tool's path rather than running grep or rg over its parent." ;;
+        REPO)
+            deny "ac subagent guard: a recursive '$name' from the repository root $path ignores .gitignore, so it also walks dumps, build output and dependency trees; one such search in a 44 GB repository ran for 31 minutes in the background and kept its agent parked.
+
+Use rg (or the Grep tool), which honours .gitignore, from the same root. When the text you need sits in an ignored directory, pass that directory as the path explicitly." ;;
         TRANSCRIPT)
             if [ "$history" = 1 ]; then
                 deny "ac subagent guard: '$name' over $path reads every session transcript on the machine, which outlives the Bash timeout and leaves you parked on a background shell.

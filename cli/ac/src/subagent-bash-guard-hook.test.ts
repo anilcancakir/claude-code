@@ -292,6 +292,36 @@ test("all eleven bare ac agent names are in scope", () => {
     }
 });
 
+test("a recursive grep from a repository root is denied with the rg recipe", () => {
+    mkdirSync(join(project, ".git"));
+    mkdirSync(join(project, "src"));
+
+    for (const command of ['grep -ril "rockalpha" . 2>/dev/null | head -20', `grep -rn foo ${project}`, "grep -R foo"]) {
+        const reason = denyReason(runHook(payload(command, "ac:plan-worker-junior-high")));
+        expect(reason).toContain("rg");
+        expect(reason).toContain(".gitignore");
+    }
+});
+
+test("a recursive grep below the root, rg from the root, or a repo-less tree pass", () => {
+    mkdirSync(join(project, ".git"));
+    mkdirSync(join(project, "src"));
+
+    for (const command of [
+        "grep -rn foo src",
+        "rg -n foo .",
+        "grep -n foo README.md",
+        "cd src && grep -r foo .",
+        "grep -rn foo src/*.ts",
+        'grep -rn foo "$DIR"',
+        "grep -rn foo $(git ls-files)",
+    ]) {
+        expect(runHook(payload(command, "ac:plan-worker-junior-high"))).toEqual(silent);
+    }
+    expect(runHook(payload("grep -r foo .", "ac:explore", root))).toEqual(silent);
+    expect(runHook(payload("grep -r foo .", undefined))).toEqual(silent);
+});
+
 test("an unparseable payload or an absent command fails open", () => {
     expect(runHook("not json")).toEqual(silent);
     expect(runHook("")).toEqual(silent);

@@ -99,7 +99,8 @@ reason="$(printf '%s' "$input" | jq -r --arg own "$own" '
             | join("\n"))
         + "\n\nStop each one with TaskStop unless your briefing names it as one to keep. Report a stopped run as"
         + " not completed, with the exact command to rerun it. Then repeat your complete final report as your"
-        + " last message: it replaces the one above."
+        + " last message, every section in full, changed only where the stopped run belongs: the orchestrator"
+        + " receives that last message alone, so a short note there replaces the whole report above."
       end
 ' 2>/dev/null)" || exit 0
 [ -n "$reason" ] || exit 0
