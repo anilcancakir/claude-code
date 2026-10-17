@@ -42,7 +42,7 @@ Then, in iTerm2 Settings, Profiles, Terminal, untick "Save lines to scrollback i
 
 If you run Claude Code over SSH, also turn on General, Selection, "Applications in terminal may access clipboard" (off by default), or run `/terminal-setup` in iTerm2, which writes the same key: a remote session copies through OSC 52, which iTerm2 drops otherwise. Local copies go through `pbcopy` and do not need it.
 
-Finally quit iTerm2 with Cmd+Q and open it again. If iTerm2 loads its settings from a custom folder or URL (General, Settings), make these changes in the Settings window instead, since that folder's copy can overwrite the `defaults write` values at the next launch.
+Finally quit iTerm2 with Cmd+Q and open it again. When a long-running session makes that inconvenient, change the settings in the Settings window instead, which applies them to open tabs at once: a `defaults write` value does not reach a running iTerm2 until its next launch, so for a row that already shows the new value, set it to the other value and back. Checked for "Scroll wheel sends arrow keys when in alternate screen mode" (Advanced, Mouse): the swipe switched tabs in an open session straight away. If iTerm2 loads its settings from a custom folder or URL (General, Settings), make these changes in the Settings window instead, since that folder's copy can overwrite the `defaults write` values at the next launch.
 
 The two global config keys can also be set from inside a session with `/config leftArrowOpensAgents=false` and `/config copyOnSelect=false`, or toggled in `/config`. Claude Code re-reads `~/.claude.json` under a lock before it saves, so a value written while another session runs survives that session's next save.
 
