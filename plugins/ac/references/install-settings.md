@@ -323,9 +323,12 @@ operator's own and this command writes none of them; Phase 5 names them:
 | Key | Effect |
 |---|---|
 | `AC_SESSION_TITLE_EVERY` | prompts between renames after the first, default 10 |
-| `AC_SESSION_TITLE_PROMPT` | absolute path to a naming prompt of the operator's own (a relative one resolves against whatever directory the session runs in); without it `~/.claude/ac/session-title.md` is used when readable, then the built-in one. `{{CURRENT}}` and `{{CONVERSATION}}` are filled in, and the answer is `{"title": "..."}` |
+| `AC_SESSION_TITLE_PROMPT` | absolute path to a naming prompt of the operator's own (a relative one resolves against whatever directory the session runs in); without it `~/.claude/ac/session-title.md` is used when readable, then the built-in one. `{{CURRENT}}` (the name the session list shows: a custom title, else Claude Code's own AI title) and `{{CONVERSATION}}` are filled in, and the answer is `{"title": "..."}` |
 | `AC_SESSION_TITLE_PATTERN` | the jq regex a title must match; defaults to 2 to 4 kebab-case words for the built-in prompt and to any title for one of the operator's own. A title is always one line of at most 80 characters with no control character, whatever the pattern |
 | `AC_SESSION_TITLE_MODEL` | the namer's model, default `haiku` |
+
+A `/rename` to the exact name the hook last set reads as the hook's own, so pinning a name means
+renaming it to something different, or leaving `AC_SESSION_TITLE` unset for that project.
 
 A project that names sessions after its tracker keys sets `AC_SESSION_TITLE_PROMPT` and
 `AC_SESSION_TITLE_PATTERN` (for example `^[A-Z]+-[0-9]+( .+)?$`, which accepts `RYTC-123 login fix`)

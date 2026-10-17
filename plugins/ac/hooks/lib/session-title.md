@@ -4,7 +4,7 @@ The name is kebab-case: 2 to 4 lowercase ASCII words joined by hyphens, at most 
 
 Name what the session is about now. A session drifts, so the recent part of the excerpt outweighs the first message, and the tool lines (files edited, commands run) show what is actually being done. Prefer the concrete subject (a feature, a component, a bug, a project) over the activity: `session-title-hook` rather than `code-changes`.
 
-The current name is given below. When it still names what the session is about, return it unchanged; a name that changes without reason is harder to find than a slightly stale one.
+The current name is given below. Keep it only if the latest prompts are still about it, because a name that changes without reason is harder to find than a slightly stale one; when the latest prompts have moved to another subject, name that subject. Either way, answer in the required format.
 
 Current name: {{CURRENT}}
 

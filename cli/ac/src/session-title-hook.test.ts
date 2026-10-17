@@ -94,8 +94,8 @@ function payload(overrides: Record<string, unknown> = {}): string {
         transcript_path: transcript,
         cwd: root,
         hook_event_name: "UserPromptSubmit",
+        // Shaped like the 2.1.302 payload: no `source` field, `session_title` only once a custom title exists.
         prompt: "Fix the session titles",
-        source: "user",
         session_title: "",
         ...overrides,
     });
@@ -110,9 +110,9 @@ function pendingPath(session: string = SESSION): string {
 }
 
 // The state file holds the count (or `stopped`), the transcript offset scanned so far, the last custom
-// title seen, then the titles the hook set.
-function seedState(count: number | "stopped", owned: string[] = []): void {
-    writeFileSync(statePath(), [String(count), "0", "", ...owned].join("\n") + "\n");
+// title seen, the name applied since the last scan, then the titles the hook set.
+function seedState(count: number | "stopped", owned: string[] = [], fresh: string = ""): void {
+    writeFileSync(statePath(), [String(count), "0", "", fresh, ...owned].join("\n") + "\n");
 }
 
 function readState(): string[] {
@@ -180,6 +180,25 @@ test("the first prompt generates a title in the background from the prompt itsel
     expect(await waitFor(pendingPath())).toBe(true);
     expect(readFileSync(pendingPath(), "utf8").trim()).toBe("session-title-refresh");
     expect(readFileSync(join(root, "generator-prompt.txt"), "utf8")).toContain("Fix the session titles");
+});
+
+// The payload's session_title stays empty while the session has only Claude Code's own ai-title, so
+// the generator falls back to the transcript for the name the session list shows.
+test("the current name sent to the model falls back to Claude Code's own ai-title", async () => {
+    appendTranscript([
+        userTurn("Explain Bloom filters"),
+        {
+            type: "ai-title",
+            aiTitle: "Bloom filter explanation",
+            sessionId: SESSION,
+        },
+    ]);
+    writeFileSync(join(root, "prompt.md"), "CURRENT={{CURRENT}}\n{{CONVERSATION}}\n");
+
+    runHook(payload(), { AC_SESSION_TITLE_PROMPT: join(root, "prompt.md") });
+
+    expect(await waitFor(join(root, "generator-prompt.txt"))).toBe(true);
+    expect(readFileSync(join(root, "generator-prompt.txt"), "utf8")).toContain("CURRENT=Bloom filter explanation");
 });
 
 test("the generator reads the active context: the latest summary, then tool calls and turns after it", async () => {
@@ -294,24 +313,115 @@ test("a name given before the hook ever titled the session is left alone", () =>
     expect(runHook(payload()).stdout).toBe("");
 });
 
-test("its own title, with or without a collision suffix, keeps it running", () => {
+test("its own title, and a collision suffix on the first scan after applying it, keep it running", () => {
     for (const recorded of ["session-title-refresh", "session-title-refresh-brave-otter"]) {
         writeFileSync(transcript, "");
-        seedState(4, ["session-title-refresh"]);
+        seedState(4, ["session-title-refresh"], "session-title-refresh");
         writeFileSync(pendingPath(), "hook-title-design\n");
         appendTranscript([customTitle(recorded)]);
 
         expect(sessionTitleOf(runHook(payload()).stdout)).toBe("hook-title-design");
     }
+    expect(readState()).toContain("session-title-refresh-brave-otter");
 });
 
-test("a prompt the user did not type is not counted", () => {
+// A state file from before the `fresh` line: count, offset, seen, then the owned titles from line 4.
+test("a state file in the earlier layout keeps the hook's own title as its own", () => {
+    writeFileSync(statePath(), ["4", "0", "", "raft-leader-election"].join("\n") + "\n");
+    writeFileSync(pendingPath(), "crdt-merge-semantics\n");
+    appendTranscript([customTitle("raft-leader-election")]);
+
+    expect(sessionTitleOf(runHook(payload()).stdout)).toBe("crdt-merge-semantics");
+    expect(readState()).toContain("raft-leader-election");
+    expect(readState()[0]).toBe("5");
+});
+
+test("a suffix-shaped name seen later than the first scan after an apply is the user's", () => {
+    seedState(4, ["raft-leader"]);
+    writeFileSync(pendingPath(), "hook-title-design\n");
+    appendTranscript([customTitle("raft-leader-election-notes")]);
+
+    expect(runHook(payload()).stdout).toBe("");
+    expect(readState()[0]).toBe("stopped");
+});
+
+test("a prompt the user did not type is not counted, whether `source` says so or the text does", () => {
     seedState(2);
 
-    const result = runHook(payload({ source: "system" }));
-
-    expect(result.stdout).toBe("");
+    for (const prompt of [
+        "<task-notification>\n<task-id>a1</task-id>",
+        "Another Claude session sent a message:\nhello",
+        "<system-reminder>x</system-reminder>",
+    ]) {
+        expect(runHook(payload({ prompt })).stdout).toBe("");
+    }
+    expect(runHook(payload({ source: "system" })).stdout).toBe("");
     expect(readState()[0]).toBe("2");
+});
+
+test("a prompt typed while the model was busy reaches the excerpt; a queued notification does not", async () => {
+    appendTranscript([
+        userTurn("Fix the session titles"),
+        {
+            type: "attachment",
+            attachment: {
+                type: "queued_command",
+                commandMode: "prompt",
+                prompt: "Also rename the CRDT module",
+            },
+        },
+        {
+            type: "attachment",
+            attachment: {
+                type: "queued_command",
+                commandMode: "task-notification",
+                prompt: "<task-notification>done</task-notification>",
+            },
+        },
+    ]);
+    seedState(9);
+
+    runHook(payload(), { AC_SESSION_TITLE_EVERY: "10" });
+
+    expect(await waitFor(join(root, "generator-prompt.txt"))).toBe(true);
+    const sent = readFileSync(join(root, "generator-prompt.txt"), "utf8");
+    expect(sent).toContain("User: Also rename the CRDT module");
+    expect(sent).not.toContain("task-notification");
+});
+
+test("with the built-in prompt, Claude Code's sentence-case ai-title reaches the model kebab-cased", async () => {
+    appendTranscript([
+        userTurn("Explain Bloom filters"),
+        {
+            type: "ai-title",
+            aiTitle: "Bloom filter açıklaması",
+            sessionId: SESSION,
+        },
+    ]);
+
+    runHook(payload());
+
+    expect(await waitFor(join(root, "generator-prompt.txt"))).toBe(true);
+    expect(readFileSync(join(root, "generator-prompt.txt"), "utf8")).toContain("Current name: bloom-filter-aciklamasi");
+});
+
+// The session list shows the ai-title until a custom title exists, so the model keeping that name in
+// kebab case is still a rename worth applying.
+test("an answer equal to the kebab-cased ai-title is still written as a pending title", async () => {
+    stubGenerator("bloom-filter-explanation");
+    appendTranscript([
+        userTurn("Explain Bloom filters"),
+        {
+            type: "ai-title",
+            aiTitle: "Bloom filter explanation",
+            sessionId: SESSION,
+        },
+    ]);
+
+    runHook(payload());
+
+    expect(await waitFor(pendingPath())).toBe(true);
+    expect(readFileSync(pendingPath(), "utf8").trim()).toBe("bloom-filter-explanation");
 });
 
 test("generation fires on every Nth prompt and not between", async () => {
@@ -326,8 +436,25 @@ test("generation fires on every Nth prompt and not between", async () => {
     expect(await waitFor(pendingPath())).toBe(true);
 });
 
+test("with the built-in prompt, a long or sentence-case answer is kebab-cased and cut to four words", async () => {
+    for (const [answer, expected] of [
+        ["bloom-filter-false-positive-rate", "bloom-filter-false-positive"],
+        ["Fix Session Titles", "fix-session-titles"],
+    ]) {
+        rmSync(join(scratch, `ac-session-title-${SESSION}.lock`), { recursive: true, force: true });
+        rmSync(pendingPath(), { force: true });
+        stubGenerator(answer ?? "");
+
+        runHook(payload());
+
+        expect(await waitFor(pendingPath())).toBe(true);
+        expect(readFileSync(pendingPath(), "utf8").trim()).toBe(expected ?? "");
+        rmSync(statePath(), { force: true });
+    }
+});
+
 test("a generated title that is not 2 to 4 kebab-case words is dropped", async () => {
-    stubGenerator("Fix Session Titles");
+    stubGenerator("fix");
     appendTranscript([userTurn("Fix the session titles")]);
 
     runHook(payload());
@@ -372,19 +499,20 @@ test("a user prompt file under the config dir is picked up, and a custom prompt 
 });
 
 test("a multi-line title, or one with a control character under an unanchored pattern, is dropped", async () => {
-    for (const [title, pattern] of [["checkout-coupon\nrm-rf-home", ""], ["RYTC-1 \u001b[31mred", "^[A-Z]+-[0-9]+"]]) {
+    // A custom pattern skips the built-in kebab normalisation, so both reach the line and control guards.
+    for (const [title, pattern] of [["checkout-coupon\nrm-rf-home", "."], ["RYTC-1 \u001b[31mred", "^[A-Z]+-[0-9]+"]]) {
         rmSync(join(root, "generator-prompt.txt"), { force: true });
         rmSync(join(scratch, `ac-session-title-${SESSION}.lock`), { recursive: true, force: true });
         stubGenerator(title ?? "");
         writeFileSync(transcript, "");
 
-        runHook(payload({ session_id: `${SESSION}-${pattern === "" ? "a" : "b"}` }), {
+        runHook(payload({ session_id: `${SESSION}-${pattern === "." ? "a" : "b"}` }), {
             AC_SESSION_TITLE_PATTERN: pattern ?? "",
         });
 
         expect(await waitFor(join(root, "generator-prompt.txt"))).toBe(true);
         await Bun.sleep(400);
-        expect(existsSync(pendingPath(`${SESSION}-${pattern === "" ? "a" : "b"}`))).toBe(false);
+        expect(existsSync(pendingPath(`${SESSION}-${pattern === "." ? "a" : "b"}`))).toBe(false);
     }
 });
 
