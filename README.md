@@ -48,6 +48,12 @@ Plan-then-execute is a crowded category. Three things here are not common:
 - **Four-layer verification per wave.** A passing typecheck is one layer of four. The wave diff is read hunk by hunk against what each worker claimed, and anything user-visible is exercised the way a person would use it.
 - **Frozen completion criteria.** `/ac:auto` writes down what "done" means before work starts, hashes it, and hands the finished run to a read-only verifier that holds no `Edit`, `Write` or `Agent` tool, so it cannot change what it is judging.
 
+## While you are away
+
+- **Hand off mid-session.** Say you are leaving and run `/ac:auto`: it adopts the work already under way (a plan interview, a running execute, a written plan, or an ad-hoc task) instead of starting over, and ends on a verdict from the read-only verifier. It never pushes.
+- **Questions that time out.** The opt-in AFK timer (`/ac:install`, W.afk) lets an unanswered question time out after three minutes. The plugin answers it with a wait by default; only plan-side questions inside an `/ac:auto` run continue on their Recommended option, recorded as not user-approved. Execute BLOCKERs always wait for you.
+- **Session titles that follow the work.** Claude Code titles a session once, from its first prompt. The opt-in title hook (`AC_SESSION_TITLE=1`) renames it from its recent context on the first prompt and every tenth after it, with your own naming prompt or a format such as tracker keys, and never over a title you set with `/rename`.
+
 ## When not to use it
 
 - A one-line fix or a single rename. The planning overhead is not worth it, and `/ac:plan` will tell you so.
@@ -97,11 +103,17 @@ Plan-then-execute is a crowded category. Three things here are not common:
 
 The six authoring skills (`ac:skill-creator`, `ac:command-creator`, `ac:agent-creator`, `ac:claude-md-rules-creator`, `ac:prompt-writer`, `ac:git-master`) are what the plan chain calls when the work is itself a skill, command, agent or `CLAUDE.md` file.
 
+## Also in this marketplace
+
+`ac-php-lsp` runs Intelephense with `build/` and `.claude/worktrees/` excluded, so indexing finishes in Flutter monorepos and in checkouts that hold Claude Code worktrees. Disable the stock `php-lsp` first, then `/plugin install ac-php-lsp@ac`; [`plugins/ac-php-lsp/README.md`](plugins/ac-php-lsp/README.md) has the measurements and the per-project override.
+
 ## Repository layout
 
 ```
 plugins/ac/          The plugin: commands, skills, agents, hooks, output styles, references.
+plugins/ac/docs/     Human-facing guides, such as the iTerm2 terminal setup.
 plugins/ac/cli/      Bundled MCP runtime (ac.js), built from cli/ac/.
+plugins/ac-php-lsp/  Intelephense plugin tuned for worktrees and Flutter builds.
 cli/ac/              CLI source, TypeScript on Bun.
 .claude-plugin/      Marketplace manifest.
 ```
