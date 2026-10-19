@@ -84,7 +84,7 @@ Auto mode automates system-process flow gates. It never auto-decides user-prefer
 |---|---|---|---|---|
 | 0a Topic missing | BLOCKER | surfaces | waits | returns `BLOCKED` |
 | 0e Resume? | flow | auto-pick `Resume` | n/a, auto-picked | auto-pick `Resume` |
-| 0f Plan collision | flow | auto-pick `Append suffix`, deliberately NOT the first option; preservation beats silent destruction | n/a, auto-picked | auto-pick `Append suffix` |
+| 0f Plan collision | flow | auto-pick `Append suffix`, deliberately NOT the first option; preservation beats silent destruction | n/a, auto-picked | returns `BLOCKED` |
 | 3a Proceed after synthesis | interview | surfaces | continues with `Proceed` | returns `DECISIONS` |
 | 3b.1 TDD node | interview | surfaces | continues with the Recommended option | returns `DECISIONS` |
 | 3b.2 QA node | interview | surfaces | continues with the Recommended option | not asked: records `QA = false`, since `ac:execute --lane` skips the QA pass |
@@ -115,9 +115,10 @@ the chat.
 
 Under `LANE_MODE` the last column replaces the other three: `returns` means the gate writes `pending_decisions[]` and
 ends the turn with a status block, never a question. The Stage 3.5 oracle trigger evaluation still runs; only its
-CRITICAL and Premise questions become `BLOCKED` blocks. Stage 4 is the one flow gate where the lane departs from the
-`(Recommended)` option, because that option chains execute and the coordinator is the only one that decides when
-execute runs.
+CRITICAL and Premise questions become `BLOCKED` blocks. Two flow gates depart from the auto-mode pick under a lane.
+Stage 4 skips its `(Recommended)` option, because that option chains execute and the coordinator is the only one
+that decides when execute runs. 0f returns `BLOCKED` instead of appending a suffix, because the coordinator archives
+only `.ac/plans/<slug>/`, so a plan written under `<slug>-2` would never reach it.
 </auto_mode>
 
 <lane_mode>
@@ -208,7 +209,8 @@ For the checkpoint JSON schema and write points, read `${CLAUDE_SKILL_DIR}/refer
 
 If `PLAN_PATH` already exists and no checkpoint was just consumed:
 - When `AUTO_MODE = false`: call `AskUserQuestion` (header `Exists?`, options `Overwrite` / `Append suffix (<slug>-2)` / `Cancel`). Apply the choice.
-- When `AUTO_MODE = true`: auto-pick `Append suffix (<slug>-2)` (NOT the literal first option `Overwrite`; auto mode's safer default differs from interactive mode per the `<auto_mode>` policy). If `<slug>-2` also exists, increment to `-3`, `-4`, etc. until a free slug is found. Update `SLUG` and all derived paths. Emit one line: `Auto mode: collision detected, appended suffix; new slug = <new slug>.`
+- When `AUTO_MODE = true` and `LANE_MODE = false`: auto-pick `Append suffix (<slug>-2)` (NOT the literal first option `Overwrite`; auto mode's safer default differs from interactive mode per the `<auto_mode>` policy). If `<slug>-2` also exists, increment to `-3`, `-4`, etc. until a free slug is found. Update `SLUG` and all derived paths. Emit one line: `Auto mode: collision detected, appended suffix; new slug = <new slug>.`
+- When `LANE_MODE = true`: never append a suffix, because the coordinator archives only `.ac/plans/<slug>/` and a suffixed plan would never be archived. The collision is returned as a `BLOCKED` block instead (the `<auto_mode>` table), with `class: plan`: write the checkpoint with `last_stage: "0"` and one `pending_decisions[]` entry with `gate: blocker`, header `Exists?`, a question naming the existing `PLAN_PATH`, options `Overwrite: delete the earlier plan directory and plan this bundle from scratch` / `Cancel: keep the earlier plan untouched and end the lane FAILED`, and recommended `Cancel`. A resume whose consumed checkpoint holds this pending `Exists?` entry re-enters 0f to apply the answer, despite the "no checkpoint was just consumed" guard above. On `RESOLVE Overwrite`: delete `PLAN_DIR`, checkpoint included, rerun 0c, and continue at Stage 1 under the same `SLUG`; the `<lane_mode>` resume skips its checkpoint write and only appends the answer to the fresh `LOG_PATH`. On `RESOLVE Cancel`: delete only the checkpoint this gate wrote, leave `PLAN_PATH` as it was, and end the turn with a final `FAILED` block whose `next` is `none`.
 
 Stage 0 complete.
 
