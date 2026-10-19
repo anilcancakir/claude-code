@@ -51,7 +51,7 @@ LANE STATUS
 status: WORKING
 bundle: b2
 phase: execute
-plan: /abs/repo/.claude/worktrees/b2/.ac/plans/auth-tokens/plan.md
+plan: /abs/repo/.claude/worktrees/agent-a1b2c3d4/.ac/plans/b2/plan.md
 branch: lane/ship-auth/b2
 head: 4f1c2aa
 base: 91be07d
@@ -67,7 +67,7 @@ LANE STATUS
 status: PLANNED
 bundle: b2
 phase: plan
-plan: /abs/repo/.claude/worktrees/b2/.ac/plans/auth-tokens/plan.md
+plan: /abs/repo/.claude/worktrees/agent-a1b2c3d4/.ac/plans/b2/plan.md
 branch: lane/ship-auth/b2
 head: 4f1c2aa
 base: 91be07d
@@ -75,7 +75,7 @@ steps: 0/4
 decisions: none
 blocker: none
 artifacts:
-  - /abs/repo/.claude/worktrees/b2/.ac/plans/auth-tokens/plan.md
+  - /abs/repo/.claude/worktrees/agent-a1b2c3d4/.ac/plans/b2/plan.md
 next: waiting for EXECUTE
 ```
 
@@ -84,7 +84,7 @@ LANE STATUS
 status: DECISIONS
 bundle: b2
 phase: plan
-plan: /abs/repo/.claude/worktrees/b2/.ac/plans/auth-tokens/plan.md
+plan: /abs/repo/.claude/worktrees/agent-a1b2c3d4/.ac/plans/b2/plan.md
 branch: lane/ship-auth/b2
 head: 4f1c2aa
 base: 91be07d
@@ -107,7 +107,7 @@ LANE STATUS
 status: BLOCKED
 bundle: b2
 phase: execute
-plan: /abs/repo/.claude/worktrees/b2/.ac/plans/auth-tokens/plan.md
+plan: /abs/repo/.claude/worktrees/agent-a1b2c3d4/.ac/plans/b2/plan.md
 branch: lane/ship-auth/b2
 head: 7ac03de
 base: 91be07d
@@ -121,7 +121,7 @@ blocker:
     - stop: leave the branch as is and report FAILED
   recommended: retry
 artifacts:
-  - /abs/repo/.claude/worktrees/b2/.ac/plans/auth-tokens/evidence/step3-fail.txt
+  - /abs/repo/.claude/worktrees/agent-a1b2c3d4/.ac/plans/b2/evidence/step3-fail.txt
 next: waiting for RESOLVE
 ```
 
@@ -130,7 +130,7 @@ LANE STATUS
 status: DONE
 bundle: b2
 phase: execute
-plan: /abs/repo/.claude/worktrees/b2/.ac/plans/auth-tokens/plan.md
+plan: /abs/repo/.claude/worktrees/agent-a1b2c3d4/.ac/plans/b2/plan.md
 branch: lane/ship-auth/b2
 head: c8d41f0
 base: 91be07d
@@ -138,7 +138,7 @@ steps: 4/4
 decisions: none
 blocker: none
 artifacts:
-  - /abs/repo/.claude/worktrees/b2/.ac/plans/auth-tokens/report.md
+  - /abs/repo/.claude/worktrees/agent-a1b2c3d4/.ac/plans/b2/report.md
 next: waiting for REBASE or the coordinator's merge
 ```
 
@@ -203,7 +203,7 @@ A fresh lane worktree starts at the default branch, not at the integration branc
 
 ## Prohibitions
 
-- No `git push`, and the lane calls `ac:execute` with `--no-push`. Only the coordinator, after an owner-approved `Push?` answer, publishes anything.
+- No `git push`, and the lane calls `ac:execute` with `--lane`, which implies no push. Only the coordinator, after an owner-approved `Push?` answer, publishes anything.
 - No `git merge`, into `coord/<slug>` or anywhere else; a lane moves its base only through a rebase message. The coordinator is the only integrator, which keeps the integration order and conflict handling in one place.
 - No `AskUserQuestion`. Subagents have no such tool, and an owner question reaches the owner only through a DECISIONS or BLOCKED block.
 - No `EnterWorktree`. The lane is already isolated, and entering a second worktree would leave the status block's paths pointing at a directory the coordinator does not know.

@@ -87,7 +87,7 @@ Auto mode automates system-process flow gates. It never auto-decides user-prefer
 | 0f Plan collision | flow | auto-pick `Append suffix`, deliberately NOT the first option; preservation beats silent destruction | n/a, auto-picked | auto-pick `Append suffix` |
 | 3a Proceed after synthesis | interview | surfaces | continues with `Proceed` | returns `DECISIONS` |
 | 3b.1 TDD node | interview | surfaces | continues with the Recommended option | returns `DECISIONS` |
-| 3b.2 QA node | interview | surfaces | continues with the Recommended option | returns `DECISIONS` |
+| 3b.2 QA node | interview | surfaces | continues with the Recommended option | not asked: records `QA = false`, since `ac:execute --lane` skips the QA pass |
 | 3c Every decision node | interview | surfaces | continues with the Recommended option | returns `DECISIONS` |
 | 3d Stalled? | flow | auto-pick `Continue` | n/a, auto-picked | auto-pick `Continue` |
 | 3.5c Oracle returned CRITICAL | BLOCKER | surfaces | continues with `Revise plan`, at most once per run | returns `BLOCKED` |
@@ -131,8 +131,8 @@ How an entry is written and how a lane resumes. The status block itself is defin
   carried the marker, and the consequence is the option's own description. The `Proceed?` entry carries the Stage 3a
   synthesis lines in its `question`, because the coordinator never sees a chat render.
 - **Blocker class.** A `BLOCKED` block from this skill uses `class: plan`.
-- **Batching.** A returning turn carries every node that is independent at that point, so the Stage 3a trio goes
-  together and later 3c nodes with no edge between them go together. Each round trip costs the coordinator a resume, so
+- **Batching.** A returning turn carries every node that is independent at that point, so the Stage 3a pair (`Proceed?`
+  with `TDD?` or `Tests?`; `QA?` is never asked in a lane) goes together and later 3c nodes with no edge between them go together. Each round trip costs the coordinator a resume, so
   one node per turn is the failure. A node that depends on another waits for the next round.
 - **Resume.** The lane is resumed with `ANSWERS` (one `<id>=<label>` per line) after a `DECISIONS` block and with
   `RESOLVE <label>` after a `BLOCKED` one. Look each id up in `pending_decisions[]`, lock the answer with the rationale

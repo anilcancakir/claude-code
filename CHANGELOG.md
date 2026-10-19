@@ -19,7 +19,7 @@ Adds `/ac:coordinate`, a coordinator for a request too large for one plan. It re
 
 ### Changed
 
-- `plugins/ac/references/working-rules.md` and `global-claude-md-section-template.md` gain one routing line for `/ac:coordinate`. `README.md`, `CLAUDE.local.md` and `.claude/rules/ac-plugin.md` carry the new component, agent and hook counts; `hooks/lib/question-wait.sh` names the fourth Stop guard.
+- `plugins/ac/references/working-rules.md` and `global-claude-md-section-template.md` gain one routing line for `/ac:coordinate`. `README.md` carries the new component, agent and hook counts; `hooks/lib/question-wait.sh` names the fourth Stop guard.
 - Version 0.33.0 in `cli/ac/package.json`, `plugins/ac/.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json`.
 
 ## [0.32.0] - 2026-10-18

@@ -99,7 +99,7 @@ Plan-then-execute is a crowded category. Three things here are not common:
 | `ac:plan-worker-senior` | opus | Cross-layer changes, migrations and complex edges with caller-impact checks. |
 | `ac:plan-reviewer` | opus | Advisory pass over the written plan. Reports findings, gives no verdict. |
 | `ac:plan-code-review` | opus | Post-implementation pass over the diff. Reports findings, gives no verdict. |
-| `ac:auto-verifier` | opus | Read-only completion gate for `/ac:auto`. Holds no `Edit`, `Write` or `Agent`. |
+| `ac:auto-verifier` | opus | Read-only completion gate for `/ac:auto` and `/ac:coordinate`. Holds no `Edit`, `Write` or `Agent`. |
 | `ac:qa-tester` | sonnet | Runs the QA cases from a brief and writes a report with evidence. Never edits application code; writes only inside its run directory. |
 | `ac:lane` | opus | One roadmap bundle of a `/ac:coordinate` run, in its own git worktree: plans it with `ac:plan --lane`, executes it with `ac:execute --lane`, reports to the coordinator. Spawned only by `/ac:coordinate`. |
 

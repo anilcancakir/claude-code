@@ -231,7 +231,9 @@ sequence: record, relay, advance, integrate, dispatch, then end the turn.
 Parse the lane's last `LANE STATUS` block. Append it to `events.jsonl`, then rewrite the bundle's entry in
 `state.json`: `status` from the block (`DECISIONS` and `BLOCKED` also join `owner_queue`), `head`, `worktree`
 (`<repo>/.claude/worktrees/agent-<lane_agent_id>`, which the block's `plan` path confirms), `plan_slug` (the bundle
-id). A `WORKING` block changes nothing. A message that carries no parsable block is a FAILED with that fact.
+id). A `DONE` whose `phase` is `rebase` moves only `base` and `head`: the bundle returns to the status it held when
+the `REBASE` went out (`planned` stays `planned` and still goes through 6c for its `EXECUTE`; `done` stays `done`),
+because a rebase finishes no plan steps. A `WORKING` block changes nothing. A message that carries no parsable block is a FAILED with that fact.
 
 ### 6b. Relay owner questions
 
@@ -316,8 +318,9 @@ Schema: ${CLAUDE_PLUGIN_ROOT}/skills/auto/references/criteria-schema.md"
 
 Two absolute paths and nothing else; your account of the run would replace the evidence the gate gathers. End the
 turn with a wait status. When the body arrives, `Write`
-the returned body verbatim to `.ac/coord/<slug>/verdict.md`. Nothing usable twice: write `status: human_needed`
-with one line naming what the gate did, never `passed`.
+the returned body verbatim to `.ac/coord/<slug>/verdict.md`. An empty or malformed body gets one re-spawn with the
+same two paths; a second unusable body is written as `status: human_needed` with one line naming what the gate did,
+never `passed`.
 
 ## Phase 8: Push and close
 

@@ -32,7 +32,7 @@
 set -u
 
 wait_text="AskUserQuestion timed out with the user away, so it carries no answer."
-wait_text="$wait_text Either this session is not in an ac:auto run or the question is a blocker, so proceeding"
+wait_text="$wait_text Either this session is not in an ac:auto or ac:coordinate run or the question is a blocker, so proceeding"
 wait_text="$wait_text on your own judgment is not authorised. End the turn with one line naming the open question"
 wait_text="$wait_text and any selection already made. The user's reply will arrive as the next message."
 continue_text_auto="AskUserQuestion timed out with the user away. This session owns the active ac:auto run and the"
