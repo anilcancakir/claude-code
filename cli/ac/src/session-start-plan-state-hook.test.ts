@@ -161,8 +161,9 @@ test("on compact, the plan path alone keeps the ac:plan and ac:execute guidance"
 
     expect(text).toContain("This session resumed from a compaction.");
     expect(text).toContain(
-        "A re-attached skill keeps only its first 5,000 tokens, and both the ac:plan and ac:execute bodies run well past that",
+        "A re-attached skill keeps only its first 5,000 tokens, and both the ac:plan and ac:execute bodies",
     );
+    expect(text).toContain("run well past that");
     expect(text).not.toContain("ac:coordinate");
 });
 

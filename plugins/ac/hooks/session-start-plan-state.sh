@@ -59,7 +59,7 @@ if [ -n "$hook_session" ] && [ -f "$coord_marker" ] && jq -e . "$coord_marker" >
         [ -n "$coord_text" ] && coord_note="$coord_note
 - Coordinator marker note: $coord_text"
         [ "$source_kind" = "compact" ] && coord_note="$coord_note
-- A re-attached skill keeps only its first 5,000 tokens, and the ac:coordinate body runs past that, so its later sections (lane loop, gate, push and close, terminal branches) are no longer in context. Its opening Standing rules block is written to fit inside the surviving 5,000 and is the part you can still rely on. Re-invoking ac:coordinate restores its full body."
+- A re-attached skill keeps only its first 5,000 tokens, and the ac:coordinate body runs past that, so its later sections (the later lane-loop steps, gate, push and close, terminal branches) are no longer in context. Its opening Standing rules block is written to fit inside the surviving 5,000 and is the part you can still rely on. Re-invoking ac:coordinate restores its full body."
     fi
 fi
 
