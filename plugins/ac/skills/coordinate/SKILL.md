@@ -55,6 +55,8 @@ subagent (Claude Code issue #89102). The integration worktree is driven from her
 
 **Never `git worktree remove --force`.** A worktree that refuses a plain removal holds work nobody archived;
 forcing it is how plan directories were lost in earlier multi-session runs. Leave it and name it in the report.
+The one lock you release is Claude Code's own resume lock on a finished, archived lane, with `git worktree unlock`
+(`references/integration.md` step 8).
 
 **Never push without a `Push?` answer.** Merges into `coord/<slug>` stay local. The one publish is Phase 8, after
 the owner picks a push option.

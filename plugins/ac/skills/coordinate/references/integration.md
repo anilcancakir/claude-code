@@ -60,7 +60,12 @@ merge moves `<head>` and the next bundle has to be checked against the new one.
    only evidence that sets `archived: true`; output from it means the copy is incomplete, so copy again and do not
    go on to step 8 until it prints nothing.
 
-8. **Remove the worktree.** `git worktree remove <lane wt>`, never with `--force`. The lane's commits live on in the
+8. **Remove the worktree.** Claude Code keeps a finished lane's worktree locked for a possible resume for as long as
+   this session lives (measured on 2.1.303: `git worktree list --porcelain` shows `locked claude agent
+   agent-<lane_agent_id> (pid ...)`, and a plain removal refuses it). The lane's final block has arrived and the
+   archive is verified, so nothing will resume it: when the lock reason names `agent-<lane_agent_id>` of this bundle,
+   run `git worktree unlock <lane wt>`. Leave any other lock alone. Then `git worktree remove <lane wt>`, never with
+   `--force`. The lane's commits live on in the
    integration branch and its plan in the archive; anything that makes a plain removal refuse (an untracked or
    modified file) is work nobody archived. On a refusal, keep `worktree` set, add one `events.jsonl` line naming the
    files `git -C <lane wt> status --short` lists, and leave it for the final report. Otherwise set `worktree` to
@@ -97,7 +102,7 @@ Merges stay local. Nothing here pushes; the one push is the `Push?` gate at Phas
 
 A lane that ended FAILED holds no mergeable work, but its plan and evidence still explain why it failed. Archive
 as in step 7 into `bundles/<id>-failed-<attempts>/` (beside, not inside, `bundles/<id>/`, so a later successful
-attempt's `diff -rq` compares like with like), confirm with `diff -rq`, then `git worktree remove <lane wt>`
+attempt's `diff -rq` compares like with like), confirm with `diff -rq`, release the lane's own Claude Code lock as in step 8, then `git worktree remove <lane wt>`
 without `--force`. Only when the worktree is gone can `git -C <wt> branch -D <lane branch>` drop the unmerged
 branch (an unmerged branch needs the capital `-D`; the archive already holds its plan) and a fresh lane re-create
 the branch name. A refused removal leaves both in place and the bundle is dropped rather than re-dispatched.
