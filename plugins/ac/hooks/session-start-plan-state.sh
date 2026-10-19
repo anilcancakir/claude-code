@@ -13,6 +13,9 @@
 # of read as context. Directives live in the skill bodies and in stop-guard.sh's `reason`
 # field, which is the documented channel for them.
 #
+# An /ac:coordinate run whose marker this session owns adds its slug, phase and note after the plan
+# block, and stands alone when no plan is in progress.
+#
 # Advisory only: prints nothing and exits 0 on any error or when no plan is in progress, so
 # a broken scan never blocks a session start.
 
@@ -32,15 +35,50 @@ payload_dir="$(printf '%s' "$input" | jq -r '.cwd // empty' 2>/dev/null)"
 project_dir=""
 for _cand in "$payload_dir" "${CLAUDE_PROJECT_DIR:-}"; do
     [ -n "$_cand" ] || continue
-    if [ -e "$_cand/.ac/plans" ]; then
+    if [ -e "$_cand/.ac/plans" ] || [ -e "$_cand/.ac/state/active-coordinate.json" ]; then
         project_dir="$_cand"
         break
     fi
 done
 [ -n "$project_dir" ] || project_dir="${payload_dir:-${CLAUDE_PROJECT_DIR:-$PWD}}"
 
+# 0. A live coordinator run this session owns. The slug names a directory in the note, so its
+#    charset is checked before it is used; a marker that cannot be read or is not ours adds nothing.
+coord_note=""
+coord_marker="$project_dir/.ac/state/active-coordinate.json"
+hook_session="$(printf '%s' "$input" | jq -r '.session_id // empty' 2>/dev/null)"
+if [ -n "$hook_session" ] && [ -f "$coord_marker" ] && jq -e . "$coord_marker" >/dev/null 2>&1; then
+    coord_session="$(jq -r '.session_id // empty' "$coord_marker" 2>/dev/null)"
+    coord_slug="$(jq -r '.slug // empty' "$coord_marker" 2>/dev/null)"
+    case "$coord_slug" in '' | *[!A-Za-z0-9._-]*) coord_slug="" ;; esac
+    if [ "$coord_session" = "$hook_session" ] && [ -n "$coord_slug" ]; then
+        coord_phase="$(jq -r '.phase // empty' "$coord_marker" 2>/dev/null)"
+        coord_text="$(jq -r '.note // empty' "$coord_marker" 2>/dev/null)"
+        coord_note="- Marker .ac/state/active-coordinate.json reports an /ac:coordinate run '$coord_slug' in phase ${coord_phase:-unknown}, owned by this session; its state lives in .ac/coord/$coord_slug/state.json."
+        [ -n "$coord_text" ] && coord_note="$coord_note
+- Coordinator marker note: $coord_text"
+    fi
+fi
+
+emit() {
+    jq -cn --arg c "$1" '{
+      hookSpecificOutput: {
+        hookEventName: "SessionStart",
+        additionalContext: $c
+      }
+    }'
+    exit 0
+}
+
+# Where there is no plan to report, the coordinator note is all there is.
+exit_without_plan() {
+    [ -n "$coord_note" ] && emit "ac coordinator state for this repository:
+$coord_note"
+    exit 0
+}
+
 plans_dir="$project_dir/.ac/plans"
-[ -d "$plans_dir" ] || exit 0
+[ -d "$plans_dir" ] || exit_without_plan
 
 marker="$project_dir/.ac/state/active-execution.json"
 
@@ -67,10 +105,10 @@ if [ -z "$slug" ]; then
         fi
     done
 fi
-[ -n "$slug" ] || exit 0
+[ -n "$slug" ] || exit_without_plan
 
 plan_file="$plans_dir/$slug/plan.md"
-[ -f "$plan_file" ] || exit 0
+[ -f "$plan_file" ] || exit_without_plan
 
 # 2. Step counts straight from the plan file, which the execute skill treats as the
 #    authoritative record of what remains.
@@ -79,11 +117,11 @@ checked="$(grep -c '^- \[x\] ' "$plan_file" 2>/dev/null || true)"
 case "$unchecked" in '' | *[!0-9]*) unchecked=0 ;; esac
 case "$checked" in '' | *[!0-9]*) checked=0 ;; esac
 total=$((unchecked + checked))
-[ "$total" -gt 0 ] || exit 0
+[ "$total" -gt 0 ] || exit_without_plan
 
 # Nothing outstanding and no marker means there is no resume state worth reporting.
 if [ "$unchecked" -eq 0 ] && [ ! -f "$marker" ]; then
-    exit 0
+    exit_without_plan
 fi
 
 next_step="$(grep -m1 '^- \[ \] ' "$plan_file" 2>/dev/null | sed -E 's/^- \[ \] \*\*[^*]*\*\*: *//')"
@@ -120,10 +158,7 @@ if [ "$source_kind" = "compact" ]; then
 - A re-attached skill keeps only its first 5,000 tokens, and both the ac:plan and ac:execute bodies run well past that, so each one's later sections (loop bounds, terminal branches, error handling, deliver phase) are no longer in context. Their opening Standing rules block is written to fit inside the surviving 5,000 and is the part you can still rely on. Re-invoking the relevant skill restores its full body."
 fi
 
-jq -cn --arg c "$context" '{
-  hookSpecificOutput: {
-    hookEventName: "SessionStart",
-    additionalContext: $c
-  }
-}'
-exit 0
+[ -n "$coord_note" ] && context="$context
+$coord_note"
+
+emit "$context"

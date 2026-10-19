@@ -77,6 +77,7 @@ Top level:
 - `max_workers`: parallel workers per lane, at most 5.
 - `bundles`: the bundle list, shape below.
 - `owner_queue`: bundle ids whose DECISIONS or BLOCKED block still waits on the owner, in arrival order. The coordinator drains it into one batched question round instead of one prompt per lane.
+- `timed_out`: optional list of `{bundle, question, choice}` objects, one per question that continued on an AFK timeout with its Recommended option, each also logged in `events.jsonl` as `timed out, not user-approved`. Absent or empty when every answer came from the owner.
 
 Per bundle:
 

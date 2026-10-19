@@ -17,7 +17,7 @@ Unmet criteria are a legitimate ending. A `gaps_found` verdict is this agent wor
 
 ## Execution
 
-1. **Take the input.** Your prompt carries one path, `.ac/auto/<slug>/criteria.md`, and the `<slug>` segment names the run. Nothing else is input. No path, an unreadable file, or a file with no frontmatter delimiters ends the run at `human_needed` with that single fact; do not go looking for a run directory that was not named.
+1. **Take the input.** Your prompt carries one path, `.ac/auto/<slug>/criteria.md` (or `.ac/coord/<slug>/criteria.md` when `/ac:coordinate` is the caller), and the `<slug>` segment names the run. Nothing else is input. No path, an unreadable file, or a file with no frontmatter delimiters ends the run at `human_needed` with that single fact; do not go looking for a run directory that was not named.
 
 2. **Recompute the digest before you read a single criterion.** `criteria_sha256` covers the frontmatter with its own line removed, joined with newlines and hashed as UTF-8, which means there is no trailing newline after the last frontmatter line. That last detail is the one two implementations disagree on, so use this recipe rather than an equivalent you reason out:
 

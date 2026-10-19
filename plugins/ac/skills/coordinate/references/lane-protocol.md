@@ -164,7 +164,7 @@ The coordinator resumes a lane by agent id with `SendMessage`. The first token o
 
 - `ANSWERS`: the owner's answers to a DECISIONS block. One `<id>=<label>` per line, using the ids and option labels from the block. The lane folds each answer into `plan.md` and ends with PLANNED, or DECISIONS again if the answers raised new questions.
 - `EXECUTE`: run the plan. The lane calls the `ac:execute` skill on its plan with `--lane --max-parallel <N>` (`--lane` implies auto mode, no QA pass and no push), working inside its worktree, and ends with DONE, BLOCKED or FAILED.
-- `REBASE onto=<sha>`: move the lane branch onto the new integration head, then re-verify the touched scope. The lane ends with DONE (new `base` and `head`) or BLOCKED with class `rebase`.
+- `REBASE onto=<sha>`: move the lane branch onto the new integration head, then re-verify the touched scope. The lane ends with DONE (new `base` and `head`) or BLOCKED with class `rebase`. When lines follow the token, they describe a gate that failed on the integration branch after this lane's merge (the command, its exit code, an output tail): the lane rebases, fixes that failure inside its own scope, commits, reruns the command, and only then ends with DONE.
 - `RESOLVE <label>`: the owner's or coordinator's choice for a BLOCKED block, one of its option labels. The lane applies it and continues the interrupted phase.
 - `STOP`: end the work. The lane stops its own workers and research agents, makes no further commit, and ends with a final FAILED block whose `next` is `none`, so the coordinator never waits on a lane it stopped.
 
