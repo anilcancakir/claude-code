@@ -73,6 +73,9 @@ const ciWatches: string[] = [
     "gh pr checks 108 --watch --interval 30",
     "gh pr checks 108 --watch",
     "gh run watch --exit-status 123",
+    "gh  run watch -i 5",
+    "FOO=1 gh run watch --exit-status 123",
+    "time gh run watch -i 5",
 ];
 
 const watchCommands: string[] = [
@@ -81,6 +84,24 @@ const watchCommands: string[] = [
     "sh -c 'watch -n 5 npm test'",
     "nohup watch -n 5 npm test",
     "sudo watch -n 5 npm test",
+    "env A=1 watch -n 5 npm test",
+    "x;watch -n 5 npm test",
+    "(watch -n 5 npm test)",
+    'sh -c "watch -n 5 npm test"',
+    "time watch -n 5 npm test",
+    "npm test | watch -n 5 npm test",
+    "FOO=1 watch -n 5 npm test",
+    "cd x && FOO=1 watch -n 5 npm test",
+    "/usr/bin/watch -n 5 npm test",
+    "for i in 1 2; do watch -n 5 npm test; done",
+    "if true; then watch -n 5 npm test; fi",
+    "command watch -n 5 npm test",
+    "stdbuf -oL watch -n 5 npm test",
+    "env -i watch -n 5 npm test",
+    "time -p watch -n 5 npm test",
+    "nice -n 10 watch -n 5 npm test",
+    "{ watch -n 5 npm test; }",
+    "! watch -n 5 npm test",
 ];
 
 test.each(counted)("strict mode counts a bounded wait: %s", (command) => {
