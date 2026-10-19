@@ -14,7 +14,8 @@
 # field, which is the documented channel for them.
 #
 # An /ac:coordinate run whose marker this session owns adds its slug, phase and note after the plan
-# block, and stands alone when no plan is in progress.
+# block, and stands alone when no plan is in progress. On the compact source those coordinator
+# lines also state the 5,000-token retention for the ac:coordinate body.
 #
 # Advisory only: prints nothing and exits 0 on any error or when no plan is in progress, so
 # a broken scan never blocks a session start.
@@ -57,6 +58,8 @@ if [ -n "$hook_session" ] && [ -f "$coord_marker" ] && jq -e . "$coord_marker" >
         coord_note="- Marker .ac/state/active-coordinate.json reports an /ac:coordinate run '$coord_slug' in phase ${coord_phase:-unknown}, owned by this session; its state lives in .ac/coord/$coord_slug/state.json."
         [ -n "$coord_text" ] && coord_note="$coord_note
 - Coordinator marker note: $coord_text"
+        [ "$source_kind" = "compact" ] && coord_note="$coord_note
+- A re-attached skill keeps only its first 5,000 tokens, and the ac:coordinate body runs past that, so its later sections (lane loop, gate, push and close, terminal branches) are no longer in context. Its opening Standing rules block is written to fit inside the surviving 5,000 and is the part you can still rely on. Re-invoking ac:coordinate restores its full body."
     fi
 fi
 

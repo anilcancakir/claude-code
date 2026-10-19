@@ -132,3 +132,46 @@ test("an execute marker alone produces the same output as before", () => {
     expect(text).toContain("Marker note: wave two");
     expect(text).not.toContain("coordinate");
 });
+
+test("on compact, a coordinator run alone carries the 5,000-token guidance for ac:coordinate", () => {
+    writeCoordinateMarker();
+
+    const text = context(runHook(SESSION, "compact"));
+
+    expect(text).toContain("ship-auth");
+    expect(text).toContain("first 5,000 tokens");
+    expect(text).toContain("the ac:coordinate body");
+});
+
+test("on compact, the plan path with a coordinator run names ac:coordinate in the guidance", () => {
+    writePlan();
+    writeCoordinateMarker();
+
+    const text = context(runHook(SESSION, "compact"));
+
+    expect(text).toContain("Active plan: demo-plan");
+    expect(text).toContain("both the ac:plan and ac:execute bodies");
+    expect(text).toContain("the ac:coordinate body");
+});
+
+test("on compact, the plan path alone keeps the ac:plan and ac:execute guidance", () => {
+    writePlan();
+
+    const text = context(runHook(SESSION, "compact"));
+
+    expect(text).toContain("This session resumed from a compaction.");
+    expect(text).toContain(
+        "A re-attached skill keeps only its first 5,000 tokens, and both the ac:plan and ac:execute bodies run well past that",
+    );
+    expect(text).not.toContain("ac:coordinate");
+});
+
+test("a resumed coordinator run carries no compaction guidance", () => {
+    writeCoordinateMarker();
+
+    const text = context(runHook(SESSION, "resume"));
+
+    expect(text).toContain("ship-auth");
+    expect(text).not.toContain("5,000");
+    expect(text).not.toContain("the ac:coordinate body");
+});
