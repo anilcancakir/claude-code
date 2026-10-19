@@ -11,7 +11,7 @@
             "name": "ac",
             "source": "./plugins/ac",
             "description": "Plans before it edits, routes each step to haiku, sonnet or opus by cost, verifies four ways per wave, and can finish a run unattended behind a read-only gate. Ships tiered subagents, a QA pass, authoring skills, local MCP tools, and gated fail-open hooks.",
-            "version": "0.32.0",
+            "version": "0.33.0",
             "author": {
                 "name": "Anilcan Cakir",
                 "email": "anilcan.cakir@gmail.com"

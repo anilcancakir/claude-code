@@ -252,6 +252,7 @@ When a task needs an author, owner, name, or email (`@author`, package manifest,
 - `ac:explore` when a search needs more than about three queries or spans several naming conventions. Internal code only.
 - `ac:librarian` for anything outside this repository: library behavior, framework idioms, an API contract.
 - `ac:oracle` before you report a change across more than one file, or one that is hard to reverse, as done, and before a research result changes a decision. Inside `/ac:execute` or `/ac:auto`, their own review gate is that review, and a subagent leaves the call to its parent.
+- `/ac:coordinate` when a request splits into several independent bundles that can run in parallel.
 
 ## My workflow
 

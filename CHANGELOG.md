@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+Adds `/ac:coordinate`, a coordinator for a request too large for one plan. It researches the request, settles a roadmap with the owner, has `ac:oracle` review it, splits it into bundles and runs each through an `ac:lane` subagent in its own git worktree, merging finished bundles in dependency order into a local `coord/<slug>` branch. It ends with an `ac:auto-verifier` verdict and one push the owner approves.
+
+### Added
+
+- `plugins/ac/skills/coordinate/SKILL.md` and its `references/`, the `/ac:coordinate <request> [--lanes N] [--max-workers N]` skill. The coordinator is the only writer of `.ac/coord/<slug>/`, relays the lanes' plan decisions to the owner in batches, re-runs the gates after each fast-forward merge, archives each bundle's plan, and never pushes without a `Push?` answer.
+- `plugins/ac/agents/lane.md`, the `ac:lane` agent: opus, effort high, `isolation: worktree`, `autoCompactWindow: 400000`, denylist `NotebookEdit, EnterWorktree, ExitWorktree`. Spawned only by `/ac:coordinate`; runs `ac:plan --lane` then `ac:execute --lane` for one bundle and reports through a status block.
+- `--lane` and `--slug` on `ac:plan`, and `--lane` and `--max-parallel N` on `ac:execute`. Lane mode implies auto mode, returns owner questions to the coordinator as pending decisions instead of asking, and skips the QA pass and the push.
+- The coordinator marker `.ac/state/active-coordinate.json`, read by `session-start-plan-state.sh` (a SessionStart note with the slug and phase) and by `posttooluse-question-timeout.sh` (72 h bound, a coordinator continue text, with `Push?`, `Lane block?` and `Conflict?` always waiting).
+- `plugins/ac/hooks/stop-guard-coordinate.sh`, a fourth Stop guard, registered in `hooks.json` beside the auto guard. It blocks a coordinator turn that ends with no verdict and nothing running, 3 blocks per phase, and fails open on every other condition. `ac:lane` is exempt from `pretooluse-file-scope.sh` and `subagentstop-background-guard.sh`, and `lane` joins the bare-name roster in `hooks/lib/ac-agent-scope.sh`.
+
+### Changed
+
+- `plugins/ac/references/working-rules.md` and `global-claude-md-section-template.md` gain one routing line for `/ac:coordinate`. `README.md`, `CLAUDE.local.md` and `.claude/rules/ac-plugin.md` carry the new component, agent and hook counts; `hooks/lib/question-wait.sh` names the fourth Stop guard.
+- Version 0.33.0 in `cli/ac/package.json`, `plugins/ac/.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json`.
+
 ## [0.32.0] - 2026-10-18
 
 Stops `ac:*` subagents from staying open on background work they started, replaces the unbounded searches that timed out in subagents with a deny that carries a working recipe, and makes every ac actor stop the test resources it starts, with `ac lease` stopping anything left behind at session end or at the next session start. Checked in 19 live scenarios in nested Claude Code 2.1.302 sessions with this plugin loaded from the working tree.

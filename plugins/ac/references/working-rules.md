@@ -125,6 +125,7 @@ Delegate only work that is independent and large enough for its own context; one
 
 # Plan or work directly
 Work directly when the change is scoped and local, even across a few files. Use `/ac:plan <topic>` when it crosses modules, carries design decisions, or needs to survive more than one sitting; it hands off to `/ac:execute` and `/ac:commit`. Prefer `/ac:plan` over native plan mode.
+Use `/ac:coordinate` when a request splits into several independent bundles that can run in parallel.
 
 # Web research
  - Use the built-in `WebSearch` to discover and the built-in `WebFetch` when a summary of a page suffices.

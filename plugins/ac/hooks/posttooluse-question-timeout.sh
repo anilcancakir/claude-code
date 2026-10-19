@@ -15,7 +15,7 @@
 #               auto-continue). Oracle CRIT? and Premise failed? continue once per run each, then
 #               wait. A coordinator marker lives 72 h instead of 24 h because a roadmap run spans
 #               days, and its continue text points at .ac/coord/<slug>/ since there is no plan.
-# The wait branch arms the question-wait latch (lib/question-wait.sh) so the three Stop guards let
+# The wait branch arms the question-wait latch (lib/question-wait.sh) so the four Stop guards let
 # the turn end; an answered question retires an old latch.
 #
 # Environment:

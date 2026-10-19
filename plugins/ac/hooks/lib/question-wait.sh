@@ -1,5 +1,5 @@
-# Question-wait latch, sourced by the three Stop guards (stop-guard.sh, stop-guard-auto.sh,
-# stop-guard-announce.sh) and written by the AskUserQuestion timeout hook.
+# Question-wait latch, sourced by the four Stop guards (stop-guard.sh, stop-guard-auto.sh,
+# stop-guard-coordinate.sh, stop-guard-announce.sh) and written by the AskUserQuestion timeout hook.
 #
 # A turn that ends to wait for a question that timed out is the correct ending, so no Stop guard may
 # block it. The latch is a file under TMPDIR keyed by session id, holding the epoch it was armed at.
