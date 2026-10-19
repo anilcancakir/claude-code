@@ -7,7 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-Adds `/ac:coordinate`, a coordinator for a request too large for one plan. It researches the request, settles a roadmap with the owner, has `ac:oracle` review it, splits it into bundles and runs each through an `ac:lane` subagent in its own git worktree, merging finished bundles in dependency order into a local `coord/<slug>` branch. It ends with an `ac:auto-verifier` verdict and one push the owner approves.
+## [0.33.0] - 2026-10-20
+
+Adds `/ac:coordinate`, a coordinator for a request too large for one plan. It researches the request, settles a roadmap with the owner, has `ac:oracle` review it, splits it into bundles and runs each through an `ac:lane` subagent in its own git worktree, merging finished bundles in dependency order into a local `coord/<slug>` branch. It ends with an `ac:auto-verifier` verdict and one push the owner approves. Checked live in fresh interactive Claude Code 2.1.303 sessions driven through tmux: one lane, two parallel lanes, a forced BLOCKER resumed with `RESOLVE`, a two-bundle away-mode run, and a real four-bundle run on a clone of this repository whose fixes ship in this release.
 
 ### Added
 
