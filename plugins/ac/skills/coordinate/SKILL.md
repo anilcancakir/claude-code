@@ -61,9 +61,12 @@ The one lock you release is Claude Code's own resume lock on a finished, archive
 **Never push without a `Push?` answer.** Merges into `coord/<slug>` stay local. The one publish is Phase 8, after
 the owner picks a push option.
 
-**Questions.** Only you call `AskUserQuestion`; lanes have no such tool. Every header is at most 12 characters.
-Fixed headers: `Roadmap?` (the roadmap lock), `Lane block?` (a lane BLOCKED block), `Conflict?` (a rebase the lane
-could not resolve), `Push?` (the final push). A bundle decision header is `<bundle-id> <lane header>` cut to 12
+**Questions.** Only you call `AskUserQuestion`; lanes have no such tool. Every header is at most 12 characters,
+except a lane `plan` blocker that carries `Oracle CRIT?` or `Premise failed?`, which you ask under that header
+verbatim so the hook continues it once per run, as under `ac:auto`. Fixed headers: `Roadmap?` (the roadmap lock),
+`Lane block?` (any other lane BLOCKED block), `Conflict?` (a rebase the lane could not resolve), `Push?` (the final
+push). A blocker question that timed out is recorded in `owner_asked` and not asked again until a user message
+arrives. A bundle decision header is `<bundle-id> <lane header>` cut to 12
 characters. When a question times out with the owner away, the plugin's question-timeout hook decides: it lets a
 non-blocker question (`Roadmap?`, roadmap interview questions, bundle decisions) continue with its Recommended
 option only for the session that owns `.ac/state/active-coordinate.json` while `.ac/coord/<slug>/` exists and holds
@@ -74,11 +77,14 @@ Ask lane blockers and conflicts in their own call, apart from decisions: the hoo
 header in it is a blocker, so a mixed call would hold the decisions too.
 
 **Slot budget.** A session runs at most 20 subagents at once, lanes and their children together; keep 2 spare and
-plan against 18. A lane's peak is 7 while it plans (itself, 4 `ac:explore`, 2 `ac:librarian`) and `1 + max_workers`
-while it executes (6 at the default 5 workers). Count each bundle at the peak of the phase it is in or about to
-resume: `planning` and `decisions` at 7, `planned`, `executing` and `blocked` at `1 + max_workers` (a `blocked` lane
-whose block came from planning at 7), `done` at 1, everything else at 0. Dispatch a lane, or send one `EXECUTE`,
-only while the summed peaks after the change stay at or under 18. Live lanes never exceed `max_lanes`.
+plan against 18. A lane's peak is 4 while it plans (itself plus at most 2 `ac:explore` and 1 `ac:librarian`, the
+lane research cap in `ac:plan`) and `1 + min(max_workers, steps_total)` while it executes (`1 + max_workers` while
+`steps_total` is still `null`). Count each bundle at the peak of the phase it is in or about to resume: `planning`
+and `decisions` at 4, `planned`, `executing` and `blocked` at the executing peak (a `blocked` lane whose block came
+from planning at 4), `done` at 1, everything else at 0. Dispatch a lane, or send one `EXECUTE`, only while the summed
+peaks after the change stay at or under 18. Live lanes never exceed `max_lanes`. Measured on a real run, a lane's
+reviewer, worker and code review never overlapped, so these peaks are ceilings, not averages; a budget priced at
+the old 7 per planning lane held a third lane for 15 minutes while 2 slots of 20 were busy.
 
 **Compaction.** Context pressure is not a stopping condition. When this procedure has been truncated away,
 re-invoke the `ac:coordinate` skill, then read `.ac/coord/<slug>/state.json` and the marker's `phase` and `note`;
@@ -210,7 +216,12 @@ round never converges. A blocker still open after round 2 goes into the `Roadmap
    without `turn_budget` and `failure_budget` (those bound `ac:auto`'s loop). Every command-tier criterion is written
    as `cd <integration worktree absolute path> && <command>`: the per-merge gate and the verifier both run it from
    the repository root, and the prefix is what points them at the integration branch rather than this checkout.
-   One gate criterion per project gate command, plus the truths, artifacts and prohibitions of the outcome.
+   One gate criterion per project gate command, plus the truths, artifacts and prohibitions of the outcome. Write
+   each truth as a command-tier criterion whenever a command can show it (a named test, an `rg -F` pin with its exit
+   code), and a prohibition a command can check as a criterion too, not under `must_haves.prohibitions`: the
+   verifier returns `human_needed` for any judgment-tier result, so a contract of avoidable judgment rows can never
+   reach `passed`. Keep judgment for what no command can show. Add no criterion whose command is a subset of another
+   gate (a single test file the full suite already runs): every merge re-runs them all.
 4. **Lock.** One `AskUserQuestion`, header `Roadmap?`: the bundle table, the order, the criteria ids with their
    statements, open oracle risks, the baseline. Options: `Approve (Recommended)`, `Revise`, `Abort`. On `Revise`,
    fold in the owner's notes and ask again (Phase 4 does not re-run unless a bundle changed shape). `Abort` is the
@@ -224,7 +235,9 @@ round never converges. A blocker still open after round 2 goes into the `Roadmap
 ## Phase 6: Lane loop
 
 Every turn in this phase starts from a lane notification, an owner answer or a re-entry, and runs the same
-sequence: record, relay, advance, integrate, dispatch, then end the turn.
+sequence: record, advance, integrate, dispatch, relay, then end the turn. Relay comes last because an
+`AskUserQuestion` ends the turn: asked first, a question the owner is away for would hold every done bundle out of
+integration and every pending bundle out of dispatch until the owner returns.
 
 ### 6a. Record
 
@@ -234,7 +247,7 @@ Parse the lane's last `LANE STATUS` block. Append it to `events.jsonl`, then rew
 id). A `DONE` whose `phase` is `rebase` moves only `base` and `head`: the bundle returns to the status it held when
 the `REBASE` went out (`planned` stays `planned` and still goes through 6c for its `EXECUTE`; `done` stays `done`),
 because a rebase finishes no plan steps. A `DONE` whose `phase` is `execute` on a bundle whose `steps_total` is still
-`null` (the 6c `execute` option sent `EXECUTE` past a failing `plan-check`) runs `plan-check` on the block's `plan`
+`null` (a re-entry lost the 6c record) runs `plan-check` on the block's `plan`
 path now and stores the total it prints. A `WORKING` block changes nothing. A message that carries no parsable
 block is a FAILED with that fact.
 
@@ -248,8 +261,14 @@ Drain `owner_queue` in arrival order.
   never a partial set: the lane locks the answers it gets and clears the rest. A free-text answer that names no
   option cannot travel as a label; ask it again next round with the owner's words in the question.
 - **Lane blocks.** One `AskUserQuestion` per block, header `Lane block?`, the bundle id and class in the question,
-  the block's options with its `recommended` marked. `SendMessage` `RESOLVE <label>` with the exact label chosen.
+  the block's options with its `recommended` marked. A `plan` block whose `header` is `Oracle CRIT?` or
+  `Premise failed?` is asked under that header instead, so in away mode it continues once per run with its
+  Recommended option exactly as it does under `ac:auto`; every execute class waits, as it does there. `SendMessage` `RESOLVE <label>` with the exact label chosen.
 - **Rebase conflicts** (class `rebase`) are asked as `Conflict?` by the integration procedure.
+- **A timed-out blocker is asked once.** Any blocker question that timed out and waited (`Lane block?`, `Conflict?`,
+  or a second `Oracle CRIT?` / `Premise failed?` in the run) stays in `owner_queue` with its bundle id added to
+  `owner_asked`, and is not asked again until a user message arrives; the owner's reply answers it. Re-asking it on every
+  lane notification would end each of those turns on a question nobody is there to answer.
 
 Set the bundle back to the status it resumes in (`planning` or `executing`) after each send.
 
@@ -262,9 +281,15 @@ For a `planned` bundle, run `Bash: node "${CLAUDE_PLUGIN_ROOT}/cli/ac.js" plan-c
   `steps_total`. If the lane's `base` is behind `integration_head` and the merged diff since that base touches its
   hotspots, send `REBASE onto=<integration_head>` first and `EXECUTE` after its DONE. Otherwise, within the slot
   budget, `SendMessage` `EXECUTE` and set `executing`.
-- **Exit 1 or 2**: the plan is malformed or missing, and the protocol has no plan-fix message. Ask `Lane block?`
-  with `execute` (the lane's own execute shape gate turns the defect into a BLOCKED it can fix), `redispatch` (STOP
-  this lane and start a fresh attempt) and `drop`.
+- **Exit 1 or 2**: the plan is malformed or missing. Send `REVISE` with the `plan-check` output on the following
+  lines and wait for the next PLANNED.
+
+You do not review plan content beyond `plan-check`: the lane's own Stage 5.5 reviewer and execute's code review own
+that, and a coordinator that rewrote one lane's approach in a real run injected the very regression the lane's code
+review then caught, after a STOP and redispatch that cost ten minutes and the bundle's retry. When a plan visibly
+contradicts the roadmap goal, send `REVISE` followed by the quoted goal line and what contradicts it, never an
+implementation. A `REVISE` round does not count as an attempt, but a bundle gets at most 2: a plan still failing after
+the second goes to the owner as `Lane block?` with `redispatch` (STOP and a fresh attempt) and `drop`.
 
 ### 6d. Integrate
 
@@ -298,7 +323,9 @@ hotspots: <paths>"
 })
 ```
 
-Exactly those eight fields; the lane reads the protocol itself. In an interactive session every spawn runs in the
+Exactly those eight fields; the lane reads the protocol itself. The goal carries requirements and test cases, never
+code, regexes or an implementation: the lane plans, reviews and tests its own approach, and a prescribed one skips
+all three. In an interactive session every spawn runs in the
 background. Record `lane_agent_id` from the result, `branch: lane/<slug>/<bundle-id>`, `status: planning`,
 `steps_total: null` (a re-dispatched lane plans afresh, so an earlier attempt's total no longer applies), and
 `attempts + 1` in `state.json` before anything else.

@@ -78,6 +78,8 @@ Top level:
 - `max_workers`: parallel workers per lane, at most 5.
 - `bundles`: the bundle list, shape below.
 - `owner_queue`: bundle ids whose DECISIONS or BLOCKED block still waits on the owner, in arrival order. The coordinator drains it into one batched question round instead of one prompt per lane.
+- `owner_asked`: bundle ids from `owner_queue` whose blocker question already timed out and waited. They are not asked again until a user message arrives, then cleared as the owner answers. Absent or empty means nothing is parked.
+- Per bundle `revise_rounds`: how many `REVISE` messages this attempt received, at most 2 before the owner is asked.
 - `timed_out`: optional list of `{bundle, question, choice}` objects, one per question that continued on an AFK timeout with its Recommended option, each also logged in `events.jsonl` as `timed out, not user-approved`. Absent or empty when every answer came from the owner.
 
 Per bundle:

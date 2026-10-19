@@ -21,6 +21,12 @@ Adds `/ac:coordinate`, a coordinator for a request too large for one plan. It re
 
 - `plugins/ac/references/working-rules.md` and `global-claude-md-section-template.md` gain one routing line for `/ac:coordinate`. `README.md` carries the new component, agent and hook counts; `hooks/lib/question-wait.sh` names the fourth Stop guard.
 - Version 0.33.0 in `cli/ac/package.json`, `plugins/ac/.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json`.
+- Tuned from a real four-bundle run: the coordinator's slot budget prices a planning lane at 4 and an executing lane at `1 + min(max_workers, steps_total)` (the old 7 held a third lane for 15 minutes); a lane spawns at most 2 `ac:explore` and 1 `ac:librarian`, none when the brief anchors the files; a new `REVISE` message replaces the coordinator's own plan review and STOP-redispatch, and briefs carry requirements, never implementations; the lane loop relays owner questions last and asks a timed-out blocker once; criteria are command-tier wherever a command can show them, so a clean run can reach `passed`; a lane's `plan` blocker carries its header, so `Oracle CRIT?` and `Premise failed?` continue once in away mode as under `ac:auto`.
+
+### Fixed
+
+- `plugins/ac/hooks/lib/wake-count.jq` counted `gh pr checks <n> --watch --interval 30` as a never-ending follower (`\bwatch +-` matched the flag), so the execute and auto Stop guards blocked a legitimate background CI wait; `watch` now counts only in command position.
+- `ac:plan --lane` returns `BLOCKED` on a plan-directory collision instead of appending a suffix the coordinator would not archive; the coordinator keeps the `plan-check` step total as `steps_total`; the SessionStart note after a compaction names `ac:coordinate` when only a coordinator run is live.
 
 ## [0.32.0] - 2026-10-18
 

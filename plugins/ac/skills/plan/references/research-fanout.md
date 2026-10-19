@@ -43,7 +43,7 @@ nobody asked for. One brief, one angle.
 
 ### 1c. Dedicated reuse-focused explore (counts toward 1d's explore total)
 
-Spawn one `ac:explore` dedicated to the reuse search. This explore is one of the explore slots counted in 1d's floor/target; it is not additional.
+Spawn one `ac:explore` dedicated to the reuse search. This explore is one of the explore slots counted in 1d's floor/target; it is not additional. Under `LANE_MODE` it counts toward the lane's 2 and is skipped when the brief anchors the files and lines.
 
 <reuse_explore_brief>
 CONTEXT: planning <topic>. The user has not yet decided whether to reuse existing code or write new code; that decision depends on what already exists. Directory survey landed at `RESEARCH_DIR/00-directory-survey.md`; anchor your search to the directories the survey flagged as likely homes for similar utilities.
@@ -72,7 +72,7 @@ In the same assistant turn that issues 1c, spawn the rest of the cohort. Use 1a'
   - Brief 3 (when target = 3): production-quality OSS reference examples for the specific shape this plan introduces, OR a second library / framework not covered by briefs 1-2. Brief shape in the same file under `## Brief 3`, framings (a) or (b).
 - `ac:oracle`: **1 only when the request signals architecture intent** (system design, infrastructure, non-trivial trade-offs). Advisory; non-blocking; do not gate on its return. Unchanged from prior behavior.
 
-Under `LANE_MODE` the counts are fixed at the floors: 4 `ac:explore` (including the 1c reuse explore), 2 `ac:librarian` (briefs 1 and 2) and no Stage 1 `ac:oracle`, because many lanes share one session-wide subagent cap.
+Under `LANE_MODE` the floors do not apply: spawn at most 2 `ac:explore` and 1 `ac:librarian`, each only for an angle the coordinator's brief does not already anchor, none when the brief names the files and lines, and no Stage 1 `ac:oracle`. Many lanes share one session-wide subagent cap and the coordinator already researched the request.
 
 Each brief targets ONE named angle and carries its own `DEPTH` and `BUDGET`. Do not bundle three libraries into one librarian brief, and do not add the reuse dimension to an explore spawned for something else.
 

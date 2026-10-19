@@ -19,7 +19,7 @@ Every turn of a lane ends with one status block as the last thing it writes. The
 | `base` | sha | The integration SHA the branch was started or last rebased from. |
 | `steps` | `<checked>/<total>` | Checked and total step boxes in the lane's `plan.md`; `0/0` before a plan exists. |
 | `decisions` | list | DECISIONS only. One entry per owner question: `id`, `header`, `question`, `options`, `recommended`. |
-| `blocker` | map | BLOCKED only: `class`, `question`, `options`, `recommended`. |
+| `blocker` | map | BLOCKED only: `class`, `header` (the gate's own header, verbatim, for example `Oracle CRIT?` or `Premise failed?`), `question`, `options`, `recommended`. |
 | `artifacts` | list | Absolute paths to the report and evidence files the turn produced. |
 | `next` | string | One line: what the lane expects to happen next and which resume message it waits for. |
 
@@ -35,7 +35,7 @@ Every turn of a lane ends with one status block as the last thing it writes. The
 ### Decision entries
 
 - `id`: short key unique within the bundle (`d1`, `d2`); the coordinator echoes it back in `ANSWERS`.
-- `header`: at most 12 characters. The coordinator turns it into an `AskUserQuestion` header (see `state-schema.md`).
+- `header`: at most 12 characters, except the plan blocker headers `Oracle CRIT?` and `Premise failed?`, which go out verbatim because the question-timeout hook matches them exactly. The coordinator turns it into an `AskUserQuestion` header (see `state-schema.md`).
 - `question`: the full question text.
 - `options`: two or more lines `<label>: <consequence>`. The label is a single token without spaces, the consequence one sentence.
 - `recommended`: one of the option labels.
@@ -166,6 +166,7 @@ The coordinator resumes a lane by agent id with `SendMessage`. The first token o
 - `EXECUTE`: run the plan. The lane calls the `ac:execute` skill on its plan with `--lane --max-parallel <N>` (`--lane` implies auto mode, no QA pass and no push), working inside its worktree, and ends with DONE, BLOCKED or FAILED.
 - `REBASE onto=<sha>`: move the lane branch onto the new integration head, then re-verify the touched scope. The lane ends with DONE (new `base` and `head`) or BLOCKED with class `rebase`. When lines follow the token, they describe a gate that failed on the integration branch after this lane's merge (the command, its exit code, an output tail): the lane rebases, fixes that failure inside its own scope, commits, reruns the command, and only then ends with DONE.
 - `RESOLVE <label>`: the owner's or coordinator's choice for a BLOCKED block, one of its option labels. The lane applies it and continues the interrupted phase.
+- `REVISE`: change the plan before execution. The lines after the token carry the reason (a `plan-check` failure, or a quoted roadmap goal line the plan contradicts). The lane revises `plan.md` through its Stage 5.5 review and `plan-check`, then ends with PLANNED, or DECISIONS when the revision raises an owner question. It does not count as a new attempt.
 - `STOP`: end the work. The lane stops its own workers and research agents, makes no further commit, and ends with a final FAILED block whose `next` is `none`, so the coordinator never waits on a lane it stopped.
 
 Examples:

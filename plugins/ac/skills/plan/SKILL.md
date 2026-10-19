@@ -1,7 +1,7 @@
 ---
 description: "Plan a change interactively: research in parallel, ask the decisions only you can make, then write a tiered plan. Writes no code."
 when_to_use: "Use before work that crosses modules, carries design decisions, or is a refactor, or from a .ac/tasks/*.yaml file; hands off to /ac:execute."
-argument-hint: "[--auto] [--lane] [--slug <s>] <topic description | .ac/tasks/*.yaml>"
+argument-hint: "[--auto] [--lane] [--slug <s>] [--revise] <topic description | .ac/tasks/*.yaml>"
 effort: high
 ---
 
@@ -127,11 +127,13 @@ How an entry is written and how a lane resumes. The status block itself is defin
 
 - **Entry.** One `pending_decisions[]` entry per question, in the decision-entry shape of the protocol (`id`, `header`,
   `question`, `options`, `recommended`), plus `gate: interview | blocker` for the resume. Ids run `d1`, `d2`, ... within
-  the run. The `header` stays at 12 characters or fewer, so `Premise failed?` is written `Premise?`. An option label is
+  the run. The `header` stays at 12 characters or fewer; the two blocker headers `Oracle CRIT?` and `Premise failed?`
+  are the exception and go out verbatim, because the question-timeout hook matches them exactly. An option label is
   one token: drop `(Recommended)` and join the words with hyphens (`Revise-plan`); `recommended` is the label that
   carried the marker, and the consequence is the option's own description. The `Proceed?` entry carries the Stage 3a
   synthesis lines in its `question`, because the coordinator never sees a chat render.
-- **Blocker class.** A `BLOCKED` block from this skill uses `class: plan`.
+- **Blocker class.** A `BLOCKED` block from this skill uses `class: plan` and carries the gate's header in `header`
+  (`Oracle CRIT?` and `Premise failed?` verbatim), so the coordinator can ask it under that header.
 - **Batching.** A returning turn carries every node that is independent at that point, so the Stage 3a pair (`Proceed?`
   with `TDD?` or `Tests?`; `QA?` is never asked in a lane) goes together and later 3c nodes with no edge between them go together. Each round trip costs the coordinator a resume, so
   one node per turn is the failure. A node that depends on another waits for the next round.
@@ -140,6 +142,12 @@ How an entry is written and how a lane resumes. The status block itself is defin
   `relayed by coordinator`, append the question and answer to `LOG_PATH`, empty `pending_decisions[]` in the
   checkpoint, then continue from the interrupted stage: prune the remaining tree as usual and return the next
   independent nodes, or move on when none remain.
+- **Revise.** A `REVISE` message after PLANNED carries the reason on its following lines. With this body still in
+  context, address exactly that reason in `PLAN_PATH` with `Edit`, rerun Stage 5's `plan-check` and the Stage 5.5
+  review, and end with `PLANNED` (or `DECISIONS` when the change needs an owner answer). When the body is gone, the
+  lane invokes this skill as `"<slug> --lane --slug <slug> --revise"` with the reason in the same argument: `--revise`
+  skips 0e, 0f and Stages 1 to 4, reads the existing `PLAN_PATH`, and runs the same revision, because Stage 6 already
+  deleted the checkpoint and 0f would otherwise read the plan as a collision.
 </lane_mode>
 
 <bootstrap>
@@ -153,7 +161,7 @@ Nothing to load. `AskUserQuestion` arrives directly on the main thread, and ther
 
 Scan `$ARGUMENTS` for the `--auto` flag (anywhere in the string, surrounded by whitespace or at the start/end). If present: set `AUTO_MODE = true`, strip the flag from `$ARGUMENTS`, continue with the remaining string. If absent: set `AUTO_MODE = false`.
 
-Scan the same way for `--lane`: if present, set `LANE_MODE = true` and `AUTO_MODE = true` and strip the flag; if absent, `LANE_MODE = false`. Then scan for `--slug <s>`: if present, set `SLUG_OVERRIDE = <s>` and strip both tokens. `--slug` works with or without `--lane`.
+Scan the same way for `--lane`: if present, set `LANE_MODE = true` and `AUTO_MODE = true` and strip the flag; if absent, `LANE_MODE = false`. Then scan for `--slug <s>`: if present, set `SLUG_OVERRIDE = <s>` and strip both tokens. `--slug` works with or without `--lane`. Then scan for `--revise`: valid only with `--lane` and `--slug`; it jumps to the `Revise` entry of `<lane_mode>` with the remaining text as the reason.
 
 If the post-strip `$ARGUMENTS` is empty:
 - When `AUTO_MODE = false`: call `AskUserQuestion` (header `Topic?`, single option `Provide topic` with freeform-Other prompt). Wait for input, then continue.
@@ -232,8 +240,10 @@ Counts policy, which governs the fan-out and stays here:
 - `ac:librarian`: floor 2, target 3. Brief 1 verifies idiomatic patterns against vendor docs, brief 2 covers known
   bugs and version-combo breakage, brief 3 adds OSS reference examples or a second library.
 - `ac:oracle`: 1, only when the request signals architecture intent. Advisory and non-blocking; do not gate on it.
-- Under `LANE_MODE` the counts are fixed at 4 `ac:explore` and 2 `ac:librarian`, with no Stage 1 oracle. Many lanes run
-  at once under one session-wide subagent cap, so each lane stays at the floor.
+- Under `LANE_MODE` the coordinator's own research already mapped the surfaces, so spawn at most 2 `ac:explore` (the 1c reuse explore
+  counts toward them) and 1 `ac:librarian`, each only for an angle the brief does not already anchor, none when the brief names the files and
+  lines, and no Stage 1 oracle. Many lanes share one session-wide subagent cap, and the coordinator's slot budget
+  prices a planning lane at this cap.
 
 Every brief carries a `DEPTH` and a `BUDGET`, or the agent falls back to its own default and searches wider than
 the angle needs. The reuse angle is one dedicated brief, not a clause added to the others. Issue all spawns in ONE
