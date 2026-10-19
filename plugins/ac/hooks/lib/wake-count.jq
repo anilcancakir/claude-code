@@ -45,10 +45,15 @@ def finite:
 def loops:
   test("\\b(until|while)\\b|\\bsleep +infinity\\b");
 
+# `watch` is a follower only in command position: at the start, or after | ; & ( a newline, a
+# quote or a backtick, past any sudo, nohup, exec, time, nice or `env NAME=VAL` prefix. Anywhere
+# else it is a flag or a subcommand of a finite job, as in `gh pr checks 108 --watch --interval 30`
+# and `gh run watch --exit-status 123`, which a bare `\bwatch +-` matched, blocking a CI wait.
 def follows:
   test(
     "\\btail\\b[^|;&\\n]*\\s-[a-zA-Z0-9]*[fF]\\b|--follow\\b|\\blogcat\\b|--console\\b"
-    + "|\\b(journalctl|logs)\\b[^|;&\\n]*\\s-f\\b|\\bwatch +-|\\bidevicesyslog\\b"
+    + "|\\b(journalctl|logs)\\b[^|;&\\n]*\\s-f\\b|\\bidevicesyslog\\b"
+    + "|(^|[|;&(\\n'\"`])[ \\t]*((sudo|nohup|exec|time|nice|env( +[A-Za-z_][A-Za-z0-9_]*=[^ ]*)*) +)*watch +-"
     + "|\\b(flutter|adb) +logs?\\b|\\b(inotifywait|fswatch|watchexec)\\b|\\b(build_runner|cargo) +watch\\b|\\bkubectl\\b[^|;&\\n]*\\s-w\\b"
     + "|\\bstripe +listen\\b|\\bssh\\b[^|;&\\n]*\\s-[a-zA-Z]*N"
     + "|\\b(tsc|vitest|jest|bun)\\b[^|;&\\n]*\\s--watch\\b|\\b(npm|pnpm|yarn|bun)( +run)? +watch\\b");

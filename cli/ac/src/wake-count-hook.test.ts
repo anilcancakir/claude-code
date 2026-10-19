@@ -69,6 +69,20 @@ const notCounted: string[] = [
     "export\nyes && timeout 60 a",
 ];
 
+const ciWatches: string[] = [
+    "gh pr checks 108 --watch --interval 30",
+    "gh pr checks 108 --watch",
+    "gh run watch --exit-status 123",
+];
+
+const watchCommands: string[] = [
+    "watch -n 5 npm test",
+    "cd x && watch -n 5 npm test",
+    "sh -c 'watch -n 5 npm test'",
+    "nohup watch -n 5 npm test",
+    "sudo watch -n 5 npm test",
+];
+
 test.each(counted)("strict mode counts a bounded wait: %s", (command) => {
     expect(strictCount(command)).toBe(1);
 });
@@ -79,4 +93,12 @@ test.each(notCounted)("strict mode leaves out an unbounded or chained shell: %s"
 
 test("strict mode leaves out a clipped command whose tail cannot be seen", () => {
     expect(strictCount("cd /tmp/a && timeout 60 npm run thing [+40 chars]")).toBe(0);
+});
+
+test.each(ciWatches)("strict mode counts a CI watch whose watch is a flag or a gh subcommand: %s", (command) => {
+    expect(strictCount(command)).toBe(1);
+});
+
+test.each(watchCommands)("strict mode leaves out a watch command in command position: %s", (command) => {
+    expect(strictCount(command)).toBe(0);
 });
