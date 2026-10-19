@@ -59,6 +59,7 @@ Removed on every terminal branch: a verdict written, an owner abort, or an error
       "branch": null,
       "head": null,
       "plan_slug": null,
+      "steps_total": null,
       "archived": false,
       "attempts": 0
     }
@@ -91,6 +92,7 @@ Per bundle:
 - `branch`: `lane/<slug>/<id>`; `null` until dispatched.
 - `head`: the lane branch HEAD from the latest status block.
 - `plan_slug`: the slug of the plan directory under the lane's `.ac/plans/`; `null` until a plan exists.
+- `steps_total`: the step total `plan-check` printed when it exited 0 on the bundle's plan (Phase 6c), the N that integration compares the DONE block's `steps` against; `null` until then, and reset to `null` whenever a lane is dispatched, because a re-dispatched lane plans afresh.
 - `archived`: `true` once the plan directory and report are copied into `bundles/<id>/` and checked with `diff -rq`. A worktree is removed only after this, never with `--force`.
 - `attempts`: how many lanes were dispatched for this bundle.
 

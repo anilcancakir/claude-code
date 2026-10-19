@@ -14,8 +14,9 @@ merge moves `<head>` and the next bundle has to be checked against the new one.
 ## Per DONE bundle, in order
 
 1. **Confirm DONE.** The lane's latest block reads `status: DONE`, its `branch` equals `<lane branch>`, and its
-   `steps` reads `N/N` with N equal to the step total `plan-check` printed before `EXECUTE`. A count short of that
-   total is not done, whatever the status says: resume the lane with `EXECUTE` and wait.
+   `steps` reads `N/N` with N equal to the bundle's `steps_total` in `state.json` (the total `plan-check` printed
+   before `EXECUTE`, Phase 6c). A count short of that total is not done, whatever the status says: resume the lane
+   with `EXECUTE` and wait.
 
 2. **Base check.** When the block's `base` is not `<head>`, `SendMessage` the lane `REBASE onto=<head>` and end the
    turn with a wait status. Its next DONE starts again at step 1.

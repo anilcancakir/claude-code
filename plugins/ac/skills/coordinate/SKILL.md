@@ -254,9 +254,10 @@ Set the bundle back to the status it resumes in (`planning` or `executing`) afte
 
 For a `planned` bundle, run `Bash: node "${CLAUDE_PLUGIN_ROOT}/cli/ac.js" plan-check <plan path>`:
 
-- **Exit 0**: record the step total it prints in the bundle's `events.jsonl` line (integration compares the DONE
-  count against it). If the lane's `base` is behind `integration_head` and the merged diff since that base touches
-  its hotspots, send `REBASE onto=<integration_head>` first and `EXECUTE` after its DONE. Otherwise, within the slot
+- **Exit 0**: record the step total it prints (the `<N> steps` count at the start of its last line) as the bundle's
+  `steps_total` in `state.json` and in its `events.jsonl` line; integration compares the DONE count against
+  `steps_total`. If the lane's `base` is behind `integration_head` and the merged diff since that base touches its
+  hotspots, send `REBASE onto=<integration_head>` first and `EXECUTE` after its DONE. Otherwise, within the slot
   budget, `SendMessage` `EXECUTE` and set `executing`.
 - **Exit 1 or 2**: the plan is malformed or missing, and the protocol has no plan-fix message. Ask `Lane block?`
   with `execute` (the lane's own execute shape gate turns the defect into a BLOCKED it can fix), `redispatch` (STOP
@@ -295,7 +296,8 @@ hotspots: <paths>"
 ```
 
 Exactly those eight fields; the lane reads the protocol itself. In an interactive session every spawn runs in the
-background. Record `lane_agent_id` from the result, `branch: lane/<slug>/<bundle-id>`, `status: planning`, and
+background. Record `lane_agent_id` from the result, `branch: lane/<slug>/<bundle-id>`, `status: planning`,
+`steps_total: null` (a re-dispatched lane plans afresh, so an earlier attempt's total no longer applies), and
 `attempts + 1` in `state.json` before anything else.
 
 ### 6g. End the turn
