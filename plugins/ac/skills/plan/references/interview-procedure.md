@@ -2,12 +2,14 @@
 
 Read at Stage 3 entry. The skill body carries the bounds that must hold all run; this file carries the walk-down itself, which is needed once per run.
 
+Under `LANE_MODE` no `AskUserQuestion` below is called. Each one becomes a `pending_decisions[]` entry returned in a `DECISIONS` block, written as `<lane_mode>` in the skill body says; the 3a call is the trio `Proceed?`, `TDD?` or `Tests?`, and `QA?` as three entries of one block.
+
 ### 3a. Build the decision tree and surface the synthesis
 
 From the Stage 2 synthesis, extract the open questions. Each question is a node. Edges represent dependencies (answering X opens or closes Y). Group nodes into:
 
 - Sequential nodes: each answer materially affects the next question's framing.
-- Parallel branches: independent decisions that can be batched in one `AskUserQuestion` call (up to 4 questions) or expressed as `multiSelect: true`.
+- Parallel branches: independent decisions that can be batched in one `AskUserQuestion` call (up to 4 questions) or expressed as `multiSelect: true`. Under `LANE_MODE` all independent nodes go in one block with no cap of 4, since the coordinator does the batching into questions.
 
 Surface the synthesis as plain text in the chat before the first question:
 

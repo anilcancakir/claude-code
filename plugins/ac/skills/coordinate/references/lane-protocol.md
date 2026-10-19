@@ -42,7 +42,7 @@ Every turn of a lane ends with one status block as the last thing it writes. The
 
 ### Blocker classes
 
-`class` is one of: `2i` (a dependency step failed, execute Phase 2i), `2j` (three failures spanning two or more waves, execute Phase 2j), `3c` (a plan-spec issue, execute Phase 3c), `commit` (a commit the lane cannot make), `bootstrap` (a bootstrap command failed), `rebase` (a rebase conflict the lane did not resolve). `options` and `recommended` follow the decision-entry rules, and the labels become the `RESOLVE` argument.
+`class` is one of: `plan` (a planning BLOCKER gate in `ac:plan --lane`: a missing topic, a failed research agent, an Oracle CRITICAL or a refuted premise, a plan write that failed twice), `2i` (a dependency step failed, execute Phase 2i), `2j` (three failures spanning two or more waves, execute Phase 2j), `3c` (a plan-spec issue, execute Phase 3c), `commit` (a commit the lane cannot make), `bootstrap` (a bootstrap command failed), `rebase` (a rebase conflict the lane did not resolve). `options` and `recommended` follow the decision-entry rules, and the labels become the `RESOLVE` argument.
 
 ### Example blocks
 

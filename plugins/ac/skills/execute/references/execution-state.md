@@ -37,13 +37,15 @@ Marker schema:
 - `wave_files`: absolute paths of the ACTIVE wave's step Files. The file-scope hook allows a worker edit only when the target resolves inside this set (or under `.ac/`). Empty until Wave 1 starts, when 2c populates it.
 - `note`: a one-line resume hint in plain prose, refreshed at the end of each wave (2f item 3). The SessionStart hook reads it back verbatim after a compaction or a restart, so write what a fresh reader needs: which waves are done and committed, and which step to resume at.
 
-Marker lifecycle: written here, with ONLY `current_wave`, `wave_files`, and `note` refreshed at each wave start and barrier (2c, 2f) while `slug`, `session_id`, `pid`, and `started_at` stay exactly as written, and deleted at Phase 4 start (4a) plus on every branch that terminates or aborts the run before Phase 4 completes (the 2i / 2j / 3c Stop branches and the error-handling aborts). The marker must never survive a halt: a halt that leaves it behind leaves the `Stop` guard blocking turn ends until its block budget runs out.
+Marker lifecycle: written here, with ONLY `current_wave`, `wave_files`, and `note` refreshed at each wave start and barrier (2c, 2f) while `slug`, `session_id`, `pid`, and `started_at` stay exactly as written, and deleted at Phase 4 start (4a) plus on every branch that terminates or aborts the run before Phase 4 completes (the 2i / 2j / 3c Stop branches and the error-handling aborts). The marker must never survive a halt: a halt that leaves it behind leaves the `Stop` guard blocking turn ends until its block budget runs out. The one exception is a BLOCKED turn under `LANE_MODE`, below.
 
 ## Error handling
 
 Marker teardown applies to every halt: delete `.ac/state/active-execution.json` FIRST, before printing anything or
 ending the turn. The `Stop` guard reads the marker's presence as "this run is unfinished" and will block the turn and
 hand it back until its block budget is spent. Branches that continue the run leave the marker in place.
+
+Under `LANE_MODE` a BLOCKER does not call `AskUserQuestion` and does not delete the marker. It ends the turn with a `status: BLOCKED` block (class, question, options and recommended label, per `${CLAUDE_PLUGIN_ROOT}/skills/coordinate/references/lane-protocol.md`) and keeps the marker, because the run resumes on `RESOLVE <label>` and then applies that option's own marker handling. `<auto_mode>` in SKILL.md carries the full rule.
 
 There is no error class for running low on context, on purpose. Compaction handles it and the run continues.
 
@@ -52,9 +54,9 @@ There is no error class for running low on context, on purpose. Compaction handl
   reminder. Still malformed counts as a Phase 2 failure.
 - **A failed step blocks a later wave**: same semantics as 2i. BLOCKER under auto mode.
 - **Wave checkpoint commit fails**: print the git error, then `AskUserQuestion` (`Continue without checkpoint` /
-  `Abort`). Never auto-retry; a commit failure usually means the tree is in a state you did not expect. BLOCKER.
+  `Abort`). Never auto-retry; a commit failure usually means the tree is in a state you did not expect. BLOCKER; under `LANE_MODE` it is class `commit`.
 - **Reviewer subagent returns malformed output**: re-spawn once. Still malformed means you have no review for this run: say so in `report.md` and proceed, rather than inventing a verdict the reviewer no longer returns.
 - **Phase 4 `/ac:commit` fails**: surface it, then render the report and summary anyway so the work is not lost in
-  chat history, and exit with the commit error printed.
+  chat history, and exit with the commit error printed. Under `LANE_MODE` the exit is a `status: BLOCKED` block of class `commit`.
 
 

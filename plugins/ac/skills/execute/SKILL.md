@@ -1,7 +1,7 @@
 ---
 description: "Run an approved ac plan to completion, wave by wave, with cost-tiered workers, per-wave verification and a final review."
 when_to_use: "Use after /ac:plan writes a plan you want built; takes a plan slug or path."
-argument-hint: "<plan-slug | .ac/plans/<slug>/plan.md> [--auto] [--no-oracle] [--no-qa] [--no-checkpoint-commits]"
+argument-hint: "<plan-slug | .ac/plans/<slug>/plan.md> [--auto] [--lane] [--max-parallel N] [--no-oracle] [--no-qa] [--no-checkpoint-commits]"
 effort: high
 ---
 
@@ -16,6 +16,8 @@ Plan: $ARGUMENTS
 These hold for the whole run, including after a compaction. Everything below this block is procedure; these are the bounds. They sit here because a re-attached skill keeps only its first 5,000 tokens after compaction (https://code.claude.com/docs/en/skills.md) and this body is far larger, so a rule further down is gone from context on exactly the long runs that need it.
 
 **Turn termination.** Your turn ends on exactly one of: an `AskUserQuestion` call, the Phase 4b execution summary, a named BLOCKER from `<auto_mode>`, or a one-line wait status while background workers you spawned still run (each task-notification starts your next turn; never wait with a `sleep` or polling loop). Nothing else ends it. Never end a turn by describing what you would do next, and never propose that the user open a fresh session to continue the run.
+
+Under `LANE_MODE` (set by `--lane`: this run is an `ac:lane` subagent, which has no `AskUserQuestion` and whose parent sees only its last message) the legal turn end is the lane status block defined in `${CLAUDE_PLUGIN_ROOT}/skills/coordinate/references/lane-protocol.md`, and every turn ends with one. `status: WORKING` replaces the one-line wait status while workers run, `status: BLOCKED` replaces `AskUserQuestion` at every BLOCKER (see `<auto_mode>`), `status: DONE` ends Phase 4b, and `status: FAILED` ends a halt that has no option to offer (plan not found, a truncated plan, a count mismatch). A lane never calls `AskUserQuestion`, never pushes and never runs `ac:qa`.
 
 Every branch that terminates the run deletes `.ac/state/active-execution.json` first. That is not bookkeeping. While the marker exists and no background worker is running, the plugin's `Stop` hook blocks the turn from ending and returns the outstanding step count to you (`${CLAUDE_PLUGIN_ROOT}/hooks/stop-guard.sh`); the marker's absence is what permits a terminal stop.
 
@@ -96,6 +98,8 @@ here. Auto mode resolves flow gates; it never skips verification, the wave-after
 
 When `.ac/state/active-auto.json` owned by this session appears mid-run (ac:auto adopted the run), keep running in context with `AUTO_MODE` true and do not re-invoke yourself. The final commit's `--no-push` already keys on that file (Phase 4a).
 
+`LANE_MODE` implies `AUTO_MODE`, so the 2a flow gate resolves as above. Under `LANE_MODE` no gate calls `AskUserQuestion`: every BLOCKER row, plus each other site below that names one (the 1g and 2c plan-spec branch, the third briefing gap at 2e, 3c, and the 2f surface-first patch, all class `3c`), ends the turn with a `status: BLOCKED` block. Its `blocker` carries the class from `lane-protocol.md` (`2i`, `2j`, `3c` or `commit`), the question, the options the `AskUserQuestion` would have offered as single-token labels, and the recommended label. The marker stays, because the run resumes rather than ends. A `RESOLVE <label>` message continues as if the user had chosen that label, including that option's own marker handling: an option that stops the run deletes the marker and ends with `status: FAILED`.
+
 Flow gates resolve to the `(Recommended)` option and emit one heartbeat line. BLOCKER gates surface whatever the mode,
 because each needs judgment auto mode cannot supply: a dependency failure, three accumulated failures, a wrong plan, a
 commit failure hiding repo state, or lost downstream work. Before surfacing one, emit a line naming which class fired.
@@ -113,6 +117,8 @@ Nothing to load. `AskUserQuestion` arrives directly on the main thread, and ther
 ### 1a. Parse arguments
 
 - Strip `--auto` flag if present → `AUTO_MODE = true`. Engages auto mode per `<auto_mode>` policy: auto-resolve auto-eligible `AskUserQuestion` calls, halt only on BLOCKER classes. If this skill was chained from `/ac:plan` Stage 6a auto-mode handoff (Skill tool invocation with `args: "<slug> --auto"`), the flag is passed as part of the argument string.
+- Strip `--lane` flag if present → `LANE_MODE = true`. Set by the `ac:lane` subagent that `/ac:coordinate` dispatches. Implies `AUTO_MODE = true`, `NO_QA = true` (parallel lanes would collide on dev-server ports) and no push at 4a. The turn-end and BLOCKER behaviour is in `## Standing rules` and `<auto_mode>`.
+- Strip `--max-parallel N` if present → `MAX_PARALLEL = N`, the cap on workers running at once within a wave (2c). Default unlimited; a lane passes 5.
 - Strip `--no-oracle` flag if present → `NO_ORACLE = true`. Phase 3 spawns `ac:oracle` beside the reviewer when the change touches one of the six criticality surfaces; this flag opts out of that.
 - Strip `--no-qa` flag if present → `NO_QA = true`. Skips the Phase 3e QA pass whatever the plan's `**QA**` line says.
 - Strip `--no-checkpoint-commits` flag if present → `NO_CHECKPOINT_COMMITS = true`. Disables wave-after commits; Phase 4 final commit still runs.
@@ -308,6 +314,7 @@ notification would not, and the Stop guard allows the stop while workers run. Do
 spawn the next: a wave whose steps share no files has no reason to serialize, and the 4-layer check reads a finished
 wave better than a finished step. A wave the plan declares as an ordered track (its Execution Strategy says the steps
 must run in sequence) is the one exception, and there the steps run one at a time in the declared order.
+With `MAX_PARALLEL` set and fewer slots than steps, the first message spawns that many steps in the wave's declared order, and each task-notification that arrives spawns the next queued step before the turn ends; verification still waits for every step of the wave.
 Say which steps the wave is running in one line before the spawns, so a reader can follow without a task list.
 
 ### 2d. Wave verification (4-layer, runs once per wave)
@@ -779,10 +786,11 @@ Goal: commit the work, generate the dev report, render the execution summary.
 commit would snapshot it as this plan's deliverable. Skip it, say so in one line, and record it in the report under
 `## Commits` with the path and the count. The plan's `Git context:` field is a hint; git state is authoritative.
 
-Otherwise invoke `/ac:commit --skip-preflight`, plus `--no-push` when `.ac/state/active-auto.json` exists: an
+Otherwise invoke `/ac:commit --skip-preflight`, plus `--no-push` when `LANE_MODE` is true or `.ac/state/active-auto.json` exists: an
 unattended run has nobody present to approve an outward-facing action, so the final commit stays local and
 `/ac:commit`'s branch guard, which only asks before pushing on `main` or `master`, never gets the chance to run.
-Without that marker this is the final commit and pushes as before. Phase 2d and Phase 3 already covered the
+A lane checks `LANE_MODE` on its own because `.ac/` is gitignored, so its worktree never holds `active-auto.json`.
+Without either, this is the final commit and pushes as before. Phase 2d and Phase 3 already covered the
 verification `--skip-preflight` refers to. A clean tree exits silently, which is fine.
 
 ### 4b. Report and summary
@@ -795,4 +803,4 @@ retry also fails, so the work is not lost in chat history.
 Then render the closing summary inline from `${CLAUDE_SKILL_DIR}/references/execution-summary-template.md`. The
 summary is chat output; `report.md` is the file artifact.
 
-End the turn.
+End the turn. Under `LANE_MODE` the last thing written is the `status: DONE` block, with `report.md` in `artifacts`.

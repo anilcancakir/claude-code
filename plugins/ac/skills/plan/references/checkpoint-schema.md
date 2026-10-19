@@ -47,9 +47,21 @@ Read whenever a stage writes a checkpoint. Write points are listed at the bottom
   ],
   "risks_accepted": [
     "<decision and recommended default>: <reason>"
+  ],
+  "pending_decisions": [
+    {
+      "id": "d1",
+      "gate": "interview | blocker",
+      "header": "<12 characters or fewer>",
+      "question": "...",
+      "options": ["<label>: <consequence>"],
+      "recommended": "<label>"
+    }
   ]
 }
 ```
+
+`pending_decisions` is written only under `LANE_MODE`: the questions the lane returned in its last status block and has not yet had answered. It is empty at every other point. Its entry rules are in the skill body's `<lane_mode>`.
 
 ## Write points
 
@@ -61,6 +73,7 @@ The checkpoint is written at these stage transitions; later writes overwrite ear
 - Stage 3 complete → `last_stage: "3-complete"`.
 - Optionally after Stage 5 (before deletion) → `last_stage: "5-complete"`.
 - After the Stage 5.5 review pass → `last_stage: "5.5"`.
+- Under `LANE_MODE`, before every `DECISIONS` or `BLOCKED` turn end, with `pending_decisions` filled; the write that records the relayed answers empties it.
 
 The checkpoint is deleted in Stage 6 once the plan is locked, reviewed, and delivered.
 
@@ -75,4 +88,4 @@ On `/ac:plan` invocation, if `CHECKPOINT_PATH` exists:
 - When `AUTO_MODE = false`: ask the user via `AskUserQuestion` (`Resume?` / `Start fresh`). Default: Resume.
 - When `AUTO_MODE = true`: auto-pick Resume.
 
-On Resume: restore working memory from the JSON (topic, locked_decisions, locked_requirements, canonical_refs, deferred_ideas, codebase_state, conventions, reuse_map, qa, last_stage) and jump to the stage indicated by `last_stage`. A resume invocation passes the checkpoint slug verbatim as the topic so Stage 0b re-derives the same slug and finds this file; the restored `topic` then replaces it as the request. On Start fresh: delete the checkpoint and re-enter Stage 0f.
+On Resume: restore working memory from the JSON (topic, locked_decisions, locked_requirements, canonical_refs, deferred_ideas, codebase_state, conventions, reuse_map, qa, pending_decisions, last_stage) and jump to the stage indicated by `last_stage`. A resume invocation passes the checkpoint slug verbatim as the topic so Stage 0b re-derives the same slug and finds this file; the restored `topic` then replaces it as the request. On Start fresh: delete the checkpoint and re-enter Stage 0f.

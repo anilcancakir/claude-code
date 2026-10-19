@@ -72,6 +72,8 @@ In the same assistant turn that issues 1c, spawn the rest of the cohort. Use 1a'
   - Brief 3 (when target = 3): production-quality OSS reference examples for the specific shape this plan introduces, OR a second library / framework not covered by briefs 1-2. Brief shape in the same file under `## Brief 3`, framings (a) or (b).
 - `ac:oracle`: **1 only when the request signals architecture intent** (system design, infrastructure, non-trivial trade-offs). Advisory; non-blocking; do not gate on its return. Unchanged from prior behavior.
 
+Under `LANE_MODE` the counts are fixed at the floors: 4 `ac:explore` (including the 1c reuse explore), 2 `ac:librarian` (briefs 1 and 2) and no Stage 1 `ac:oracle`, because many lanes share one session-wide subagent cap.
+
 Each brief targets ONE named angle and carries its own `DEPTH` and `BUDGET`. Do not bundle three libraries into one librarian brief, and do not add the reuse dimension to an explore spawned for something else.
 
 All agents launched with `run_in_background: true` so you can collect results as they complete. Issue all calls in ONE assistant message with multiple Agent tool-use blocks for true parallelism. Reaching the target (7 + 3) is preferable when the topic supports it; the floor exists so trivial plans do not pay maximum token cost.

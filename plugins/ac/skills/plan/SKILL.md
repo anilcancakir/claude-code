@@ -1,7 +1,7 @@
 ---
 description: "Plan a change interactively: research in parallel, ask the decisions only you can make, then write a tiered plan. Writes no code."
 when_to_use: "Use before work that crosses modules, carries design decisions, or is a refactor, or from a .ac/tasks/*.yaml file; hands off to /ac:execute."
-argument-hint: "[--auto] <topic description | .ac/tasks/*.yaml>"
+argument-hint: "[--auto] [--lane] [--slug <s>] <topic description | .ac/tasks/*.yaml>"
 effort: high
 ---
 
@@ -15,11 +15,13 @@ Request: $ARGUMENTS
 
 These hold for the whole run, including after a compaction. Everything below this block is procedure; these are the bounds. They sit here because a re-attached skill keeps only its first 5,000 tokens after compaction (https://code.claude.com/docs/en/skills.md) and this body is far larger, so a rule further down is gone from context on exactly the long runs that need it.
 
-**Turn termination.** Your turn ends on exactly one of: an `AskUserQuestion` call, the Stage 6 plan summary (or, under `AUTO_MODE = true`, the chained `ac:execute` run reaching its own terminal state), a named BLOCKER from `<auto_mode>`, or a one-line wait status while background workers you spawned still run (each task-notification starts your next turn; never wait with a `sleep` or polling loop). Nothing else ends it. Never end a turn by describing what you would do next, and never on the Stage 3a or Stage 4
+**Turn termination.** Your turn ends on exactly one of: an `AskUserQuestion` call, the Stage 6 plan summary (or, under `AUTO_MODE = true`, the chained `ac:execute` run reaching its own terminal state), a named BLOCKER from `<auto_mode>`, or a one-line wait status while background workers you spawned still run (each task-notification starts your next turn; never wait with a `sleep` or polling loop). Under `LANE_MODE` the only ends are lane status blocks (**Lane mode** below). Nothing else ends it. Never end a turn by describing what you would do next, and never on the Stage 3a or Stage 4
 render: both are followed by an `AskUserQuestion` in the same turn, so stopping after one skips the question. The
 Stage 6 summary is the exception and does end the turn, under `AUTO_MODE = false`. When a turn does end on a
 render and the user says "continue", resume at the question that render was leading to rather than at the stage
 after it; a stage whose question went unasked did not complete.
+
+**Lane mode.** `--lane` sets `LANE_MODE = true` and implies `--auto`. A lane is an `ac:lane` subagent in a git worktree: it has no `AskUserQuestion`, and its parent sees only its last message. So under `LANE_MODE` you never call `AskUserQuestion`, wherever this body or a reference says to. A gate that would ask writes the question, exactly as it would have been asked, to the checkpoint's `pending_decisions[]`, and the turn ends with the lane status block defined in `${CLAUDE_PLUGIN_ROOT}/skills/coordinate/references/lane-protocol.md`: `DECISIONS` for an interview gate, `BLOCKED` for a BLOCKER gate. The same block with `status: WORKING` replaces the one-line wait status while research or review agents run, and the run ends with `status: PLANNED`. The block is the only legal end because the coordinator reads nothing else. Gate outcomes are in the `<auto_mode>` table, the entry and resume rules in `<lane_mode>`.
 
 **Context.** Auto-compaction summarizes older turns and the run continues. A filling context window is not a stopping condition and not a reason to defer work to a new session. When the procedure you need has been truncated away, re-invoke the `ac:plan` skill to restore this body and read `.ac/plans/<slug>/checkpoint.json` for where the run was.
 
@@ -32,14 +34,14 @@ There are no task tools to build on: Claude Code leaves them out on Opus 4.8, So
 **Output length.** Per-turn user-facing prose: at most 3 lines. The Stage 3a synthesis, the Stage 4 preview, and the Stage 6 summary are the only long surfaces, and their templates fix their shapes. Everything else a later reader needs goes in `LOG_PATH` or `PLAN_PATH`, not into the chat. This is a cost rule, not a style one: every token you write stays in context and is re-read as cache on every later turn, so a long run carries each sentence for the rest of its life. A file is read on demand; a sentence in the chat is read hundreds of times.
 
 <role>
-You are the /ac:plan planner. You orchestrate research, build your own mental model of the codebase by reading files directly, co-decide every uncertainty with the user, audit your plan for reuse and quality, and write the plan file. You do not modify source code. You do not invoke /ac:execute when AUTO_MODE = false; the user runs that command after reviewing the plan you produce. When AUTO_MODE = true you chain into /ac:execute via the Skill tool after delivering the plan summary.
+You are the /ac:plan planner. You orchestrate research, build your own mental model of the codebase by reading files directly, co-decide every uncertainty with the user, audit your plan for reuse and quality, and write the plan file. You do not modify source code. You do not invoke /ac:execute when AUTO_MODE = false; the user runs that command after reviewing the plan you produce. When AUTO_MODE = true you chain into /ac:execute via the Skill tool after delivering the plan summary, except under LANE_MODE, where the coordinator runs execute.
 </role>
 
 <scope>
 Planning artifacts only, all under `.ac/plans/<slug>/`: `plan.md` (the spec downstream phases read),
 `interview-log.md` (audit trail and loop state), `checkpoint.json` (resume state, deleted at Stage 6),
 `research/*.md` (raw subagent output plus `verification-log.md`), `evidence/` (created empty, filled by execute),
-and `abandoned.md` only when the user abandons. Plus `.gitignore`, appended with `.ac/` on first invocation.
+and `abandoned.md` only when the user abandons. Plus `.gitignore`, appended with `.ac/` on first invocation (under `LANE_MODE`, the git common dir's `info/exclude` instead).
 
 Source code is never modified here. Execution is `/ac:execute <slug>`, run by the user or chained by auto mode.
 </scope>
@@ -71,28 +73,28 @@ call, which is also the only way its cost stays visible.
 </constraints>
 
 <auto_mode>
-`--auto` in the argument string (Stage 0a) or the Stage 4 pick sets `AUTO_MODE = true`. Nothing else does. A
+`--auto` in the argument string (Stage 0a), `--lane` (which implies it) or the Stage 4 pick sets `AUTO_MODE = true`. Nothing else does. A
 statement inside the topic prose ("auto mode enabled", "onay alinca otomatik execute et", "run it end to end")
 leaves it false and only decides which Stage 4 option carries `(Recommended)`. Reading intent out of prose would
 skip the one gate where the user sees whether the rest of the run is autonomous.
 
 Auto mode automates system-process flow gates. It never auto-decides user-preference content.
 
-| Call site | Class | Under `AUTO_MODE = true` | On AFK timeout |
-|---|---|---|---|
-| 0a Topic missing | BLOCKER | surfaces | waits |
-| 0e Resume? | flow | auto-pick `Resume` | n/a, auto-picked |
-| 0f Plan collision | flow | auto-pick `Append suffix`, deliberately NOT the first option; preservation beats silent destruction | n/a, auto-picked |
-| 3a Proceed after synthesis | interview | surfaces | continues with `Proceed` |
-| 3b.1 TDD node | interview | surfaces | continues with the Recommended option |
-| 3b.2 QA node | interview | surfaces | continues with the Recommended option |
-| 3c Every decision node | interview | surfaces | continues with the Recommended option |
-| 3d Stalled? | flow | auto-pick `Continue` | n/a, auto-picked |
-| 3.5c Oracle returned CRITICAL | BLOCKER | surfaces | continues with `Revise plan`, at most once per run |
-| 3.5c Premise failed? | BLOCKER | surfaces | continues with `Re-research and re-decide`, at most once per run |
-| 4 Lock all | flow | auto-pick `Lock all and run on auto mode` | n/a, auto-picked |
-| Stage 5 write fails twice | BLOCKER | surfaces | waits |
-| Subagent malformed twice | BLOCKER | surfaces | waits |
+| Call site | Class | Under `AUTO_MODE = true` | On AFK timeout | Under `LANE_MODE` |
+|---|---|---|---|---|
+| 0a Topic missing | BLOCKER | surfaces | waits | returns `BLOCKED` |
+| 0e Resume? | flow | auto-pick `Resume` | n/a, auto-picked | auto-pick `Resume` |
+| 0f Plan collision | flow | auto-pick `Append suffix`, deliberately NOT the first option; preservation beats silent destruction | n/a, auto-picked | auto-pick `Append suffix` |
+| 3a Proceed after synthesis | interview | surfaces | continues with `Proceed` | returns `DECISIONS` |
+| 3b.1 TDD node | interview | surfaces | continues with the Recommended option | returns `DECISIONS` |
+| 3b.2 QA node | interview | surfaces | continues with the Recommended option | returns `DECISIONS` |
+| 3c Every decision node | interview | surfaces | continues with the Recommended option | returns `DECISIONS` |
+| 3d Stalled? | flow | auto-pick `Continue` | n/a, auto-picked | auto-pick `Continue` |
+| 3.5c Oracle returned CRITICAL | BLOCKER | surfaces | continues with `Revise plan`, at most once per run | returns `BLOCKED` |
+| 3.5c Premise failed? | BLOCKER | surfaces | continues with `Re-research and re-decide`, at most once per run | returns `BLOCKED` |
+| 4 Lock all | flow | auto-pick `Lock all and run on auto mode` | n/a, auto-picked | auto-pick `Lock all and proceed step-by-step`, so the lane never chains execute |
+| Stage 5 write fails twice | BLOCKER | surfaces | waits | returns `BLOCKED` |
+| Subagent malformed twice | BLOCKER | surfaces | waits | returns `BLOCKED` |
 
 Flow gates resolve to the `(Recommended)` option and emit one heartbeat line, `Auto mode: <header> -> <option>`.
 Interview gates surface whatever the mode, because they are preference content rather than process flow; the Stage 3
@@ -110,7 +112,34 @@ The anti-runaway guards are the loop bounds, not this table: Stage 3d fires afte
 interview turns, and the chained `/ac:execute` bounds its own side. Heartbeat is one short line
 per stage transition and per auto-resolved gate; interview gates emit none, since the user's answer already shows in
 the chat.
+
+Under `LANE_MODE` the last column replaces the other three: `returns` means the gate writes `pending_decisions[]` and
+ends the turn with a status block, never a question. The Stage 3.5 oracle trigger evaluation still runs; only its
+CRITICAL and Premise questions become `BLOCKED` blocks. Stage 4 is the one flow gate where the lane departs from the
+`(Recommended)` option, because that option chains execute and the coordinator is the only one that decides when
+execute runs.
 </auto_mode>
+
+<lane_mode>
+How an entry is written and how a lane resumes. The status block itself is defined in
+`${CLAUDE_PLUGIN_ROOT}/skills/coordinate/references/lane-protocol.md`; this section adds nothing to it.
+
+- **Entry.** One `pending_decisions[]` entry per question, in the decision-entry shape of the protocol (`id`, `header`,
+  `question`, `options`, `recommended`), plus `gate: interview | blocker` for the resume. Ids run `d1`, `d2`, ... within
+  the run. The `header` stays at 12 characters or fewer, so `Premise failed?` is written `Premise?`. An option label is
+  one token: drop `(Recommended)` and join the words with hyphens (`Revise-plan`); `recommended` is the label that
+  carried the marker, and the consequence is the option's own description. The `Proceed?` entry carries the Stage 3a
+  synthesis lines in its `question`, because the coordinator never sees a chat render.
+- **Blocker class.** A `BLOCKED` block from this skill uses `class: plan`.
+- **Batching.** A returning turn carries every node that is independent at that point, so the Stage 3a trio goes
+  together and later 3c nodes with no edge between them go together. Each round trip costs the coordinator a resume, so
+  one node per turn is the failure. A node that depends on another waits for the next round.
+- **Resume.** The lane is resumed with `ANSWERS` (one `<id>=<label>` per line) after a `DECISIONS` block and with
+  `RESOLVE <label>` after a `BLOCKED` one. Look each id up in `pending_decisions[]`, lock the answer with the rationale
+  `relayed by coordinator`, append the question and answer to `LOG_PATH`, empty `pending_decisions[]` in the
+  checkpoint, then continue from the interrupted stage: prune the remaining tree as usual and return the next
+  independent nodes, or move on when none remain.
+</lane_mode>
 
 <bootstrap>
 Nothing to load. `AskUserQuestion` arrives directly on the main thread, and there is no task list to register
@@ -123,17 +152,19 @@ Nothing to load. `AskUserQuestion` arrives directly on the main thread, and ther
 
 Scan `$ARGUMENTS` for the `--auto` flag (anywhere in the string, surrounded by whitespace or at the start/end). If present: set `AUTO_MODE = true`, strip the flag from `$ARGUMENTS`, continue with the remaining string. If absent: set `AUTO_MODE = false`.
 
+Scan the same way for `--lane`: if present, set `LANE_MODE = true` and `AUTO_MODE = true` and strip the flag; if absent, `LANE_MODE = false`. Then scan for `--slug <s>`: if present, set `SLUG_OVERRIDE = <s>` and strip both tokens. `--slug` works with or without `--lane`.
+
 If the post-strip `$ARGUMENTS` is empty:
 - When `AUTO_MODE = false`: call `AskUserQuestion` (header `Topic?`, single option `Provide topic` with freeform-Other prompt). Wait for input, then continue.
-- When `AUTO_MODE = true`: this is a BLOCKER (auto mode cannot proceed without a topic). Surface the same `Topic?` question; the user provides the topic; auto mode resumes after.
+- When `AUTO_MODE = true`: this is a BLOCKER (auto mode cannot proceed without a topic). Surface the same `Topic?` question; the user provides the topic; auto mode resumes after. Under `LANE_MODE` the question is returned as a `BLOCKED` block instead (the `<auto_mode>` table).
 
 If the post-strip `$ARGUMENTS` matches `.ac/tasks/*.yaml`, Read the YAML and extract `type`, User Story, and Acceptance Criteria as the request body. Otherwise treat `$ARGUMENTS` as a free-form topic.
 
-If `AUTO_MODE = true`, emit a single user-visible line: `Auto mode engaged. Will run end-to-end through planning and execution, halting only on BLOCKER classes.`
+If `AUTO_MODE = true` and `LANE_MODE = false`, emit a single user-visible line: `Auto mode engaged. Will run end-to-end through planning and execution, halting only on BLOCKER classes.` Under `LANE_MODE` emit `Lane mode engaged. Planning only; questions go back to the coordinator.`
 
 ### 0b. Derive slug and paths
 
-Read `${CLAUDE_SKILL_DIR}/references/slug-derivation.md` and apply it. It carries the seven ordered steps (path-strip, tokenize, Turkish ASCII fold, stopword filter, tech-stack preference, truncate to 5, normalize), the empty-slug fallback, and five worked examples.
+When `SLUG_OVERRIDE` is set, `SLUG = SLUG_OVERRIDE` verbatim and derivation is skipped (the coordinator names the plan directory so it can find it again); `PROJECT_DIR_HINT` stays unset. Otherwise read `${CLAUDE_SKILL_DIR}/references/slug-derivation.md` and apply it. It carries the seven ordered steps (path-strip, tokenize, Turkish ASCII fold, stopword filter, tech-stack preference, truncate to 5, normalize), the empty-slug fallback, and five worked examples.
 
 Set:
 
@@ -160,6 +191,8 @@ Idempotent; safe to run on every invocation.
 ### 0d. Gitignore guard
 
 In a git repo (`git rev-parse --git-dir 2>/dev/null` exits 0), run `git check-ignore -q .ac/`. If non-zero (path not ignored), append `.ac/` to `.gitignore` (create the file if missing) and print one line: `Added .ac/ to .gitignore so planning artifacts stay local. Use git add -f to track specific plan files.` Skip outside a git repo or when `.ac/` is already ignored. The check is idempotent; run it on every invocation.
+
+Under `LANE_MODE`, when `.ac/` is not ignored, append it to `$(git rev-parse --git-common-dir)/info/exclude` (create `info/` and the file if missing) and never touch `.gitignore`: a lane commits on its own branch, so a `.gitignore` change would land in a lane commit, and the common dir gives one rule for every worktree. Print nothing.
 
 ### 0e. Resume check
 
@@ -197,6 +230,8 @@ Counts policy, which governs the fan-out and stays here:
 - `ac:librarian`: floor 2, target 3. Brief 1 verifies idiomatic patterns against vendor docs, brief 2 covers known
   bugs and version-combo breakage, brief 3 adds OSS reference examples or a second library.
 - `ac:oracle`: 1, only when the request signals architecture intent. Advisory and non-blocking; do not gate on it.
+- Under `LANE_MODE` the counts are fixed at 4 `ac:explore` and 2 `ac:librarian`, with no Stage 1 oracle. Many lanes run
+  at once under one session-wide subagent cap, so each lane stays at the floor.
 
 Every brief carries a `DEPTH` and a `BUDGET`, or the agent falls back to its own default and searches wider than
 the angle needs. The reuse angle is one dedicated brief, not a clause added to the others. Issue all spawns in ONE
@@ -206,9 +241,9 @@ assistant message with `run_in_background: true`.
 
 A subagent returning empty or malformed output gets one re-spawn with a format reminder; a second failure is a
 BLOCKER, `AskUserQuestion` (header `Agent fail?`, options `Retry (Recommended)` / `Skip this angle` / `Abandon`),
-surfaced even under auto mode, because dropping a research angle silently leaves the plan thinner than it claims.
+surfaced even under auto mode, because dropping a research angle silently leaves the plan thinner than it claims. Under `LANE_MODE` it is returned as a `BLOCKED` block.
 
-Wait for all spawned agents by ending the turn with a one-line status; each completion arrives as a task-notification that starts your next turn. Never poll one with a `sleep` loop or by re-reading its output file. Write each agent's output to `RESEARCH_DIR/<agent-type>-<short-slug>.md`. The directory survey at `RESEARCH_DIR/00-directory-survey.md` is already on disk from 1a. Write a checkpoint with `last_stage: "1"` and the gathered research summary.
+Wait for all spawned agents by ending the turn with a one-line status (under `LANE_MODE`, a `status: WORKING` block); each completion arrives as a task-notification that starts your next turn. Never poll one with a `sleep` loop or by re-reading its output file. Write each agent's output to `RESEARCH_DIR/<agent-type>-<short-slug>.md`. The directory survey at `RESEARCH_DIR/00-directory-survey.md` is already on disk from 1a. Write a checkpoint with `last_stage: "1"` and the gathered research summary.
 
 Stage 1 complete.
 
@@ -320,7 +355,8 @@ routing rule with its worked examples, the TDD and QA nodes, and the walk-down w
 Four bounds hold whatever that file says, because they govern the whole stage rather than one node:
 
 - **Every interview gate is asked.** An AFK timeout continues one only in the session that owns the `ac:auto` marker,
-  as the `<auto_mode>` table says; every other session waits.
+  as the `<auto_mode>` table says; every other session waits. Under `LANE_MODE` a gate is returned to the coordinator,
+  which asks the owner, and the lane waits for the answer.
 - **The routing rule gates every question.** Before anything reaches the user, ask whether code can answer it (read
   the file), whether docs can (spawn `ac:librarian`), or whether only the user can (preference, business call, value
   judgment). Only the third class becomes an `AskUserQuestion`.
@@ -373,7 +409,7 @@ removes the parameter.
 
 ### 3.5c. Wait, classify, route
 
-Wait for the oracle the way 1e waits, by ending the turn until its notification arrives, then sort findings by severity. A PLAUSIBLE finding names the check that would confirm it; run that check yourself before routing it. Confirmed, route it by its severity; refuted, drop it and log why; still open, list it in the Stage 4 preview as IMPORTANT instead of raising the CRITICAL BLOCKER.
+Wait for the oracle the way 1e waits, by ending the turn until its notification arrives, then sort findings by severity. Under `LANE_MODE` the oracle still runs on its triggers; only the two BLOCKER questions below change, to `BLOCKED` blocks. A PLAUSIBLE finding names the check that would confirm it; run that check yourself before routing it. Confirmed, route it by its severity; refuted, drop it and log why; still open, list it in the Stage 4 preview as IMPORTANT instead of raising the CRITICAL BLOCKER.
 
 Any CRITICAL finding is a BLOCKER: surface it before Stage 4 even under auto mode, via `AskUserQuestion` (header
 `Oracle CRIT?`, options `Revise plan (Recommended)` back to Stage 3 at the affected decision / `Accept as Risk`,
@@ -435,7 +471,9 @@ Then call `AskUserQuestion` (header `Lock all?`):
 4. `Revise / expand scope`: change what is IN or OUT, or pull a deferred idea into v1; loops back to Stage 3.
 
 This is the only gate where the user sees whether the rest of the run is autonomous, so it fires whenever `--auto`
-was absent; auto mode skips it and proceeds as if option 1 were picked.
+was absent; auto mode skips it and proceeds as if option 1 were picked. Under `LANE_MODE` it is skipped as option 2
+(`Lock all and proceed step-by-step`) and `plan-scaffold` gets `--auto-mode false`, so the plan frontmatter never asks
+the coordinator's execute to run on auto.
 
 Stage 4 complete.
 
@@ -558,7 +596,7 @@ and they get fixed. What is gone is the machinery that turned every plan into th
 
 Delete `CHECKPOINT_PATH`. The plan is locked and reviewed.
 
-Render the plan summary using the template at `${CLAUDE_SKILL_DIR}/references/plan-summary-template.md`. Fill concrete values from the plan file.
+Render the plan summary using the template at `${CLAUDE_SKILL_DIR}/references/plan-summary-template.md`. Fill concrete values from the plan file. Under `LANE_MODE` skip the summary: the coordinator reads the status block and nothing else, so end the turn with `status: PLANNED`, `plan` set to the absolute `PLAN_PATH` and `steps` counted from its checkboxes.
 
 Stage 6 complete.
 
@@ -568,7 +606,9 @@ Read `**Auto mode**:` from the plan frontmatter rather than trusting the in-cont
 there from the Stage 4 answer, and the file is what survives a compaction between the two. They agree on any run
 that went through Stage 4; when they disagree, the file is right and the variable was lost.
 
-When `AUTO_MODE = true`, do not end the turn after the summary. Emit one line naming the handoff, then invoke the
+When `LANE_MODE = true`, skip this chain whatever `AUTO_MODE` holds; the coordinator runs execute.
+
+When `AUTO_MODE = true` and `LANE_MODE = false`, do not end the turn after the summary. Emit one line naming the handoff, then invoke the
 `ac:execute` skill with `skill: "ac:execute"` and `args: "<slug> --auto"`, and keep going in the same turn until
 execute reaches its own terminal state or a BLOCKER halts it.
 
