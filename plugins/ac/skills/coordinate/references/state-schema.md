@@ -92,7 +92,7 @@ Per bundle:
 - `branch`: `lane/<slug>/<id>`; `null` until dispatched.
 - `head`: the lane branch HEAD from the latest status block.
 - `plan_slug`: the slug of the plan directory under the lane's `.ac/plans/`; `null` until a plan exists.
-- `steps_total`: the step total `plan-check` printed when it exited 0 on the bundle's plan (Phase 6c), the N that integration compares the DONE block's `steps` against; `null` until then, and reset to `null` whenever a lane is dispatched, because a re-dispatched lane plans afresh.
+- `steps_total`: the step total `plan-check` printed for the bundle's plan, at its exit-0 run in Phase 6c or, for a DONE that the 6c `execute` option let past a failing `plan-check`, in Phase 6a; the N that integration compares the DONE block's `steps` against. `null` until then, and reset to `null` whenever a lane is dispatched, because a re-dispatched lane plans afresh.
 - `archived`: `true` once the plan directory and report are copied into `bundles/<id>/` and checked with `diff -rq`. A worktree is removed only after this, never with `--force`.
 - `attempts`: how many lanes were dispatched for this bundle.
 

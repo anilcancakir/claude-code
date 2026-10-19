@@ -233,7 +233,10 @@ Parse the lane's last `LANE STATUS` block. Append it to `events.jsonl`, then rew
 (`<repo>/.claude/worktrees/agent-<lane_agent_id>`, which the block's `plan` path confirms), `plan_slug` (the bundle
 id). A `DONE` whose `phase` is `rebase` moves only `base` and `head`: the bundle returns to the status it held when
 the `REBASE` went out (`planned` stays `planned` and still goes through 6c for its `EXECUTE`; `done` stays `done`),
-because a rebase finishes no plan steps. A `WORKING` block changes nothing. A message that carries no parsable block is a FAILED with that fact.
+because a rebase finishes no plan steps. A `DONE` whose `phase` is `execute` on a bundle whose `steps_total` is still
+`null` (the 6c `execute` option sent `EXECUTE` past a failing `plan-check`) runs `plan-check` on the block's `plan`
+path now and stores the total it prints. A `WORKING` block changes nothing. A message that carries no parsable
+block is a FAILED with that fact.
 
 ### 6b. Relay owner questions
 
