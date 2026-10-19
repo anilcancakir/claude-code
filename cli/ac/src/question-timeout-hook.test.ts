@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 
 // The hook is a shell script under the plugin, so this is where its contract is pinned: the idle
 // timeout of an AskUserQuestion answers with the wait text unless the session owns a live ac:auto
-// run, and the wait text is also what every parse failure falls back to.
+// or ac:coordinate run, and the wait text is also what every parse failure falls back to.
 const HOOK = join(
     dirname(fileURLToPath(import.meta.url)),
     "..",
@@ -124,6 +124,22 @@ function seedAutoRun(overrides: { session?: string; startedAt?: string } = {}): 
     return startedAt;
 }
 
+function seedCoordinatorRun(overrides: { session?: string; startedAt?: string; slug?: string } = {}): void {
+    const slug = overrides.slug ?? SLUG;
+    mkdirSync(join(project, ".ac", "state"), { recursive: true });
+    mkdirSync(join(project, ".ac", "coord", slug), { recursive: true });
+    writeFileSync(
+        join(project, ".ac", "state", "active-coordinate.json"),
+        JSON.stringify({
+            session_id: overrides.session ?? SESSION,
+            slug,
+            started_at: overrides.startedAt ?? isoAgo(0),
+            phase: "roadmap",
+            note: "",
+        }),
+    );
+}
+
 function seedExecuteMarker(session: string = SESSION): void {
     writeFileSync(
         join(project, ".ac", "state", "active-execution.json"),
@@ -153,10 +169,11 @@ function expectWait(result: HookResult): void {
     expect(text).not.toContain(CONTINUE_MARK);
 }
 
-function expectContinue(result: HookResult): void {
+function expectContinue(result: HookResult, owner: "ac:auto" | "ac:coordinate" = "ac:auto"): void {
     expect(result.exitCode).toBe(0);
     const text = additionalContext(result.stdout);
     expectText(text, CONTINUE_MARK);
+    expect(text).toContain(`owns the active ${owner} run`);
     expect(text).not.toContain(WAIT_MARK);
 }
 
@@ -329,6 +346,83 @@ test("a symlinked Oracle CRIT? counter is refused", () => {
 
     expectWait(runHook(payload([question("Oracle CRIT?")])));
     expect(readdirSync(root)).not.toContain("missing");
+});
+
+test("a coordinator owner continues on Roadmap? with the coordinator text and leaves no latch", () => {
+    seedCoordinatorRun();
+    writeFileSync(latchPath(), `${Math.floor(Date.now() / 1000)}\n`);
+
+    const result = runHook(payload([question("Roadmap?")]));
+
+    expectContinue(result, "ac:coordinate");
+    expect(additionalContext(result.stdout)).toContain(".ac/coord/<slug>/events.jsonl");
+    expect(additionalContext(result.stdout)).not.toContain("Risks Accepted");
+    expect(existsSync(latchPath())).toBe(false);
+});
+
+test("a coordinator owner continues on a bundle decision header", () => {
+    seedCoordinatorRun();
+
+    expectContinue(runHook(payload([question("B2 Scope?")])), "ac:coordinate");
+});
+
+test("Push?, Lane block? and Conflict? wait and arm the latch even with an owned coordinator marker", () => {
+    seedCoordinatorRun();
+
+    for (const header of ["Push?", "Lane block?", "Conflict?"]) {
+        rmSync(latchPath(), { force: true });
+        expectWait(runHook(payload([question(header)])));
+        expect(existsSync(latchPath())).toBe(true);
+    }
+});
+
+test("a coordinator marker owned by another session waits", () => {
+    seedCoordinatorRun({ session: "sess-other" });
+
+    expectWait(runHook(payload([question("Roadmap?")])));
+    expect(existsSync(latchPath())).toBe(true);
+});
+
+test("a coordinator verdict on disk waits", () => {
+    seedCoordinatorRun();
+    writeFileSync(join(project, ".ac", "coord", SLUG, "verdict.md"), "# Verdict\n");
+
+    expectWait(runHook(payload([question("Roadmap?")])));
+});
+
+test("a coordinator marker whose run directory is missing waits", () => {
+    seedCoordinatorRun();
+    rmSync(join(project, ".ac", "coord", SLUG), { recursive: true });
+
+    expectWait(runHook(payload([question("Roadmap?")])));
+});
+
+test("a coordinator slug with a slash waits even when that path exists", () => {
+    seedCoordinatorRun({ slug: "a/b" });
+
+    expectWait(runHook(payload([question("Roadmap?")])));
+});
+
+test("a coordinator marker stays live for 72 hours and no longer", () => {
+    seedCoordinatorRun({ startedAt: isoAgo(48) });
+    expectContinue(runHook(payload([question("Roadmap?")])), "ac:coordinate");
+
+    seedCoordinatorRun({ startedAt: isoAgo(73) });
+    expectWait(runHook(payload([question("Roadmap?")])));
+});
+
+test("an execute marker owned by this session beside the coordinator marker waits", () => {
+    seedCoordinatorRun();
+    seedExecuteMarker();
+
+    expectWait(runHook(payload([question("Roadmap?")])));
+});
+
+test("an auto marker owned by another session does not hide an owned coordinator marker", () => {
+    seedAutoRun({ session: "sess-other" });
+    seedCoordinatorRun();
+
+    expectContinue(runHook(payload([question("Roadmap?")])), "ac:coordinate");
 });
 
 test("SHAPE=block prints a decision block carrying the wait reason", () => {

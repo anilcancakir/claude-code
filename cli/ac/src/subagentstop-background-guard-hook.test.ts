@@ -329,6 +329,18 @@ test("a bare ac agent name blocks like the namespaced one", () => {
     expect(blockReason(result.stdout)).toContain("bg1");
 });
 
+test("a lane parks by design, so an own running shell is silent for the namespaced and the bare name", () => {
+    writeTranscript(shellStarted("bg1"));
+
+    for (const agentType of ["ac:lane", "lane"]) {
+        const result = runHook(payload({ agent_type: agentType, background_tasks: [shellTask("bg1", "make")] }));
+
+        expect(result).toEqual(SILENT);
+    }
+
+    expect(existsSync(join(scratchTmp, "ac-subagent-stop", "agent1"))).toBe(false);
+});
+
 test("an unsafe agent id is silent", () => {
     writeTranscript(shellStarted("bg1"));
 

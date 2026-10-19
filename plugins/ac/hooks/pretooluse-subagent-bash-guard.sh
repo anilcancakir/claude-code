@@ -15,7 +15,7 @@
 # window), so the deny carries that form: a refusal alone would send the agent to retry the same
 # search in a new spelling.
 #
-# What it denies, for ac agents only (`ac:<name>`, or one of the eleven bare names for an agent
+# What it denies, for ac agents only (`ac:<name>`, or one of the twelve bare names for an agent
 # installed unprefixed):
 #   a. `find`, recursive `grep`, `rg` or `fd` whose search root is `/` or the home directory, unless
 #      `-maxdepth` (find) or `--max-depth`/`-d` (rg, fd) limits the walk to 2 levels or fewer.

@@ -274,7 +274,7 @@ test("the same denied commands pass from the main thread and from another agent"
     }
 });
 
-test("all eleven bare ac agent names are in scope", () => {
+test("all twelve bare ac agent names are in scope", () => {
     for (const agent of [
         "explore",
         "librarian",
@@ -287,6 +287,7 @@ test("all eleven bare ac agent names are in scope", () => {
         "plan-code-review",
         "auto-verifier",
         "qa-tester",
+        "lane",
     ]) {
         denyReason(runHook(payload("find / -name x", agent)));
     }

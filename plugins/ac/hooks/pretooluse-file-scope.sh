@@ -24,6 +24,15 @@ command -v jq >/dev/null 2>&1 || exit 0
 agent_id="$(printf '%s' "$input" | jq -r '.agent_id // empty' 2>/dev/null)" || exit 0
 [ -n "$agent_id" ] || exit 0
 
+# 1a. An ac:lane subagent is itself an execute orchestrator: its Phase 3 remediation edits
+#     fall outside any wave's files, exactly like the main-thread orchestrator's. agent_type
+#     carries the plugin namespace, so accept both forms, and match them exactly: the
+#     plan-workers it spawns must stay gated.
+agent_type="$(printf '%s' "$input" | jq -r '.agent_type // empty' 2>/dev/null)"
+case "$agent_type" in
+    ac:lane | lane) exit 0 ;;
+esac
+
 # Resolve the tree that holds the .ac/ state. The payload cwd follows a worktree; the stable
 # root deliberately does not (utils/hooks.ts:813-816: "getProjectRoot() is never updated when
 # entering a worktree"), and every .ac/ path in the execute skill is cwd-relative. So probe

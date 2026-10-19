@@ -23,7 +23,7 @@
 # is somebody else's, and TaskStop checks no owner, so claiming it would stop the orchestrator's
 # dev server.
 #
-# Scope and bounds. It acts on ac agents only (`ac:<name>`, or one of the eleven bare names for an
+# Scope and bounds. It acts on ac agents only (`ac:<name>`, or one of the twelve bare names for an
 # agent installed unprefixed), never on the main thread, and blocks at most once per agent_id:
 # the `stop_hook_active` flag and a marker under TMPDIR both enforce that, so a subagent that
 # ignores the instruction is let through on its next stop instead of looping. Every other
@@ -45,6 +45,10 @@ printf '%s' "$input" | jq -e . >/dev/null 2>&1 || exit 0
 # 1. Scope. A main-thread stop carries no agent_type, which is what leaves the orchestrator alone.
 agent_type="$(printf '%s' "$input" | jq -r '.agent_type // empty' 2>/dev/null)"
 ac_agent_in_scope "$agent_type" || exit 0
+
+# A lane ends its turn to wait while its own background shells may still run, so the TaskStop and
+# restate-the-report instruction below would be wrong for it. Exempt before the marker exists.
+case "$agent_type" in ac:lane | lane) exit 0 ;; esac
 
 agent_id="$(printf '%s' "$input" | jq -r '.agent_id // empty' 2>/dev/null)"
 [ -n "$agent_id" ] || exit 0
