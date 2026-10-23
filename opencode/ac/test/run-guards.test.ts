@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test"
+import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test"
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -154,6 +154,24 @@ describe("stop guard", () => {
         await fake.fire.session("prompt", { sessionID: "ses_root" })
         await push(fake, "session.execution.succeeded", { sessionID: "ses_root" })
         expect(fake.calls.synthetic).toHaveLength(4)
+    })
+
+    test("a fallback replay prompt does not reopen the per-prompt budget", async () => {
+        writeMarker()
+        writePlan()
+        const fake = await setup()
+
+        for (let stall = 0; stall < 3; stall++) {
+            await push(fake, "session.execution.succeeded", { sessionID: "ses_root" })
+            await toolCall(fake, "ses_root")
+        }
+        await fake.fire.session("prompt", {
+            sessionID: "ses_root",
+            metadata: { "ac.fallback": { from: "alpha/one", to: "beta/two#high" } },
+        })
+        await push(fake, "session.execution.succeeded", { sessionID: "ses_root" })
+
+        expect(fake.calls.synthetic).toHaveLength(3)
     })
 
     test("a worker's tool call does not reset the root's stall", async () => {
@@ -339,6 +357,26 @@ describe("file-scope guard", () => {
         const fake = await setup()
 
         expect((await edit(fake, "ses_worker", "src/elsewhere.ts")).effect).toBe("allow")
+    })
+
+    test("a failed root lookup leaves the default effect, logs it, and is retried on the next call", async () => {
+        writeMarker()
+        const sessions: Record<string, FakeSession> = { ...SESSIONS }
+        const fake = createFakeCtx({ sessions })
+        cleanup = await registerRunGuards(fake.ctx, { directory: dir })
+        const logged = spyOn(console, "error").mockImplementation(() => {})
+        try {
+            const failed = await edit(fake, "ses_late", "src/elsewhere.ts")
+
+            expect(failed.effect).toBe("allow")
+            expect(logged).toHaveBeenCalledTimes(1)
+            expect(String(logged.mock.calls[0]?.[0])).toContain("ac run-guards")
+        } finally {
+            logged.mockRestore()
+        }
+
+        sessions.ses_late = { id: "ses_late", parentID: "ses_root" }
+        expect((await edit(fake, "ses_late", "src/elsewhere.ts")).effect).toBe("deny")
     })
 
     test("actions other than edit are not scoped", async () => {

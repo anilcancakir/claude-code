@@ -1,4 +1,5 @@
 import type { Plugin } from "@opencode/plugin"
+import type { Registration } from "@opencode/plugin/promise/registration"
 import type { Result } from "@opencode/plugin/promise/tool"
 import { existsSync, realpathSync } from "node:fs"
 import { basename, extname, isAbsolute, relative, resolve } from "node:path"
@@ -32,7 +33,10 @@ const DEFAULT_CHECKERS: Readonly<Record<string, readonly Checker[]>> = {
     ".dart": [{ bin: "dart", args: ["analyze"] }],
 }
 
-export async function registerDiagnostics(ctx: Plugin.Context, options: DiagnosticsOptions = {}) {
+export async function registerDiagnostics(
+    ctx: Plugin.Context,
+    options: DiagnosticsOptions = {},
+): Promise<Registration> {
     const root = realpathSync(options.directory ?? ctx.location.directory)
     const checkers = { ...DEFAULT_CHECKERS, ...options.checkers }
     const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS
@@ -48,7 +52,11 @@ export async function registerDiagnostics(ctx: Plugin.Context, options: Diagnost
     })
 }
 
-function touchedPaths(tool: string, input: unknown): string[] {
+/**
+ * Paths a file tool call touches. Deleted files are opt-in: a checker has nothing to read there, while the
+ * path-scoped rules still care that the path was touched.
+ */
+export function touchedPaths(tool: string, input: unknown, includeDeleted = false): string[] {
     if (typeof input !== "object" || input === null) return []
     const fields = input as Record<string, unknown>
 
@@ -58,8 +66,9 @@ function touchedPaths(tool: string, input: unknown): string[] {
     // Update and Move headers are both taken: whichever side no longer exists is skipped by the existence check.
     const paths = new Set<string>()
     for (const line of fields.patchText.split("\n")) {
-        const header = /^\*\*\* (?:Add File|Update File|Move to):\s*(.+?)\s*$/.exec(line)
-        if (header?.[1] !== undefined) paths.add(header[1])
+        const header = /^\*\*\* (Add File|Update File|Move to|Delete File):\s*(.+?)\s*$/.exec(line)
+        if (header?.[2] === undefined || (header[1] === "Delete File" && !includeDeleted)) continue
+        paths.add(header[2])
     }
     return [...paths]
 }
@@ -79,14 +88,16 @@ async function diagnose(
         const file = locate(path, root)
         if (file === undefined) continue
 
-        const failures: string[] = []
-        for (const checker of checkers[extname(file.real).toLowerCase()] ?? []) {
-            const bin = resolveBin(checker.bin, root)
-            if (bin === undefined) continue
-
-            const failure = await run(bin, checker, file.real, timeoutMs)
-            if (failure !== undefined) failures.push(failure.replaceAll(file.real, file.relative))
-        }
+        // Checkers of one file are independent, so they run together; map order keeps the output deterministic.
+        const results = await Promise.all(
+            (checkers[extname(file.real).toLowerCase()] ?? []).map((checker) => {
+                const bin = resolveBin(checker.bin, root)
+                return bin === undefined ? undefined : run(bin, checker, file.real, root, timeoutMs)
+            }),
+        )
+        const failures = results.flatMap((failure) =>
+            failure === undefined ? [] : [failure.replaceAll(file.real, file.relative)],
+        )
         if (failures.length === 0) continue
 
         const block = renderBlock(file.relative, failures.join("\n"), remaining)
@@ -114,10 +125,20 @@ function resolveBin(bin: string, root: string): string | undefined {
     return Bun.which(bin.includes("/") ? resolve(root, bin) : bin) ?? undefined
 }
 
-/** Resolves to the failure text, or undefined when the checker exited 0: clean runs print noise the model does not need. */
-async function run(bin: string, checker: Checker, file: string, timeoutMs: number): Promise<string | undefined> {
+/**
+ * Resolves to the failure text, or undefined when the checker exited 0: clean runs print noise the model does not need.
+ * The checker starts in the project root: the plugin lives in a shared service whose own directory is unrelated, and
+ * tools such as pint read their config from the working directory.
+ */
+async function run(
+    bin: string,
+    checker: Checker,
+    file: string,
+    root: string,
+    timeoutMs: number,
+): Promise<string | undefined> {
     const label = `${basename(checker.bin)} ${checker.args.join(" ")}`.trim()
-    const proc = Bun.spawn([bin, ...checker.args, file], { stdout: "pipe", stderr: "pipe" })
+    const proc = Bun.spawn([bin, ...checker.args, file], { cwd: root, stdout: "pipe", stderr: "pipe" })
 
     let timedOut = false
     const timer = setTimeout(() => {

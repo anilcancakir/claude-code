@@ -5,15 +5,16 @@ Routing table used for tier assignment in `/ac/plan` Stage 5 and consumed by the
 
 ## Model shapes
 
-The preset splits the work by model shape rather than by benchmark score:
+The preset splits the work by model shape and uses four model families only, all on the codefast endpoints:
 
 | Model | Shape | Tiers it carries as primary | Role |
 |---|---|---|---|
-| GLM-5.3 (`codefast-glm/glm-5.3`) | Opus-shaped | `senior` (variant `max`), plus the main session, `oracle`, `plan-reviewer` and `plan-code-review` | Frontier agentic coding: cross-layer work, architecture, migrations, long-horizon changes where correctness depends on reasoning about behaviour. The expensive and slow end of the ladder. |
-| Kimi K3 (`codefast-kimi/kimi-k3`) | Sonnet-shaped | `junior` and `junior-high` (both variant `high`), plus `librarian` and `qa-tester` | Standard implementation, pattern application, refactor-with-pattern. Reads broad context and follows conventions; not a near-peer of the Opus-shaped model on the hardest cases. |
-| DeepSeek V4 Pro (`codefast-deepseek/deepseek-v4-pro-0813`) and Qwen 3.8 Max (`codefast-qwen/qwen3.8-max`) | fast | `quick` (variant `low`), plus `explore` | Mechanical work, config, rename, scaffold, single-file fix, parallel fan-out. Scope its work through the briefing. |
+| GLM-5.3 (`codefast-glm/glm-5.3`) | Opus-shaped builder | `senior` (variant `max`), plus the main session and `plan-code-review` | Agentic coder trained against a Claude Code shaped harness (ZCode): cross-layer work, architecture, migrations, long-horizon changes where correctness depends on reasoning about behaviour. Reviews the workers' diff because it is a different family from them. |
+| Kimi K3 (`codefast-kimi/kimi-k3`) | independent reviewer | `oracle` (variant `max`) and `plan-reviewer` (variant `high`) | A different family from whoever produced the artifact (planner GLM, so plan-reviewer Kimi; main GLM, so oracle Kimi), so review is a second eye rather than the author re-reading itself. The slowest model in the preset, acceptable because reviews are rare. |
+| DeepSeek V4.1 Flash 1017 (`codefast-deepseek/deepseek-v4.1-flash-1017`) | Sonnet- and Haiku-shaped workhorse | `junior` and `junior-high` (variant `high`), `quick` and `explore` (variant `low`), plus `librarian` and `qa-tester` | Artificial Analysis Intelligence Index 45 (tied with GLM-5.3; Kimi K3 44, Qwen3.8 Flash 40), speed class 4/4 against GLM 3/4, Qwen 2/4, Kimi 1/4; operator test 12/12. Standard implementation, pattern application, mechanical edits and fan-out search. Its sibling `deepseek-v4.1-flash` is the last rung of the fast chains. |
+| Qwen 3.8 Flash (`codefast-qwen/qwen3.8-flash`) | fast fallback | session titles | Second rung of the fast chains and last rung of the junior, librarian and qa-tester chains. |
 
-The `opencode-go/*` entries at the end of every chain are the last resort, reached only when the codefast endpoints fail.
+Every chain sits inside the one codefast rate-limit group, so a fallback rung mainly covers model-specific errors (5xx, malformed output); a group-wide 429 is waited out rather than routed around.
 
 ## Variant
 
@@ -57,18 +58,18 @@ Apply to every step, not just the first.
 
 Those are real reasons to reach for a higher tier, and inventing an attribution to a rule that does not fit is worse than admitting the gap. So when a step sits at the borderline of `junior` for a reason no numbered rule covers, write `rule-none: <one sentence naming the actual risk>` and assign **`junior-high`**, not `senior`.
 
-Routing the residual to `junior-high` is deliberate: it is cheaper and faster than `senior` per step and marks the step as borderline within the Sonnet-shaped workers (both junior tiers run Kimi K3 at `high`, so the tier is a signal, not a stronger worker), so an unmodelled risk parks somewhere proportionate instead of defaulting to the most expensive tier in the ladder. `senior` stays reserved for what the numbered rules actually name. If one family keeps recurring under `rule-none`, that is the signal to add a rule rather than to keep paying for the ambiguity.
+Routing the residual to `junior-high` is deliberate: it is cheaper and faster than `senior` per step and marks the step as borderline within the Sonnet-shaped workers (both junior tiers run DeepSeek V4.1 Flash 1017 at `high`, so the tier is a signal, not a stronger worker), so an unmodelled risk parks somewhere proportionate instead of defaulting to the most expensive tier in the ladder. `senior` stays reserved for what the numbered rules actually name. If one family keeps recurring under `rule-none`, that is the signal to add a rule rather than to keep paying for the ambiguity.
 
 ## Tier-to-worker routing (used by the execute skill)
 
 | Tier | Worker subagent | Primary model | Fallback chain, in order |
 |---|---|---|---|
-| `quick` | `ac/plan-worker-quick` | `codefast-deepseek/deepseek-v4-pro-0813#low` | `codefast-qwen/qwen3.8-max#low`, `codefast-glm/glm-5.3#low`, `opencode-go/glm-5.3-flash` |
-| `junior` | `ac/plan-worker-junior` | `codefast-kimi/kimi-k3#high` | `codefast-glm/glm-5.3#high`, `codefast-qwen/qwen3.8-max#high`, `opencode-go/kimi-k2.7-code` |
-| `junior-high` | `ac/plan-worker-junior-high` | `codefast-kimi/kimi-k3#high` | `codefast-glm/glm-5.3#high`, `codefast-deepseek/deepseek-v4-pro-0813#high`, `opencode-go/kimi-k2.7-code` |
-| `senior` | `ac/plan-worker-senior` | `codefast-glm/glm-5.3#max` | `codefast-kimi/kimi-k3#high`, `codefast-deepseek/deepseek-v4-pro-0813#max`, `opencode-go/kimi-k3#high` |
+| `quick` | `ac/plan-worker-quick` | `codefast-deepseek/deepseek-v4.1-flash-1017#low` | `codefast-qwen/qwen3.8-flash#low`, `codefast-deepseek/deepseek-v4.1-flash#low` |
+| `junior` | `ac/plan-worker-junior` | `codefast-deepseek/deepseek-v4.1-flash-1017#high` | `codefast-glm/glm-5.3#high`, `codefast-qwen/qwen3.8-flash#high` |
+| `junior-high` | `ac/plan-worker-junior-high` | `codefast-deepseek/deepseek-v4.1-flash-1017#high` | `codefast-glm/glm-5.3#high`, `codefast-qwen/qwen3.8-flash#high` |
+| `senior` | `ac/plan-worker-senior` | `codefast-glm/glm-5.3#max` | `codefast-deepseek/deepseek-v4.1-flash-1017#max`, `codefast-kimi/kimi-k3#high` |
 
-The ladder is monotonic in cost and latency. `quick` runs a fast model at `low`. `junior` and `junior-high` run the same model at the same variant, so junior-high costs more per step only because heavier steps are routed there, not because it is a different worker. `senior` runs the Opus-shaped model at `max`, the slowest and most expensive rung, and it is the price of every unnecessary escalation, so plan around it. No per-step cost has been measured on these models yet; re-measure once a few dozen runs per tier exist rather than carrying numbers over from another harness.
+The ladder is monotonic in cost and latency. `quick` runs the workhorse model at `low`. `junior` and `junior-high` run the same model at the same variant, so junior-high costs more per step only because heavier steps are routed there, not because it is a different worker. `senior` runs the Opus-shaped model at `max`, the slowest and most expensive rung, and it is the price of every unnecessary escalation, so plan around it. No per-step cost has been measured on these models yet; re-measure once a few dozen runs per tier exist rather than carrying numbers over from another harness.
 
 Prefer `junior-high` over `senior` for work that is heavier than junior but not cross-layer. `junior-high` is sourced from rules 1 through 3: borderline coupling, borderline contextual work, and codebase-state escalation. It is where "this is heavier than junior but not cross-layer" goes. With both junior tiers on the same model and variant it adds no effort; it stays as the borderline signal until a measurement decides otherwise.
 

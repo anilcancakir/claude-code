@@ -1,6 +1,8 @@
 import type { Plugin } from "@opencode/plugin"
+import type { Registration } from "@opencode/plugin/promise/registration"
 import { readdirSync } from "node:fs"
 import { isAbsolute, join, relative, resolve } from "node:path"
+import { touchedPaths } from "./diagnostics.ts"
 import { findGitRoot, PRIMARY_AGENTS, readIfPresent } from "./memory.ts"
 
 export interface RulesOptions {
@@ -18,7 +20,7 @@ export interface Rule {
     patterns: string[] | undefined
 }
 
-const FILE_TOOLS: ReadonlySet<string> = new Set(["read", "edit", "write"])
+const FILE_TOOLS: ReadonlySet<string> = new Set(["read", "edit", "write", "patch"])
 const FRONTMATTER = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/
 
 /** Splits on commas that sit outside braces, so `src/*.{ts,tsx}` stays one pattern. */
@@ -139,12 +141,6 @@ function loadRules(root: string): Rule[] {
         })
 }
 
-function targetPath(input: unknown): string | undefined {
-    if (typeof input !== "object" || input === null) return undefined
-    const path = (input as Record<string, unknown>).path
-    return typeof path === "string" ? path : undefined
-}
-
 function ruleText(rule: Rule): string {
     return `Project rule (${rule.name}):\n\n${rule.body.trim()}`
 }
@@ -154,7 +150,7 @@ function ruleText(rule: Rule): string {
  * primary agents; path-scoped rules arrive once per session as a synthetic message after the first
  * read, edit or write of a matching file. Rules are reread on each event so edits take effect.
  */
-export function registerRules(ctx: Plugin.Context, options: RulesOptions = {}) {
+export function registerRules(ctx: Plugin.Context, options: RulesOptions = {}): Promise<Registration[]> {
     const directory = options.directory ?? ctx.location.directory
     const root = findGitRoot(directory) ?? directory
     const primaryAgents = options.primaryAgents ?? PRIMARY_AGENTS
@@ -169,14 +165,14 @@ export function registerRules(ctx: Plugin.Context, options: RulesOptions = {}) {
 
     const afterTool = ctx.tool.hook("execute.after", async (event) => {
         if (event.status !== "completed" || !FILE_TOOLS.has(event.tool)) return
-        const target = targetPath(event.input)
-        if (target === undefined) return
-
-        const relativePath = relative(root, resolve(directory, target))
-        if (relativePath === ".." || relativePath.startsWith("../") || isAbsolute(relativePath)) return
+        const relativePaths = touchedPaths(event.tool, event.input, true)
+            .map((target) => relative(root, resolve(directory, target)))
+            .filter((path) => path !== ".." && !path.startsWith("../") && !isAbsolute(path))
 
         for (const rule of loadRules(root)) {
-            if (rule.patterns === undefined || !matchesRule(rule.patterns, relativePath)) continue
+            if (rule.patterns === undefined) continue
+            const patterns = rule.patterns
+            if (!relativePaths.some((path) => matchesRule(patterns, path))) continue
             const key = `${event.sessionID}\0${rule.name}`
             if (injected.has(key)) continue
             injected.add(key)

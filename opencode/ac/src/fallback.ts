@@ -7,10 +7,23 @@ type SessionModel = SessionRetry["model"]
 type SessionMessage = Awaited<ReturnType<Context["session"]["context"]>>[number]
 type UserMessage = Extract<SessionMessage, { type: "user" }>
 type PromptInput = Parameters<Context["session"]["prompt"]>[0]
+/** A live model reference; the retry hook brands its ids, `session.get` does not. */
+interface PlainModel {
+    readonly providerID: string
+    readonly id: string
+    readonly variant?: string
+}
 
 interface FallbackNextInput {
     tier: string
     tried: string[]
+    status?: number
+}
+
+/** A main session this module moved off its chain head, and the model it moved it to. */
+interface FallenBack {
+    tier: string
+    to: ModelRef
 }
 
 /**
@@ -22,7 +35,7 @@ const AGENT_TIERS: Readonly<Record<string, string>> = {
 }
 
 /** Prompt metadata key that marks a replay, so the prompt hook does not mistake it for a new user turn. */
-const REPLAY_MARKER = "ac.fallback"
+export const REPLAY_MARKER = "ac.fallback"
 
 /** Splits like opencode's `Model.Ref.parse`: the provider ends at the first slash, the model id may hold more. */
 function parseModelRef(ref: ModelRef): SessionModel {
@@ -41,7 +54,7 @@ function parseModelRef(ref: ModelRef): SessionModel {
  * Availability is a property of the model, not of the reasoning variant: a 429 on `glm-5.3#high` means
  * `glm-5.3#max` is down too, so cooldown and tried bookkeeping key on `provider/model`.
  */
-function modelKey(ref: ModelRef | SessionModel): string {
+function modelKey(ref: ModelRef | PlainModel): string {
     if (typeof ref !== "string") return `${ref.providerID}/${ref.id}`
     const variantStart = ref.indexOf("#", ref.indexOf("/") + 1)
     return variantStart === -1 ? ref : ref.slice(0, variantStart)
@@ -49,6 +62,11 @@ function modelKey(ref: ModelRef | SessionModel): string {
 
 /** HTTP status whose limit is shared by every provider of a group, so the whole group backs off together. */
 const RATE_LIMIT_STATUS = 429
+
+/** The form chain entries are written in, so a log line reads like the config. */
+function formatRef(model: PlainModel): ModelRef {
+    return `${model.providerID}/${model.id}${model.variant === undefined ? "" : `#${model.variant}`}`
+}
 
 /** The provider is the part before the first slash, for both chain entries and live session models. */
 function providerOf(ref: ModelRef | SessionModel): string {
@@ -94,6 +112,7 @@ export async function registerFallback(ctx: Context, config: ModelConfig): Promi
     // Models that already failed in the current user turn, per session. A new turn starts a fresh descent.
     const tried = new Map<string, Set<string>>()
     const switching = new Set<string>()
+    const fallenBack = new Map<string, FallenBack>()
     const groupByProvider = new Map<string, string>(
         Object.entries(config.groups).flatMap(([group, providers]) => providers.map((provider) => [provider, group])),
     )
@@ -103,17 +122,46 @@ export async function registerFallback(ctx: Context, config: ModelConfig): Promi
         return `group:${groupByProvider.get(provider) ?? provider}`
     }
 
+    const coolDown = (key: string): void => {
+        cooldownUntil.set(key, Date.now() + config.cooldownSeconds * 1_000)
+    }
+
     const isCoolingDown = (key: string): boolean => (cooldownUntil.get(key) ?? 0) > Date.now()
 
-    const isUnavailable = (ref: ModelRef): boolean =>
-        isCoolingDown(`model:${modelKey(ref)}`) || isCoolingDown(groupKey(ref))
+    // `model.list` answers with the models of providers that have a connection, so an entry missing from it has no
+    // credential to run on; it is read per decision because the operator can log in while the server runs.
+    const connectedModels = async (): Promise<ReadonlySet<string>> =>
+        new Set((await ctx.model.list()).data.map((model) => `${model.providerID}/${model.id}`))
 
-    const nextEntry = (tier: string, excluded: ReadonlySet<string>): ModelRef | undefined =>
-        config.chain(tier).find((ref) => !excluded.has(modelKey(ref)) && !isUnavailable(ref))
+    const isUsable = (ref: ModelRef, connected: ReadonlySet<string>): boolean =>
+        connected.has(modelKey(ref)) && !isCoolingDown(`model:${modelKey(ref)}`) && !isCoolingDown(groupKey(ref))
 
-    await ctx.session.hook("prompt", (event) => {
+    const nextEntry = async (tier: string, excluded: ReadonlySet<string>): Promise<ModelRef | undefined> => {
+        const connected = await connectedModels()
+        return config.chain(tier).find((ref) => !excluded.has(modelKey(ref)) && isUsable(ref, connected))
+    }
+
+    /**
+     * A fallback is for the turn that failed; the next real user turn goes back to the head once it can answer.
+     * A model the user picked since the fallback is their choice, so it is left in place.
+     */
+    const switchBack = async (sessionID: string): Promise<void> => {
+        const switched = fallenBack.get(sessionID)
+        if (switched === undefined) return
+        const head = config.chain(switched.tier)[0] as ModelRef
+        if (!isUsable(head, await connectedModels())) return
+
+        fallenBack.delete(sessionID)
+        const current = (await ctx.session.get({ sessionID })).model
+        if (current === undefined || modelKey(current) !== modelKey(switched.to)) return
+        await ctx.session.switchModel({ sessionID, model: parseModelRef(head) })
+        console.info(`ac fallback: ${formatRef(current)} -> ${head} (chain head available again)`)
+    }
+
+    await ctx.session.hook("prompt", async (event) => {
         if (event.metadata?.[REPLAY_MARKER] !== undefined) return
         tried.delete(event.sessionID)
+        await switchBack(event.sessionID)
     })
 
     await ctx.session.hook("retry", async (event) => {
@@ -134,11 +182,10 @@ export async function registerFallback(ctx: Context, config: ModelConfig): Promi
         sessionTried.add(failed)
         tried.set(event.sessionID, sessionTried)
         //    The cooldown covers the whole group on a rate limit, since siblings share it, else just the model.
-        const cooledKey = status === RATE_LIMIT_STATUS ? groupKey(event.model) : `model:${failed}`
-        cooldownUntil.set(cooledKey, Date.now() + config.cooldownSeconds * 1_000)
+        coolDown(status === RATE_LIMIT_STATUS ? groupKey(event.model) : `model:${failed}`)
 
         // 3. An exhausted chain or nothing to replay leaves the host decision, so the error stays visible.
-        const next = nextEntry(tier, sessionTried)
+        const next = await nextEntry(tier, sessionTried)
         if (next === undefined) return
         const replay = lastUserMessage(await ctx.session.context({ sessionID: event.sessionID }))
         if (replay === undefined) return
@@ -149,6 +196,12 @@ export async function registerFallback(ctx: Context, config: ModelConfig): Promi
         switching.add(event.sessionID)
         try {
             await ctx.session.switchModel({ sessionID: event.sessionID, model: parseModelRef(next) })
+            console.info(
+                `ac fallback: ${formatRef(event.model)} -> ${next} (status ${status}, attempt ${event.attempt})`,
+            )
+            // Landing on the head again needs no switch back.
+            if (modelKey(next) === modelKey(config.chain(tier)[0] as ModelRef)) fallenBack.delete(event.sessionID)
+            else fallenBack.set(event.sessionID, { tier, to: next })
             await ctx.session.prompt({
                 sessionID: event.sessionID,
                 ...replayInput(replay),
@@ -165,8 +218,10 @@ export async function registerFallback(ctx: Context, config: ModelConfig): Promi
             name: "ac_fallback_next",
             description: [
                 "Returns the next model to re-spawn a failed ac worker on: the first entry of the tier's fallback",
-                "chain that is not in `tried` and not cooling down after a recent failure. Returns `none` when the",
-                "chain is exhausted; then report the failure instead of re-spawning.",
+                "chain that is not in `tried`, not cooling down after a recent failure and on a provider with a",
+                "credential. Pass the worker's provider error `status`: a 429 is a rate limit shared by every",
+                "provider of a group, so it cools down the groups of the `tried` models and skips their entries.",
+                "Returns `none` when the chain is exhausted; then report the failure instead of re-spawning.",
             ].join(" "),
             input: {
                 type: "object",
@@ -180,6 +235,10 @@ export async function registerFallback(ctx: Context, config: ModelConfig): Promi
                         items: { type: "string" },
                         description: "Models this step already ran on, as provider/model or provider/model#variant.",
                     },
+                    status: {
+                        type: "number",
+                        description: "HTTP status of the worker's provider error, when it reported one (e.g. 429).",
+                    },
                 },
                 required: [
                     "tier",
@@ -188,8 +247,9 @@ export async function registerFallback(ctx: Context, config: ModelConfig): Promi
                 additionalProperties: false,
             },
             execute: async (input: unknown) => {
-                const { tier, tried: triedRefs } = input as FallbackNextInput
-                const next = nextEntry(tier, new Set(triedRefs.map(modelKey)))
+                const { tier, tried: triedRefs, status } = input as FallbackNextInput
+                if (status === RATE_LIMIT_STATUS) for (const ref of triedRefs) coolDown(groupKey(ref))
+                const next = await nextEntry(tier, new Set(triedRefs.map(modelKey)))
                 return { content: next ?? "none" }
             },
         })

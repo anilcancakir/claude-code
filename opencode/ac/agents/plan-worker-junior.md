@@ -1,7 +1,7 @@
 ---
 description: "Junior-tier ac plan worker, the default: one to three file changes in business logic or framework idiom. Spawned only by /ac/execute; not for general tasks."
 mode: subagent
-model: "codefast-kimi/kimi-k3#high"
+model: "codefast-deepseek/deepseek-v4.1-flash-1017#high"
 color: "#4CAF50"
 permissions:
   - { action: "*", resource: "*", effect: deny }
@@ -16,6 +16,14 @@ permissions:
   - { action: "ac_*", resource: "*", effect: deny }
   - { action: skill, resource: "*", effect: deny }
   - { action: skill, resource: my-coding, effect: allow }
+  - { action: edit, resource: "~/.claude/projects/**", effect: deny }
+  - { action: read, resource: "*.env", effect: deny }
+  - { action: read, resource: "*.env.*", effect: deny }
+  - { action: read, resource: "*.env.example", effect: allow }
+  - { action: read, resource: "*.env.sample", effect: allow }
+  - { action: read, resource: "*.env.dist", effect: allow }
+  - { action: read, resource: "*.env.template", effect: allow }
+  - { action: read, resource: "*.dev.vars", effect: deny }
 ---
 <!-- ported-from: plugins/ac/agents/plan-worker-junior.md sha256:5e88a7b2c9a736f1fa4ceb0f349db3ca364f27dc0b463d822f9f6f13bf173643 -->
 

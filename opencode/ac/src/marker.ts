@@ -1,6 +1,6 @@
-import { readFileSync } from "node:fs"
 import { join } from "node:path"
 import type { Plugin } from "@opencode/plugin"
+import { readIfPresent } from "./memory.ts"
 
 /**
  * The active-execution marker the execute skill writes at `.ac/state/active-execution.json`, the same slot and the
@@ -40,13 +40,8 @@ const MAX_FUTURE_SKEW_MS = 14 * 3_600_000
 const SLUG = /^[A-Za-z0-9][A-Za-z0-9._-]*$/
 
 function readJson(path: string): unknown {
-    let text: string
-    try {
-        text = readFileSync(path, "utf8")
-    } catch (error) {
-        if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined
-        throw error
-    }
+    const text = readIfPresent(path)
+    if (text === undefined) return undefined
 
     try {
         return JSON.parse(text)

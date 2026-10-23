@@ -1,7 +1,7 @@
 ---
 description: "Read-only research agent for anything outside this repository: library behaviour, API contracts, framework idioms, OSS code, official docs. Specify depth: quick, medium or thorough. Returns URL citations with snippets; code in this repository is ac/explore."
 mode: subagent
-model: "codefast-kimi/kimi-k3#high"
+model: "codefast-deepseek/deepseek-v4.1-flash-1017#high"
 color: "#3b82f6"
 permissions:
   - action: skill
@@ -36,6 +36,30 @@ permissions:
     effect: allow
   - action: ac_search-history
     resource: "*"
+    effect: deny
+  - action: edit
+    resource: "~/.claude/projects/**"
+    effect: deny
+  - action: read
+    resource: "*.env"
+    effect: deny
+  - action: read
+    resource: "*.env.*"
+    effect: deny
+  - action: read
+    resource: "*.env.example"
+    effect: allow
+  - action: read
+    resource: "*.env.sample"
+    effect: allow
+  - action: read
+    resource: "*.env.dist"
+    effect: allow
+  - action: read
+    resource: "*.env.template"
+    effect: allow
+  - action: read
+    resource: "*.dev.vars"
     effect: deny
 ---
 <!-- ported-from: plugins/ac/agents/librarian.md sha256:2d49435b8d0a52d466191d31ba5b21453cc9cea70cf51b17032b4c6779491687 -->

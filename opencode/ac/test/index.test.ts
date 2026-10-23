@@ -117,6 +117,14 @@ describe("plugin entry", () => {
         const fake = fakeAt(repo, {
             options: { models: { tiers: { "plan-worker-junior": { replace: ["acme/first#high", "acme/second#high"] } } } },
         })
+        // The fallback only offers models the host reports as connected (ctx.model.list).
+        Object.assign(fake.ctx, {
+            model: {
+                list: async () => ({
+                    data: [{ providerID: "acme", id: "first" }, { providerID: "acme", id: "second" }],
+                }),
+            },
+        })
         await plugin.setup(fake.ctx)
         fake.applyTransforms()
 
@@ -124,6 +132,79 @@ describe("plugin entry", () => {
         const result = await tool?.execute({ tier: "plan-worker-junior", tried: [] }, {} as ToolContext)
 
         expect(result?.content).toBe("acme/first#high")
+    })
+
+    test("the diagnostics option overrides a checker", async () => {
+        const fake = fakeAt(repo, {
+            options: {
+                diagnostics: {
+                    checkers: {
+                        ".txt": [
+                            {
+                                bin: process.execPath,
+                                args: ["-e", "console.log('option checker ran'); process.exit(1)"],
+                            },
+                        ],
+                    },
+                },
+            },
+        })
+        writeFileSync(join(repo, "a.txt"), "x")
+        await plugin.setup(fake.ctx)
+
+        const event = await fake.fire.tool("execute.after", {
+            tool: "edit",
+            status: "completed",
+            sessionID: "ses_1",
+            agent: "build",
+            input: { path: "a.txt" },
+            result: { content: "Edit applied" } as never,
+        })
+
+        const content = event.status === "completed" ? event.result.content : undefined
+        expect(JSON.stringify(content)).toContain("option checker ran")
+    })
+
+    test("the toolPolicy option sets the explore budget", async () => {
+        const fake = fakeAt(repo, { options: { toolPolicy: { exploreMaxCalls: 1 } } })
+        await plugin.setup(fake.ctx)
+        const call = {
+            sessionID: "ses_1",
+            agent: "ac/explore" as never,
+            action: "read",
+            resources: ["*"],
+            effect: "allow" as const,
+        }
+
+        const first = await fake.fire.permission("evaluate", { ...call })
+        const second = await fake.fire.permission("evaluate", { ...call })
+
+        expect(first.effect).toBe("allow")
+        expect(second.effect).toBe("deny")
+    })
+
+    test("the prompt option names the agents that get the ac prompt", async () => {
+        const fake = fakeAt(repo, { options: { prompt: { primaryAgents: ["custom"] } } })
+        await plugin.setup(fake.ctx)
+
+        const custom = await fake.fire.session("context", { ...buildContext(), agent: "custom" as never })
+        const build = await fake.fire.session("context", buildContext())
+
+        expect(custom.system[0]?.text).toBe(CORE_PROMPT)
+        expect(build.system[0]?.text).toBe("opencode default prompt")
+    })
+
+    test("the memory option redirects the home that holds the memory index", async () => {
+        const otherHome = join(sandbox, "other-home")
+        const memoryDirectory = join(otherHome, ".claude", "projects", sanitizePath(repo), "memory")
+        mkdirSync(memoryDirectory, { recursive: true })
+        writeFileSync(join(memoryDirectory, "MEMORY.md"), "- [Topic](topic.md) - from the option home\n")
+        const fake = fakeAt(repo, { options: { memory: { home: otherHome } } })
+        await plugin.setup(fake.ctx)
+
+        const event = await fake.fire.session("context", buildContext())
+
+        expect(event.system.map((part) => part.text).join("\n")).toContain("from the option home")
     })
 
     test("returns a cleanup that can run", async () => {

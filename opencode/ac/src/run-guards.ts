@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, realpathSync } from "node:fs"
 import { basename, dirname, join, resolve, sep } from "node:path"
 import type { Plugin } from "@opencode/plugin"
+import { REPLAY_MARKER } from "./fallback.ts"
 import { type ExecutionMarker, ownsMarker, readMarker, rootSessionOf } from "./marker.ts"
 
 export interface RunGuardsOptions {
@@ -120,12 +121,16 @@ export async function registerRunGuards(ctx: Plugin.Context, options: RunGuardsO
     /** Running descendant session id to its root, for the owning run only. */
     const running = new Map<string, string>()
 
-    // A session's parent never changes, so each chain is walked once.
+    // A session's parent never changes, so each chain is walked once. A failed walk is not an answer: it is dropped
+    // so the next call walks again instead of replaying the rejection for the rest of the session.
     const rootOf = (sessionID: string): Promise<string> => {
         const known = roots.get(sessionID)
         if (known) return known
         const root = rootSessionOf(ctx, sessionID)
         roots.set(sessionID, root)
+        root.catch(() => {
+            if (roots.get(sessionID) === root) roots.delete(sessionID)
+        })
         return root
     }
 
@@ -163,8 +168,10 @@ export async function registerRunGuards(ctx: Plugin.Context, options: RunGuardsO
         })
     })
 
-    // 2. A user prompt opens a fresh nudge budget; any root tool call ends the current stall.
+    // 2. A user prompt opens a fresh nudge budget; any root tool call ends the current stall. A fallback replay
+    //    re-sends the prompt that already opened this budget, so it is not a new one.
     await ctx.session.hook("prompt", (event) => {
+        if (event.metadata?.[REPLAY_MARKER] !== undefined) return
         nudges.delete(event.sessionID)
     })
     await ctx.tool.hook("execute.after", (event) => {
@@ -179,7 +186,12 @@ export async function registerRunGuards(ctx: Plugin.Context, options: RunGuardsO
         const marker = readMarker(directory)
         if (!marker || marker.wave_files.length === 0) return
         if (event.sessionID === marker.root_session_id) return
-        if (!ownsMarker(marker, await rootOf(event.sessionID))) return
+        // An unknown root leaves the default effect, as pretooluse-file-scope.sh fails open on any resolution doubt.
+        const root = await rootOf(event.sessionID).catch((error: unknown) => {
+            console.error("ac run-guards: root session lookup failed, edit left unscoped", event.sessionID, error)
+            return undefined
+        })
+        if (root === undefined || !ownsMarker(marker, root)) return
 
         const acDir = canonical(join(directory, ".ac"))
         const scope = new Set(marker.wave_files.map((file) => canonical(resolve(directory, file))))

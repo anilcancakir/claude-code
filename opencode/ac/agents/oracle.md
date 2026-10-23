@@ -1,7 +1,7 @@
 ---
 description: "Read-only reviewer and advisor. Use this when a plan, diff, report or config change needs checking against its sources, or a stalled decision needs settling. Returns ranked findings."
 mode: subagent
-model: "codefast-glm/glm-5.3#max"
+model: "codefast-kimi/kimi-k3#max"
 color: "#a855f7"
 permissions:
   - action: skill
@@ -36,6 +36,30 @@ permissions:
     effect: allow
   - action: ac_search-history
     resource: "*"
+    effect: deny
+  - action: edit
+    resource: "~/.claude/projects/**"
+    effect: deny
+  - action: read
+    resource: "*.env"
+    effect: deny
+  - action: read
+    resource: "*.env.*"
+    effect: deny
+  - action: read
+    resource: "*.env.example"
+    effect: allow
+  - action: read
+    resource: "*.env.sample"
+    effect: allow
+  - action: read
+    resource: "*.env.dist"
+    effect: allow
+  - action: read
+    resource: "*.env.template"
+    effect: allow
+  - action: read
+    resource: "*.dev.vars"
     effect: deny
 ---
 <!-- ported-from: plugins/ac/agents/oracle.md sha256:76268edab7ceec915857a2a5d0a07c5b1ec0f235f46c0a88b2ee84ec41f7acde -->

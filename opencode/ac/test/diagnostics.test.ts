@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test"
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { registerDiagnostics } from "../src/diagnostics.ts"
@@ -178,6 +178,43 @@ describe("checker resolution", () => {
     })
 })
 
+describe("checker execution", () => {
+    test("checkers run in the project directory, not the host process directory", async () => {
+        const fake = await setup({
+            checkers: {
+                ".txt": [{ bin: process.execPath, args: ["-e", "console.log(process.cwd()); process.exit(1)"] }],
+            },
+        })
+        write("a.txt", "x")
+
+        const text = await complete(fake, "edit", { path: "a.txt" }, { content: "ok" })
+
+        expect(text).toContain(realpathSync(dir))
+    })
+
+    test("independent checkers of one file run in parallel", async () => {
+        const fake = await setup({ checkers: { ".txt": [sleeping("first", 600), sleeping("second", 600)] } })
+        write("a.txt", "x")
+
+        const started = performance.now()
+        const text = await complete(fake, "edit", { path: "a.txt" }, { content: "ok" })
+
+        expect(performance.now() - started).toBeLessThan(1100)
+        expect(text).toContain("first")
+        expect(text).toContain("second")
+    })
+
+    test("output keeps the checker order even when a later checker finishes first", async () => {
+        const fake = await setup({ checkers: { ".txt": [sleeping("first", 400), sleeping("second", 0)] } })
+        write("a.txt", "x")
+
+        const text = await complete(fake, "edit", { path: "a.txt" }, { content: "ok" })
+
+        expect(text.indexOf("first")).toBeGreaterThan(-1)
+        expect(text.indexOf("first")).toBeLessThan(text.indexOf("second"))
+    })
+})
+
 describe("result rewriting", () => {
     test("the block is capped at 4000 characters", async () => {
         const fake = await setup({ checkers: { ".txt": [failing("x".repeat(20000))] } })
@@ -251,5 +288,16 @@ function failing(message: string) {
     return {
         bin: process.execPath,
         args: ["-e", `console.log(${JSON.stringify(message)}); process.exit(1)`],
+    }
+}
+
+/** A checker that waits `delayMs`, prints `message` and exits 1. */
+function sleeping(message: string, delayMs: number) {
+    return {
+        bin: process.execPath,
+        args: [
+            "-e",
+            `setTimeout(() => { console.log(${JSON.stringify(message)}); process.exit(1) }, ${delayMs})`,
+        ],
     }
 }

@@ -540,17 +540,21 @@ limit, an overloaded or unavailable model, a 5xx, or a child session that failed
 The step did not fail; its model never got to work. Call:
 
 ```
-ac_fallback_next({ tier: "plan-worker-<tier>", tried: [<every model this step has run on>] })
+ac_fallback_next({ tier: "plan-worker-<tier>", tried: [<every model this step has run on>], status: <error status> })
 ```
 
 `tried` holds each model as `provider/model#variant`, starting with the agent's own (the head of its chain, 1c) and
-adding every fallback you have spawned for the step since. The tool returns the next chain entry that is not tried
-and not cooling down after a recent failure, or `none`. On a model, re-spawn the same agent with the same briefing
-and `model: "<the returned value>"`, add it to `tried`, and take the same route on another provider error. Every
-entry joins `tried`, so the loop ends within the chain's length. These re-spawns are not retries: they do not count
-in `WORKER_RETRY_PER_STEP` and keep the step on its current rung. On `none` the tier's chain is exhausted: count it
-as the step's failure and take the tier rung below directly, because the variant rung would re-run a model that is
-not answering; for a senior step it is terminal. The tier-rung spawn starts a fresh `tried` on its own tier's chain.
+adding every fallback you have spawned for the step since. `status` is the HTTP status the provider error carried
+(429 for a rate limit); omit it when the failure named none. Pass it every time: a 429 is a limit shared by every
+provider of a rate-limit group, and only with the status does the tool skip the failed model's whole group instead
+of re-spawning on a sibling that is throttled too. The tool returns the next chain entry that is not tried, not
+cooling down after a recent failure and on a provider with a credential, or `none`. On a model, re-spawn the same
+agent with the same briefing and `model: "<the returned value>"`, add it to `tried`, and take the same route on
+another provider error. Every entry joins `tried`, so the loop ends within the chain's length. These re-spawns are
+not retries: they do not count in `WORKER_RETRY_PER_STEP` and keep the step on its current rung. On `none` the
+tier's chain is exhausted: count it as the step's failure and take the tier rung below directly, because the variant
+rung would re-run a model that is not answering; for a senior step it is terminal. The tier-rung spawn starts a fresh
+`tried` on its own tier's chain.
 
 **Worker reported `[BRIEFING GAP]`**: it could not proceed because something Section 6 should have carried
 was missing. Re-assemble the missing block and re-spawn at the SAME tier. Never escalate for this: the

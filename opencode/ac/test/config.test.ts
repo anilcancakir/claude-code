@@ -5,6 +5,21 @@ import { join } from "node:path"
 import { loadConfig } from "../src/config.ts"
 import { createFakeCtx } from "./fake-ctx.ts"
 
+const TIERS = [
+    "main",
+    "oracle",
+    "plan-reviewer",
+    "plan-code-review",
+    "plan-worker-senior",
+    "plan-worker-junior-high",
+    "plan-worker-junior",
+    "plan-worker-quick",
+    "explore",
+    "librarian",
+    "qa-tester",
+    "title",
+]
+
 let dir: string
 
 beforeEach(() => {
@@ -16,16 +31,19 @@ afterEach(() => {
 })
 
 describe("loadConfig defaults", () => {
-    test("oracle leads with codefast glm-5.3 at max", () => {
+    test("oracle leads with Kimi K3 at max, a different family from the GLM-5.3 main session", () => {
         const config = loadConfig({ env: {} })
 
-        expect(config.chain("oracle")[0]).toBe("codefast-glm/glm-5.3#max")
+        expect(config.chain("oracle")[0]).toBe("codefast-kimi/kimi-k3#max")
     })
 
-    test("opencode-go is the last resort of the main chain", () => {
+    test("every chain stays inside the four codefast families", () => {
         const config = loadConfig({ env: {} })
+        const families = /^codefast-(glm\/glm-5\.3|kimi\/kimi-k3|deepseek\/deepseek-v4\.1-flash(-1017)?|qwen\/qwen3\.8-flash)#/
 
-        expect(config.chain("main").at(-1)).toBe("opencode-go/glm-5.3#high")
+        for (const tier of TIERS) {
+            for (const ref of config.chain(tier)) expect(ref).toMatch(families)
+        }
     })
 
     test("every tier of the Balanced preset has a chain", () => {
@@ -33,33 +51,43 @@ describe("loadConfig defaults", () => {
 
         expect(config.chain("main")).toEqual([
             "codefast-glm/glm-5.3#high",
+            "codefast-deepseek/deepseek-v4.1-flash-1017#high",
             "codefast-kimi/kimi-k3#high",
-            "codefast-deepseek/deepseek-v4-pro-0813#high",
-            "opencode-go/glm-5.3#high",
+        ])
+        expect(config.chain("plan-code-review")).toEqual([
+            "codefast-glm/glm-5.3#max",
+            "codefast-kimi/kimi-k3#high",
+            "codefast-deepseek/deepseek-v4.1-flash-1017#max",
         ])
         expect(config.chain("plan-worker-quick")).toEqual([
-            "codefast-deepseek/deepseek-v4-pro-0813#low",
-            "codefast-qwen/qwen3.8-max#low",
-            "codefast-glm/glm-5.3#low",
-            "opencode-go/glm-5.3-flash",
+            "codefast-deepseek/deepseek-v4.1-flash-1017#low",
+            "codefast-qwen/qwen3.8-flash#low",
+            "codefast-deepseek/deepseek-v4.1-flash#low",
         ])
         expect(config.chain("title")).toEqual([
-            "codefast-qwen/qwen3.8-max#low",
-            "codefast-glm/glm-5.3#low",
-            "opencode-go/glm-5.3-flash#low",
+            "codefast-qwen/qwen3.8-flash#low",
+            "codefast-deepseek/deepseek-v4.1-flash-1017#low",
         ])
-        for (const tier of [
-            "plan-reviewer",
-            "plan-code-review",
-            "plan-worker-senior",
-            "plan-worker-junior-high",
-            "plan-worker-junior",
-            "explore",
-            "librarian",
-            "qa-tester",
-        ]) {
-            expect(config.chain(tier).length).toBe(4)
-        }
+        for (const tier of TIERS.filter((name) => name !== "title")) expect(config.chain(tier).length).toBe(3)
+    })
+
+    test("chain heads per tier", () => {
+        const config = loadConfig({ env: {} })
+
+        expect(Object.fromEntries(TIERS.map((tier) => [tier, config.chain(tier)[0]]))).toEqual({
+            main: "codefast-glm/glm-5.3#high",
+            oracle: "codefast-kimi/kimi-k3#max",
+            "plan-reviewer": "codefast-kimi/kimi-k3#high",
+            "plan-code-review": "codefast-glm/glm-5.3#max",
+            "plan-worker-senior": "codefast-glm/glm-5.3#max",
+            "plan-worker-junior-high": "codefast-deepseek/deepseek-v4.1-flash-1017#high",
+            "plan-worker-junior": "codefast-deepseek/deepseek-v4.1-flash-1017#high",
+            "plan-worker-quick": "codefast-deepseek/deepseek-v4.1-flash-1017#low",
+            explore: "codefast-deepseek/deepseek-v4.1-flash-1017#low",
+            librarian: "codefast-deepseek/deepseek-v4.1-flash-1017#high",
+            "qa-tester": "codefast-deepseek/deepseek-v4.1-flash-1017#high",
+            title: "codefast-qwen/qwen3.8-flash#low",
+        })
     })
 
     test("retry policy", () => {

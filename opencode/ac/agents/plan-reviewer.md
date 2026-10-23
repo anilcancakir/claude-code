@@ -1,7 +1,7 @@
 ---
 description: "Advisory review of one ac plan file before execution; returns findings, no verdict. Spawned only by /ac/plan; not for general tasks."
 mode: subagent
-model: "codefast-glm/glm-5.3#max"
+model: "codefast-kimi/kimi-k3#high"
 color: "#eab308"
 permissions:
   - action: skill
@@ -36,6 +36,30 @@ permissions:
     effect: allow
   - action: ac_search-history
     resource: "*"
+    effect: deny
+  - action: edit
+    resource: "~/.claude/projects/**"
+    effect: deny
+  - action: read
+    resource: "*.env"
+    effect: deny
+  - action: read
+    resource: "*.env.*"
+    effect: deny
+  - action: read
+    resource: "*.env.example"
+    effect: allow
+  - action: read
+    resource: "*.env.sample"
+    effect: allow
+  - action: read
+    resource: "*.env.dist"
+    effect: allow
+  - action: read
+    resource: "*.env.template"
+    effect: allow
+  - action: read
+    resource: "*.dev.vars"
     effect: deny
 ---
 <!-- ported-from: plugins/ac/agents/plan-reviewer.md sha256:1e1702c4be0ebe7e6e76ace19ff86ec9fe2c1d951e599c0bf6d10651d9a5d343 -->

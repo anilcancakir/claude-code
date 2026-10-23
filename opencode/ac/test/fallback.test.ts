@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, setSystemTime, test } from "bun:test"
+import { afterEach, describe, expect, setSystemTime, spyOn, test } from "bun:test"
 import type { Plugin } from "@opencode/plugin"
 import type { SessionRetry } from "@opencode/plugin/promise/session"
 import type { ToolContext } from "@opencode/plugin/promise/tool"
@@ -48,8 +48,24 @@ function userMessage(text: string): SessionMessage {
     } as unknown as SessionMessage
 }
 
+/** Every fixture model; `ctx.model.list()` answers with the models of connected providers only. */
+const CONNECTED = [
+    ...MAIN,
+    ...WORKER,
+    "openrouter/anthropic/claude-sonnet-5-5#max",
+]
+
+interface SetupOptions {
+    /** Models `ctx.model.list()` returns; defaults to every fixture model. */
+    connected?: readonly string[]
+    /** The session's current model as `session.get` reports it; defaults to the last model switched to. */
+    currentModel?: (sessionID: string) => string | undefined
+}
+
 /**
- * The Step 1 fake does not script `session.context`, so the transcript the replay reads is attached here.
+ * The Step 1 fake scripts neither `session.context` nor `model.list`, so the transcript the replay reads and the
+ * connected model catalogue are attached here. `session.get` reports the model the last switch selected, as the host
+ * does once it has applied `switchModel`.
  */
 async function setup(
     config: ModelConfig = fixtureConfig(),
@@ -58,10 +74,31 @@ async function setup(
         { type: "assistant", id: "msg_assistant" } as unknown as SessionMessage,
         userMessage("fix the failing build"),
     ],
+    options: SetupOptions = {},
 ): Promise<FakeCtx> {
     const fake = createFakeCtx()
+    const connected = options.connected ?? CONNECTED
+    const lastSwitched = (sessionID: string): { providerID: string; id: string } | undefined =>
+        fake.calls.switchModel.filter((call) => call.sessionID === sessionID).at(-1)?.model
     Object.assign(fake.ctx.session, {
         context: async () => messages,
+        get: async (query: { sessionID: string }) => {
+            const current = options.currentModel?.(query.sessionID)
+            return {
+                id: query.sessionID,
+                model: current === undefined ? lastSwitched(query.sessionID) : modelRef(current),
+            }
+        },
+    })
+    Object.assign(fake.ctx, {
+        model: {
+            list: async () => ({
+                data: connected.map((ref) => {
+                    const { providerID, id } = modelRef(ref)
+                    return { providerID, id }
+                }),
+            }),
+        },
     })
     await registerFallback(fake.ctx, config)
     return fake
@@ -93,7 +130,10 @@ async function retry(fake: FakeCtx, input: RetryInput): Promise<SessionRetry> {
     })
 }
 
-async function fallbackNext(fake: FakeCtx, input: { tier: string; tried: string[] }): Promise<unknown> {
+async function fallbackNext(
+    fake: FakeCtx,
+    input: { tier: string; tried: string[]; status?: number },
+): Promise<unknown> {
     fake.applyTransforms()
     const tool = fake.tools.get("ac_fallback_next")
     if (!tool) throw new Error("ac_fallback_next is not registered")
@@ -395,5 +435,178 @@ describe("ac_fallback_next", () => {
         })
 
         expect(next).toBe("none")
+    })
+})
+
+describe("ac_fallback_next with a worker's provider status", () => {
+    test("a 429 skips every entry in the group of a tried model", async () => {
+        const fake = await setup(fixtureConfig(SHARED_GROUPS))
+
+        const next = await fallbackNext(fake, {
+            tier: "plan-worker-junior",
+            tried: [WORKER[0] as string],
+            status: 429,
+        })
+
+        expect(next).toBe(WORKER[2])
+    })
+
+    test("a 429 cools the group down for the main session too, until the cooldown ends", async () => {
+        setSystemTime(new Date("2026-10-23T10:00:00Z"))
+        const fake = await setup(fixtureConfig(SHARED_GROUPS))
+
+        await fallbackNext(fake, { tier: "plan-worker-junior", tried: [WORKER[0] as string], status: 429 })
+
+        expect(await fallbackNext(fake, { tier: "main", tried: [] })).toBe(MAIN[2])
+        setSystemTime(new Date("2026-10-23T10:00:31Z"))
+        expect(await fallbackNext(fake, { tier: "main", tried: [] })).toBe(MAIN[0])
+    })
+
+    test("another status keeps the group in play", async () => {
+        const fake = await setup(fixtureConfig(SHARED_GROUPS))
+
+        const next = await fallbackNext(fake, {
+            tier: "plan-worker-junior",
+            tried: [WORKER[0] as string],
+            status: 500,
+        })
+
+        expect(next).toBe(WORKER[1])
+    })
+
+    test("the tool schema declares the optional status", async () => {
+        const fake = await setup()
+        fake.applyTransforms()
+
+        const input = fake.tools.get("ac_fallback_next")?.input as {
+            properties: Record<string, { type: string }>
+            required: string[]
+        }
+
+        expect(input.properties.status?.type).toBe("number")
+        expect(input.required).not.toContain("status")
+    })
+})
+
+describe("providers without a credential", () => {
+    test("ac_fallback_next skips an entry whose model is not connected", async () => {
+        const fake = await setup(fixtureConfig(), undefined, {
+            connected: [
+                WORKER[0] as string,
+                WORKER[2] as string,
+            ],
+        })
+
+        const next = await fallbackNext(fake, { tier: "plan-worker-junior", tried: [WORKER[0] as string] })
+
+        expect(next).toBe(WORKER[2])
+    })
+
+    test("ac_fallback_next returns none when only unconnected entries remain", async () => {
+        const fake = await setup(fixtureConfig(), undefined, { connected: [WORKER[0] as string] })
+
+        expect(await fallbackNext(fake, { tier: "plan-worker-junior", tried: [WORKER[0] as string] })).toBe("none")
+    })
+
+    test("the main session never switches onto an unconnected model", async () => {
+        const fake = await setup(fixtureConfig(), undefined, {
+            connected: [
+                MAIN[0] as string,
+                MAIN[2] as string,
+            ],
+        })
+
+        await retry(fake, { model: MAIN[0] as string, status: 500 })
+
+        expect(fake.calls.switchModel.map((call) => call.model)).toEqual([modelRef(MAIN[2] as string)])
+    })
+
+    test("a chain with no connected entry left leaves the host decision alone", async () => {
+        const fake = await setup(fixtureConfig(), undefined, { connected: [MAIN[0] as string] })
+
+        const event = await retry(fake, { model: MAIN[0] as string })
+
+        expect(event.decision).toEqual({ retry: true, delay: 2_000 })
+        expect(fake.calls.switchModel).toHaveLength(0)
+    })
+})
+
+describe("switch back to the chain head", () => {
+    test("the first user prompt after the head's cooldown switches the session back, once", async () => {
+        setSystemTime(new Date("2026-10-23T10:00:00Z"))
+        const fake = await setup()
+        await retry(fake, { model: MAIN[0] as string })
+
+        setSystemTime(new Date("2026-10-23T10:00:10Z"))
+        await fake.fire.session("prompt", { sessionID: "ses_main" })
+        expect(fake.calls.switchModel).toHaveLength(1)
+
+        setSystemTime(new Date("2026-10-23T10:00:31Z"))
+        await fake.fire.session("prompt", { sessionID: "ses_main" })
+        await fake.fire.session("prompt", { sessionID: "ses_main" })
+
+        expect(fake.calls.switchModel.map((call) => call.model)).toEqual([
+            modelRef(MAIN[1] as string),
+            modelRef(MAIN[0] as string),
+        ])
+    })
+
+    test("the replay prompt does not switch back", async () => {
+        setSystemTime(new Date("2026-10-23T10:00:00Z"))
+        const fake = await setup()
+        await retry(fake, { model: MAIN[0] as string })
+
+        setSystemTime(new Date("2026-10-23T10:00:31Z"))
+        await fake.fire.session("prompt", {
+            sessionID: "ses_main",
+            metadata: (fake.calls.prompt[0] as { metadata?: Record<string, unknown> }).metadata,
+        })
+
+        expect(fake.calls.switchModel).toHaveLength(1)
+    })
+
+    test("a group still cooling down keeps the session on its fallback", async () => {
+        setSystemTime(new Date("2026-10-23T10:00:00Z"))
+        const fake = await setup(fixtureConfig(SHARED_GROUPS))
+        await retry(fake, { model: MAIN[0] as string })
+        setSystemTime(new Date("2026-10-23T10:00:20Z"))
+        await fallbackNext(fake, { tier: "plan-worker-junior", tried: ["beta/two"], status: 429 })
+
+        setSystemTime(new Date("2026-10-23T10:00:31Z"))
+        await fake.fire.session("prompt", { sessionID: "ses_main" })
+
+        expect(fake.calls.switchModel.map((call) => call.model)).toEqual([modelRef(MAIN[2] as string)])
+    })
+
+    test("a model the user picked after the fallback is left alone", async () => {
+        setSystemTime(new Date("2026-10-23T10:00:00Z"))
+        const fake = await setup(fixtureConfig(), undefined, { currentModel: () => "gamma/three#max" })
+        await retry(fake, { model: MAIN[0] as string })
+
+        setSystemTime(new Date("2026-10-23T10:00:31Z"))
+        await fake.fire.session("prompt", { sessionID: "ses_main" })
+
+        expect(fake.calls.switchModel).toHaveLength(1)
+    })
+})
+
+describe("switch logging", () => {
+    test("every switch logs one line naming both models, the status and the attempt", async () => {
+        setSystemTime(new Date("2026-10-23T10:00:00Z"))
+        const info = spyOn(console, "info").mockImplementation(() => {})
+        try {
+            const fake = await setup()
+
+            await retry(fake, { model: MAIN[0] as string })
+            setSystemTime(new Date("2026-10-23T10:00:31Z"))
+            await fake.fire.session("prompt", { sessionID: "ses_main" })
+
+            expect(info.mock.calls).toEqual([
+                ["ac fallback: alpha/one#high -> beta/two#high (status 429, attempt 10)"],
+                ["ac fallback: beta/two#high -> alpha/one#high (chain head available again)"],
+            ])
+        } finally {
+            info.mockRestore()
+        }
     })
 })

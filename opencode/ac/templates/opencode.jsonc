@@ -2,7 +2,7 @@
     // Global opencode v2 config for the ac port. scripts/install.ts renders it to ~/.config/opencode/opencode.jsonc,
     // replacing <repo> with this checkout. Secrets stay in the environment, referenced as {env:NAME}.
     "$schema": "https://opencode.ai/config.json",
-    "model": "codefast-glm/glm-5.3",
+    "model": "codefast-glm/glm-5.3#high",
     "default_agent": "build",
     "update": "notify",
     "snapshots": false,
@@ -15,10 +15,11 @@
         "plan": { "disabled": true },
         "explore": { "disabled": true },
         "general": { "disabled": true },
-        "title": { "model": "codefast-qwen/qwen3.8-max#low" }
+        "title": { "model": "codefast-qwen/qwen3.8-flash#low" }
     },
 
-    // Last matching rule wins and global rules sit after every agent's own, so these are the final word.
+    // Last matching rule wins. These bind the built-in agents; a markdown agent gets them first and its own rules
+    // after, so every ac agent (opencode/ac/agents/*.md) ends its permissions with its own copy of the protections.
     "permissions": [
         { "action": "edit", "resource": "~/.claude/projects/**", "effect": "deny" },
         { "action": "opencode_list_mcp_resources", "resource": "*", "effect": "deny" },
@@ -120,8 +121,23 @@
                 "apiKey": "{env:CODEFAST_API_KEY}"
             },
             "models": {
-                "deepseek-v4-pro-0813": {
-                    "name": "DeepSeek V4 Pro",
+                "deepseek-v4.1-flash-1017": {
+                    "name": "DeepSeek V4.1 Flash 1017",
+                    "capabilities": {
+                        "tools": true,
+                        "input": ["text"],
+                        "output": ["text"],
+                        "reasoning": { "supported": true, "effort": ["low", "high", "max"] }
+                    },
+                    "limit": { "context": 256000, "output": 65536 },
+                    "variants": [
+                        { "id": "low", "body": { "reasoning_effort": "low" } },
+                        { "id": "high", "body": { "reasoning_effort": "high" } },
+                        { "id": "max", "body": { "reasoning_effort": "max" } }
+                    ]
+                },
+                "deepseek-v4.1-flash": {
+                    "name": "DeepSeek V4.1 Flash",
                     "capabilities": {
                         "tools": true,
                         "input": ["text"],
@@ -145,8 +161,8 @@
                 "apiKey": "{env:CODEFAST_API_KEY}"
             },
             "models": {
-                "qwen3.8-max": {
-                    "name": "Qwen 3.8 Max",
+                "qwen3.8-flash": {
+                    "name": "Qwen 3.8 Flash",
                     "capabilities": {
                         "tools": true,
                         "input": ["text"],

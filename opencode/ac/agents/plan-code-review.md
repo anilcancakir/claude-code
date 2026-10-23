@@ -40,6 +40,30 @@ permissions:
   - action: ac_search-history
     resource: "*"
     effect: deny
+  - action: edit
+    resource: "~/.claude/projects/**"
+    effect: deny
+  - action: read
+    resource: "*.env"
+    effect: deny
+  - action: read
+    resource: "*.env.*"
+    effect: deny
+  - action: read
+    resource: "*.env.example"
+    effect: allow
+  - action: read
+    resource: "*.env.sample"
+    effect: allow
+  - action: read
+    resource: "*.env.dist"
+    effect: allow
+  - action: read
+    resource: "*.env.template"
+    effect: allow
+  - action: read
+    resource: "*.dev.vars"
+    effect: deny
 ---
 <!-- ported-from: plugins/ac/agents/plan-code-review.md sha256:e4fc0f7c2818ce92f3b8cfb81cec15191f519dc7a80479c37f3dd377ae1e8908 -->
 

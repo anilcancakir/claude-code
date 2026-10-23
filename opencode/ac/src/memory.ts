@@ -1,4 +1,5 @@
 import type { Plugin } from "@opencode/plugin"
+import type { Registration } from "@opencode/plugin/promise/registration"
 import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync } from "node:fs"
 import { homedir } from "node:os"
 import { basename, dirname, join, resolve } from "node:path"
@@ -99,7 +100,7 @@ function projectDirectory(projectsDir: string, base: string): string | undefined
     return match ? join(projectsDir, match.name) : undefined
 }
 
-export function findMemoryDirectory(directory: string, home: string): string | undefined {
+function findMemoryDirectory(directory: string, home: string): string | undefined {
     const base = findCanonicalGitRoot(directory) ?? directory
     const project = projectDirectory(join(home, ".claude", "projects"), base)
     return project === undefined ? undefined : join(project, "memory")
@@ -110,7 +111,7 @@ export function findMemoryDirectory(directory: string, home: string): string | u
  * index is reread per request so edits made from Claude Code show up; unchanged content keeps the
  * request prefix stable. Topic files are left for the model to read on demand.
  */
-export function registerMemory(ctx: Plugin.Context, options: MemoryOptions = {}) {
+export function registerMemory(ctx: Plugin.Context, options: MemoryOptions = {}): Promise<Registration> {
     const directory = options.directory ?? ctx.location.directory
     const home = options.home ?? homedir()
     const primaryAgents = options.primaryAgents ?? PRIMARY_AGENTS
@@ -123,9 +124,7 @@ export function registerMemory(ctx: Plugin.Context, options: MemoryOptions = {})
         const index = readIfPresent(join(memoryDirectory, "MEMORY.md"))?.trim()
         if (!index) return
 
-        event.system.push({
-            type: "text",
-            text: `Claude Code memory (${memoryDirectory}), read-only: read topic files with read, never edit them.\n\n${index}`,
-        })
+        const heading = `Claude Code memory (${memoryDirectory}), read-only:`
+        event.system.push({ type: "text", text: `${heading} read topic files with read, never edit them.\n\n${index}` })
     })
 }

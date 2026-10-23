@@ -1,4 +1,14 @@
-import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, symlinkSync, writeFileSync } from "node:fs"
+import {
+    copyFileSync,
+    existsSync,
+    lstatSync,
+    mkdirSync,
+    readFileSync,
+    renameSync,
+    rmSync,
+    symlinkSync,
+    writeFileSync,
+} from "node:fs"
 import { homedir } from "node:os"
 import { join, resolve } from "node:path"
 
@@ -26,16 +36,27 @@ export function renderAgentsMd(template: string): string {
     return template.replace(PROVENANCE_LINE, "").replace(LEADING_COMMENT, "")
 }
 
-/** Returns one line per action; with `dryRun` the lines describe what would happen and nothing is written. */
+/** The agents/ac symlink only this installer creates; its presence marks the tree as an ac v2 install. */
+function isSymlink(path: string): boolean {
+    return lstatSync(path, { throwIfNoEntry: false })?.isSymbolicLink() ?? false
+}
+
+/**
+ * Returns one line per action; with `dryRun` the lines describe what would happen and nothing is written.
+ * A v1 tree is moved aside whole. A re-run on an ac v2 install rewrites only the files this repo owns
+ * (opencode.jsonc, cli.json, the agents link) and leaves the operator's AGENTS.md, service.json and the rest.
+ */
 export function install({ repoRoot, home, dryRun, now }: InstallOptions): string[] {
     const configDir = join(home, ".config", "opencode")
     const backupDir = join(home, ".config", `opencode.bak-v1-${timestamp(now)}`)
     const templates = join(repoRoot, "opencode/ac/templates")
+    const link = join(configDir, "agents", "ac")
     const verb = dryRun ? "would" : "did"
     const lines: string[] = []
+    const rerun = isSymlink(link)
 
     // 1. Back up, never delete: a v1 config can hold keys and history the operator may still want.
-    if (existsSync(configDir)) {
+    if (!rerun && existsSync(configDir)) {
         if (!dryRun) renameSync(configDir, backupDir)
         lines.push(`${verb} move ${configDir} -> ${backupDir}`)
     }
@@ -49,16 +70,20 @@ export function install({ repoRoot, home, dryRun, now }: InstallOptions): string
     if (!dryRun) copyFileSync(join(templates, "cli.json"), join(configDir, "cli.json"))
     lines.push(`${verb} write ${join(configDir, "cli.json")}`)
 
-    // 3. Global instructions; the operator step fills the remaining placeholders.
-    if (!dryRun) {
-        writeFileSync(join(configDir, "AGENTS.md"), renderAgentsMd(readFileSync(join(templates, "AGENTS.md"), "utf8")))
+    // 3. Global instructions, first install only: the operator fills the placeholders and owns the file after.
+    if (!rerun) {
+        if (!dryRun) {
+            const agentsMd = renderAgentsMd(readFileSync(join(templates, "AGENTS.md"), "utf8"))
+            writeFileSync(join(configDir, "AGENTS.md"), agentsMd)
+        }
+        lines.push(`${verb} write ${join(configDir, "AGENTS.md")} (placeholders left to fill)`)
     }
-    lines.push(`${verb} write ${join(configDir, "AGENTS.md")} (placeholders left to fill)`)
 
-    // 4. Agents ship as files, not plugin registrations: global permissions are appended after plugin agents' rules.
-    const link = join(configDir, "agents", "ac")
+    // 4. Agents ship as files, not plugin registrations, so opencode loads them from the repo working tree.
+    //    Their markdown rules sit after the global ones, which is why each agent carries its own protections.
     if (!dryRun) {
         mkdirSync(join(configDir, "agents"), { recursive: true })
+        if (rerun) rmSync(link)
         symlinkSync(join(repoRoot, "opencode/ac/agents"), link)
     }
     lines.push(`${verb} link ${link} -> ${join(repoRoot, "opencode/ac/agents")}`)

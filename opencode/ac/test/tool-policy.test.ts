@@ -89,6 +89,93 @@ describe("explore budget", () => {
     })
 })
 
+describe("explore read-only shell guard", () => {
+    function shell(fake: Awaited<ReturnType<typeof setup>>, agent: string, ...resources: string[]) {
+        return fake.fire.permission("evaluate", {
+            sessionID: "ses_a",
+            agent: agent as AgentId,
+            action: "shell",
+            resources,
+            effect: "allow",
+        })
+    }
+
+    test.each([
+        "cat .env",
+        'cat "backend/.env.local"',
+        "git show HEAD:.env",
+        "jq . credentials.json",
+        "head -5 config/id_rsa",
+    ])("denies the secret read %p with the report-the-path reason", async (command) => {
+        const fake = await setup({})
+
+        const event = await shell(fake, "ac/explore", command)
+
+        expect(event.effect).toBe("deny")
+        expect(event.message).toContain("does not open secret-shaped files")
+    })
+
+    test.each([
+        "prettier --write x",
+        "pint",
+        "pint app/Models",
+        "rm -rf x",
+        "git commit -m x",
+        "git -C repo push",
+        "npm install",
+        "sed -i s/a/b/ file.ts",
+        "echo hi > notes.txt",
+        "git log 2>&1 >> out.log",
+        'sh -c "echo x > f"',
+    ])("denies the write-mode command %p with the read-only reason", async (command) => {
+        const fake = await setup({})
+
+        const event = await shell(fake, "ac/explore", command)
+
+        expect(event.effect).toBe("deny")
+        expect(event.message).toContain("is read-only")
+    })
+
+    test.each([
+        "rg foo",
+        "pint --test x",
+        "git log",
+        "git status",
+        "ls -la .env",
+        "test -f .env",
+        "cat .env.example",
+        'rg -n "a > b" src',
+        "rg -n pint composer.json",
+        "git log 2>/dev/null",
+        "rg foo > /tmp/scratch.txt",
+        "git tag --list",
+        "prettier --check x",
+    ])("allows the read-only command %p", async (command) => {
+        const fake = await setup({})
+
+        expect((await shell(fake, "ac/explore", command)).effect).toBe("allow")
+    })
+
+    test("judges every parsed command of one call", async () => {
+        const fake = await setup({})
+
+        expect((await shell(fake, "ac/explore", "rg foo", "rm x")).effect).toBe("deny")
+    })
+
+    test("leaves other agents' shell calls to their own permissions", async () => {
+        const fake = await setup({})
+
+        expect((await shell(fake, "ac/plan-worker-junior", "rm -rf x")).effect).toBe("allow")
+    })
+
+    test("a guarded call does not spend the budget", async () => {
+        const fake = await setup()
+        for (let call = 0; call < BUDGET + 2; call++) await shell(fake, "ac/explore", "rm x")
+
+        expect((await evaluate(fake, "ac/explore", "read")).effect).toBe("allow")
+    })
+})
+
 describe("shell default timeout", () => {
     test("adds 180000 when the call carries no timeout", async () => {
         const fake = await setup()

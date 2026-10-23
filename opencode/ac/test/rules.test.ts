@@ -206,6 +206,59 @@ describe("registerRules path-scoped injection", () => {
         expect(fake.calls.synthetic).toHaveLength(1)
     })
 
+    test("a patch injects the rules of every file it adds, updates, moves to or deletes", async () => {
+        const { fake, ready } = setup()
+        await ready
+        const patchText = [
+            "*** Begin Patch",
+            "*** Add File: plugins/ac/agents/new.md",
+            "+x",
+            "*** Update File: README.md",
+            "@@",
+            "-a",
+            "+b",
+            "*** Move to: cli/ac/src/moved.ts",
+            "*** Delete File: plugins/ac/hooks/gone.sh",
+            "*** End Patch",
+        ].join("\n")
+
+        await fake.fire.tool("execute.after", {
+            tool: "patch",
+            sessionID: "ses_1",
+            agent: "build",
+            status: "completed",
+            input: { patchText },
+        })
+
+        const texts = fake.calls.synthetic.map((call) => call.text).join("\n")
+        expect(fake.calls.synthetic).toHaveLength(3)
+        expect(texts).toContain("# `ac` plugin authoring rules")
+        expect(texts).toContain("# CLI build rules")
+        expect(texts).toContain("# `ac` hook authoring rules")
+    })
+
+    test("a patch touching only unmatched files, or without patch text, injects nothing", async () => {
+        const { fake, ready } = setup()
+        await ready
+
+        await fake.fire.tool("execute.after", {
+            tool: "patch",
+            sessionID: "ses_1",
+            agent: "build",
+            status: "completed",
+            input: { patchText: "*** Begin Patch\n*** Add File: README.md\n+x\n*** End Patch" },
+        })
+        await fake.fire.tool("execute.after", {
+            tool: "patch",
+            sessionID: "ses_1",
+            agent: "build",
+            status: "completed",
+            input: {},
+        })
+
+        expect(fake.calls.synthetic).toHaveLength(0)
+    })
+
     test("non file tools, failed calls and non matching paths inject nothing", async () => {
         const { fake, ready } = setup()
         await ready

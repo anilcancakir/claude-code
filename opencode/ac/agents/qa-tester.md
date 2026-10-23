@@ -1,7 +1,7 @@
 ---
 description: "Fresh-context QA engineer for one /ac/qa run: derives cases from the requirement and the diff, runs them against the live app, and reports findings with evidence. Spawned only by the qa skill; not for general tasks."
 mode: subagent
-model: "codefast-kimi/kimi-k3#high"
+model: "codefast-deepseek/deepseek-v4.1-flash-1017#high"
 color: "#a855f7"
 permissions:
   - action: "*"
@@ -33,6 +33,30 @@ permissions:
     effect: deny
   - action: "ac_*"
     resource: "*"
+    effect: deny
+  - action: edit
+    resource: "~/.claude/projects/**"
+    effect: deny
+  - action: read
+    resource: "*.env"
+    effect: deny
+  - action: read
+    resource: "*.env.*"
+    effect: deny
+  - action: read
+    resource: "*.env.example"
+    effect: allow
+  - action: read
+    resource: "*.env.sample"
+    effect: allow
+  - action: read
+    resource: "*.env.dist"
+    effect: allow
+  - action: read
+    resource: "*.env.template"
+    effect: allow
+  - action: read
+    resource: "*.dev.vars"
     effect: deny
 ---
 <!-- ported-from: plugins/ac/agents/qa-tester.md sha256:6217dd86a968746e99ada7f4baa109ccc7574aa5a126574f845c8f4dcfa9e954 -->

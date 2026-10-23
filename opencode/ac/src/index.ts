@@ -12,18 +12,21 @@ import { registerToolPolicy } from "./tool-policy.ts"
 export default Plugin.define({
     id: "ac",
     async setup(ctx) {
+        // Each module reads the plugin option named after it; `models` is read by loadConfig below.
+        const { options } = ctx
+
         // 1. Prompt first: it replaces system[0], so the memory and rules parts appended after it keep their place.
-        await registerPrompt(ctx)
-        await registerMemory(ctx)
-        await registerRules(ctx)
+        await registerPrompt(ctx, options.prompt)
+        await registerMemory(ctx, options.memory)
+        await registerRules(ctx, options.rules)
 
         // 2. Guards and policy hooks; the run guards own a subscription that must end with the plugin.
-        const stopRunGuards = await registerRunGuards(ctx)
-        await registerToolPolicy(ctx)
+        const stopRunGuards = await registerRunGuards(ctx, options.runGuards)
+        await registerToolPolicy(ctx, options.toolPolicy)
 
         // 3. Fallback chains come from the bundled defaults, overridden by the `models` plugin option.
-        await registerFallback(ctx, loadConfig({ options: ctx.options }))
-        await registerDiagnostics(ctx)
+        await registerFallback(ctx, loadConfig({ options }))
+        await registerDiagnostics(ctx, options.diagnostics)
         await registerCommands(ctx)
 
         return stopRunGuards

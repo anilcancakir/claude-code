@@ -1,7 +1,7 @@
 ---
 description: "Quick-tier ac plan worker: single-file mechanical steps. Spawned only by /ac/execute; not for general tasks."
 mode: subagent
-model: "codefast-deepseek/deepseek-v4-pro-0813#low"
+model: "codefast-deepseek/deepseek-v4.1-flash-1017#low"
 color: "#4CAF50"
 permissions:
   - { action: "*", resource: "*", effect: deny }
@@ -16,6 +16,14 @@ permissions:
   - { action: "ac_*", resource: "*", effect: deny }
   - { action: skill, resource: "*", effect: deny }
   - { action: skill, resource: my-coding, effect: allow }
+  - { action: edit, resource: "~/.claude/projects/**", effect: deny }
+  - { action: read, resource: "*.env", effect: deny }
+  - { action: read, resource: "*.env.*", effect: deny }
+  - { action: read, resource: "*.env.example", effect: allow }
+  - { action: read, resource: "*.env.sample", effect: allow }
+  - { action: read, resource: "*.env.dist", effect: allow }
+  - { action: read, resource: "*.env.template", effect: allow }
+  - { action: read, resource: "*.dev.vars", effect: deny }
 ---
 <!-- ported-from: plugins/ac/agents/plan-worker-quick.md sha256:a3777133571d43a79c0835c0ba49453fc39b3130e8acee71b3bafd9550305e06 -->
 

@@ -16,6 +16,14 @@ permissions:
   - { action: "ac_*", resource: "*", effect: deny }
   - { action: skill, resource: "*", effect: deny }
   - { action: skill, resource: my-coding, effect: allow }
+  - { action: edit, resource: "~/.claude/projects/**", effect: deny }
+  - { action: read, resource: "*.env", effect: deny }
+  - { action: read, resource: "*.env.*", effect: deny }
+  - { action: read, resource: "*.env.example", effect: allow }
+  - { action: read, resource: "*.env.sample", effect: allow }
+  - { action: read, resource: "*.env.dist", effect: allow }
+  - { action: read, resource: "*.env.template", effect: allow }
+  - { action: read, resource: "*.dev.vars", effect: deny }
 ---
 <!-- ported-from: plugins/ac/agents/plan-worker-senior.md sha256:f67165da4d00de36290a0c875427d4e26b40b2e62cf1f8348d825475e9375635 -->
 

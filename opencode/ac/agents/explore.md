@@ -1,7 +1,7 @@
 ---
 description: "Read-only code search agent for this repository. Use this when finding definitions, callers or usages needs more than about three queries or several naming conventions. Specify depth: quick, medium or thorough; add REUSE BIAS: to hunt for code to reuse. Returns file:line citations."
 mode: subagent
-model: "codefast-deepseek/deepseek-v4-pro-0813#low"
+model: "codefast-deepseek/deepseek-v4.1-flash-1017#low"
 color: "#22c55e"
 permissions:
   - action: "*"
@@ -23,6 +23,27 @@ permissions:
     resource: "*"
     effect: allow
   - action: read
+    resource: "*.pem"
+    effect: deny
+  - action: read
+    resource: "*.key"
+    effect: deny
+  - action: read
+    resource: "*/id_rsa"
+    effect: deny
+  - action: read
+    resource: "*/credentials*.json"
+    effect: deny
+  - action: skill
+    resource: "*"
+    effect: deny
+  - action: "ac_*"
+    resource: "*"
+    effect: deny
+  - action: edit
+    resource: "~/.claude/projects/**"
+    effect: deny
+  - action: read
     resource: "*.env"
     effect: deny
   - action: read
@@ -41,22 +62,7 @@ permissions:
     resource: "*.env.template"
     effect: allow
   - action: read
-    resource: "*.pem"
-    effect: deny
-  - action: read
-    resource: "*.key"
-    effect: deny
-  - action: read
-    resource: "*/id_rsa"
-    effect: deny
-  - action: read
-    resource: "*/credentials*.json"
-    effect: deny
-  - action: skill
-    resource: "*"
-    effect: deny
-  - action: "ac_*"
-    resource: "*"
+    resource: "*.dev.vars"
     effect: deny
 ---
 <!-- ported-from: plugins/ac/agents/explore.md sha256:7ffd86df319e01b21e6e45b05be4afee13a1ecbbf8c5bd30659a36b07e239901 -->
