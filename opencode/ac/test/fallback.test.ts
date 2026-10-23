@@ -618,3 +618,17 @@ describe("switch logging", () => {
         }
     })
 })
+
+describe("ac_models", () => {
+    test("reports the merged chains, the groups and the caps the skills route by", async () => {
+        const fake = await setup(fixtureConfig(SHARED_GROUPS))
+        fake.applyTransforms()
+
+        const result = await fake.tools.get("ac_models")?.execute({}, {} as ToolContext)
+        const models = JSON.parse(String(result?.content))
+
+        expect(models.tiers.main).toEqual(MAIN)
+        expect(models.groups).toEqual(SHARED_GROUPS)
+        expect(models).toMatchObject({ retryAttempts: 3, maxParallel: 3, maxLanes: 2 })
+    })
+})

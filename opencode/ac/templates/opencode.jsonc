@@ -28,6 +28,20 @@
         { "action": "read", "resource": "*.dev.vars", "effect": "ask" }
     ],
 
+    // Only the providers the ac chains route to may serve a turn. When a session's model briefly fails to resolve
+    // (a config or plugin reload), opencode falls back to the first available model (core/src/model.ts:271-275);
+    // on 2026-10-23 that put three lane turns on a connected OpenRouter account. Last matching rule wins.
+    "policies": [
+        { "action": "provider.use", "resource": "*", "effect": "deny" },
+        { "action": "provider.use", "resource": "codefast-glm", "effect": "allow" },
+        { "action": "provider.use", "resource": "codefast-kimi", "effect": "allow" },
+        { "action": "provider.use", "resource": "codefast-deepseek", "effect": "allow" },
+        { "action": "provider.use", "resource": "codefast-qwen", "effect": "allow" },
+        { "action": "provider.use", "resource": "codefast-gpt", "effect": "allow" },
+        { "action": "provider.use", "resource": "codefast-gpt-unlimited", "effect": "allow" },
+        { "action": "provider.use", "resource": "anthropic", "effect": "allow" }
+    ],
+
     // opencode reads AGENTS.md only; the project's Claude Code memory files ride in as configured instructions.
     "instructions": ["CLAUDE.md", "CLAUDE.local.md", ".claude/CLAUDE.md"],
     "skills": ["<repo>/opencode/ac/skills"],

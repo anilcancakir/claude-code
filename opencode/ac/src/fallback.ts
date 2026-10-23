@@ -235,7 +235,8 @@ export async function registerFallback(ctx: Context, config: ModelConfig): Promi
                 "Returns the model routing this plugin runs on, as JSON: `tiers` maps each tier (an ac agent name",
                 "without the ac/ prefix, plus `main`) to its fallback chain, whose first entry is the model that agent",
                 "starts on; `groups` names the providers that share one rate limit; `maxParallel` is the default",
-                "worker cap per execute wave and `maxLanes` the coordinate lane cap.",
+                "worker cap per execute wave and `maxLanes` the coordinate lane cap; `retryAttempts` is how many",
+                "times a skill runs a failed subagent on one model before it takes the next chain entry.",
             ].join(" "),
             input: {
                 type: "object",
@@ -248,6 +249,7 @@ export async function registerFallback(ctx: Context, config: ModelConfig): Promi
                     groups: config.groups,
                     maxParallel: config.maxParallel,
                     maxLanes: config.maxLanes,
+                    retryAttempts: config.retryAttempts,
                 }),
             }),
         })

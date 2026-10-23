@@ -618,3 +618,18 @@ describe("agent permissions under opencode's precedence", () => {
         }
     })
 })
+
+describe("provider policy", () => {
+    test("only the providers some preset routes to may serve a turn", () => {
+        const path = join(REPO_ROOT, "opencode/ac/templates/opencode.jsonc")
+        const template = parseJsonc(readFileSync(path, "utf8"), path) as {
+            policies: Array<{ action: string; resource: string; effect: string }>
+            providers: Record<string, unknown>
+        }
+        const allowed = template.policies.filter((rule) => rule.effect === "allow").map((rule) => rule.resource)
+
+        expect(template.policies[0]).toEqual({ action: "provider.use", resource: "*", effect: "deny" })
+        expect(allowed.sort()).toEqual([...Object.keys(template.providers), "anthropic"].sort())
+        expect(allowed).not.toContain("openrouter")
+    })
+})

@@ -17,6 +17,10 @@ export interface CoordinateOptions {
     git?: LaneGit
     /** Background shells that will wake a session; the plugin entry passes the one shared tracker. */
     shells?: BackgroundShells
+    /** How long an owner question may hold back a parked lane; 0 turns it off. Default 10 min. */
+    questionTimeoutMs?: number
+    /** How often the open question is checked. Default one minute. */
+    questionCheckMs?: number
 }
 
 export interface WorktreeRequest {
@@ -79,6 +83,58 @@ const WORKING_BUNDLE = new Set(["planning", "executing"])
 const MAX_AGE_MS = 72 * 3_600_000
 const MAX_FUTURE_SKEW_MS = 14 * 3_600_000
 const MAX_NUDGES_PER_PHASE = 3
+
+// CC's question timeout offers 60s, 5m and 10m; 10m leaves the owner time to read a decision batch.
+const DEFAULT_QUESTION_TIMEOUT_MS = 10 * 60_000
+const DEFAULT_QUESTION_CHECK_MS = 60_000
+/** An interrupt this module caused is not the owner's, so it must not silence the stop guard. */
+const SELF_INTERRUPT_WINDOW_MS = 60_000
+
+/** `AC_QUESTION_TIMEOUT_MINUTES` in the service environment overrides the default; 0 turns the timeout off. */
+function questionTimeoutFromEnv(): number {
+    const minutes = Number(process.env.AC_QUESTION_TIMEOUT_MINUTES)
+    return Number.isFinite(minutes) && minutes >= 0 && process.env.AC_QUESTION_TIMEOUT_MINUTES !== ""
+        ? minutes * 60_000
+        : DEFAULT_QUESTION_TIMEOUT_MS
+}
+
+interface ToolPartLike {
+    readonly type: string
+    readonly id?: string
+    readonly name?: string
+    readonly state?: { readonly status?: string }
+    readonly time?: { readonly created?: number; readonly ran?: number }
+}
+
+/** The `question` call the session's last assistant message is waiting on, with the time it started. */
+function openQuestion(messages: ReadonlyArray<{ type: string }>): { id: string; since: number } | undefined {
+    const last = [...messages].reverse().find((message) => message.type === "assistant")
+    const parts = (last as { content?: readonly ToolPartLike[] } | undefined)?.content ?? []
+    const part = parts.find(
+        (item) => item.type === "tool" && item.name === "question" && item.state?.status === "running",
+    )
+    const since = part?.time?.ran ?? part?.time?.created
+    return part?.id === undefined || since === undefined ? undefined : { id: part.id, since }
+}
+
+/** When the session's last assistant message finished, and whether its LANE STATUS says the lane is parked. */
+function parkedSince(messages: ReadonlyArray<{ type: string }>): number | undefined {
+    const last = [...messages].reverse().find((message) => message.type === "assistant") as
+        | { time?: { completed?: number } }
+        | undefined
+    const completed = last?.time?.completed
+    if (completed === undefined) return undefined
+    return laneStatus(lastAssistantText(messages)) === "WORKING" ? undefined : completed
+}
+
+function questionTimeoutNote(minutes: number, bundles: readonly string[]): string {
+    return [
+        `ac coordinate: the owner has not answered the open question for ${minutes} minutes, and lane ` +
+            `${bundles.join(", ")} parked meanwhile. The plugin withdrew the question so the run can move: act on ` +
+            "the lane messages first (integrate, dispatch, send EXECUTE), then ask the open question again. It stays " +
+            "in owner_queue; nothing was answered for the owner.",
+    ].join("\n")
+}
 
 /**
  * Re-injected into the coordinator's system prompt while it owns the marker, because a compaction drops the skill
@@ -178,6 +234,7 @@ function lastAssistantText(messages: ReadonlyArray<{ type: string }>): string {
 interface StateBundle {
     id?: string
     status?: string
+    lane_session_id?: string
 }
 
 function stateBundles(directory: string, slug: string): StateBundle[] {
@@ -247,6 +304,10 @@ export async function registerCoordinate(
     /** Running descendant sessions of the coordinator, keyed by session id, valued by the coordinator's id. */
     const running = new Map<string, string>()
     const guards = new Map<string, GuardState>()
+    const questionTimeoutMs = options.questionTimeoutMs ?? questionTimeoutFromEnv()
+    /** Question tool calls already withdrawn once, so a slow owner is not interrupted again for the same one. */
+    const withdrawn = new Set<string>()
+    const selfInterrupts = new Map<string, number>()
 
     const laneOf = async (sessionID: string): Promise<Lane | undefined> => {
         const known = lanes.get(sessionID)
@@ -480,7 +541,46 @@ export async function registerCoordinate(
         })
     }
 
-    // 4. Events one at a time, so a child's start is recorded before the coordinator's next stop is judged.
+    // 4. An owner question holds the coordinator's turn, and a lane that parks meanwhile waits behind it: on a live run
+    //    one unanswered question kept a finished bundle out of integration for 32 minutes. Past the timeout, with a
+    //    lane parked since the question went up, the question is withdrawn (a note, then an interrupt that resumes
+    //    with the queued lane messages); the coordinator acts on them and asks again. Nothing is answered for the
+    //    owner. Only session reads and state.json are used, so it works whichever instance sees which events.
+    const checkQuestion = async (): Promise<void> => {
+        const marker = readCoordinateMarker(directory)
+        if (!marker) return
+        const coordinator = marker.session_id
+        const question = openQuestion(await ctx.session.context({ sessionID: coordinator }))
+        if (!question || withdrawn.has(question.id) || Date.now() - question.since < questionTimeoutMs) return
+
+        const parked: string[] = []
+        for (const bundle of stateBundles(directory, marker.slug)) {
+            if (!bundle.lane_session_id || bundle.status === "merged" || bundle.status === "dropped") continue
+            const since = parkedSince(await ctx.session.context({ sessionID: bundle.lane_session_id }))
+            if (since !== undefined && since > question.since) parked.push(bundle.id ?? bundle.lane_session_id)
+        }
+        if (parked.length === 0) return
+
+        withdrawn.add(question.id)
+        selfInterrupts.set(coordinator, Date.now())
+        await ctx.session.synthetic({
+            sessionID: coordinator,
+            description: "ac question timeout",
+            text: questionTimeoutNote(Math.round(questionTimeoutMs / 60_000), parked),
+            delivery: "steer",
+        })
+        await ctx.session.interrupt({ sessionID: coordinator, resume: true })
+    }
+    const questionTimer =
+        questionTimeoutMs > 0
+            ? setInterval(() => {
+                  checkQuestion().catch((error: unknown) => {
+                      console.error("ac coordinate: question check failed", error)
+                  })
+              }, options.questionCheckMs ?? DEFAULT_QUESTION_CHECK_MS)
+            : undefined
+
+    // 5. Events one at a time, so a child's start is recorded before the coordinator's next stop is judged.
     const controller = new AbortController()
     const loop = async (): Promise<void> => {
         for await (const event of ctx.event.subscribe({ signal: controller.signal })) {
@@ -495,13 +595,16 @@ export async function registerCoordinate(
                     case "session.execution.failed":
                         await onEnded(event.data.sessionID, `Lane session failed: ${JSON.stringify(event.data.error)}`)
                         break
-                    case "session.execution.interrupted":
+                    case "session.execution.interrupted": {
                         // A shutdown keeps the run claimed and the host resumes it after the restart
                         // (core/src/session/execution.ts:126-131), so the lane has not ended.
                         if (event.data.reason === "shutdown") break
-                        if (event.data.reason === "user") guardOf(event.data.sessionID).interrupted = true
+                        const since = Date.now() - (selfInterrupts.get(event.data.sessionID) ?? 0)
+                        const own = since < SELF_INTERRUPT_WINDOW_MS
+                        if (event.data.reason === "user" && !own) guardOf(event.data.sessionID).interrupted = true
                         await onEnded(event.data.sessionID, "Lane session was interrupted.")
                         break
+                    }
                     case "session.compaction.ended":
                         await onCompacted(event.data.sessionID)
                         break
@@ -514,5 +617,8 @@ export async function registerCoordinate(
     }
     void loop()
 
-    return () => controller.abort()
+    return () => {
+        controller.abort()
+        if (questionTimer !== undefined) clearInterval(questionTimer)
+    }
 }

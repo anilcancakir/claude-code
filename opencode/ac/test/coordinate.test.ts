@@ -34,6 +34,9 @@ interface Harness {
     texts: Map<string, string>
     sessions: Record<string, FakeSessionRecord>
     removed: string[]
+    /** Message lists a session's context returns instead of the default one built from `texts`. */
+    contexts: Map<string, unknown[]>
+    interrupts: Array<{ sessionID: string; resume?: boolean }>
     cleanup: () => void
 }
 
@@ -46,6 +49,8 @@ interface SetupOptions {
     failPrompt?: boolean
     /** Background shells the guard consults. */
     shells?: { pending(sessionID: string): number }
+    /** Arms the owner-question check with this timeout, checked every few milliseconds. */
+    questionTimeoutMs?: number
 }
 
 function block(status: string, bundle = "b1"): string {
@@ -68,6 +73,8 @@ async function setup(options: SetupOptions = {}): Promise<Harness> {
     const created: Array<Record<string, unknown>> = []
     const texts = new Map<string, string>()
     const removed: string[] = []
+    const contexts = new Map<string, unknown[]>()
+    const interrupts: Harness["interrupts"] = []
     Object.assign(fake.ctx.session, {
         create: async (input: Record<string, unknown>) => {
             if (options.failCreate) throw new Error("location rejected")
@@ -81,7 +88,8 @@ async function setup(options: SetupOptions = {}): Promise<Harness> {
             fake.calls.prompt.push(call as never)
         },
         remove: async ({ sessionID }: { sessionID: string }) => void removed.push(sessionID),
-        context: async ({ sessionID }: { sessionID: string }) => [
+        interrupt: async (call: { sessionID: string; resume?: boolean }) => void interrupts.push(call),
+        context: async ({ sessionID }: { sessionID: string }) => contexts.get(sessionID) ?? [
             { type: "assistant", content: [{ type: "text", text: "an earlier turn" }] },
             { type: "user", content: [] },
             { type: "assistant", content: [{ type: "text", text: texts.get(sessionID) ?? "" }] },
@@ -90,6 +98,8 @@ async function setup(options: SetupOptions = {}): Promise<Harness> {
     const cleanup = await registerCoordinate(fake.ctx, loadConfig({ env: {} }), {
         directory: options.directory ?? repo,
         ...(options.shells ? { shells: options.shells } : {}),
+        questionTimeoutMs: options.questionTimeoutMs ?? 0,
+        questionCheckMs: 5,
         git: {
             addWorktree: async (request) => {
                 mkdirSync(request.directory, { recursive: true })
@@ -99,7 +109,7 @@ async function setup(options: SetupOptions = {}): Promise<Harness> {
         },
     })
     fake.applyTransforms()
-    return { fake, worktrees, discarded, created, texts, sessions, removed, cleanup }
+    return { fake, worktrees, discarded, created, texts, sessions, removed, contexts, interrupts, cleanup }
 }
 
 async function call(harness: Harness, tool: string, input: Record<string, unknown>): Promise<unknown> {
@@ -400,5 +410,78 @@ describe("markers and blocks", () => {
     test("laneStatus reads the last block", () => {
         expect(laneStatus(`${block("WORKING")}\n\nlater\n${block("DONE")}`)).toBe("DONE")
         expect(laneStatus("no block here")).toBeUndefined()
+    })
+})
+
+describe("owner question timeout", () => {
+    const MINUTE = 60_000
+
+    function waiting(since: number): unknown[] {
+        return [
+            {
+                type: "assistant",
+                content: [
+                    { type: "tool", id: "call_q1", name: "question", state: { status: "running" }, time: { ran: since } },
+                ],
+            },
+        ]
+    }
+
+    function parked(at: number, status = "PLANNED"): unknown[] {
+        return [{ type: "assistant", time: { completed: at }, content: [{ type: "text", text: block(status) }] }]
+    }
+
+    async function armed(questionSince: number, laneParkedAt: number, status = "PLANNED"): Promise<Harness> {
+        writeMarker()
+        writeState([{ id: "b1", status: "planning", lane_session_id: "ses_lane_b1" } as never])
+        const harness = await setup({ questionTimeoutMs: 10 * MINUTE })
+        harness.contexts.set(COORDINATOR, waiting(questionSince))
+        harness.contexts.set("ses_lane_b1", parked(laneParkedAt, status))
+        return harness
+    }
+
+    test("withdraws a question past the timeout when a lane parked after it went up, once", async () => {
+        const now = Date.now()
+        const harness = await armed(now - 11 * MINUTE, now - MINUTE)
+
+        await new Promise((resolve) => setTimeout(resolve, 40))
+
+        expect(harness.interrupts).toEqual([{ sessionID: COORDINATOR, resume: true }])
+        const note = harness.fake.calls.synthetic.find((call) => call.description === "ac question timeout")
+        expect(note?.text).toContain("lane b1 parked")
+        expect(note?.text).toContain("ask the open question again")
+        harness.cleanup()
+    })
+
+    test("leaves a young question, a lane that parked before it, and a WORKING lane alone", async () => {
+        const now = Date.now()
+        for (const [since, parkedAt, status] of [
+            [now - 2 * MINUTE, now - MINUTE, "PLANNED"],
+            [now - 11 * MINUTE, now - 12 * MINUTE, "PLANNED"],
+            [now - 11 * MINUTE, now - MINUTE, "WORKING"],
+        ] as const) {
+            const harness = await armed(since, parkedAt, status)
+            await new Promise((resolve) => setTimeout(resolve, 30))
+            expect(harness.interrupts).toHaveLength(0)
+            harness.cleanup()
+        }
+    })
+
+    test("its own interrupt does not silence the stop guard", async () => {
+        const now = Date.now()
+        const harness = await armed(now - 11 * MINUTE, now - MINUTE)
+        await new Promise((resolve) => setTimeout(resolve, 40))
+        writeState([{ id: "b1", status: "planned" }])
+        harness.contexts.delete(COORDINATOR)
+
+        harness.fake.pushEvent({
+            type: "session.execution.interrupted",
+            data: { sessionID: COORDINATOR, reason: "user" },
+        })
+        ended(harness, COORDINATOR)
+        await settle()
+
+        expect(harness.fake.calls.synthetic.map((call) => call.description)).toContain("ac coordinate stop guard")
+        harness.cleanup()
     })
 })
