@@ -8,7 +8,18 @@ import { createFakeCtx, type FakeCtx } from "./fake-ctx.ts"
 
 type SessionMessage = Awaited<ReturnType<Plugin.Context["session"]["context"]>>[number]
 
-const MAIN = ["opencode-go/glm-5.3#high", "opencode-go/kimi-k3#high", "opencode-go/deepseek-v4-pro#high"]
+/**
+ * Fixture chains, independent of config/models.jsonc, so a preset edit cannot break the fallback mechanics.
+ */
+const MAIN = ["alpha/one#high", "beta/two#high", "gamma/three#high"]
+const WORKER = ["alpha/code", "beta/two#high", "gamma/three#high"]
+
+function fixtureConfig(): ModelConfig {
+    return loadConfig({
+        env: {},
+        options: { models: { tiers: { main: MAIN, "plan-worker-junior": WORKER } } },
+    })
+}
 
 function modelRef(ref: string): SessionRetry["model"] {
     const slash = ref.indexOf("/")
@@ -33,7 +44,7 @@ function userMessage(text: string): SessionMessage {
  * The Step 1 fake does not script `session.context`, so the transcript the replay reads is attached here.
  */
 async function setup(
-    config: ModelConfig = loadConfig({ env: {} }),
+    config: ModelConfig = fixtureConfig(),
     messages: SessionMessage[] = [
         userMessage("first request"),
         { type: "assistant", id: "msg_assistant" } as unknown as SessionMessage,
@@ -185,7 +196,7 @@ describe("main session fallback", () => {
     test("an ac/* session is left to the execute skill", async () => {
         const fake = await setup()
 
-        const event = await retry(fake, { agent: "ac/plan-worker-junior", model: "opencode-go/kimi-k2.7-code" })
+        const event = await retry(fake, { agent: "ac/plan-worker-junior", model: WORKER[0] as string })
 
         expect(event.decision).toEqual({ retry: true, delay: 2_000 })
         expect(fake.calls.switchModel).toHaveLength(0)
@@ -234,7 +245,7 @@ describe("main session fallback", () => {
                 },
             ],
         } as unknown as SessionMessage
-        const fake = await setup(loadConfig({ env: {} }), [message])
+        const fake = await setup(fixtureConfig(), [message])
 
         await retry(fake, { model: MAIN[0] as string })
 
@@ -260,7 +271,7 @@ describe("main session fallback", () => {
     })
 
     test("no user message to replay leaves the host decision alone", async () => {
-        const fake = await setup(loadConfig({ env: {} }), [])
+        const fake = await setup(fixtureConfig(), [])
 
         const event = await retry(fake, { model: MAIN[0] as string })
 
@@ -275,7 +286,7 @@ describe("main session fallback", () => {
                 models: {
                     tiers: {
                         main: [
-                            "opencode-go/glm-5.3#high",
+                            MAIN[0] as string,
                             "openrouter/anthropic/claude-sonnet-5-5#max",
                         ],
                     },
@@ -284,7 +295,7 @@ describe("main session fallback", () => {
         })
         const fake = await setup(config)
 
-        await retry(fake, { model: "opencode-go/glm-5.3#high" })
+        await retry(fake, { model: MAIN[0] as string })
 
         expect(fake.calls.switchModel[0]?.model).toEqual(modelRef("openrouter/anthropic/claude-sonnet-5-5#max"))
         expect(fake.calls.switchModel[0]?.model).toMatchObject({
@@ -301,10 +312,10 @@ describe("ac_fallback_next", () => {
 
         const next = await fallbackNext(fake, {
             tier: "plan-worker-junior",
-            tried: ["opencode-go/kimi-k2.7-code"],
+            tried: [WORKER[0] as string],
         })
 
-        expect(next).toBe("opencode-go/glm-5.3#high")
+        expect(next).toBe(WORKER[1])
     })
 
     test("returns none once every entry was tried", async () => {
@@ -312,11 +323,7 @@ describe("ac_fallback_next", () => {
 
         const next = await fallbackNext(fake, {
             tier: "plan-worker-junior",
-            tried: [
-                "opencode-go/kimi-k2.7-code",
-                "opencode-go/glm-5.3#high",
-                "opencode-go/deepseek-v4-pro#high",
-            ],
+            tried: WORKER,
         })
 
         expect(next).toBe("none")

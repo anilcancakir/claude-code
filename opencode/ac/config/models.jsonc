@@ -1,35 +1,77 @@
 {
-    // Balanced routing preset. A tier maps to an ordered fallback chain of `provider/model#variant`;
+    // Routing preset. A tier maps to an ordered fallback chain of `provider/model#variant`;
     // the first entry is the primary, the rest are tried in order when the one before it fails.
+    // codefast-* are the unlimited codefast.app endpoints (one provider per endpoint, defined in
+    // templates/opencode.jsonc with low/high/max reasoning variants); opencode-go is the last resort.
+    // GLM-5.3 carries the Opus-shaped tiers, Kimi K3 the Sonnet-shaped ones, DeepSeek and Qwen the fast ones.
     "tiers": {
-        "main": ["opencode-go/glm-5.3#high", "opencode-go/kimi-k3#high", "opencode-go/deepseek-v4-pro#high"],
-        "oracle": ["opencode-go/kimi-k3#max", "opencode-go/glm-5.3#max", "opencode-go/deepseek-v4-pro#max"],
-        "plan-reviewer": ["opencode-go/glm-5.3#max", "opencode-go/kimi-k3#high", "opencode-go/deepseek-v4-pro#max"],
-        "plan-code-review": ["opencode-go/kimi-k3#high", "opencode-go/glm-5.3#max", "opencode-go/deepseek-v4-pro#max"],
+        "main": [
+            "codefast-glm/glm-5.3#high",
+            "codefast-kimi/kimi-k3#high",
+            "codefast-deepseek/deepseek-v4-pro-0813#high",
+            "opencode-go/glm-5.3#high"
+        ],
+        "oracle": [
+            "codefast-glm/glm-5.3#max",
+            "codefast-kimi/kimi-k3#max",
+            "codefast-deepseek/deepseek-v4-pro-0813#max",
+            "opencode-go/kimi-k3#max"
+        ],
+        "plan-reviewer": [
+            "codefast-glm/glm-5.3#max",
+            "codefast-kimi/kimi-k3#high",
+            "codefast-deepseek/deepseek-v4-pro-0813#max",
+            "opencode-go/glm-5.3#max"
+        ],
+        "plan-code-review": [
+            "codefast-glm/glm-5.3#max",
+            "codefast-kimi/kimi-k3#high",
+            "codefast-deepseek/deepseek-v4-pro-0813#max",
+            "opencode-go/glm-5.3#max"
+        ],
         "plan-worker-senior": [
-            "opencode-go/kimi-k3#high",
-            "opencode-go/glm-5.3#max",
-            "opencode-go/deepseek-v4-pro#max"
+            "codefast-glm/glm-5.3#max",
+            "codefast-kimi/kimi-k3#high",
+            "codefast-deepseek/deepseek-v4-pro-0813#max",
+            "opencode-go/kimi-k3#high"
         ],
         "plan-worker-junior-high": [
-            "opencode-go/glm-5.3#high",
-            "opencode-go/kimi-k2.7-code",
-            "opencode-go/deepseek-v4-pro#high"
+            "codefast-kimi/kimi-k3#high",
+            "codefast-glm/glm-5.3#high",
+            "codefast-deepseek/deepseek-v4-pro-0813#high",
+            "opencode-go/kimi-k2.7-code"
         ],
         "plan-worker-junior": [
-            "opencode-go/kimi-k2.7-code",
-            "opencode-go/glm-5.3#high",
-            "opencode-go/deepseek-v4-pro#high"
+            "codefast-kimi/kimi-k3#high",
+            "codefast-glm/glm-5.3#high",
+            "codefast-qwen/qwen3.8-max#high",
+            "opencode-go/kimi-k2.7-code"
         ],
         "plan-worker-quick": [
-            "opencode-go/glm-5.3-flash",
-            "opencode-go/deepseek-v4.1-flash",
-            "opencode-go/gpt-6-luna#low"
+            "codefast-deepseek/deepseek-v4-pro-0813#low",
+            "codefast-qwen/qwen3.8-max#low",
+            "codefast-glm/glm-5.3#low",
+            "opencode-go/glm-5.3-flash"
         ],
-        "explore": ["opencode-go/deepseek-v4.1-flash", "opencode-go/glm-5.3-flash", "opencode-go/gpt-6-luna#low"],
-        "librarian": ["opencode-go/deepseek-v4-pro#high", "opencode-go/glm-5.3#high", "opencode-go/gpt-6-luna#medium"],
-        "qa-tester": ["opencode-go/glm-5.3#high", "opencode-go/kimi-k2.7-code", "opencode-go/deepseek-v4-pro#high"],
-        "title": ["opencode-go/glm-5.3-flash#low", "opencode-go/gpt-6-luna#low"]
+        "explore": [
+            "codefast-deepseek/deepseek-v4-pro-0813#low",
+            "codefast-qwen/qwen3.8-max#low",
+            "codefast-glm/glm-5.3#low",
+            "opencode-go/deepseek-v4.1-flash"
+        ],
+        "librarian": [
+            "codefast-kimi/kimi-k3#high",
+            "codefast-qwen/qwen3.8-max#high",
+            "codefast-deepseek/deepseek-v4-pro-0813#high",
+            "opencode-go/glm-5.3#high"
+        ],
+        "qa-tester": [
+            "codefast-kimi/kimi-k3#high",
+            "codefast-glm/glm-5.3#high",
+            "codefast-deepseek/deepseek-v4-pro-0813#high",
+            "opencode-go/glm-5.3#high"
+        ],
+        "title": ["codefast-qwen/qwen3.8-max#low", "codefast-glm/glm-5.3#low", "opencode-go/glm-5.3-flash#low"]
     },
     "cooldownSeconds": 30,
     "retryOn": [429, 500, 502, 503, 504],

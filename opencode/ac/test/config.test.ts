@@ -16,26 +16,38 @@ afterEach(() => {
 })
 
 describe("loadConfig defaults", () => {
-    test("oracle leads with kimi-k3 at max", () => {
+    test("oracle leads with codefast glm-5.3 at max", () => {
         const config = loadConfig({ env: {} })
 
-        expect(config.chain("oracle")[0]).toBe("opencode-go/kimi-k3#max")
+        expect(config.chain("oracle")[0]).toBe("codefast-glm/glm-5.3#max")
+    })
+
+    test("opencode-go is the last resort of the main chain", () => {
+        const config = loadConfig({ env: {} })
+
+        expect(config.chain("main").at(-1)).toBe("opencode-go/glm-5.3#high")
     })
 
     test("every tier of the Balanced preset has a chain", () => {
         const config = loadConfig({ env: {} })
 
         expect(config.chain("main")).toEqual([
+            "codefast-glm/glm-5.3#high",
+            "codefast-kimi/kimi-k3#high",
+            "codefast-deepseek/deepseek-v4-pro-0813#high",
             "opencode-go/glm-5.3#high",
-            "opencode-go/kimi-k3#high",
-            "opencode-go/deepseek-v4-pro#high",
         ])
         expect(config.chain("plan-worker-quick")).toEqual([
+            "codefast-deepseek/deepseek-v4-pro-0813#low",
+            "codefast-qwen/qwen3.8-max#low",
+            "codefast-glm/glm-5.3#low",
             "opencode-go/glm-5.3-flash",
-            "opencode-go/deepseek-v4.1-flash",
-            "opencode-go/gpt-6-luna#low",
         ])
-        expect(config.chain("title")).toEqual(["opencode-go/glm-5.3-flash#low", "opencode-go/gpt-6-luna#low"])
+        expect(config.chain("title")).toEqual([
+            "codefast-qwen/qwen3.8-max#low",
+            "codefast-glm/glm-5.3#low",
+            "opencode-go/glm-5.3-flash#low",
+        ])
         for (const tier of [
             "plan-reviewer",
             "plan-code-review",
@@ -46,7 +58,7 @@ describe("loadConfig defaults", () => {
             "librarian",
             "qa-tester",
         ]) {
-            expect(config.chain(tier).length).toBe(3)
+            expect(config.chain(tier).length).toBe(4)
         }
     })
 
@@ -71,7 +83,7 @@ describe("loadConfig overrides", () => {
         })
 
         expect(config.chain("oracle")).toEqual(["acme/big#max"])
-        expect(config.chain("main")[0]).toBe("opencode-go/glm-5.3#high")
+        expect(config.chain("main")).toEqual(loadConfig({ env: {} }).chain("main"))
     })
 
     test("AC_OPENCODE_MODELS file replaces a tier, tolerating comments and trailing commas", () => {
@@ -90,7 +102,7 @@ describe("loadConfig overrides", () => {
         const config = loadConfig({ env: { AC_OPENCODE_MODELS: file } })
 
         expect(config.chain("explore")).toEqual(["acme/fast#low"])
-        expect(config.chain("oracle")[0]).toBe("opencode-go/kimi-k3#max")
+        expect(config.chain("oracle")).toEqual(loadConfig({ env: {} }).chain("oracle"))
         expect(config.retryAttempts).toBe(4)
         expect(config.cooldownSeconds).toBe(30)
     })
@@ -101,12 +113,7 @@ describe("loadConfig overrides", () => {
             options: { models: { tiers: { librarian: { prepend: ["acme/docs#high"] } } } },
         })
 
-        expect(config.chain("librarian")).toEqual([
-            "acme/docs#high",
-            "opencode-go/deepseek-v4-pro#high",
-            "opencode-go/glm-5.3#high",
-            "opencode-go/gpt-6-luna#medium",
-        ])
+        expect(config.chain("librarian")).toEqual(["acme/docs#high", ...loadConfig({ env: {} }).chain("librarian")])
     })
 
     test("the env file wins over plugin options", () => {
