@@ -318,6 +318,20 @@ describe("ac_lane_send", () => {
         harness.cleanup()
     })
 
+    test("PAUSE steers into a working lane like STOP; RESUME waits for its turn to end", async () => {
+        const harness = await setup()
+        await start(harness)
+
+        await call(harness, "ac_lane_send", { session_id: LANE, message: "PAUSE" })
+        await call(harness, "ac_lane_send", { session_id: LANE, message: "RESUME" })
+
+        expect(harness.fake.calls.prompt.slice(1)).toEqual([
+            { sessionID: LANE, text: "PAUSE", delivery: "steer" },
+            { sessionID: LANE, text: "RESUME", delivery: "queue" },
+        ])
+        harness.cleanup()
+    })
+
     test("a resume message waits for the lane's turn to end; STOP steers into it", async () => {
         const harness = await setup()
         await start(harness)
@@ -363,6 +377,18 @@ describe("coordinate stop guard", () => {
         writeFileSync(join(repo, ".ac/coord/ship-auth/verdict.md"), "status: passed\n")
         ended(harness, COORDINATOR)
         await settle()
+        expect(harness.fake.calls.synthetic).toHaveLength(0)
+        harness.cleanup()
+    })
+
+    test("stays quiet while the owner has paused the run", async () => {
+        writeMarker({ phase: "paused" })
+        writeState([{ id: "b1", status: "paused" }])
+        const harness = await setup()
+
+        ended(harness, COORDINATOR)
+        await settle()
+
         expect(harness.fake.calls.synthetic).toHaveLength(0)
         harness.cleanup()
     })

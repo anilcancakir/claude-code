@@ -203,11 +203,15 @@ export default Plugin.define({
         ]
 
         // 3. A lane park also shows as a toast; when the lane's session is not open, the toast offers to open it.
-        const stop = context.data.on("session.synthetic", (event) => {
-            const relay = relayOf({ type: "synthetic", metadata: event.data.metadata, text: event.data.text })
+        //    A relay is a synthetic inbox item, published as `session.inbox.enqueued` (core/src/session/inbox.ts:186).
+        const stop = context.data.on("session.inbox.enqueued", (event) => {
+            const item = event.data.item
+            if (item.type !== "synthetic") return
+            const metadata = item.payload.metadata
+            const relay = relayOf({ type: "synthetic", metadata, text: item.payload.text })
             if (!relay) return
             source.refresh()
-            const bundle = typeof event.data.metadata?.bundle === "string" ? event.data.metadata.bundle : "lane"
+            const bundle = typeof metadata?.bundle === "string" ? metadata.bundle : "lane"
             context.ui.toast.show({
                 title: `Lane ${bundle}`,
                 message: relay.state === "failed" ? "session failed" : (relay.status ?? "parked"),

@@ -11,7 +11,7 @@ Every turn of a lane ends with one status block as the last thing it writes. The
 
 | Key | Type | Meaning |
 |---|---|---|
-| `status` | enum | Where the lane stands. Values below. |
+| `status` | enum | Where the lane stands: `WORKING`, `PLANNED`, `DECISIONS`, `BLOCKED`, `PAUSED`, `DONE` or `FAILED`. |
 | `bundle` | string | The bundle id from the coordinator's `state.json`. |
 | `phase` | enum | `bootstrap`, `plan`, `execute` or `rebase`: the phase the turn worked in. |
 | `plan` | path or `none` | Absolute path to the bundle's `plan.md` inside the lane worktree. |
@@ -31,6 +31,7 @@ Every turn of a lane ends with one status block as the last thing it writes. The
 - `DECISIONS`: the plan needs owner answers first. `decisions` carries the questions; the lane waits for `ANSWERS`.
 - `BLOCKED`: the lane cannot continue without the owner or the coordinator. `blocker` names why; the lane waits for `RESOLVE`.
 - `DONE`: the phase's work is finished and verified. After `execute` it means every step is checked and the lane branch holds the commits; after `rebase` it means the branch sits on the new base.
+- `PAUSED`: the owner paused the run. The lane started nothing after the `PAUSE` arrived, let what was already running report and recorded it (a verified step ticked, a finished wave committed), and waits for `RESUME`. The plugin relays this block like any other park.
 - `FAILED`: the lane cannot finish and has no option to offer. The coordinator decides whether to re-dispatch (`attempts` in `state.json`) or drop.
 
 ### Decision entries
@@ -161,13 +162,15 @@ next: none
 
 ## Resume messages
 
-The coordinator resumes a lane with `ac_lane_send({session_id, message})`, addressing it by the session id `ac_lane_start` returned. The first token of the message is fixed and selects the behaviour; anything after it is the argument. The lane reads only the first token to dispatch, so a message never opens with prose. The plugin refuses a first token outside this list. A message waits for the lane's current turn to end (a next-turn prompt); only `STOP` steers into a turn in progress.
+The coordinator resumes a lane with `ac_lane_send({session_id, message})`, addressing it by the session id `ac_lane_start` returned. The first token of the message is fixed and selects the behaviour; anything after it is the argument. The lane reads only the first token to dispatch, so a message never opens with prose. The plugin refuses a first token outside this list. A message waits for the lane's current turn to end (a next-turn prompt); only `STOP` and `PAUSE` steer into a turn in progress.
 
 - `ANSWERS`: the owner's answers to a DECISIONS block. One `<id>=<label>` per line, using the ids and option labels from the block. The lane folds each answer into `plan.md` and ends with PLANNED, or DECISIONS again if the answers raised new questions.
 - `EXECUTE`: run the plan. The lane loads the `execute` skill on its plan with `--lane --max-parallel <N>` (`--lane` implies auto mode, no QA pass and no push), working inside its worktree, and ends with DONE, BLOCKED or FAILED.
 - `REBASE onto=<sha>`: move the lane branch onto the new integration head, then re-verify the touched scope. The lane ends with DONE (new `base` and `head`) or BLOCKED with class `rebase`. When lines follow the token, they describe a gate that failed on the integration branch after this lane's merge (the command, its exit code, an output tail): the lane rebases, fixes that failure inside its own scope, commits, reruns the command, and only then ends with DONE.
 - `RESOLVE <label>`: the owner's or coordinator's choice for a BLOCKED block, one of its option labels. The lane applies it and continues the interrupted phase.
 - `REVISE`: change the plan before execution. The lines after the token carry the reason (a `plan-check` failure, or a quoted roadmap goal line the plan contradicts). The lane revises `plan.md` through its Stage 5.5 review and `plan-check`, then ends with PLANNED, or DECISIONS when the revision raises an owner question. It does not count as a new attempt.
+- `PAUSE`: hold the work. The plugin delivers it mid-turn, as it does `STOP`. The lane starts no new step, worker or research agent from then on. Opencode has no tool that kills a running subagent, so the lane waits for the ones already running (their completion wakes it), verifies and records what they finished exactly as its skill would (Layer A to D for a step, the wave commit when a whole wave verified), leaves every unfinished step unchecked, and ends with PAUSED. A lane that is parked (PLANNED, DECISIONS, BLOCKED, DONE) when the message arrives ends with PAUSED at once and keeps the block's pending content in mind for the resume.
+- `RESUME`: continue a paused lane from its recorded state: the plan's unchecked steps under `execute`, the checkpoint under `plan`, or the block it was parked on before the pause (answer it again with that status). The lane re-reads `plan.md` and its skill state rather than its memory, since a pause can span a compaction.
 - `STOP`: end the work. The lane starts no further subagent, makes no further commit, and ends with a final FAILED block whose `next` is `none`, so the coordinator never waits on a lane it stopped. Opencode has no tool that kills a running subagent, so a worker already running finishes on its own; the lane does not wait for it and does not integrate what it leaves.
 
 Examples:

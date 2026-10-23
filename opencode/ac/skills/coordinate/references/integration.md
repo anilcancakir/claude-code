@@ -38,8 +38,9 @@ merge moves `<head>` and the next bundle has to be checked against the new one.
    baseline, not counted against this bundle. Capture the exit code of the gate itself: a gate piped into `tail`
    reports `tail`'s, and the agent shell is zsh, where `${PIPESTATUS[0]}` is empty. Run it as
    `set -o pipefail; <criterion> 2>&1 | tail -20`, or redirect to a log and `echo "exit=$?"` before reading the tail.
-   A long gate (a full suite, `bin/check`) runs as a background shell with the turn ended; its completion wakes you,
-   and the plugin's stop guard counts it as running work.
+   A long gate (a full suite, `bin/check`) runs as a background shell with the turn ended; its completion wakes you.
+   The plugin's stop guard counts it as running work when its command names a test, build, check or lint run or
+   runs under `timeout N`; for a gate that names none of these (`make`, `npm run qa`), wrap it in `timeout <seconds>`.
 
 5. **On a gate failure, the lane fixes it.** Never patch `<wt>` yourself: the fix then has no plan, no review and
    no lane that owns it. First put the integration branch back with `git -C <wt> reset --keep <head>` (`<head>` has

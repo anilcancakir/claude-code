@@ -117,7 +117,8 @@ worktree), the gate commands, `plan-check`, the digest, the archive copy and the
 - Integrate by the procedure in `references/integration.md`, one bundle at a time, in dependency order. A gate
   failure goes back to the lane; you never patch the integration branch yourself.
 - A verdict reporting gaps is a complete ending. Write it as returned.
-- An owner asking to stop or take back control outranks every rule here: take the Abort branch.
+- An owner asking to pause ("duraklat", "pause", "dur biraz") takes 6h, which keeps every lane's work and resumes;
+  an owner asking to stop for good or take back control outranks every rule here: take the Abort branch.
 </constraints>
 
 <bootstrap>
@@ -141,10 +142,13 @@ Call `ac_session` first; it returns `session_id` and `root_session_id` as JSON. 
   none, beside a `.ac/coord/<slug>/` with no `verdict.md`): adopt it. Write a fresh marker with `"harness":
   "opencode"`, this session's ids, a new `started_at` from `date -u` (the old one would expire the 72 h bound mid-run),
   the phase `state.json` implies and a `note` naming the adoption, and log one `adopted` event. Its lanes ran as
-  Claude Code subagents in `.claude/worktrees/agent-*` and cannot be resumed. A bundle whose lane reported DONE with
-  every step checked and its work committed is integrated by `references/integration.md` as usual, and when its
-  rebase conflicts only in lines both sides added side by side (two rows in one table, two keys in one list) you may
-  keep both and log `lane_finished_by_coordinator`. Every other such bundle (unchecked steps, a plan only, an
+  Claude Code subagents in `.claude/worktrees/agent-*` and cannot be resumed, so no `REBASE` or fix request can
+  reach them. A bundle whose lane reported DONE with every step checked and its work committed is integrated by
+  `references/integration.md` with one change: you run its rebase yourself (`git -C <lane wt> rebase
+  <integration_head>`), and when that rebase conflicts only in lines both sides added side by side (two rows in one
+  table, two keys in one list) you keep both, which is the one named exception to never editing a lane's files; log
+  `lane_finished_by_coordinator`. Any other conflict, or a gate that fails after the merge, archives the bundle and
+  re-dispatches it as below. Every other such bundle (unchecked steps, a plan only, an
   unresolvable conflict) is archived as `bundles/<id>-attempt<N>/`, its worktree removed without `--force` (commit any
   uncommitted work on its branch first, so nothing is lost), and re-dispatched with `ac_lane_start`; name the archived
   plan in the brief's goal so the new lane can reuse it. Never run a lane's remaining steps or its review yourself:
@@ -274,7 +278,7 @@ integration and every pending bundle out of dispatch until the owner returns.
 Parse the lane's last `LANE STATUS` block out of the text inside the `<lane>` message. A message with
 `state="failed"` carries the lane session's error instead of a block: record it as FAILED with that error. Append
 the block to `events.jsonl`, then rewrite the bundle's entry in `state.json`: `status` from the block (`DECISIONS`
-and `BLOCKED` also join `owner_queue`), `head`, `plan_slug` (the bundle id). `worktree` and `branch` were recorded
+and `BLOCKED` also join `owner_queue`; `PAUSED` records `paused`), `head`, `plan_slug` (the bundle id). `worktree` and `branch` were recorded
 at dispatch from the `ac_lane_start` result, and the block's `plan` path confirms the worktree. A `DONE` whose
 `phase` is `rebase` moves only `base` and `head`: the bundle returns to the status it held when
 the `REBASE` went out (`planned` stays `planned` and still goes through 6c for its `EXECUTE`; `done` stays `done`),
@@ -365,6 +369,21 @@ you, so keep them current.
 
 Every bundle closed: Phase 7. A question pending: the `question` was the turn end. Otherwise a one-line wait
 status naming the lanes still live, after the status lines.
+
+### 6h. Pause and resume
+
+**Pause**, when the owner asks for it. Refresh the marker to `phase: "paused"` with a `note` naming the phase to
+return to, and record each live bundle's current status as `paused_from` in `state.json`. Dispatch nothing and send
+no `EXECUTE`. `ac_lane_send` `PAUSE` to every bundle in `planning`, `executing`, `decisions`, `planned` or `blocked`:
+the plugin delivers it mid-turn, and each lane lets its running work report, records it, and parks with `PAUSED`. A
+`DONE` bundle needs no message; integrating it is not new work, so finish an integration already under way and do not
+start one. End the turn with a wait status naming the lanes not yet paused; each `PAUSED` arrives as a lane message
+(6a). Once every live bundle is `paused` or closed, tell the owner in one line that the run is paused and that "devam
+et" resumes it, and end the turn. The plugin's stop guard stays quiet while the marker says `paused`.
+
+**Resume**, when the owner says so. Set the marker back to the phase in its `note`, send `RESUME` to every `paused`
+bundle and set each back to its `paused_from`, then continue the lane loop from 6a: each lane picks up from its plan's
+recorded state and parks again with its next block.
 
 ## Phase 7: Gate
 

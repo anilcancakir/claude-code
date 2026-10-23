@@ -72,7 +72,9 @@ export const COORDINATE_MARKER_PATH = ".ac/state/active-coordinate.json"
 
 const NAME = /^[a-z0-9][a-z0-9-]{0,47}$/
 const SHA = /^[0-9a-f]{7,40}$/
-const RESUME_TOKEN = /^(ANSWERS|EXECUTE|REBASE|RESOLVE|REVISE|STOP)\b/
+const RESUME_TOKEN = /^(ANSWERS|EXECUTE|REBASE|RESOLVE|REVISE|PAUSE|RESUME|STOP)\b/
+/** Messages that must reach a lane mid-turn; every other one waits for the turn to end. */
+const STEERING_TOKEN = /^(STOP|PAUSE)\b/
 const LANE_STATUS = /^LANE STATUS\s*\n(?:.*\n)*?status:\s*([A-Z]+)/gm
 const LANE_AGENT = "ac/lane"
 
@@ -287,7 +289,7 @@ function coordinateNudge(marker: CoordinateMarker, bundles: StateBundle[]): stri
  * been evicted for idling (location-activity.ts:29); `ctx.session.synthetic` reaches a session in any location.
  * Exactly one instance sits at that location, so a lane is relayed once whether or not an instance also sees
  * other locations' events. A message to a lane is a next-turn prompt (`delivery: "queue"`), so it never steers into
- * a turn in progress; only STOP steers. The lane cap is the skill's to keep, from state.json; the stop guard reads
+ * a turn in progress; only STOP and PAUSE steer. The lane cap is the skill's to keep, from state.json; the stop guard reads
  * the same file.
  */
 export async function registerCoordinate(
@@ -422,8 +424,8 @@ export async function registerCoordinate(
             name: "ac_lane_send",
             description: [
                 "Resumes an ac coordinate lane with one protocol message whose first token is ANSWERS, EXECUTE,",
-                "REBASE, RESOLVE, REVISE or STOP. The message waits for the lane's current turn to end; STOP steers",
-                "into a turn in progress. The lane's next park arrives as a <lane ...> message.",
+                "REBASE, RESOLVE, REVISE, PAUSE, RESUME or STOP. The message waits for the lane's current turn to end;",
+                "STOP and PAUSE steer into a turn in progress. The lane's next park arrives as a <lane ...> message.",
             ].join(" "),
             input: {
                 type: "object",
@@ -440,7 +442,9 @@ export async function registerCoordinate(
             execute: async (input: unknown, context) => {
                 const { session_id, message } = input as Record<string, string>
                 if (!RESUME_TOKEN.test(message ?? "")) {
-                    throw new Error("message must start with ANSWERS, EXECUTE, REBASE, RESOLVE, REVISE or STOP")
+                    throw new Error(
+                        "message must start with ANSWERS, EXECUTE, REBASE, RESOLVE, REVISE, PAUSE, RESUME or STOP",
+                    )
                 }
                 const lane = await laneOf(session_id as string)
                 const coordinator = await rootSessionOf(ctx, context.sessionID)
@@ -448,7 +452,7 @@ export async function registerCoordinate(
                     throw new Error(`Session ${session_id} is not a lane this session started`)
                 }
 
-                const delivery = message?.startsWith("STOP") ? "steer" : "queue"
+                const delivery = STEERING_TOKEN.test(message ?? "") ? "steer" : "queue"
                 await ctx.session.prompt({ sessionID: lane.id, text: message as string, delivery })
                 return { content: JSON.stringify({ delivered: delivery }) }
             },
@@ -486,6 +490,8 @@ export async function registerCoordinate(
     const onCoordinatorStopped = async (sessionID: string): Promise<void> => {
         const marker = ownedMarker(sessionID)
         if (!marker || existsSync(join(directory, ".ac/coord", marker.slug, "verdict.md"))) return
+        // An owner pause is a deliberate stop: the run waits for "devam et", not for a nudge.
+        if (marker.phase === "paused") return
         const bundles = stateBundles(directory, marker.slug)
         if (bundles.some((bundle) => WORKING_BUNDLE.has(bundle.status ?? ""))) return
         if ([...running.values()].includes(sessionID)) return

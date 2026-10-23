@@ -78,6 +78,18 @@ function backgroundShell(sessionID: string, shellID: string, command: string) {
     } as const
 }
 
+/** A shell completion as the host publishes it: an inbox item, never a `session.synthetic` event. */
+function shellDone(sessionID: string, shellID: string) {
+    return {
+        type: "session.inbox.enqueued",
+        data: {
+            sessionID,
+            inboxID: `msg_${shellID}`,
+            item: { type: "synthetic", payload: { text: "<shell>", metadata: { source: "shell", shellID } } },
+        },
+    }
+}
+
 async function settle(): Promise<void> {
     for (let i = 0; i < 5; i++) await new Promise((resolve) => setTimeout(resolve, 0))
 }
@@ -92,10 +104,7 @@ describe("registerBackgroundShells", () => {
         expect(shells.pending("ses_1")).toBe(1)
         expect(shells.pending("ses_2")).toBe(0)
 
-        fake.pushEvent({
-            type: "session.synthetic",
-            data: { sessionID: "ses_1", text: "<shell>", metadata: { source: "shell", shellID: "sh_1" } },
-        })
+        fake.pushEvent(shellDone("ses_1", "sh_1"))
         await settle()
 
         expect(shells.pending("ses_1")).toBe(0)
@@ -113,6 +122,33 @@ describe("registerBackgroundShells", () => {
         await fake.fire.tool("execute.after", { tool: "shell", sessionID: "ses_1", status: "error", input: {} })
 
         expect(shells.pending("ses_1")).toBe(0)
+        shells.stop()
+    })
+
+    test("a shell that reports before its start is seen is not left pending", async () => {
+        const fake = createFakeCtx()
+        const shells = await registerBackgroundShells(fake.ctx)
+
+        fake.pushEvent(shellDone("ses_1", "sh_fast"))
+        await settle()
+        await fake.fire.tool("execute.after", backgroundShell("ses_1", "sh_fast", "bun test"))
+
+        expect(shells.pending("ses_1")).toBe(0)
+        shells.stop()
+    })
+
+    test("a session.synthetic event is not mistaken for a shell completion", async () => {
+        const fake = createFakeCtx()
+        const shells = await registerBackgroundShells(fake.ctx)
+        await fake.fire.tool("execute.after", backgroundShell("ses_1", "sh_1", "bin/check"))
+
+        fake.pushEvent({
+            type: "session.synthetic",
+            data: { sessionID: "ses_1", text: "<shell>", metadata: { source: "shell", shellID: "sh_1" } },
+        })
+        await settle()
+
+        expect(shells.pending("ses_1")).toBe(1)
         shells.stop()
     })
 })

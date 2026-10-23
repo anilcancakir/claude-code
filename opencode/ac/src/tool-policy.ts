@@ -24,7 +24,8 @@ const DEFAULT_EXPLORE_MAX_CALLS = 60
 // CC's BASH_DEFAULT_TIMEOUT_MS; opencode's own shell default is 120000.
 const DEFAULT_SHELL_TIMEOUT_MS = 180_000
 
-const EXPLORE_ONLY = /^(\S*\/)?(php\s+)?artisan\s+test(?=\s|$)/
+// Explore keeps CC's narrower artisan list (pretooluse-explore-budget.sh:126): no test run, no database reads.
+const EXPLORE_ONLY = /^(\S*\/)?(php\s+)?artisan\s+(?!(list|about|route:list|--version|help)(?=\s|$))\S/
 
 /** Artisan subcommands that change nothing and print no secret; `config:show` prints APP_KEY, so it is not here. */
 const READ_ONLY_ARTISAN: readonly string[] = [
@@ -273,9 +274,12 @@ function writes(raw: string, judged: string): boolean {
  */
 function shellDenial(agent: string, command: string): string | undefined {
     if (agent === EXPLORE_AGENT && readsSecret(command)) return SECRET_REASON
-    // Explore keeps the CC rule that an artisan test run is no search (pretooluse-explore-budget.sh:126).
-    const segments = blankQuotes(command).split(/[;|&\n]/)
-    if (agent === EXPLORE_AGENT && segments.some((part) => EXPLORE_ONLY.test(part.trimStart()))) {
+    // Explore keeps the CC rule that an artisan test run is no search (pretooluse-explore-budget.sh:126). Leading
+    // `VAR=value` assignments are skipped as in writes(), so `APP_ENV=testing php artisan test` is judged too.
+    const segments = blankQuotes(command)
+        .split(/[;|&\n]/)
+        .map((part) => part.trimStart().replace(/^([A-Za-z_][A-Za-z0-9_]*=\S* )*/, ""))
+    if (agent === EXPLORE_AGENT && segments.some((part) => EXPLORE_ONLY.test(part))) {
         return writeReason(agent)
     }
 

@@ -2,9 +2,10 @@ import type { Plugin } from "@opencode/plugin"
 
 /**
  * Background shells that will wake a session, for the stop guards. A background `shell` call returns at once with
- * `metadata.status: "running"` and a `shellID` (core/src/tool/plugin/shell.ts:84-93); its completion arrives as a
- * synthetic message with `metadata.source: "shell"` and the same `shellID` (core/src/shell/result.ts:46-61), which
- * starts the session's next turn. Ending a turn while one runs is how a session waits for it.
+ * `metadata.status: "running"` and a `shellID` (core/src/tool/plugin/shell.ts:84-93); its completion is admitted to
+ * the session inbox as a synthetic item with `metadata.source: "shell"` and the same `shellID`
+ * (core/src/shell/result.ts:46-61), published as `session.inbox.enqueued` (core/src/session/inbox.ts:186; a
+ * `session.synthetic` event is never sent for it), and that starts the session's next turn. Ending a turn while one runs is how a session waits for it.
  *
  * Only a shell the strict rules of plugins/ac/hooks/lib/wake-count.jq call finite counts: a test, build, lint or
  * install run, or a command bounded by `timeout N`. A dev server or a log follow never ends, and counting one would
@@ -92,13 +93,20 @@ export interface BackgroundShells {
 }
 
 /** Tracks every session's waking background shells from the shell tool's results and completion messages. */
+/** How long a completion is remembered, for a shell that ends before its tool result reaches the hook. */
+const COMPLETED_MEMORY_MS = 10 * 60_000
+
 export async function registerBackgroundShells(ctx: Plugin.Context): Promise<BackgroundShells & { stop(): void }> {
     const shells = new Map<string, Pending>()
+    // The completion watcher is forked before the tool returns (core/src/tool/plugin/shell.ts), so a command that
+    // exits at once can report before its start is seen here.
+    const completed = new Map<string, number>()
 
     await ctx.tool.hook("execute.after", (event) => {
         if (event.tool !== "shell" || event.status !== "completed") return
         const metadata = (event.result as { metadata?: { status?: unknown; shellID?: unknown } }).metadata
         if (metadata?.status !== "running" || typeof metadata.shellID !== "string") return
+        if (completed.has(metadata.shellID)) return
         const command = (event.input as { command?: unknown } | undefined)?.command
         if (typeof command !== "string" || !wakes(command)) return
         shells.set(metadata.shellID, { sessionID: event.sessionID, startedAt: Date.now() })
@@ -107,9 +115,13 @@ export async function registerBackgroundShells(ctx: Plugin.Context): Promise<Bac
     const controller = new AbortController()
     const follow = async (): Promise<void> => {
         for await (const event of ctx.event.subscribe({ signal: controller.signal })) {
-            if (event.type !== "session.synthetic") continue
-            const metadata = event.data.metadata as { source?: unknown; shellID?: unknown } | undefined
-            if (metadata?.source === "shell" && typeof metadata.shellID === "string") shells.delete(metadata.shellID)
+            if (event.type !== "session.inbox.enqueued" || event.data.item.type !== "synthetic") continue
+            const metadata = event.data.item.payload.metadata as { source?: unknown; shellID?: unknown } | undefined
+            if (metadata?.source !== "shell" || typeof metadata.shellID !== "string") continue
+            shells.delete(metadata.shellID)
+            const now = Date.now()
+            completed.set(metadata.shellID, now)
+            for (const [id, at] of completed) if (now - at > COMPLETED_MEMORY_MS) completed.delete(id)
         }
     }
     follow().catch((error: unknown) => console.error("ac background shells: event stream ended", error))

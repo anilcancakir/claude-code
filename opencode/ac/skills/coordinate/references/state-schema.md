@@ -24,7 +24,7 @@ Path: `.ac/state/active-coordinate.json`. Written once when a run starts, refres
 - `session_id`: `root_session_id` exactly as the `ac_session` tool returned it, never derived or recalled, written once. The plugin's coordinate stop guard acts only in the session whose root matches it, so a marker left by another session cannot nudge an unrelated one.
 - `harness`: exactly `"opencode"`. A marker without it was written by Claude Code and the plugin leaves it alone.
 - `started_at`: written once and never refreshed. It is the age bound for treating a stale marker as abandoned. Take it from `date -u +%Y-%m-%dT%H:%M:%SZ`, never from your own sense of the time.
-- `phase`: one of `roadmap` (drafting and review, up to the `Roadmap?` approval), `dispatch` (lanes planning and executing), `integrate` (merging done bundles into the integration branch), `gating` (the verifier runs and the owner is asked about the push).
+- `phase`: one of `roadmap` (drafting and review, up to the `Roadmap?` approval), `dispatch` (lanes planning and executing), `integrate` (merging done bundles into the integration branch), `gating` (the verifier runs and the owner is asked about the push), `paused` (the owner paused the run; the `note` names the phase to return to).
 - `note`: a one-line resume hint in plain prose, refreshed with the phase, read back after a compaction or a restart.
 
 Removed on every terminal branch: a verdict written, an owner abort, or an error that ends the run. A marker that outlives its run makes the stop guard read the run as unfinished and send continuations into it.
@@ -111,6 +111,7 @@ Per bundle:
 - `done`: the lane ended with DONE; the branch is ready to integrate.
 - `merged`: the branch is in the integration branch and archived. Closed.
 - `dropped`: the owner or coordinator removed the bundle. Closed.
+- `paused`: the lane ended with PAUSED after the owner paused the run; `paused_from` holds the status it resumes to.
 - `failed`: the lane ended with FAILED (or its relay carried `state="failed"`) and the coordinator has not yet re-dispatched or dropped it.
 
 A closed status (`merged`, `dropped`) never changes again.

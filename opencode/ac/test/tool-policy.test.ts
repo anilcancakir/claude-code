@@ -238,7 +238,9 @@ describe("read-only reviewer shell guard", () => {
     test("ac/explore keeps the CC rule: an artisan test run is no search", async () => {
         const fake = await setup({})
 
-        expect((await shell(fake, "ac/explore", "php artisan test")).effect).toBe("deny")
+        for (const command of ["php artisan test", "APP_ENV=testing php artisan test --filter X", "php artisan db:show"]) {
+            expect((await shell(fake, "ac/explore", command)).effect).toBe("deny")
+        }
         expect((await shell(fake, "ac/explore", "php artisan route:list")).effect).toBe("allow")
     })
 
