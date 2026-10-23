@@ -8,9 +8,10 @@
     //
     // Each chain leads with the model and effort the Claude Code ac plugin gives that agent (Opus 5.5 for the
     // Opus-shaped tiers, Sonnet 5.5 at high for the Sonnet-shaped ones, Haiku 5.5 at medium for quick and explore),
-    // followed by the first two entries of the default codefast chain. Anthropic is its own rate-limit group, so a
-    // Claude 429 moves straight to codefast. The variants come from the models.dev catalogue of the built-in
-    // `anthropic` provider (low, medium, high, xhigh, max), so templates/opencode.jsonc declares no provider for it.
+    // followed by the first two entries of the default codefast chain. A Claude 429 is retried on the
+    // rateLimitBackoff schedule, then the chain moves to codefast. The variants come from the models.dev catalogue of
+    // the built-in `anthropic` provider (low, medium, high, xhigh, max), so templates/opencode.jsonc declares no
+    // provider for it.
     "title": "anthropic/claude-haiku-5-5#low",
     // Claude's rate limit is per account and separate from codefast's shared 25 RPM, so three coordinate lanes fit.
     "maxLanes": 3,

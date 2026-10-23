@@ -44,6 +44,12 @@ const CLAUDE_RUNG: Record<string, ModelRef> = {
     "auto-verifier": `${OPUS}#high`,
 }
 
+/** The review gates that lead with Opus and fall back to codefast. */
+const REVIEW_GATES = [
+    "oracle",
+    "plan-reviewer",
+]
+
 const PRESET_PATH = fileURLToPath(new URL("../config/presets/claude.jsonc", import.meta.url))
 
 interface Preset {
@@ -64,19 +70,23 @@ afterEach(() => {
 })
 
 describe("loadConfig defaults", () => {
-    test("oracle leads with Kimi K3 at max, a different family from the GLM-5.3 main session", () => {
+    test("the two review gates lead with Opus on the Claude API, then Kimi K3, a family other than GLM-5.3", () => {
         const config = loadConfig({ env: {} })
 
-        expect(config.chain("oracle")[0]).toBe("codefast-kimi/kimi-k3#max")
+        for (const tier of REVIEW_GATES) {
+            expect(config.chain(tier)[0]).toBe(CLAUDE_RUNG[tier] as string)
+            expect(config.chain(tier)[1]).toStartWith("codefast-kimi/kimi-k3#")
+        }
     })
 
-    test("every chain runs the four codefast families, then one Claude rung outside the codefast group", () => {
+    test("every other chain runs the four codefast families, then one Claude rung outside the codefast group", () => {
         const config = loadConfig({ env: {} })
 
         for (const tier of TIERS) {
             const chain = config.chain(tier)
-            for (const ref of chain.slice(0, -1)) expect(ref).toMatch(CODEFAST)
-            expect(chain.at(-1)).toBe(CLAUDE_RUNG[tier] as string)
+            const codefast = REVIEW_GATES.includes(tier) ? chain.slice(1) : chain.slice(0, -1)
+            for (const ref of codefast) expect(ref).toMatch(CODEFAST)
+            expect(chain).toContain(CLAUDE_RUNG[tier] as string)
         }
         expect(Object.values(config.groups).flat()).not.toContain("anthropic")
     })
@@ -110,8 +120,8 @@ describe("loadConfig defaults", () => {
 
         expect(Object.fromEntries(TIERS.map((tier) => [tier, config.chain(tier)[0]]))).toEqual({
             main: "codefast-glm/glm-5.3#high",
-            oracle: "codefast-kimi/kimi-k3#max",
-            "plan-reviewer": "codefast-kimi/kimi-k3#high",
+            oracle: "anthropic/claude-opus-5-5#high",
+            "plan-reviewer": "anthropic/claude-opus-5-5#medium",
             "plan-code-review": "codefast-glm/glm-5.3#max",
             "plan-worker-senior": "codefast-glm/glm-5.3#max",
             "plan-worker-junior-high": "codefast-deepseek/deepseek-v4.1-flash-1017#high",
@@ -137,10 +147,25 @@ describe("loadConfig defaults", () => {
         expect(config.retryOn).toEqual([429, 500, 502, 503, 504])
     })
 
-    test("rate limit policy: codefast endpoints share one group and 429 waits seven attempts", () => {
+    test("rate limit policy: codefast endpoints share one group and a 429 is retried 30 times on the schedule", () => {
         const config = loadConfig({ env: {} })
 
-        expect(config.rateLimitAttempts).toBe(7)
+        expect(config.rateLimitRetries).toBe(30)
+        expect([1, 3, 4, 5, 6, 10, 11, 15, 16, 20, 21, 30].map((retry) => config.rateLimitDelayMs(retry))).toEqual([
+            1_000,
+            1_000,
+            2_000,
+            2_000,
+            3_000,
+            3_000,
+            5_000,
+            5_000,
+            10_000,
+            10_000,
+            15_000,
+            15_000,
+        ])
+        expect(config.rateLimitDelayMs(31)).toBe(15_000)
         expect(config.groups).toEqual({
             codefast: [
                 "codefast-glm",
@@ -200,7 +225,10 @@ describe("claude preset", () => {
         const { tiers } = claudePreset()
         const defaults = loadConfig({ env: {} })
 
-        for (const tier of TIERS) expect(tiers[tier]?.slice(1)).toEqual(defaults.chain(tier).slice(0, 2))
+        for (const tier of TIERS) {
+            const codefast = defaults.chain(tier).filter((ref) => !ref.startsWith("anthropic/"))
+            expect(tiers[tier]?.slice(1)).toEqual(codefast.slice(0, 2))
+        }
     })
 
     test("loads as plugin options and replaces every default chain", () => {
@@ -291,15 +319,27 @@ describe("loadConfig overrides", () => {
         expect(config.cooldownSeconds).toBe(30)
     })
 
-    test("groups and rateLimitAttempts merge like the other scalar fields", () => {
+    test("groups and rateLimitBackoff replace the defaults like the other scalar fields", () => {
         const config = loadConfig({
             env: {},
-            options: { models: { groups: { acme: ["acme-a", "acme-b"] }, rateLimitAttempts: 4 } },
+            options: {
+                models: {
+                    groups: { acme: ["acme-a", "acme-b"] },
+                    rateLimitBackoff: [{ through: 4, seconds: 2 }],
+                },
+            },
         })
 
         expect(config.groups).toEqual({ acme: ["acme-a", "acme-b"] })
-        expect(config.rateLimitAttempts).toBe(4)
+        expect(config.rateLimitRetries).toBe(4)
+        expect(config.rateLimitDelayMs(1)).toBe(2_000)
         expect(config.retryAttempts).toBe(3)
+    })
+
+    test("a rateLimitBackoff that is empty or out of order is rejected", () => {
+        for (const rateLimitBackoff of [[], [{ through: 5, seconds: 1 }, { through: 5, seconds: 2 }]]) {
+            expect(() => loadConfig({ env: {}, options: { models: { rateLimitBackoff } } })).toThrow(/rateLimitBackoff/)
+        }
     })
 
     test("maxParallel defaults to 3, the worker cap under one shared 25 RPM group, and is overridable", () => {

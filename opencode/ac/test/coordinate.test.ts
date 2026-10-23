@@ -4,6 +4,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import type { ToolContext } from "@opencode/plugin/promise/tool"
 import { loadConfig } from "../src/config.ts"
+import type { RateLimitResume } from "../src/fallback.ts"
 import {
     COORDINATE_MARKER_PATH,
     laneStatus,
@@ -51,6 +52,8 @@ interface SetupOptions {
     shells?: { pending(sessionID: string): number }
     /** Arms the owner-question check with this timeout, checked every few milliseconds. */
     questionTimeoutMs?: number
+    /** The fallback's rate-limit answer for a failed session. */
+    rateLimit?: RateLimitResume
 }
 
 function block(status: string, bundle = "b1"): string {
@@ -98,6 +101,7 @@ async function setup(options: SetupOptions = {}): Promise<Harness> {
     const cleanup = await registerCoordinate(fake.ctx, loadConfig({ env: {} }), {
         directory: options.directory ?? repo,
         ...(options.shells ? { shells: options.shells } : {}),
+        ...(options.rateLimit ? { rateLimit: options.rateLimit } : {}),
         questionTimeoutMs: options.questionTimeoutMs ?? 0,
         questionCheckMs: 5,
         git: {
@@ -298,6 +302,65 @@ describe("lane relay", () => {
         await settle()
         expect(laneInstance.fake.calls.synthetic[0]?.text).toContain('state="failed"')
         expect(laneInstance.fake.calls.synthetic[0]?.text).toContain("boom")
+        coordinator.cleanup()
+        laneInstance.cleanup()
+    })
+})
+
+describe("a rate-limited lane", () => {
+    test("a failure the fallback continues is not relayed; one it leaves is", async () => {
+        const coordinator = await setup()
+        await start(coordinator)
+        const decided: string[] = []
+        const laneInstance = await setup({
+            directory: laneDirectory(),
+            rateLimit: {
+                resumes: async (eventID, _sessionID, error) => {
+                    decided.push(eventID)
+                    return error.status === 429
+                },
+                onLost: () => {},
+            },
+        })
+        Object.assign(laneInstance.sessions, coordinator.sessions)
+
+        laneInstance.fake.pushEvent({
+            type: "session.execution.failed",
+            id: "evt_429",
+            data: { sessionID: LANE, error: { message: "rate limited", status: 429 } },
+        })
+        await settle()
+        expect(laneInstance.fake.calls.synthetic).toHaveLength(0)
+
+        laneInstance.fake.pushEvent({
+            type: "session.execution.failed",
+            id: "evt_500",
+            data: { sessionID: LANE, error: { message: "boom", status: 500 } },
+        })
+        await settle()
+        expect(decided).toEqual(["evt_429", "evt_500"])
+        expect(laneInstance.fake.calls.synthetic[0]?.text).toContain('state="failed"')
+        coordinator.cleanup()
+        laneInstance.cleanup()
+    })
+})
+
+describe("a lost rate-limit continuation", () => {
+    test("a lane whose continue message was not delivered is relayed as failed", async () => {
+        const coordinator = await setup()
+        await start(coordinator)
+        let lost: ((sessionID: string) => void) | undefined
+        const laneInstance = await setup({
+            directory: laneDirectory(),
+            rateLimit: { resumes: async () => true, onLost: (listener) => void (lost = listener) },
+        })
+        Object.assign(laneInstance.sessions, coordinator.sessions)
+
+        lost?.(LANE)
+        await settle()
+
+        expect(laneInstance.fake.calls.synthetic[0]?.text).toContain('state="failed"')
+        expect(laneInstance.fake.calls.synthetic[0]?.text).toContain("could not be delivered")
         coordinator.cleanup()
         laneInstance.cleanup()
     })

@@ -2,6 +2,7 @@ import { existsSync, readFileSync, realpathSync } from "node:fs"
 import { basename, dirname, join, resolve, sep } from "node:path"
 import type { Plugin } from "@opencode/plugin"
 import { type ExecutionMarker, ownsMarker, readMarker, rootSessionOf } from "./marker.ts"
+import { log } from "./log.ts"
 import type { BackgroundShells } from "./wake.ts"
 
 export interface RunGuardsOptions {
@@ -198,7 +199,7 @@ export async function registerRunGuards(
         if (event.sessionID === marker.root_session_id) return
         // An unknown root leaves the default effect, as pretooluse-file-scope.sh fails open on any resolution doubt.
         const root = await rootOf(event.sessionID).catch((error: unknown) => {
-            console.error("ac run-guards: root session lookup failed, edit left unscoped", event.sessionID, error)
+            log("error", "ac run-guards: root session lookup failed, edit left unscoped", event.sessionID, error)
             return undefined
         })
         if (root === undefined || !ownsMarker(marker, root)) return
@@ -290,7 +291,7 @@ export async function registerRunGuards(
                 }
             } catch (error) {
                 // One failed lookup must not end the stream and silently disarm every guard for the session.
-                console.error("ac run-guards: event handling failed", event.type, error)
+                log("error", "ac run-guards: event handling failed", event.type, error)
             }
         }
     }

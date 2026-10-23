@@ -4,17 +4,18 @@
     // codefast-* are the unlimited codefast.app endpoints (one provider per endpoint, defined in
     // templates/opencode.jsonc with low/high/max reasoning variants). Four families only:
     // - GLM-5.3: main session and plan-worker-senior (agentic coder trained against a Claude Code shaped harness, ZCode).
-    // - Kimi K3: oracle and plan-reviewer, a different family from whoever produced the artifact
-    //   (planner GLM -> plan-reviewer Kimi; main GLM -> oracle Kimi); workers run DeepSeek, so plan-code-review is GLM.
+    // - Kimi K3: the first codefast rung of oracle and plan-reviewer (both lead with Opus, see below), a different
+    //   family from whoever produced the artifact; workers run DeepSeek, so plan-code-review is GLM.
     // - DeepSeek V4.1 Flash 1017: Sonnet- and Haiku-shaped workhorse (Artificial Analysis Intelligence Index 45 =
     //   GLM-5.3, Kimi K3 44, Qwen3.8 Flash 40; speed class 4/4 vs GLM 3/4, Qwen 2/4, Kimi 1/4; operator test 12/12).
     // - Qwen 3.8 Flash: last codefast fallback (the title model is set in templates/opencode.jsonc, not routed here).
-    // The codefast entries sit inside the one codefast rate-limit group, so they mainly cover model-specific errors
-    // (5xx, malformed output); a group-wide 429 waits (rateLimitAttempts). Every chain then ends with one Claude rung
-    // on the built-in `anthropic` provider (API key, catalogue variants), outside that group, so a codefast outage
-    // still has somewhere to go. The rung follows the Claude Code ac mapping: Opus 5.5 for the Opus-shaped tiers
-    // (main, oracle, plan-code-review at high; plan-reviewer, plan-worker-senior at medium), Sonnet 5.5 at high for
-    // the Sonnet-shaped ones, Haiku 5.5 at medium for plan-worker-quick and explore.
+    // The codefast entries sit inside the one codefast rate-limit group; a 429 is retried on one model through the
+    // whole rateLimitBackoff schedule before the chain moves to the next entry. Every other chain then ends with one
+    // Claude rung on the built-in `anthropic` provider (API key, catalogue variants), outside that group, so a codefast
+    // outage still has somewhere to go; oracle and plan-reviewer lead with it instead. The rung follows the Claude
+    // Code ac mapping: Opus 5.5 for the Opus-shaped tiers (main, oracle, plan-code-review at high; plan-reviewer,
+    // plan-worker-senior at medium), Sonnet 5.5 at high for the Sonnet-shaped ones, Haiku 5.5 at medium for
+    // plan-worker-quick and explore.
     // config/presets/claude.jsonc is the opposite routing, Claude first and codefast after it
     // (scripts/install.ts --preset claude).
     "tiers": {
@@ -24,17 +25,20 @@
             "codefast-kimi/kimi-k3#high",
             "anthropic/claude-opus-5-5#high"
         ],
+        // The two review gates lead with Opus on the Claude API, at the Claude Code ac efforts (oracle high,
+        // plan-reviewer medium): they decide whether a plan or a change goes ahead. When the Claude account is
+        // out of credit, over its spend limit or its key is refused, the fallback leaves it for the codefast rungs.
         "oracle": [
+            "anthropic/claude-opus-5-5#high",
             "codefast-kimi/kimi-k3#max",
             "codefast-deepseek/deepseek-v4.1-flash-1017#max",
-            "codefast-glm/glm-5.3#max",
-            "anthropic/claude-opus-5-5#high"
+            "codefast-glm/glm-5.3#max"
         ],
         "plan-reviewer": [
+            "anthropic/claude-opus-5-5#medium",
             "codefast-kimi/kimi-k3#high",
             "codefast-deepseek/deepseek-v4.1-flash-1017#max",
-            "codefast-glm/glm-5.3#max",
-            "anthropic/claude-opus-5-5#medium"
+            "codefast-glm/glm-5.3#max"
         ],
         "plan-code-review": [
             "codefast-glm/glm-5.3#max",
@@ -105,12 +109,22 @@
     // Non-429 retryable statuses switch model at this attempt, counted per model: the host retry carries on
     // after a switch, on the new model.
     "retryAttempts": 3,
-    // A 429 is an RPM limit that clears within seconds, so the host keeps retrying (it honours retry-after)
-    // until this attempt before the fallback acts. The host gives a step 10 retries across all its models, so this
-    // stays low enough to leave the later rungs a few of them; from attempt 10 any failure switches.
-    "rateLimitAttempts": 7,
-    // Providers behind one shared rate limit. A failed 429 cools the whole group down, so the fallback skips
-    // to an entry outside it. A provider not listed here is its own group. All four codefast endpoints
+    // A 429 is an RPM limit that clears on its own, so a rate-limited model is retried on this schedule before the
+    // chain moves on, in chain order, and the next entry starts the schedule again: every retry up to `through`
+    // waits `seconds`. 30 retries, about 4 minutes per model. The host stops a step after 10 retries; a main session
+    // or a lane then gets a continue message carrying the count on, and a failed subagent answers `wait:<seconds>`
+    // from ac_fallback_next until its model has spent the schedule.
+    "rateLimitBackoff": [
+        { "through": 3, "seconds": 1 },
+        { "through": 5, "seconds": 2 },
+        { "through": 10, "seconds": 3 },
+        { "through": 15, "seconds": 5 },
+        { "through": 20, "seconds": 10 },
+        { "through": 30, "seconds": 15 }
+    ],
+    // Providers behind one shared rate limit. A model that spent the 429 schedule cools its whole group down, which
+    // keeps a session from switching back onto it at once and caps the skills' parallel work; the chain itself
+    // moves on in order. A provider not listed here is its own group. All four codefast endpoints
     // share one group:unlimited limit (25 RPM). The GPT unlimited endpoint is listed as a group of its own so the
     // skills' shared-limit cap applies under the gpt-unlimited preset too: it allows 4 concurrent requests.
     "groups": {

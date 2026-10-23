@@ -6,7 +6,8 @@
     // codefast counts requests with a per-model multiplier: gpt-6-astra 3.75x, gpt-6-sol and gpt-6.1-sol 0.75x,
     // gpt-6-luna 0.03x. So the Opus-shaped review tiers that run rarely take astra, the main session, the senior worker and
     // the lane take 6.1-sol, the workhorse tiers take 6-sol, and quick, explore and titles take luna. Each chain falls
-    // back to a second GPT entry, then to the head of its default codefast chain (its own rate-limit group).
+    // back to a second GPT entry, then to the head of its default chain: codefast, or Opus for the oracle and the
+    // plan-reviewer.
     "title": "codefast-gpt/gpt-6-luna#low",
     "tiers": {
         "main": [
@@ -17,12 +18,12 @@
         "oracle": [
             "codefast-gpt/gpt-6-astra#high",
             "codefast-gpt/gpt-6.1-sol#xhigh",
-            "codefast-kimi/kimi-k3#max"
+            "anthropic/claude-opus-5-5#high"
         ],
         "plan-reviewer": [
             "codefast-gpt/gpt-6.1-sol#high",
             "codefast-gpt/gpt-6-astra#medium",
-            "codefast-kimi/kimi-k3#high"
+            "anthropic/claude-opus-5-5#medium"
         ],
         "plan-code-review": [
             "codefast-gpt/gpt-6-astra#high",

@@ -2,6 +2,7 @@ import type { Plugin } from "@opencode/plugin"
 import type { AgentEditor } from "@opencode/plugin/promise/agent"
 import type { ModelConfig, ModelRef } from "./config.ts"
 import { parseModelRef } from "./fallback.ts"
+import { log } from "./log.ts"
 
 const AC_AGENT_PREFIX = "ac/"
 
@@ -46,7 +47,7 @@ export async function registerAgentModels(ctx: Plugin.Context, config: ModelConf
             registration = await ctx.agent.transform(apply)
         }
     }
-    follow().catch((error: unknown) => console.error("ac agent models: could not register the model transform", error))
+    follow().catch((error: unknown) => log("error", "ac agent models: could not register the model transform", error))
 
     return () => controller.abort()
 }

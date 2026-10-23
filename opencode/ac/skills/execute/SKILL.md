@@ -20,13 +20,13 @@ Under `LANE_MODE` (set by `--lane`: this run is an `ac/lane` session, which has 
 
 Every branch that terminates the run deletes `.ac/state/active-execution.json` first. That is not bookkeeping. While the marker exists, no subagent of this session is running, and your turn ends, the ac plugin's stop guard sends a synthetic continuation that names the unchecked steps from the plan file and tells you to continue (`../../src/run-guards.ts`). It sends at most one per stall (your next tool call ends the stall) and three per user prompt, and a user interrupt silences it. The marker's absence is what lets a terminal stop stay stopped.
 
-**A failed subagent moves down its model chain; it is not a question.** A subagent call that comes back with a provider failure (`Subagent failed (sessionID: ...)`, a `<subagent ... state="error">` message, an error such as `provider.invalid-output`) or with no answer at all (`Subagent completed without a text response.`, an empty report) failed on its model, not on the work. When it answered nothing or broke off mid-stream (`provider.invalid-output`, an empty report), re-spawn it with the same prompt on the same model until it has run `retryAttempts` times there (from the `ac_models` tool, 3 in the shipped config), since that is often a one-off; a rate limit or a 5xx was already retried inside the call, so it goes straight on. Then call `ac_fallback_next({ tier: "<the agent name without ac/>", tried: [<every model this call ran on>], status: <the HTTP status, when the error carried one> })`, with `tried` starting at the agent's chain head from `ac_models` unless you set its model yourself, re-spawn on `model: "<the returned value>"`, and give that model the same number of attempts. Rate limits and 5xx errors are retried inside the call already, so they reach you only once that model is spent. `wait:<seconds>` means a shared rate limit is spent: wait that long with one `shell` `sleep` and re-spawn the same model. Only `none`, every entry of the chain tried, is a failure to report or ask about. Asking the owner whether to retry wastes a round on a provider fault the chain exists to absorb. A plan worker follows 2e, which is this rule plus the tier ladder; this rule covers the reviewer and `ac/oracle` at Phase 3. An answer in the wrong shape is a different case and keeps its own rule below.
+**A failed subagent moves down its model chain; it is not a question.** A subagent call that comes back with a provider failure (`Subagent failed (sessionID: ...)`, a `<subagent ... state="error">` message, an error such as `provider.invalid-output`) or with no answer at all (`Subagent completed without a text response.`, an empty report) failed on its model, not on the work. When it answered nothing or broke off mid-stream (`provider.invalid-output`, an empty report), re-spawn it with the same prompt on the same model until it has run `retryAttempts` times there (from the `ac_models` tool, 3 in the shipped config), since that is often a one-off; a rate limit or a 5xx was already retried inside the call, so it goes straight on. Then call `ac_fallback_next({ tier: "<the agent name without ac/>", tried: [<every model this call ran on>], session_id: "<the sessionID from the failure text>", status: <the HTTP status, when the error carried one> })`, with `tried` starting at the agent's chain head from `ac_models` unless you set its model yourself, re-spawn on `model: "<the returned value>"`, and give that model the same number of attempts. A 5xx was retried inside the call already. A rate limit was retried 10 times inside the call, and the plugin gives one model 30 across re-spawns: `wait:<seconds>` means that model has retries left, so wait that long with one `shell` `sleep` and re-spawn the same model with `tried` unchanged. The tool bounds those waits itself. Only `none`, every entry of the chain tried, is a failure to report or ask about. Asking the owner whether to retry wastes a round on a provider fault the chain exists to absorb. A plan worker follows 2e, which is this rule plus the tier ladder; this rule covers the reviewer and `ac/oracle` at Phase 3. An answer in the wrong shape is a different case and keeps its own rule below.
 
 **Context.** Compaction summarizes older turns and the run continues. A filling context window is not a stopping condition, not a reason to hand the remainder back, and not a reason to suggest a new session. No compaction tool is available to you, so never plan around invoking one. When the procedure you need has been truncated away, load the skill `execute` again with the `skill` tool to restore this body, then read `PLAN_PATH` for the authoritative step state.
 
 **A stop needs a name.** "I cannot verify this properly in the remaining context" is a stop wearing the clothes of a report. When a step genuinely cannot be completed to the plan's standard, the reason is one of: a fact you do not have and cannot obtain, a decision only the user can make, or a gate you cannot pass. Each maps to a BLOCKER branch (2i, 2j, 3c) that surfaces a `question` and deletes the marker. Name the class, take the branch, report what did land. Never substitute a capacity limit for the real reason.
 
-**No review loop needs bounding.** Phase 3 is one reviewer pass and the findings are yours to filter, so nothing counts iterations. Five bounded loops remain: at most two retries per step at 2e (a variant rung, then a tier rung), at most two briefing-gap re-spawns per step at 2e, the provider-fallback re-spawns at 2e, which end when the tier's model chain does (plus at most three `wait:` re-spawns per step), the three-failed-steps-across-two-waves halt at 2j, and the one QA retest that the `qa` skill runs after its own fixes at 3e. The first counts in `WORKER_RETRY_PER_STEP` and the fourth reads `STEP_FAILURES`, which gets one entry per step at terminal failure; the second counts re-spawns for the step in front of you; the third is bounded by the `tried` list you pass to `ac_fallback_next`; the fifth is owned and counted inside `qa`, so 3e never re-invokes it.
+**No review loop needs bounding.** Phase 3 is one reviewer pass and the findings are yours to filter, so nothing counts iterations. Five bounded loops remain: at most two retries per step at 2e (a variant rung, then a tier rung), at most two briefing-gap re-spawns per step at 2e, the provider-fallback re-spawns at 2e, which end when the tier's model chain does (plus at most ten `wait:` re-spawns per step), the three-failed-steps-across-two-waves halt at 2j, and the one QA retest that the `qa` skill runs after its own fixes at 3e. The first counts in `WORKER_RETRY_PER_STEP` and the fourth reads `STEP_FAILURES`, which gets one entry per step at terminal failure; the second counts re-spawns for the step in front of you; the third is bounded by the `tried` list you pass to `ac_fallback_next`; the fifth is owned and counted inside `qa`, so 3e never re-invokes it.
 
 **Progress surface.** Two surfaces carry it and neither is a tool. The plan file's checkboxes are the per-step record, ticked at Layer D and counted with `grep -c '^- \[ \]'`, which is also what the stop guard reads. Phase 2h prints the per-step table after each wave. Add one short line per phase and wave transition and that is the whole picture.
 
@@ -554,14 +554,14 @@ limit, an overloaded or unavailable model, a 5xx, or a child session that failed
 The step did not fail; its model never got to work. Call:
 
 ```
-ac_fallback_next({ tier: "plan-worker-<tier>", tried: [<every model this step has run on>], status: <error status> })
+ac_fallback_next({ tier: "plan-worker-<tier>", tried: [<every model this step has run on>], session_id: "<failed worker's sessionID>", status: <error status> })
 ```
 
 `tried` holds each model as `provider/model#variant`, starting with the agent's own (the head of its chain, 1c) and
 adding every fallback you have spawned for the step since. `status` is the HTTP status the provider error carried
-(429 for a rate limit); omit it when the failure named none. Pass it every time: a 429 is a limit shared by every
-provider of a rate-limit group, and only with the status does the tool skip the failed model's whole group instead
-of re-spawning on a sibling that is throttled too. The tool returns the next chain entry that is not tried, not
+(429 for a rate limit); omit it when the failure named none. Pass it every time: a 429 is a limit that clears on its
+own, and only with the status does the tool keep the step on the same model until that model has spent the plugin's
+rate-limit schedule. The tool returns the next chain entry that is not tried, not
 cooling down after a recent failure and on a provider with a credential, or `wait:<seconds>`, or `none`. On a
 model, re-spawn the same agent with the same briefing and `model: "<the returned value>"`, add it to `tried`, and
 take the same route on another provider error. Every entry joins `tried`, so the loop ends within the chain's
@@ -571,12 +571,15 @@ tier's chain is exhausted: count it as the step's failure and take the tier rung
 rung would re-run a model that is not answering; for a senior step it is terminal. The tier-rung spawn starts a fresh
 `tried` on its own tier's chain.
 
-`wait:<seconds>` comes back only on a 429 when every entry left in the chain shares the failed model's rate-limit
-group: switching would land on the same spent limit, and the limit clears within the cooldown. Wait that long in one
+`wait:<seconds>` comes back only on a 429 while the failed model has not yet spent the rate-limit schedule (30
+retries in the shipped config; each spawn runs 10 inside the call, so two waits cover it). The re-spawn carries the
+count on, and once it is spent the tool answers the next chain entry instead. Wait that long in one
 `shell` call (`sleep <seconds>` with the call's timeout above it), then re-spawn the SAME model with the same
 briefing, leaving `tried` as it is. A wait is not a step failure and not a retry: it adds nothing to
-`WORKER_RETRY_PER_STEP` or `STEP_FAILURES` and keeps the step on its rung. Allow at most three waits per step; on
-the next 429 after the third, treat the answer as `none`. Only `none` counts as the step's failure.
+`WORKER_RETRY_PER_STEP` or `STEP_FAILURES` and keeps the step on its rung. The tool bounds the waits per model (two
+in the shipped config, more when a worker meets a second throttle after a clean stretch), so take its answer each
+time; only as a guard against a loop, treat the answer as `none` once one step has waited ten times. Only `none`
+counts as the step's failure.
 
 **Worker reported `[BRIEFING GAP]`**: it could not proceed because something Section 6 should have carried
 was missing. Re-assemble the missing block and re-spawn at the SAME tier. Never escalate for this: the

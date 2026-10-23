@@ -9,13 +9,19 @@ export interface TierOverride {
     prepend?: ModelRef[]
 }
 
+/** One band of the rate-limit schedule: every retry numbered up to `through` waits `seconds` before it runs. */
+export interface BackoffStep {
+    through: number
+    seconds: number
+}
+
 export interface ModelsConfigFile {
     tiers?: Record<string, ModelRef[] | TierOverride>
     cooldownSeconds?: number
     retryOn?: number[]
     retryAttempts?: number
-    /** Retry attempt at which a 429 is acted on; a rate limit clears on its own, so this is far above retryAttempts. */
-    rateLimitAttempts?: number
+    /** Retries of a rate-limited model, in ascending bands; the last band's `through` is the retry count. */
+    rateLimitBackoff?: BackoffStep[]
     /** Rate-limit group name to the provider ids that share its limit. */
     groups?: Record<string, string[]>
     /** Default cap on workers running at once in an execute wave. */
@@ -32,7 +38,10 @@ export interface ModelConfig {
     chain(tier: string): readonly ModelRef[]
     readonly retryOn: readonly number[]
     readonly retryAttempts: number
-    readonly rateLimitAttempts: number
+    /** How many times a rate-limited model is retried before the chain moves on: the schedule's last `through`. */
+    readonly rateLimitRetries: number
+    /** Wait before rate-limit retry `retry` (1-based) on one model, in ms; past the schedule, its last band. */
+    rateLimitDelayMs(retry: number): number
     readonly cooldownSeconds: number
     /** Providers not listed here form a group of their own. */
     readonly groups: Readonly<Record<string, readonly string[]>>
@@ -112,7 +121,7 @@ function merge(base: ModelsConfigFile, override: ModelsConfigFile): ModelsConfig
         cooldownSeconds: override.cooldownSeconds ?? base.cooldownSeconds,
         retryOn: override.retryOn ?? base.retryOn,
         retryAttempts: override.retryAttempts ?? base.retryAttempts,
-        rateLimitAttempts: override.rateLimitAttempts ?? base.rateLimitAttempts,
+        rateLimitBackoff: override.rateLimitBackoff ?? base.rateLimitBackoff,
         groups: override.groups ?? base.groups,
         maxParallel: override.maxParallel ?? base.maxParallel,
         maxLanes: override.maxLanes ?? base.maxLanes,
@@ -148,6 +157,19 @@ export function loadConfig(input: LoadConfigInput = {}): ModelConfig {
         if (Number.isInteger(value) && (value as number) >= 1) continue
         throw new Error(`${key} must be a whole number of at least 1`)
     }
+    //    An unordered or empty schedule would leave some retry without a wait, or the count undefined.
+    const backoff = merged.rateLimitBackoff ?? []
+    const ordered = backoff.every(
+        (step, index) =>
+            Number.isInteger(step.through)
+            && step.through > (index === 0 ? 0 : (backoff[index - 1] as BackoffStep).through)
+            && Number.isFinite(step.seconds)
+            && step.seconds >= 0,
+    )
+    if (backoff.length === 0 || !ordered) {
+        throw new Error("rateLimitBackoff must list bands with ascending whole `through` values and `seconds` >= 0")
+    }
+    const lastBand = backoff.at(-1) as BackoffStep
 
     return {
         tiers: () => Object.keys(tiers).filter(hasChain),
@@ -158,7 +180,8 @@ export function loadConfig(input: LoadConfigInput = {}): ModelConfig {
         },
         retryOn: merged.retryOn ?? [],
         retryAttempts: merged.retryAttempts ?? 0,
-        rateLimitAttempts: merged.rateLimitAttempts ?? 0,
+        rateLimitRetries: lastBand.through,
+        rateLimitDelayMs: (retry) => (backoff.find((step) => retry <= step.through) ?? lastBand).seconds * 1_000,
         cooldownSeconds: merged.cooldownSeconds ?? 0,
         groups: merged.groups ?? {},
         maxParallel: merged.maxParallel ?? 0,

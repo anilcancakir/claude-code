@@ -1,7 +1,7 @@
 ---
 description: "Advisory review of one ac plan file before execution; returns findings, no verdict. Spawned only by /ac/plan; not for general tasks."
 mode: subagent
-model: "codefast-kimi/kimi-k3#high"
+model: "anthropic/claude-opus-5-5#medium"
 color: "#eab308"
 permissions:
   - action: skill

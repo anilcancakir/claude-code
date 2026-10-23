@@ -1,4 +1,5 @@
 import type { Plugin } from "@opencode/plugin"
+import { log } from "./log.ts"
 
 /**
  * Background shells that will wake a session, for the stop guards. A background `shell` call returns at once with
@@ -125,7 +126,7 @@ export async function registerBackgroundShells(ctx: Plugin.Context): Promise<Bac
             for (const [id, at] of completed) if (now - at > COMPLETED_MEMORY_MS) completed.delete(id)
         }
     }
-    follow().catch((error: unknown) => console.error("ac background shells: event stream ended", error))
+    follow().catch((error: unknown) => log("error", "ac background shells: event stream ended", error))
 
     return {
         pending: (sessionID) => {

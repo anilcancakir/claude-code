@@ -32,9 +32,9 @@ export default Plugin.define({
         //    the agents' starting models and the fallback walk, so both read the same chains.
         const models = loadConfig({ options })
         const stopAgentModels = await registerAgentModels(ctx, models)
-        await registerFallback(ctx, models)
+        const fallback = await registerFallback(ctx, models)
         // No directory option: each instance must root itself at its own location, or more than one would relay a lane.
-        const stopCoordinate = await registerCoordinate(ctx, models, { shells })
+        const stopCoordinate = await registerCoordinate(ctx, models, { shells, rateLimit: fallback })
         await registerDiagnostics(ctx, options.diagnostics)
         await registerCommands(ctx)
 
@@ -42,6 +42,7 @@ export default Plugin.define({
             stopRunGuards()
             shells.stop()
             stopAgentModels()
+            fallback.stop()
             stopCoordinate()
         }
     },

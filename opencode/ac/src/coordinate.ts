@@ -4,8 +4,10 @@ import { join } from "node:path"
 import { promisify } from "node:util"
 import type { Plugin } from "@opencode/plugin"
 import type { ModelConfig } from "./config.ts"
+import type { RateLimitResume } from "./fallback.ts"
 import { rootSessionOf } from "./marker.ts"
 import { readIfPresent } from "./memory.ts"
+import { log } from "./log.ts"
 import type { BackgroundShells } from "./wake.ts"
 
 type Context = Plugin.Context
@@ -17,6 +19,8 @@ export interface CoordinateOptions {
     git?: LaneGit
     /** Background shells that will wake a session; the plugin entry passes the one shared tracker. */
     shells?: BackgroundShells
+    /** The fallback's answer to whether a failed lane is continued on a rate limit, so it is not relayed as failed. */
+    rateLimit?: RateLimitResume
     /** How long an owner question may hold back a parked lane; 0 turns it off. Default 10 min. */
     questionTimeoutMs?: number
     /** How often the open question is checked. Default one minute. */
@@ -545,6 +549,13 @@ export async function registerCoordinate(
         return relay(lane, "completed", text)
     }
 
+    // A lane the fallback meant to continue but could not is relayed as failed, or the run would wait on it forever.
+    options.rateLimit?.onLost((sessionID) => {
+        onEnded(sessionID, "Lane session failed: the rate-limit continue message could not be delivered").catch(
+            (error: unknown) => log("error", "ac coordinate: lost lane relay failed", sessionID, error),
+        )
+    })
+
     const onCompacted = async (sessionID: string): Promise<void> => {
         const marker = ownedMarker(sessionID)
         if (!marker) return
@@ -593,7 +604,7 @@ export async function registerCoordinate(
         questionTimeoutMs > 0
             ? setInterval(() => {
                   checkQuestion().catch((error: unknown) => {
-                      console.error("ac coordinate: question check failed", error)
+                      log("error", "ac coordinate: question check failed", error)
                   })
               }, options.questionCheckMs ?? DEFAULT_QUESTION_CHECK_MS)
             : undefined
@@ -611,6 +622,11 @@ export async function registerCoordinate(
                         await onEnded(event.data.sessionID, undefined)
                         break
                     case "session.execution.failed":
+                        // A rate-limited lane the fallback continues has not ended; its next turn starts shortly.
+                        if (await options.rateLimit?.resumes(event.id, event.data.sessionID, event.data.error)) {
+                            running.delete(event.data.sessionID)
+                            break
+                        }
                         await onEnded(event.data.sessionID, `Lane session failed: ${JSON.stringify(event.data.error)}`)
                         break
                     case "session.execution.interrupted": {
@@ -643,7 +659,7 @@ export async function registerCoordinate(
                 }
             } catch (error) {
                 // One failed lookup must not end the stream and silently strand every lane of the run.
-                console.error("ac coordinate: event handling failed", event.type, error)
+                log("error", "ac coordinate: event handling failed", event.type, error)
             }
         }
     }
