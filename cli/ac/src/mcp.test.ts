@@ -127,9 +127,10 @@ test("default SERVER_INSTRUCTIONS stays byte-identical for Claude Code", () => {
 test("OPENCODE_SERVER_INSTRUCTIONS names the ac tools and no Claude Code built-in", () => {
     expect(OPENCODE_SERVER_INSTRUCTIONS).toBe(
         "For library docs call resolve-library, then search-docs; for real usage of an API call "
-        + "web-code-search; web-search and web-fetch are the web tools.",
+        + "web-code-search; web-search and web-fetch are the web tools. For the user's own past work or "
+        + "Claude Code conversations, call search-history instead of guessing.",
     );
-    for (const forbidden of ["WebFetch", "WebSearch", "search-history", "built-in"]) {
+    for (const forbidden of ["WebFetch", "WebSearch", "built-in"]) {
         expect(OPENCODE_SERVER_INSTRUCTIONS).not.toContain(forbidden);
     }
 });
@@ -149,10 +150,17 @@ test("buildCatalogue (default client, token-less branch) serves web-fetch and se
     expect(names).toEqual(["web-fetch", "search-history"]);
 });
 
-test("buildCatalogue (opencode client) never lists search-history, in either branch", () => {
+test("buildCatalogue (opencode client) lists search-history last, in either branch", () => {
     const withBearer = buildCatalogue(REMOTE_SURFACE, "opencode").map((t) => t.name);
-    expect(withBearer).toEqual(["web-search", "web-fetch", "search-docs", "resolve-library", "web-code-search"]);
-    expect(buildCatalogue(null, "opencode").map((t) => t.name)).toEqual(["web-fetch"]);
+    expect(withBearer).toEqual([
+        "web-search",
+        "web-fetch",
+        "search-docs",
+        "resolve-library",
+        "web-code-search",
+        "search-history",
+    ]);
+    expect(buildCatalogue(null, "opencode").map((t) => t.name)).toEqual(["web-fetch", "search-history"]);
 });
 
 test("buildCatalogue (opencode client) describes the web tools without naming Claude Code built-ins", () => {
@@ -259,7 +267,7 @@ test("mcp proxy serves web-fetch and search-history without a bearer token", asy
     }
 }, 30_000);
 
-test("mcp proxy --client opencode drops search-history from listing, dispatch and instructions", async () => {
+test("mcp proxy --client opencode serves search-history with opencode-worded instructions", async () => {
     const env = Object.fromEntries(
         Object.entries(process.env)
             .filter((e): e is [string, string] => e[1] !== undefined)
@@ -284,11 +292,13 @@ test("mcp proxy --client opencode drops search-history from listing, dispatch an
         await client.connect(transport);
 
         const { tools } = await client.listTools();
-        expect(tools.map((t) => t.name)).toEqual(["web-fetch"]);
+        expect(tools.map((t) => t.name)).toEqual(["web-fetch", "search-history"]);
         expect(client.getInstructions()).toBe(OPENCODE_SERVER_INSTRUCTIONS);
 
-        await expect(client.callTool({ name: "search-history", arguments: { pattern: "x" } }))
-            .rejects.toThrow("Unknown tool: search-history");
+        // Dispatch reaches the history handler; under bun the node:sqlite archive may answer with an
+        // isError result, which is still a dispatched call rather than "Unknown tool".
+        const result = await client.callTool({ name: "search-history", arguments: { pattern: "x" } });
+        expect(JSON.stringify(result.content)).not.toContain("Unknown tool");
     } finally {
         await client.close();
     }

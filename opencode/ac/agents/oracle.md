@@ -34,9 +34,6 @@ permissions:
   - action: "ac_*"
     resource: "*"
     effect: allow
-  - action: ac_search-history
-    resource: "*"
-    effect: deny
   - action: edit
     resource: "~/.claude/projects/**"
     effect: deny

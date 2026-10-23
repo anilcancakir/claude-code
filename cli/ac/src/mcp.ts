@@ -194,8 +194,9 @@ export const SERVER_INSTRUCTIONS =
 
 /**
  * Which host the server speaks to. `opencode` has no built-in WebFetch/WebSearch to be a fallback
- * for and no Claude Code transcript archive, so that mode drops `search-history` and words the
- * instructions without naming any Claude Code built-in.
+ * for, so that mode words the instructions and the web tool descriptions without naming any Claude
+ * Code built-in. `search-history` is served in both modes: it reads the local Claude Code archive,
+ * which stays the operator's history when the session runs in opencode.
  */
 export type McpClient = "claude-code" | "opencode";
 
@@ -203,7 +204,8 @@ export const MCP_CLIENTS: readonly McpClient[] = ["claude-code", "opencode"];
 
 export const OPENCODE_SERVER_INSTRUCTIONS =
     "For library docs call resolve-library, then search-docs; for real usage of an API call "
-    + "web-code-search; web-search and web-fetch are the web tools.";
+    + "web-code-search; web-search and web-fetch are the web tools. For the user's own past work or "
+    + "Claude Code conversations, call search-history instead of guessing.";
 
 /**
  * The Claude Code descriptions of the two web tools call them fallbacks for built-ins opencode
@@ -225,7 +227,7 @@ function forClient(tool: Tool, client: McpClient): Tool {
 /**
  * Assemble the tools/list catalogue. `remoteTools` is the upstream list when a bearer is
  * configured and `null` when token-less (web-fetch is then local-only). The local history tool
- * is appended last, except for the opencode client, which never sees it.
+ * is appended last.
  */
 export function buildCatalogue(remoteTools: readonly Tool[] | null, client: McpClient): Tool[] {
     const catalogue: Tool[] = [];
@@ -243,9 +245,7 @@ export function buildCatalogue(remoteTools: readonly Tool[] | null, client: McpC
         }
     }
 
-    if (client === "claude-code") {
-        catalogue.push(applyAlwaysLoad(HISTORY_TOOL_DEFINITION));
-    }
+    catalogue.push(applyAlwaysLoad(HISTORY_TOOL_DEFINITION));
     return catalogue;
 }
 
@@ -301,8 +301,7 @@ export async function runMcpProxy(
     server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const requestedName = request.params.name;
 
-        // In opencode mode the name falls through to the allowlist check and is rejected as unknown.
-        if (clientMode === "claude-code" && requestedName === HISTORY_TOOL_NAME) {
+        if (requestedName === HISTORY_TOOL_NAME) {
             return runHistoryTool(request.params.arguments);
         }
 

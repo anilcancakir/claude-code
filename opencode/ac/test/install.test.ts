@@ -338,7 +338,6 @@ describe("rendered opencode.jsonc", () => {
             { action: "edit", resource: "~/.claude/projects/**", effect: "deny" },
             { action: "opencode_list_mcp_resources", resource: "*", effect: "deny" },
             { action: "opencode_read_mcp_resource", resource: "*", effect: "deny" },
-            { action: "ac_search-history", resource: "*", effect: "deny" },
             { action: "skill", resource: "report", effect: "deny" },
             { action: "read", resource: "*.dev.vars", effect: "ask" },
         ])

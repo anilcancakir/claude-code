@@ -38203,7 +38203,7 @@ function toIsErrorResult(err) {
 }
 var SERVER_INSTRUCTIONS = "For library docs call resolve-library, then search-docs; for real usage of an API call " + "web-code-search. web-fetch and web-search are fallbacks for the built-in WebFetch and " + "WebSearch. For the user's own past work or conversations, call search-history instead of " + "guessing.";
 var MCP_CLIENTS = ["claude-code", "opencode"];
-var OPENCODE_SERVER_INSTRUCTIONS = "For library docs call resolve-library, then search-docs; for real usage of an API call " + "web-code-search; web-search and web-fetch are the web tools.";
+var OPENCODE_SERVER_INSTRUCTIONS = "For library docs call resolve-library, then search-docs; for real usage of an API call " + "web-code-search; web-search and web-fetch are the web tools. For the user's own past work or " + "Claude Code conversations, call search-history instead of guessing.";
 var OPENCODE_TOOL_DESCRIPTIONS = {
   "web-fetch": "Fetch a page and return its content as markdown. Use it when you need the page text " + "itself, including pages the plain fetch tool cannot render or is blocked from.",
   "web-search": "Search the web across several engines and return deduplicated results. This is the " + "web search tool; use it for current information and to find pages to fetch."
@@ -38223,9 +38223,7 @@ function buildCatalogue(remoteTools, client) {
       }
     }
   }
-  if (client === "claude-code") {
-    catalogue.push(applyAlwaysLoad(HISTORY_TOOL_DEFINITION));
-  }
+  catalogue.push(applyAlwaysLoad(HISTORY_TOOL_DEFINITION));
   return catalogue;
 }
 async function runMcpProxy(options) {
@@ -38253,7 +38251,7 @@ async function runMcpProxy(options) {
   });
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const requestedName = request.params.name;
-    if (clientMode === "claude-code" && requestedName === HISTORY_TOOL_NAME) {
+    if (requestedName === HISTORY_TOOL_NAME) {
       return runHistoryTool(request.params.arguments);
     }
     if (requestedName === "web-fetch") {
@@ -39905,4 +39903,4 @@ function formatSyncReport(report) {
 }
 await program2.parseAsync(process.argv);
 
-//# debugId=1EDF20FFDA7DB53A64756E2164756E21
+//# debugId=5713177A741D696764756E2164756E21
