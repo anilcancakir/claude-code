@@ -1,0 +1,166 @@
+{
+    // Global opencode v2 config for the ac port. scripts/install.ts renders it to ~/.config/opencode/opencode.jsonc,
+    // replacing <repo> with this checkout. Secrets stay in the environment, referenced as {env:NAME}.
+    "$schema": "https://opencode.ai/config.json",
+    "model": "codefast-glm/glm-5.3",
+    "default_agent": "build",
+    "update": "notify",
+    "snapshots": false,
+    // The ac MCP server serves web-fetch, web-search, web-code-search, resolve-library and search-docs instead.
+    "websearch": false,
+
+    "agents": {
+        "build": { "model": "codefast-glm/glm-5.3#high" },
+        // The ac plugin owns planning and exploration (ac/plan, ac/explore); the stock agents would shadow them.
+        "plan": { "disabled": true },
+        "explore": { "disabled": true },
+        "general": { "disabled": true },
+        "title": { "model": "codefast-qwen/qwen3.8-max#low" }
+    },
+
+    // Last matching rule wins and global rules sit after every agent's own, so these are the final word.
+    "permissions": [
+        { "action": "edit", "resource": "~/.claude/projects/**", "effect": "deny" },
+        { "action": "opencode_list_mcp_resources", "resource": "*", "effect": "deny" },
+        { "action": "opencode_read_mcp_resource", "resource": "*", "effect": "deny" },
+        { "action": "ac_search-history", "resource": "*", "effect": "deny" },
+        { "action": "skill", "resource": "report", "effect": "deny" },
+        { "action": "read", "resource": "*.dev.vars", "effect": "ask" }
+    ],
+
+    // opencode reads AGENTS.md only; the project's Claude Code memory files ride in as configured instructions.
+    "instructions": ["CLAUDE.md", "CLAUDE.local.md", ".claude/CLAUDE.md"],
+    "skills": ["<repo>/opencode/ac/skills"],
+
+    "mcp": {
+        "servers": {
+            "ac": {
+                "type": "local",
+                "command": ["node", "<repo>/plugins/ac/cli/ac.js", "mcp", "--client", "opencode"],
+                "codemode": false,
+                // The shared background service does not inherit the shell environment, so the proxy's
+                // credentials are handed over explicitly.
+                "environment": {
+                    "KODIZM_MCP_TOKEN": "{env:KODIZM_MCP_TOKEN}",
+                    "KODIZM_MCP_URL": "{env:KODIZM_MCP_URL}"
+                }
+            }
+        }
+    },
+
+    // The ac plugin composes the base prompt itself, so the built-in per-family prompts go off.
+    "plugins": [
+        "*",
+        "-opencode.prompt.openai",
+        "-opencode.prompt.kimi",
+        "-opencode.prompt.anthropic",
+        "-opencode.prompt.arcee",
+        "-opencode.prompt.meta",
+        { "package": "<repo>/opencode/ac" }
+    ],
+
+    // codefast.app unlimited package: one OpenAI-compatible endpoint per model, one shared key.
+    // Variants are the reasoning efforts that config/models.jsonc chains select with #low, #high and #max.
+    "providers": {
+        "codefast-glm": {
+            "name": "CodeFast GLM",
+            "package": "aisdk:@ai-sdk/openai-compatible",
+            "settings": {
+                "baseURL": "https://api.codefast.app/glm-53-unlimited-api/v1",
+                "apiKey": "{env:CODEFAST_API_KEY}"
+            },
+            "models": {
+                "glm-5.3": {
+                    "name": "GLM 5.3",
+                    "capabilities": {
+                        "tools": true,
+                        "input": ["text"],
+                        "output": ["text"],
+                        "reasoning": { "supported": true, "effort": ["low", "high", "max"] }
+                    },
+                    "limit": { "context": 256000, "output": 65536 },
+                    "variants": [
+                        { "id": "low", "body": { "reasoning_effort": "low" } },
+                        { "id": "high", "body": { "reasoning_effort": "high" } },
+                        { "id": "max", "body": { "reasoning_effort": "max" } }
+                    ]
+                }
+            }
+        },
+        "codefast-kimi": {
+            "name": "CodeFast Kimi",
+            "package": "aisdk:@ai-sdk/openai-compatible",
+            "settings": {
+                "baseURL": "https://api.codefast.app/kimi-k3-unlimited-api/v1",
+                "apiKey": "{env:CODEFAST_API_KEY}"
+            },
+            "models": {
+                "kimi-k3": {
+                    "name": "Kimi K3",
+                    "capabilities": {
+                        "tools": true,
+                        "input": ["text"],
+                        "output": ["text"],
+                        "reasoning": { "supported": true, "effort": ["low", "high", "max"] }
+                    },
+                    "limit": { "context": 256000, "output": 65536 },
+                    "variants": [
+                        { "id": "low", "body": { "reasoning_effort": "low" } },
+                        { "id": "high", "body": { "reasoning_effort": "high" } },
+                        { "id": "max", "body": { "reasoning_effort": "max" } }
+                    ]
+                }
+            }
+        },
+        "codefast-deepseek": {
+            "name": "CodeFast DeepSeek",
+            "package": "aisdk:@ai-sdk/openai-compatible",
+            "settings": {
+                "baseURL": "https://api.codefast.app/deepseek-v4-pro-unlimited-api/v1",
+                "apiKey": "{env:CODEFAST_API_KEY}"
+            },
+            "models": {
+                "deepseek-v4-pro-0813": {
+                    "name": "DeepSeek V4 Pro",
+                    "capabilities": {
+                        "tools": true,
+                        "input": ["text"],
+                        "output": ["text"],
+                        "reasoning": { "supported": true, "effort": ["low", "high", "max"] }
+                    },
+                    "limit": { "context": 256000, "output": 65536 },
+                    "variants": [
+                        { "id": "low", "body": { "reasoning_effort": "low" } },
+                        { "id": "high", "body": { "reasoning_effort": "high" } },
+                        { "id": "max", "body": { "reasoning_effort": "max" } }
+                    ]
+                }
+            }
+        },
+        "codefast-qwen": {
+            "name": "CodeFast Qwen",
+            "package": "aisdk:@ai-sdk/openai-compatible",
+            "settings": {
+                "baseURL": "https://api.codefast.app/qwen-38-max-unlimited-api/v1",
+                "apiKey": "{env:CODEFAST_API_KEY}"
+            },
+            "models": {
+                "qwen3.8-max": {
+                    "name": "Qwen 3.8 Max",
+                    "capabilities": {
+                        "tools": true,
+                        "input": ["text"],
+                        "output": ["text"],
+                        "reasoning": { "supported": true, "effort": ["low", "high", "max"] }
+                    },
+                    "limit": { "context": 256000, "output": 65536 },
+                    "variants": [
+                        { "id": "low", "body": { "reasoning_effort": "low" } },
+                        { "id": "high", "body": { "reasoning_effort": "high" } },
+                        { "id": "max", "body": { "reasoning_effort": "max" } }
+                    ]
+                }
+            }
+        }
+    }
+}

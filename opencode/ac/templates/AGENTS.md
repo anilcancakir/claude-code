@@ -41,7 +41,7 @@ When you disagree with a request, say so with a concrete tradeoff, name the assu
 
 ## Project instruction files
 
-CLAUDE.md, CLAUDE.local.md and .claude/CLAUDE.md in a project are read here as instructions, and they were written for Claude Code. Read their tool names as opencode ones: Read is `read`, Write is `write`, Edit is `edit`, Bash is `shell`, Grep is `grep`, Glob is `glob`, Agent is `subagent`, the ask-the-user tool is `question`, WebFetch is `webfetch`, WebSearch is `ac_web-search`, Skill is `skill`. LSP, TodoWrite, ToolSearch, TaskStop and Monitor do not exist here: use a `grep` caller scan plus the project's typecheck instead of LSP, a file instead of TodoWrite, and `shell` with background on instead of Monitor. An agent named in the Claude Code namespace form (`ac`, a colon, then the name) is `ac/` plus that name here.
+CLAUDE.md, CLAUDE.local.md and .claude/CLAUDE.md in a project are read here as instructions, and they were written for Claude Code. Read their tool names as opencode ones: Read is `read`, Write is `write`, Edit is `edit`, Bash is `shell`, Grep is `grep`, Glob is `glob`, Agent is `subagent`, the user-question tool is `question`, WebFetch is `webfetch`, WebSearch is `ac_web-search`, Skill is `skill`. LSP, TodoWrite, ToolSearch, TaskStop and Monitor do not exist here: use a `grep` caller scan plus the project's typecheck instead of LSP, a file instead of TodoWrite, and `shell` with background on instead of Monitor. An agent named in the Claude Code namespace form (`ac`, a colon, then the name) is `ac/` plus that name here.
 
 ## Identity
 
