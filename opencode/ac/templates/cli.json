@@ -3,5 +3,11 @@
     "attention": {
         "notifications": true,
         "sound": true
-    }
+    },
+    "session": {
+        "sidebar": "hide"
+    },
+    "plugins": [
+        "-opencode.notifications"
+    ]
 }

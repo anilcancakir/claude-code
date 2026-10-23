@@ -172,7 +172,37 @@ export default Plugin.define({
             ],
         }))
 
-        // 2. A lane park also shows as a toast; when the lane's session is not open, the toast offers to open it.
+        // 2. Attention only where a person is needed. templates/cli.json turns off the built-in
+        //    opencode.notifications, which also fires on every session end, a lane's and every subagent's included;
+        //    here a question alone notifies and plays its sound. A failed session keeps the in-app toast.
+        const asked = new Set<string>()
+        const stopQuestions = [
+            context.data.on("form.created", (event) => {
+                const form = event.data.form
+                if (asked.has(form.id)) return
+                asked.add(form.id)
+                const session = context.data.session.get(form.sessionID)
+                void context.attention.notify({
+                    title: form.title ?? session?.title,
+                    message: "Input needs response",
+                    notification: { when: "blurred" },
+                    sound: { name: "question", when: "always" },
+                })
+            }),
+            context.data.on("form.replied", (event) => asked.delete(event.data.id)),
+            context.data.on("form.cancelled", (event) => asked.delete(event.data.id)),
+            context.data.on("session.execution.failed", (event) => {
+                if (event.data.error.type === "provider.free-limit") return
+                context.ui.toast.show({
+                    sessionID: event.data.sessionID,
+                    title: "Session failed",
+                    message: event.data.error.message,
+                    variant: "error",
+                })
+            }),
+        ]
+
+        // 3. A lane park also shows as a toast; when the lane's session is not open, the toast offers to open it.
         const stop = context.data.on("session.synthetic", (event) => {
             const relay = relayOf({ type: "synthetic", metadata: event.data.metadata, text: event.data.text })
             if (!relay) return
@@ -184,6 +214,9 @@ export default Plugin.define({
                 sessionID: relay.lane,
             })
         })
-        return () => stop()
+        return () => {
+            stop()
+            for (const cleanup of stopQuestions) cleanup()
+        }
     },
 })
