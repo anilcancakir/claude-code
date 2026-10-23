@@ -7,7 +7,15 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import path from "node:path";
-import { applyAlwaysLoad, applyRemoteText, SERVER_INSTRUCTIONS, toIsErrorResult } from "./mcp.ts";
+import { LOCAL_WEB_FETCH_TOOL_DEFINITION } from "./local-fetch.ts";
+import {
+    applyAlwaysLoad,
+    applyRemoteText,
+    buildCatalogue,
+    OPENCODE_SERVER_INSTRUCTIONS,
+    SERVER_INSTRUCTIONS,
+    toIsErrorResult,
+} from "./mcp.ts";
 
 // Bearer-free unit coverage for the exported proxy transforms. These do not
 // spawn the subprocess and are NOT skipIf-gated, so A2 (alwaysLoad) and A11
@@ -105,6 +113,57 @@ test("SERVER_INSTRUCTIONS is non-empty and under the 2KB truncation bound", () =
     expect(SERVER_INSTRUCTIONS.length).toBeLessThan(2048);
 });
 
+// Frozen copy of the Claude Code instructions: the default client's output must stay byte-identical.
+const CLAUDE_CODE_INSTRUCTIONS_SNAPSHOT =
+    "For library docs call resolve-library, then search-docs; for real usage of an API call "
+    + "web-code-search. web-fetch and web-search are fallbacks for the built-in WebFetch and "
+    + "WebSearch. For the user's own past work or conversations, call search-history instead of "
+    + "guessing.";
+
+test("default SERVER_INSTRUCTIONS stays byte-identical for Claude Code", () => {
+    expect(SERVER_INSTRUCTIONS).toBe(CLAUDE_CODE_INSTRUCTIONS_SNAPSHOT);
+});
+
+test("OPENCODE_SERVER_INSTRUCTIONS names the ac tools and no Claude Code built-in", () => {
+    expect(OPENCODE_SERVER_INSTRUCTIONS).toBe(
+        "For library docs call resolve-library, then search-docs; for real usage of an API call "
+        + "web-code-search; web-search and web-fetch are the web tools.",
+    );
+    for (const forbidden of ["WebFetch", "WebSearch", "search-history", "built-in"]) {
+        expect(OPENCODE_SERVER_INSTRUCTIONS).not.toContain(forbidden);
+    }
+});
+
+const REMOTE_SURFACE = ["web-search", "web-fetch", "search-docs", "resolve-library", "web-code-search", "extra"]
+    .map((name) => makeTool(name));
+
+test("buildCatalogue (default client, bearer branch) keeps the history tool last with alwaysLoad", () => {
+    const names = buildCatalogue(REMOTE_SURFACE, "claude-code").map((t) => t.name);
+    expect(names).toEqual(["web-search", "web-fetch", "search-docs", "resolve-library", "web-code-search", "search-history"]);
+    const history = buildCatalogue(REMOTE_SURFACE, "claude-code").at(-1);
+    expect(history?._meta?.["anthropic/alwaysLoad"]).toBe(true);
+});
+
+test("buildCatalogue (default client, token-less branch) serves web-fetch and search-history", () => {
+    const names = buildCatalogue(null, "claude-code").map((t) => t.name);
+    expect(names).toEqual(["web-fetch", "search-history"]);
+});
+
+test("buildCatalogue (opencode client) never lists search-history, in either branch", () => {
+    const withBearer = buildCatalogue(REMOTE_SURFACE, "opencode").map((t) => t.name);
+    expect(withBearer).toEqual(["web-search", "web-fetch", "search-docs", "resolve-library", "web-code-search"]);
+    expect(buildCatalogue(null, "opencode").map((t) => t.name)).toEqual(["web-fetch"]);
+});
+
+test("buildCatalogue (opencode client) describes the web tools without naming Claude Code built-ins", () => {
+    const tools = [...buildCatalogue(REMOTE_SURFACE, "opencode"), ...buildCatalogue(null, "opencode")];
+    for (const tool of tools.filter((t) => t.name === "web-fetch" || t.name === "web-search")) {
+        expect(tool.description).not.toMatch(/WebFetch|WebSearch|built-in|[Ff]allback/);
+    }
+    const defaultFetch = buildCatalogue(null, "claude-code").find((t) => t.name === "web-fetch");
+    expect(defaultFetch?.description).toBe(LOCAL_WEB_FETCH_TOOL_DEFINITION.description);
+});
+
 const CLI_DIR = path.resolve(import.meta.dir, "..");
 
 const EXPECTED_TOOLS = new Set(
@@ -198,6 +257,54 @@ test("mcp proxy serves web-fetch and search-history without a bearer token", asy
     } finally {
         await client.close();
     }
+}, 30_000);
+
+test("mcp proxy --client opencode drops search-history from listing, dispatch and instructions", async () => {
+    const env = Object.fromEntries(
+        Object.entries(process.env)
+            .filter((e): e is [string, string] => e[1] !== undefined)
+            .filter(([k]) => k !== "KODIZM_MCP_TOKEN"),
+    );
+
+    const transport = new StdioClientTransport(
+        {
+            command: "bun",
+            args: ["run", "src/index.ts", "mcp", "--client", "opencode"],
+            cwd: CLI_DIR,
+            env,
+        },
+    );
+
+    const client = new Client(
+        { name: "test-client", version: "0.0.0" },
+        { capabilities: {} },
+    );
+
+    try {
+        await client.connect(transport);
+
+        const { tools } = await client.listTools();
+        expect(tools.map((t) => t.name)).toEqual(["web-fetch"]);
+        expect(client.getInstructions()).toBe(OPENCODE_SERVER_INSTRUCTIONS);
+
+        await expect(client.callTool({ name: "search-history", arguments: { pattern: "x" } }))
+            .rejects.toThrow("Unknown tool: search-history");
+    } finally {
+        await client.close();
+    }
+}, 30_000);
+
+test("mcp proxy rejects an unknown --client value", async () => {
+    const proc = Bun.spawn(["bun", "run", "src/index.ts", "mcp", "--client", "emacs"], {
+        cwd: CLI_DIR,
+        stdout: "pipe",
+        stderr: "pipe",
+    });
+    const [stderr, exitCode] = await Promise.all([new Response(proc.stderr).text(), proc.exited]);
+
+    expect(exitCode).not.toBe(0);
+    expect(stderr).toContain("claude-code");
+    expect(stderr).toContain("opencode");
 }, 30_000);
 
 test("mcp proxy normalizes a remote connection failure to isError, not a thrown McpError", async () => {

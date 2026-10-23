@@ -1,5 +1,6 @@
-import { Command } from "commander";
-import { runMcpProxy } from "./mcp.ts";
+import { Command, Option } from "commander";
+import { MCP_CLIENTS, runMcpProxy } from "./mcp.ts";
+import type { McpClient } from "./mcp.ts";
 import { AC_VERSION } from "./version.ts";
 import { scaffoldPlan } from "./plan-scaffold.ts";
 import { formatCheckResult, runPlanCheck } from "./plan-check.ts";
@@ -45,11 +46,20 @@ program
         "--token <value>",
         "Override the kdz- bearer token (also reads KODIZM_MCP_TOKEN).",
     )
-    .action(async (opts: { token?: string; url?: string }): Promise<void> => {
+    .addOption(
+        new Option(
+            "--client <value>",
+            "Host the server speaks to: opencode drops search-history and names no Claude Code built-ins.",
+        )
+            .choices(MCP_CLIENTS)
+            .default("claude-code"),
+    )
+    .action(async (opts: { token?: string; url?: string; client: McpClient }): Promise<void> => {
         await runMcpProxy(
             {
                 token: opts.token,
                 url: opts.url,
+                client: opts.client,
             },
         );
     });

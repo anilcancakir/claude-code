@@ -193,6 +193,63 @@ export const SERVER_INSTRUCTIONS =
     + "guessing.";
 
 /**
+ * Which host the server speaks to. `opencode` has no built-in WebFetch/WebSearch to be a fallback
+ * for and no Claude Code transcript archive, so that mode drops `search-history` and words the
+ * instructions without naming any Claude Code built-in.
+ */
+export type McpClient = "claude-code" | "opencode";
+
+export const MCP_CLIENTS: readonly McpClient[] = ["claude-code", "opencode"];
+
+export const OPENCODE_SERVER_INSTRUCTIONS =
+    "For library docs call resolve-library, then search-docs; for real usage of an API call "
+    + "web-code-search; web-search and web-fetch are the web tools.";
+
+/**
+ * The Claude Code descriptions of the two web tools call them fallbacks for built-ins opencode
+ * does not have (its websearch is disabled in favour of these), which would steer the model away
+ * from its only web route.
+ */
+const OPENCODE_TOOL_DESCRIPTIONS: Readonly<Record<string, string>> = {
+    "web-fetch": "Fetch a page and return its content as markdown. Use it when you need the page text "
+        + "itself, including pages the plain fetch tool cannot render or is blocked from.",
+    "web-search": "Search the web across several engines and return deduplicated results. This is the "
+        + "web search tool; use it for current information and to find pages to fetch.",
+};
+
+function forClient(tool: Tool, client: McpClient): Tool {
+    const description = client === "opencode" ? OPENCODE_TOOL_DESCRIPTIONS[tool.name] : undefined;
+    return description === undefined ? tool : { ...tool, description };
+}
+
+/**
+ * Assemble the tools/list catalogue. `remoteTools` is the upstream list when a bearer is
+ * configured and `null` when token-less (web-fetch is then local-only). The local history tool
+ * is appended last, except for the opencode client, which never sees it.
+ */
+export function buildCatalogue(remoteTools: readonly Tool[] | null, client: McpClient): Tool[] {
+    const catalogue: Tool[] = [];
+
+    // 1. Token-less: no upstream surface, so the local web-fetch is the whole remote-shaped part.
+    if (remoteTools === null) {
+        catalogue.push(forClient(LOCAL_WEB_FETCH_TOOL_DEFINITION, client));
+    } else {
+        // 2. Bearer: the allowlisted upstream surface, which carries remote's own web-fetch.
+        //    Never add the local web-fetch definition here, or web-fetch duplicates.
+        for (const tool of remoteTools) {
+            if (ALLOWED_REMOTE_TOOLS.has(tool.name)) {
+                catalogue.push(forClient(applyAlwaysLoad(applyRemoteText(tool)), client));
+            }
+        }
+    }
+
+    if (client === "claude-code") {
+        catalogue.push(applyAlwaysLoad(HISTORY_TOOL_DEFINITION));
+    }
+    return catalogue;
+}
+
+/**
  * Lazily-connected remote MCP handle.
  *
  * The first listTools / callTool dispatch triggers the upstream
@@ -205,7 +262,10 @@ interface RemoteHandle {
     close: () => Promise<void>;
 }
 
-export async function runMcpProxy(options: { token?: string; url?: string }): Promise<void> {
+export async function runMcpProxy(
+    options: { token?: string; url?: string; client?: McpClient },
+): Promise<void> {
+    const clientMode: McpClient = options.client ?? "claude-code";
     const token = (options.token ?? process.env["KODIZM_MCP_TOKEN"] ?? "").trim();
     const url = (options.url ?? process.env["KODIZM_MCP_URL"] ?? DEFAULT_REMOTE_URL).trim();
 
@@ -215,7 +275,10 @@ export async function runMcpProxy(options: { token?: string; url?: string }): Pr
 
     const server = new Server(
         { name: "ac", version: AC_VERSION },
-        { capabilities: { tools: {} }, instructions: SERVER_INSTRUCTIONS },
+        {
+            capabilities: { tools: {} },
+            instructions: clientMode === "opencode" ? OPENCODE_SERVER_INSTRUCTIONS : SERVER_INSTRUCTIONS,
+        },
     );
 
     server.setRequestHandler(ListToolsRequestSchema, async () => {
@@ -223,33 +286,14 @@ export async function runMcpProxy(options: { token?: string; url?: string }): Pr
             return { tools: cachedTools };
         }
 
-        // 1. Token-less proxy: web-fetch is still served, but local-only via
-        //    LOCAL_WEB_FETCH_TOOL_DEFINITION. No bearer means no upstream surface,
-        //    so this is the complete catalogue.
         if (remote === null) {
-            cachedTools = [
-                LOCAL_WEB_FETCH_TOOL_DEFINITION,
-                applyAlwaysLoad(HISTORY_TOOL_DEFINITION),
-            ];
+            cachedTools = buildCatalogue(null, clientMode);
             return { tools: cachedTools };
         }
 
-        // 2. Bearer configured: pull the upstream allowlisted surface (which carries
-        //    remote's own web-fetch definition) and append the local history tool.
-        //    Never append the local web-fetch definition here, or web-fetch duplicates.
-        const remoteTools: Tool[] = [];
         await remote.ensureConnected();
         const result = await remote.client.listTools();
-        for (const tool of result.tools) {
-            if (ALLOWED_REMOTE_TOOLS.has(tool.name)) {
-                remoteTools.push(applyAlwaysLoad(applyRemoteText(tool)));
-            }
-        }
-
-        cachedTools = [
-            ...remoteTools,
-            applyAlwaysLoad(HISTORY_TOOL_DEFINITION),
-        ];
+        cachedTools = buildCatalogue(result.tools, clientMode);
 
         return { tools: cachedTools };
     });
@@ -257,7 +301,8 @@ export async function runMcpProxy(options: { token?: string; url?: string }): Pr
     server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const requestedName = request.params.name;
 
-        if (requestedName === HISTORY_TOOL_NAME) {
+        // In opencode mode the name falls through to the allowlist check and is rejected as unknown.
+        if (clientMode === "claude-code" && requestedName === HISTORY_TOOL_NAME) {
             return runHistoryTool(request.params.arguments);
         }
 

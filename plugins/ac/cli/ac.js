@@ -38202,40 +38202,58 @@ function toIsErrorResult(err) {
   };
 }
 var SERVER_INSTRUCTIONS = "For library docs call resolve-library, then search-docs; for real usage of an API call " + "web-code-search. web-fetch and web-search are fallbacks for the built-in WebFetch and " + "WebSearch. For the user's own past work or conversations, call search-history instead of " + "guessing.";
+var MCP_CLIENTS = ["claude-code", "opencode"];
+var OPENCODE_SERVER_INSTRUCTIONS = "For library docs call resolve-library, then search-docs; for real usage of an API call " + "web-code-search; web-search and web-fetch are the web tools.";
+var OPENCODE_TOOL_DESCRIPTIONS = {
+  "web-fetch": "Fetch a page and return its content as markdown. Use it when you need the page text " + "itself, including pages the plain fetch tool cannot render or is blocked from.",
+  "web-search": "Search the web across several engines and return deduplicated results. This is the " + "web search tool; use it for current information and to find pages to fetch."
+};
+function forClient(tool, client) {
+  const description = client === "opencode" ? OPENCODE_TOOL_DESCRIPTIONS[tool.name] : undefined;
+  return description === undefined ? tool : { ...tool, description };
+}
+function buildCatalogue(remoteTools, client) {
+  const catalogue = [];
+  if (remoteTools === null) {
+    catalogue.push(forClient(LOCAL_WEB_FETCH_TOOL_DEFINITION, client));
+  } else {
+    for (const tool of remoteTools) {
+      if (ALLOWED_REMOTE_TOOLS.has(tool.name)) {
+        catalogue.push(forClient(applyAlwaysLoad(applyRemoteText(tool)), client));
+      }
+    }
+  }
+  if (client === "claude-code") {
+    catalogue.push(applyAlwaysLoad(HISTORY_TOOL_DEFINITION));
+  }
+  return catalogue;
+}
 async function runMcpProxy(options) {
+  const clientMode = options.client ?? "claude-code";
   const token = (options.token ?? process.env["KODIZM_MCP_TOKEN"] ?? "").trim();
   const url = (options.url ?? process.env["KODIZM_MCP_URL"] ?? DEFAULT_REMOTE_URL).trim();
   const remote = token === "" ? null : buildRemoteHandle(url, token);
   let cachedTools;
-  const server = new Server({ name: "ac", version: AC_VERSION }, { capabilities: { tools: {} }, instructions: SERVER_INSTRUCTIONS });
+  const server = new Server({ name: "ac", version: AC_VERSION }, {
+    capabilities: { tools: {} },
+    instructions: clientMode === "opencode" ? OPENCODE_SERVER_INSTRUCTIONS : SERVER_INSTRUCTIONS
+  });
   server.setRequestHandler(ListToolsRequestSchema, async () => {
     if (cachedTools !== undefined) {
       return { tools: cachedTools };
     }
     if (remote === null) {
-      cachedTools = [
-        LOCAL_WEB_FETCH_TOOL_DEFINITION,
-        applyAlwaysLoad(HISTORY_TOOL_DEFINITION)
-      ];
+      cachedTools = buildCatalogue(null, clientMode);
       return { tools: cachedTools };
     }
-    const remoteTools = [];
     await remote.ensureConnected();
     const result = await remote.client.listTools();
-    for (const tool of result.tools) {
-      if (ALLOWED_REMOTE_TOOLS.has(tool.name)) {
-        remoteTools.push(applyAlwaysLoad(applyRemoteText(tool)));
-      }
-    }
-    cachedTools = [
-      ...remoteTools,
-      applyAlwaysLoad(HISTORY_TOOL_DEFINITION)
-    ];
+    cachedTools = buildCatalogue(result.tools, clientMode);
     return { tools: cachedTools };
   });
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const requestedName = request.params.name;
-    if (requestedName === HISTORY_TOOL_NAME) {
+    if (clientMode === "claude-code" && requestedName === HISTORY_TOOL_NAME) {
       return runHistoryTool(request.params.arguments);
     }
     if (requestedName === "web-fetch") {
@@ -39684,10 +39702,11 @@ function findClaudeAncestor(probe) {
 // src/index.ts
 var program2 = new Command2;
 program2.name("ac").description("ac CLI. Companion runtime for the ac Claude Code plugin.").version(AC_VERSION);
-program2.command("mcp").description("Run the ac stdio MCP server (proxies tools to kodizm).").option("--url <value>", "Override the kodizm MCP endpoint (defaults to https://mcp.kodizm.com; " + "use http://127.0.0.1:<port>/mcp/kodizm for local dev).").option("--token <value>", "Override the kdz- bearer token (also reads KODIZM_MCP_TOKEN).").action(async (opts) => {
+program2.command("mcp").description("Run the ac stdio MCP server (proxies tools to kodizm).").option("--url <value>", "Override the kodizm MCP endpoint (defaults to https://mcp.kodizm.com; " + "use http://127.0.0.1:<port>/mcp/kodizm for local dev).").option("--token <value>", "Override the kdz- bearer token (also reads KODIZM_MCP_TOKEN).").addOption(new Option2("--client <value>", "Host the server speaks to: opencode drops search-history and names no Claude Code built-ins.").choices(MCP_CLIENTS).default("claude-code")).action(async (opts) => {
   await runMcpProxy({
     token: opts.token,
-    url: opts.url
+    url: opts.url,
+    client: opts.client
   });
 });
 program2.command("plan-scaffold <slug>").description("Create .ac/plans/<slug>/ with research/ and evidence/, and write a plan.md skeleton " + "carrying the template's sections in order. Leaves an existing plan.md untouched.").requiredOption("--auto-mode <true|false>", "The Stage 4 `Lock all?` answer, recorded in the plan frontmatter. Required: a run that " + "skipped Stage 4 has no value to pass here, which is the point.").requiredOption("--qa <true|false>", "The Stage 3 QA answer, recorded in the plan frontmatter. Required: /ac:execute Phase 3e " + "reads it, and a planner that never asked has no value to pass here.").option("--dir <value>", "Project root to scaffold under.", process.cwd()).action((slug, opts) => {
@@ -39886,4 +39905,4 @@ function formatSyncReport(report) {
 }
 await program2.parseAsync(process.argv);
 
-//# debugId=72B3C3CFD0361ED264756E2164756E21
+//# debugId=1EDF20FFDA7DB53A64756E2164756E21

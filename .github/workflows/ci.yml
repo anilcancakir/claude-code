@@ -35,3 +35,14 @@ jobs:
       # The node:sqlite suites only run under Node; bun cannot load the binding.
       - name: Test (node:sqlite)
         run: cd cli/ac && bun run test:node
+
+  opencode-ac:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+
+      - name: Typecheck and test
+        run: cd opencode/ac && bun install --frozen-lockfile && bun run typecheck && bun test
