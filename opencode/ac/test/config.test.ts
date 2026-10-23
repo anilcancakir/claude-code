@@ -70,6 +70,20 @@ describe("loadConfig defaults", () => {
         expect(config.retryOn).toEqual([429, 500, 502, 503, 504])
     })
 
+    test("rate limit policy: codefast endpoints share one group and 429 waits ten attempts", () => {
+        const config = loadConfig({ env: {} })
+
+        expect(config.rateLimitAttempts).toBe(10)
+        expect(config.groups).toEqual({
+            codefast: [
+                "codefast-glm",
+                "codefast-kimi",
+                "codefast-deepseek",
+                "codefast-qwen",
+            ],
+        })
+    })
+
     test("an unknown tier throws instead of returning an empty chain", () => {
         expect(() => loadConfig({ env: {} }).chain("nope")).toThrow("nope")
     })
@@ -105,6 +119,17 @@ describe("loadConfig overrides", () => {
         expect(config.chain("oracle")).toEqual(loadConfig({ env: {} }).chain("oracle"))
         expect(config.retryAttempts).toBe(4)
         expect(config.cooldownSeconds).toBe(30)
+    })
+
+    test("groups and rateLimitAttempts merge like the other scalar fields", () => {
+        const config = loadConfig({
+            env: {},
+            options: { models: { groups: { acme: ["acme-a", "acme-b"] }, rateLimitAttempts: 4 } },
+        })
+
+        expect(config.groups).toEqual({ acme: ["acme-a", "acme-b"] })
+        expect(config.rateLimitAttempts).toBe(4)
+        expect(config.retryAttempts).toBe(2)
     })
 
     test("prepend puts a custom provider in front of the default chain", () => {

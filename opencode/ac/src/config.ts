@@ -14,13 +14,20 @@ export interface ModelsConfigFile {
     cooldownSeconds?: number
     retryOn?: number[]
     retryAttempts?: number
+    /** Retry attempt at which a 429 is acted on; a rate limit clears on its own, so this is far above retryAttempts. */
+    rateLimitAttempts?: number
+    /** Rate-limit group name to the provider ids that share its limit. */
+    groups?: Record<string, string[]>
 }
 
 export interface ModelConfig {
     chain(tier: string): readonly ModelRef[]
     readonly retryOn: readonly number[]
     readonly retryAttempts: number
+    readonly rateLimitAttempts: number
     readonly cooldownSeconds: number
+    /** Providers not listed here form a group of their own. */
+    readonly groups: Readonly<Record<string, readonly string[]>>
 }
 
 export interface LoadConfigInput {
@@ -90,6 +97,8 @@ function merge(base: ModelsConfigFile, override: ModelsConfigFile): ModelsConfig
         cooldownSeconds: override.cooldownSeconds ?? base.cooldownSeconds,
         retryOn: override.retryOn ?? base.retryOn,
         retryAttempts: override.retryAttempts ?? base.retryAttempts,
+        rateLimitAttempts: override.rateLimitAttempts ?? base.rateLimitAttempts,
+        groups: override.groups ?? base.groups,
     }
 }
 
@@ -116,6 +125,8 @@ export function loadConfig(input: LoadConfigInput = {}): ModelConfig {
         },
         retryOn: merged.retryOn ?? [],
         retryAttempts: merged.retryAttempts ?? 0,
+        rateLimitAttempts: merged.rateLimitAttempts ?? 0,
         cooldownSeconds: merged.cooldownSeconds ?? 0,
+        groups: merged.groups ?? {},
     }
 }

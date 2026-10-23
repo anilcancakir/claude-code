@@ -75,5 +75,15 @@
     },
     "cooldownSeconds": 30,
     "retryOn": [429, 500, 502, 503, 504],
-    "retryAttempts": 2
+    // Non-429 retryable statuses switch model at this attempt.
+    "retryAttempts": 2,
+    // A 429 is an RPM limit that clears within seconds, so the host keeps retrying (it honours retry-after)
+    // until this attempt before the fallback acts.
+    "rateLimitAttempts": 10,
+    // Providers behind one shared rate limit. A failed 429 cools the whole group down, so the fallback skips
+    // to an entry outside it. A provider not listed here is its own group. All four codefast endpoints
+    // share one group:unlimited limit (25 RPM).
+    "groups": {
+        "codefast": ["codefast-glm", "codefast-kimi", "codefast-deepseek", "codefast-qwen"]
+    }
 }

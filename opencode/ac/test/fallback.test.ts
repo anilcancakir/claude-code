@@ -14,10 +14,18 @@ type SessionMessage = Awaited<ReturnType<Plugin.Context["session"]["context"]>>[
 const MAIN = ["alpha/one#high", "beta/two#high", "gamma/three#high"]
 const WORKER = ["alpha/code", "beta/two#high", "gamma/three#high"]
 
-function fixtureConfig(): ModelConfig {
+/** Attempt at which the default `rateLimitAttempts` lets the fallback act on a 429. */
+const RATE_LIMIT_CAP = 10
+/** Attempt at which the default `retryAttempts` lets the fallback act on any other retryable status. */
+const RETRY_CAP = 2
+
+/** `alpha` and `beta` share one rate-limit group; `gamma` is its own. */
+const SHARED_GROUPS = { shared: ["alpha", "beta"] }
+
+function fixtureConfig(groups: Record<string, string[]> = {}): ModelConfig {
     return loadConfig({
         env: {},
-        options: { models: { tiers: { main: MAIN, "plan-worker-junior": WORKER } } },
+        options: { models: { groups, tiers: { main: MAIN, "plan-worker-junior": WORKER } } },
     })
 }
 
@@ -77,7 +85,7 @@ async function retry(fake: FakeCtx, input: RetryInput): Promise<SessionRetry> {
             message: "rate limited",
             status: input.status ?? 429,
         },
-        attempt: input.attempt ?? 2,
+        attempt: input.attempt ?? (input.status === undefined || input.status === 429 ? RATE_LIMIT_CAP : RETRY_CAP),
         decision: {
             retry: true,
             delay: 2_000,
@@ -147,7 +155,7 @@ describe("main session fallback", () => {
         const fake = await setup()
 
         await retry(fake, { model: MAIN[0] as string })
-        const stale = await retry(fake, { model: MAIN[0] as string, attempt: 3 })
+        const stale = await retry(fake, { model: MAIN[0] as string, attempt: RATE_LIMIT_CAP + 1 })
 
         expect(stale.decision).toEqual({ retry: true, delay: 2_000 })
         expect(fake.calls.switchModel).toHaveLength(1)
@@ -216,6 +224,46 @@ describe("main session fallback", () => {
         const fake = await setup()
 
         const event = await retry(fake, { model: MAIN[0] as string, attempt: 1 })
+
+        expect(event.decision).toEqual({ retry: true, delay: 2_000 })
+        expect(fake.calls.switchModel).toHaveLength(0)
+    })
+
+    test("a 429 below rateLimitAttempts is not vetoed, so the host keeps honouring retry-after", async () => {
+        const fake = await setup()
+
+        const atRetryCap = await retry(fake, { model: MAIN[0] as string, attempt: RETRY_CAP })
+        const justBelow = await retry(fake, { model: MAIN[0] as string, attempt: RATE_LIMIT_CAP - 1 })
+
+        expect(atRetryCap.decision).toEqual({ retry: true, delay: 2_000 })
+        expect(justBelow.decision).toEqual({ retry: true, delay: 2_000 })
+        expect(fake.calls.switchModel).toHaveLength(0)
+        expect(fake.calls.prompt).toHaveLength(0)
+    })
+
+    test("a 429 at rateLimitAttempts switches past every same-group entry", async () => {
+        const fake = await setup(fixtureConfig(SHARED_GROUPS))
+
+        const event = await retry(fake, { model: MAIN[0] as string, attempt: RATE_LIMIT_CAP })
+
+        expect(event.decision).toEqual({ retry: false })
+        expect(fake.calls.switchModel.map((call) => call.model)).toEqual([modelRef(MAIN[2] as string)])
+        expect(fake.calls.prompt).toHaveLength(1)
+    })
+
+    test("a 500 at retryAttempts switches to the next entry even within the group", async () => {
+        const fake = await setup(fixtureConfig(SHARED_GROUPS))
+
+        const event = await retry(fake, { model: MAIN[0] as string, status: 500, attempt: RETRY_CAP })
+
+        expect(event.decision).toEqual({ retry: false })
+        expect(fake.calls.switchModel.map((call) => call.model)).toEqual([modelRef(MAIN[1] as string)])
+    })
+
+    test("a 429 with only same-group entries left leaves the host decision alone", async () => {
+        const fake = await setup(fixtureConfig({ all: ["alpha", "beta", "gamma"] }))
+
+        const event = await retry(fake, { model: MAIN[0] as string })
 
         expect(event.decision).toEqual({ retry: true, delay: 2_000 })
         expect(fake.calls.switchModel).toHaveLength(0)
@@ -316,6 +364,26 @@ describe("ac_fallback_next", () => {
         })
 
         expect(next).toBe(WORKER[1])
+    })
+
+    test("skips a cooling group after a 429 and offers it again once the cooldown ends", async () => {
+        setSystemTime(new Date("2026-10-23T10:00:00Z"))
+        const fake = await setup(fixtureConfig(SHARED_GROUPS))
+
+        await retry(fake, { model: MAIN[0] as string })
+
+        expect(await fallbackNext(fake, { tier: "main", tried: [] })).toBe(MAIN[2])
+
+        setSystemTime(new Date("2026-10-23T10:00:31Z"))
+        expect(await fallbackNext(fake, { tier: "main", tried: [] })).toBe(MAIN[0])
+    })
+
+    test("a 500 cools down the model only, not its group", async () => {
+        const fake = await setup(fixtureConfig(SHARED_GROUPS))
+
+        await retry(fake, { model: MAIN[0] as string, status: 500 })
+
+        expect(await fallbackNext(fake, { tier: "main", tried: [] })).toBe(MAIN[1])
     })
 
     test("returns none once every entry was tried", async () => {

@@ -47,6 +47,14 @@ function modelKey(ref: ModelRef | SessionModel): string {
     return variantStart === -1 ? ref : ref.slice(0, variantStart)
 }
 
+/** HTTP status whose limit is shared by every provider of a group, so the whole group backs off together. */
+const RATE_LIMIT_STATUS = 429
+
+/** The provider is the part before the first slash, for both chain entries and live session models. */
+function providerOf(ref: ModelRef | SessionModel): string {
+    return typeof ref === "string" ? ref.slice(0, ref.indexOf("/")) : ref.providerID
+}
+
 function lastUserMessage(messages: readonly SessionMessage[]): UserMessage | undefined {
     for (let index = messages.length - 1; index >= 0; index--) {
         const message = messages[index]
@@ -81,15 +89,27 @@ function replayInput(message: UserMessage): Pick<PromptInput, "text" | "files" |
  * replays the last user message; `ac_fallback_next` gives the execute skill the same chain walk for workers.
  */
 export async function registerFallback(ctx: Context, config: ModelConfig): Promise<void> {
+    // Keyed `model:<provider/model>` or `group:<name>`; a provider outside `config.groups` is its own group.
     const cooldownUntil = new Map<string, number>()
     // Models that already failed in the current user turn, per session. A new turn starts a fresh descent.
     const tried = new Map<string, Set<string>>()
     const switching = new Set<string>()
+    const groupByProvider = new Map<string, string>(
+        Object.entries(config.groups).flatMap(([group, providers]) => providers.map((provider) => [provider, group])),
+    )
+
+    const groupKey = (ref: ModelRef | SessionModel): string => {
+        const provider = providerOf(ref)
+        return `group:${groupByProvider.get(provider) ?? provider}`
+    }
 
     const isCoolingDown = (key: string): boolean => (cooldownUntil.get(key) ?? 0) > Date.now()
 
+    const isUnavailable = (ref: ModelRef): boolean =>
+        isCoolingDown(`model:${modelKey(ref)}`) || isCoolingDown(groupKey(ref))
+
     const nextEntry = (tier: string, excluded: ReadonlySet<string>): ModelRef | undefined =>
-        config.chain(tier).find((ref) => !excluded.has(modelKey(ref)) && !isCoolingDown(modelKey(ref)))
+        config.chain(tier).find((ref) => !excluded.has(modelKey(ref)) && !isUnavailable(ref))
 
     await ctx.session.hook("prompt", (event) => {
         if (event.metadata?.[REPLAY_MARKER] !== undefined) return
@@ -98,10 +118,13 @@ export async function registerFallback(ctx: Context, config: ModelConfig): Promi
 
     await ctx.session.hook("retry", async (event) => {
         // 1. Only a retryable failure at the cap of a session this module owns; anything else keeps the host policy.
+        //    A 429 is an RPM limit that clears on its own, so the host keeps retrying (it honours retry-after)
+        //    for longer before a switch.
         const tier = AGENT_TIERS[event.agent]
         const status = event.error.status
         if (tier === undefined || status === undefined || !config.retryOn.includes(status)) return
-        if (event.attempt < config.retryAttempts) return
+        const cap = status === RATE_LIMIT_STATUS ? config.rateLimitAttempts : config.retryAttempts
+        if (event.attempt < cap) return
 
         // 2. One action per failure observation: a model already handled this turn, or a switch still in flight,
         //    is a repeat of an observation that was acted on.
@@ -110,7 +133,9 @@ export async function registerFallback(ctx: Context, config: ModelConfig): Promi
         if (switching.has(event.sessionID) || sessionTried.has(failed)) return
         sessionTried.add(failed)
         tried.set(event.sessionID, sessionTried)
-        cooldownUntil.set(failed, Date.now() + config.cooldownSeconds * 1_000)
+        //    The cooldown covers the whole group on a rate limit, since siblings share it, else just the model.
+        const cooledKey = status === RATE_LIMIT_STATUS ? groupKey(event.model) : `model:${failed}`
+        cooldownUntil.set(cooledKey, Date.now() + config.cooldownSeconds * 1_000)
 
         // 3. An exhausted chain or nothing to replay leaves the host decision, so the error stays visible.
         const next = nextEntry(tier, sessionTried)
