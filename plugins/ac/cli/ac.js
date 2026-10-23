@@ -38474,12 +38474,51 @@ function parseSteps(lines) {
   }
   return steps;
 }
+var WAVE_TOKEN = /^#{2,6}\s+Wave\s+([^\s:]+)/;
 function filePath(entry) {
-  const token = entry.trim().replace(/^`|`$/g, "").split(/\s/)[0]?.replace(/`/g, "") ?? "";
-  return token === "" || token.startsWith("(") ? undefined : token;
+  for (const raw of entry.replace(/`/g, "").split(/\s+/)) {
+    const token = raw.replace(/^[([]+/, "").replace(/[,;:)\]]+$/, "");
+    if (token.includes("/") || /\.[A-Za-z0-9]+$/.test(token)) {
+      return token;
+    }
+  }
+  return;
+}
+function strategyWaves(lines) {
+  const waves = new Map;
+  let inStrategy = false;
+  let wave;
+  for (const line of lines) {
+    if (/^##\s/.test(line)) {
+      inStrategy = /^##\s+Execution Strategy\b/i.test(line);
+      wave = undefined;
+      continue;
+    }
+    if (!inStrategy) {
+      continue;
+    }
+    const heading = WAVE_TOKEN.exec(line);
+    if (heading !== null) {
+      wave = heading[1];
+    } else if (line.startsWith("#")) {
+      wave = undefined;
+      continue;
+    }
+    if (wave === undefined) {
+      continue;
+    }
+    for (const match of line.matchAll(/\bStep\s+(\d+)\b/g)) {
+      if (!waves.has(match[1] ?? "")) {
+        waves.set(match[1] ?? "", wave);
+      }
+    }
+  }
+  return waves;
 }
 function filesByWave(lines) {
   const waves = new Map;
+  const strategy = strategyWaves(lines);
+  let sectionWave;
   let wave;
   let label;
   let inFiles = false;
@@ -38497,9 +38536,9 @@ function filesByWave(lines) {
     files.set(path, owners);
   };
   for (const line of lines) {
-    const waveMatch = /^#{2,6}\s+Wave\s+(\d+)\b/.exec(line);
+    const waveMatch = WAVE_TOKEN.exec(line);
     if (waveMatch !== null) {
-      wave = Number.parseInt(waveMatch[1] ?? "", 10);
+      sectionWave = waveMatch[1];
       label = undefined;
       continue;
     }
@@ -38507,12 +38546,13 @@ function filesByWave(lines) {
     if (stepMatch !== null) {
       const number = /^\*{0,2}Step\s+(\S+?)\*{0,2}\s*:/.exec((stepMatch[2] ?? "").trim())?.[1];
       label = number === undefined ? undefined : `Step ${number}`;
+      wave = sectionWave ?? (number === undefined ? undefined : strategy.get(number));
       inFiles = false;
       continue;
     }
     if (line.startsWith("#")) {
       if (/^##\s/.test(line)) {
-        wave = undefined;
+        sectionWave = undefined;
       }
       label = undefined;
       continue;
@@ -40003,4 +40043,4 @@ function formatSyncReport(report) {
 }
 await program2.parseAsync(process.argv);
 
-//# debugId=913CC936FFC5B2F164756E2164756E21
+//# debugId=542C40DE8CA9D75764756E2164756E21

@@ -313,9 +313,38 @@ test("steps of one wave with disjoint files pass", () => {
     expect(errors(checkPlan(twoStepWave(["/repo/app/Services/Counting.php"])))).toEqual([]);
 });
 
-test("waves listed in another section give flat steps no wave, so nothing is compared", () => {
-    const source = twoStepWave(["/repo/tests/Feature/ActionHistoryTest.php"])
-        .replace("## Steps\n\n### Wave 1\n", "## Execution Strategy\n\n### Wave 1\n\n## Steps\n");
+/** The template's own layout: waves named under `## Execution Strategy`, steps flat under `## Steps`. */
+function strategyLayout(strategy: string, secondFiles: string[]): string {
+    return twoStepWave(secondFiles).replace("## Steps\n\n### Wave 1\n", `## Execution Strategy\n\n${strategy}\n\n## Steps\n`);
+}
 
-    expect(errors(checkPlan(source))).toEqual([]);
+test("waves named under Execution Strategy are compared for the flat steps they name", () => {
+    const source = strategyLayout(
+        "#### Wave 1\n\nStep 1 (the column) and Step 2 (the batch). No shared files.",
+        ["/repo/tests/Feature/ActionHistoryTest.php"],
+    );
+
+    expect(errors(checkPlan(source))).toEqual([
+        "Step 1 and Step 2 both list /repo/tests/Feature/ActionHistoryTest.php; steps of one wave run in parallel, "
+            + "so move one to a later wave or merge them.",
+    ]);
+});
+
+test("a step named in two strategy waves belongs to the first, and plural mentions name no wave", () => {
+    const source = strategyLayout(
+        "#### Wave 1\n\nStep 1.\n\n#### Wave 2\n\nStep 2, after Step 1; Steps 1 and 2 share nothing new.",
+        ["/repo/tests/Feature/ActionHistoryTest.php"],
+    );
+
+    expect(errors(checkPlan(source).filter((finding) => finding.scope.startsWith("wave")))).toEqual([]);
+});
+
+test("a Files entry counts only its path: a label, a trailing comma and a prose note are no path", () => {
+    const messages = errors(checkPlan(twoStepWave([
+        "NEW: /repo/tests/Feature/ActionHistoryTest.php,",
+        "same service + test (new)",
+    ])));
+
+    expect(messages).toHaveLength(1);
+    expect(messages[0]).toContain("both list /repo/tests/Feature/ActionHistoryTest.php;");
 });

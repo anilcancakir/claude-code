@@ -134,20 +134,68 @@ function parseSteps(lines: string[]): ParsedStep[] {
     return steps;
 }
 
-/** The first token of a Files entry, without the backticks or the trailing note a planner adds. */
+const WAVE_TOKEN = /^#{2,6}\s+Wave\s+([^\s:]+)/;
+
+/** The path in a Files entry: its first token that looks like one, without backticks, a label or punctuation. */
 function filePath(entry: string): string | undefined {
-    const token = entry.trim().replace(/^`|`$/g, "").split(/\s/)[0]?.replace(/`/g, "") ?? "";
-    // A verification step's "(no source edits; runs commands)" names no file.
-    return token === "" || token.startsWith("(") ? undefined : token;
+    for (const raw of entry.replace(/`/g, "").split(/\s+/)) {
+        const token = raw.replace(/^[([]+/, "").replace(/[,;:)\]]+$/, "");
+        // A path has a slash or an extension; "NEW:", "same service + test (new)" and a verification step's
+        // "(no source edits; runs commands)" have neither.
+        if (token.includes("/") || /\.[A-Za-z0-9]+$/.test(token)) {
+            return token;
+        }
+    }
+    return undefined;
+}
+
+/**
+ * Step number to wave from the `Wave N` bodies under `## Execution Strategy`, the template's own layout
+ * (plan-template.md): each singular `Step N` belongs to the first wave that names it, so "with Step 6" in a later
+ * wave's note and a plural "Steps 1 and 5" assign nothing.
+ */
+function strategyWaves(lines: string[]): Map<string, string> {
+    const waves = new Map<string, string>();
+    let inStrategy = false;
+    let wave: string | undefined;
+    for (const line of lines) {
+        if (/^##\s/.test(line)) {
+            inStrategy = /^##\s+Execution Strategy\b/i.test(line);
+            wave = undefined;
+            continue;
+        }
+        if (!inStrategy) {
+            continue;
+        }
+        const heading = WAVE_TOKEN.exec(line);
+        if (heading !== null) {
+            wave = heading[1];
+        } else if (line.startsWith("#")) {
+            wave = undefined;
+            continue;
+        }
+        if (wave === undefined) {
+            continue;
+        }
+        for (const match of line.matchAll(/\bStep\s+(\d+)\b/g)) {
+            if (!waves.has(match[1] ?? "")) {
+                waves.set(match[1] ?? "", wave);
+            }
+        }
+    }
+    return waves;
 }
 
 /**
  * Every step's files by wave. `Files` is written one path per line under the field, and sometimes inline after it,
- * so both are read; the wave is the most recent `Wave N` heading above the step within the same `## ` section.
+ * so both are read. A step's wave is the `Wave N` heading above it inside `## Steps`, or else the wave the Execution
+ * Strategy names it in.
  */
-function filesByWave(lines: string[]): Map<number, Map<string, string[]>> {
-    const waves = new Map<number, Map<string, string[]>>();
-    let wave: number | undefined;
+function filesByWave(lines: string[]): Map<string, Map<string, string[]>> {
+    const waves = new Map<string, Map<string, string[]>>();
+    const strategy = strategyWaves(lines);
+    let sectionWave: string | undefined;
+    let wave: string | undefined;
     let label: string | undefined;
     let inFiles = false;
 
@@ -166,9 +214,9 @@ function filesByWave(lines: string[]): Map<number, Map<string, string[]>> {
     };
 
     for (const line of lines) {
-        const waveMatch = /^#{2,6}\s+Wave\s+(\d+)\b/.exec(line);
+        const waveMatch = WAVE_TOKEN.exec(line);
         if (waveMatch !== null) {
-            wave = Number.parseInt(waveMatch[1] ?? "", 10);
+            sectionWave = waveMatch[1];
             label = undefined;
             continue;
         }
@@ -176,14 +224,14 @@ function filesByWave(lines: string[]): Map<number, Map<string, string[]>> {
         if (stepMatch !== null) {
             const number = /^\*{0,2}Step\s+(\S+?)\*{0,2}\s*:/.exec((stepMatch[2] ?? "").trim())?.[1];
             label = number === undefined ? undefined : `Step ${number}`;
+            wave = sectionWave ?? (number === undefined ? undefined : strategy.get(number));
             inFiles = false;
             continue;
         }
         if (line.startsWith("#")) {
-            // A wave holds only within its section: a plan that lists its waves under `## Execution Strategy` and
-            // its steps flat under `## Steps` gives no step a wave, so nothing is compared.
+            // A heading wave holds only within its section; the Strategy section's waves reach the steps by name.
             if (/^##\s/.test(line)) {
-                wave = undefined;
+                sectionWave = undefined;
             }
             label = undefined;
             continue;
