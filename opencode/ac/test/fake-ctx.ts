@@ -3,6 +3,7 @@ import type { AgentEditor } from "@opencode/plugin/promise/agent"
 import type { CommandDefinition, CommandEditor } from "@opencode/plugin/promise/command"
 import type { PermissionHooks } from "@opencode/plugin/promise/permission"
 import type { SessionHooks } from "@opencode/plugin/promise/session"
+import type { ShellHooks } from "@opencode/plugin/promise/shell"
 import type { Info, ToolEditor } from "@opencode/plugin/promise/tool"
 
 type Context = Plugin.Context
@@ -52,6 +53,7 @@ export interface FakeCtx {
             input: Loose<PermissionHooks[N]>,
         ): Promise<PermissionHooks[N]>
         tool<N extends keyof ToolHookInputs>(name: N, input: Loose<ToolHookInputs[N]>): Promise<ToolHookInputs[N]>
+        shell<N extends keyof ShellHooks>(name: N, input: ShellHooks[N]): Promise<ShellHooks[N]>
     }
     /** Feeds one event to every live `event.subscribe` iterator. */
     pushEvent(event: { type: string } & Record<string, unknown>): void
@@ -104,6 +106,7 @@ export function createFakeCtx(input: FakeCtxInput = {}): FakeCtx {
     const sessionHooks = new HookRegistry()
     const permissionHooks = new HookRegistry()
     const toolHooks = new HookRegistry()
+    const shellHooks = new HookRegistry()
     const toolTransforms: Array<(editor: ToolEditor) => void> = []
     const commandTransforms: Array<(editor: CommandEditor) => void> = []
     const agentTransforms: Array<(editor: AgentEditor) => void> = []
@@ -214,6 +217,7 @@ export function createFakeCtx(input: FakeCtxInput = {}): FakeCtx {
             },
         },
         event: { subscribe },
+        shell: { hook: async (name: string, callback: Handler) => shellHooks.register(name, callback) },
     } as unknown as Context
 
     return {
@@ -222,6 +226,7 @@ export function createFakeCtx(input: FakeCtxInput = {}): FakeCtx {
             session: (name, payload) => sessionHooks.fire(name, payload as SessionHooks[typeof name]),
             permission: (name, payload) => permissionHooks.fire(name, payload as PermissionHooks[typeof name]),
             tool: (name, payload) => toolHooks.fire(name, payload as ToolHookInputs[typeof name]),
+            shell: (name, payload) => shellHooks.fire(name, payload),
         },
         pushEvent: (event) => {
             for (const subscriber of subscribers) {

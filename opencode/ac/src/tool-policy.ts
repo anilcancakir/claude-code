@@ -1,3 +1,4 @@
+import { fileURLToPath } from "node:url"
 import type { Plugin } from "@opencode/plugin"
 
 export interface ToolPolicyOptions {
@@ -23,6 +24,39 @@ const DEFAULT_EXPLORE_MAX_CALLS = 60
 // CC's BASH_DEFAULT_TIMEOUT_MS; opencode's own shell default is 120000.
 const DEFAULT_SHELL_TIMEOUT_MS = 180_000
 
+const EXPLORE_ONLY = /^(\S*\/)?(php\s+)?artisan\s+test(?=\s|$)/
+
+/** Artisan subcommands that change nothing and print no secret; `config:show` prints APP_KEY, so it is not here. */
+const READ_ONLY_ARTISAN: readonly string[] = [
+    "list",
+    "about",
+    "help",
+    "--version",
+    "test",
+    "route:list",
+    "schedule:list",
+    "migrate:status",
+    "event:list",
+    "model:show",
+    "db:show",
+]
+
+/** The ac CLI that ships beside this package (plan-check, plan-scaffold), so a pinned install runs its own copy. */
+const AC_CLI = fileURLToPath(new URL("../../../plugins/ac/cli/ac.js", import.meta.url))
+
+/**
+ * Environment for every shell the host starts. An agent shell has no TTY, so a git command that opens an editor
+ * (rebase --continue, a merge commit, cherry-pick) would sit until the shell timeout; with these it takes the default
+ * message, and a commit without -m fails at once on an empty message instead of hanging.
+ */
+const SHELL_ENV: Readonly<Record<string, string>> = {
+    GIT_EDITOR: "true",
+    GIT_SEQUENCE_EDITOR: "true",
+    GIT_MERGE_AUTOEDIT: "no",
+    GIT_TERMINAL_PROMPT: "0",
+    AC_CLI,
+}
+
 function budgetMessage(maxCalls: number): string {
     return [
         `Call budget reached for this explore spawn: ${maxCalls} of ${maxCalls} tool calls.`,
@@ -43,8 +77,9 @@ const SECRET_REASON =
 function writeReason(agent: string): string {
     return (
         `${agent} is read-only: it does not run formatters or fixers in write mode, install packages, write files, ` +
-        "or change git state. Read the tool's config and the manifest instead (a --version check is fine), note the " +
-        "command in your report for the orchestrator, and continue."
+        "clear caches or change git state. Test runs are allowed (`php artisan test`, `vendor/bin/phpunit`, the " +
+        "project's own test command); for anything else read the tool's config and the manifest instead (a --version " +
+        "check is fine), note the command in your report for the orchestrator, and continue."
     )
 }
 
@@ -70,7 +105,9 @@ const WRITE_COMMANDS: readonly RegExp[] = [
     /^(\S*\/)?(dart|flutter)\s+pub\s+(get|add|remove|upgrade|downgrade)\b/,
     /^(\S*\/)?pint\b(?!.*(--test|--version|--help))/,
     /^(\S*\/)?php-cs-fixer\s+fix\b(?!.*--dry-run)/,
-    /^(\S*\/)?(php\s+)?artisan\s+(?!(list|about|route:list|--version|help)\b)\S/,
+    // Read-only subcommands stay open, a test run included, since the reviewers rerun the plan's verification
+    // commands; `config:show` stays closed because it prints APP_KEY and database passwords past the .env deny.
+    new RegExp(`^(\\S*\\/)?(php\\s+)?artisan\\s+(?!(${READ_ONLY_ARTISAN.join("|")})(?=\\s|$))\\S`),
     /^(npm|pnpm|yarn|bun)\s+(i|install|ci|add|remove|update|upgrade|up)\b/,
     /^yarn\s*$/,
     /^(npm|pnpm|yarn|bun)\s+(run\s+)?(format|fix|lint:fix|format:write)\b/,
@@ -236,6 +273,11 @@ function writes(raw: string, judged: string): boolean {
  */
 function shellDenial(agent: string, command: string): string | undefined {
     if (agent === EXPLORE_AGENT && readsSecret(command)) return SECRET_REASON
+    // Explore keeps the CC rule that an artisan test run is no search (pretooluse-explore-budget.sh:126).
+    const segments = blankQuotes(command).split(/[;|&\n]/)
+    if (agent === EXPLORE_AGENT && segments.some((part) => EXPLORE_ONLY.test(part.trimStart()))) {
+        return writeReason(agent)
+    }
 
     const blanked = blankQuotes(command)
     if (writes(command, blanked)) return writeReason(agent)
@@ -275,6 +317,11 @@ export async function registerToolPolicy(ctx: Plugin.Context, options: ToolPolic
             return
         }
         calls.set(event.sessionID, made + 1)
+    })
+
+    // A value the operator already set (a real editor in their own `!` shell, say) is kept.
+    await ctx.shell.hook("create.before", (event) => {
+        for (const [key, value] of Object.entries(SHELL_ENV)) event.env[key] ??= value
     })
 
     await ctx.tool.hook("execute.before", (event) => {

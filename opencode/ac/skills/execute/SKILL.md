@@ -222,10 +222,10 @@ Phase 2a render so the shape of the run is visible from the start.
 Then run the shape gate once:
 
 ```
-shell: node /Users/anilcan/Code/claude-code/plugins/ac/cli/ac.js plan-check <PLAN_PATH>
+shell: node "$AC_CLI" plan-check <PLAN_PATH>
 ```
 
-It prints the step counts on every exit and, when the plan deviates from what the rest of this body parses, one
+`AC_CLI` is set in every shell by the ac plugin and names the ac CLI installed with it; never substitute a path of your own, since a pinned install and the repository's working tree can differ. It prints the step counts on every exit and, when the plan deviates from what the rest of this body parses, one
 line per deviation. The `plan` skill runs the same command at Stage 5, so a clean exit here is the normal case and a
 dirty one means the plan was written by hand, written by an older version of the planner, or edited since. Route
 by what it reports, taking the FIRST route below that matches, except that a BLOCKER route always wins over a
@@ -441,7 +441,10 @@ boundary, the project's typecheck from `RUNTIME_CONTEXT` is authoritative.
    (`bun test` / `npm test`) inside the sub-project dir.
 
    Filter what the run admits into context, because a passing suite's output is noise you pay for on every later
-   turn: pipe through `tail -20`, or the runner's own quiet or summary flag. On failure, admit the failing cases and
+   turn: pipe through `tail -20`, or the runner's own quiet or summary flag. A pipe hides the runner's exit code
+   behind `tail`'s, and the agent shell is zsh, where `${PIPESTATUS[0]}` is empty, so run a judged command as
+   `set -o pipefail; <command> 2>&1 | tail -20`, or as `<command> > "$TMPDIR/run.log" 2>&1; echo "exit=$?"; tail -20
+   "$TMPDIR/run.log"`, and judge the exit code, never the last line of output. On failure, admit the failing cases and
    nothing else. A failure the wave suite catches that no single step explains is a cross-step interaction, which
    routes to remediation below rather than to one step's retry.
 

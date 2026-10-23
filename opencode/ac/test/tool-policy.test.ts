@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test"
+import { existsSync } from "node:fs"
 import type { PermissionHooks } from "@opencode/plugin/promise/permission"
 import { registerToolPolicy } from "../src/tool-policy.ts"
 import { createFakeCtx } from "./fake-ctx.ts"
@@ -208,6 +209,39 @@ describe("read-only reviewer shell guard", () => {
         }
     })
 
+    test.each(REVIEWERS)("%s may run artisan test and read-only artisan subcommands", async (agent) => {
+        const fake = await setup({})
+
+        for (const command of [
+            "php artisan test --parallel --filter='McpHitRateTest'",
+            "php artisan test",
+            "php artisan route:list --path=api",
+            "php artisan migrate:status",
+        ]) {
+            expect((await shell(fake, agent, command)).effect).toBe("allow")
+        }
+    })
+
+    test.each(REVIEWERS)("%s is still denied artisan commands that write or print secrets", async (agent) => {
+        const fake = await setup({})
+
+        for (const command of [
+            "php artisan config:clear",
+            "php artisan config:show database",
+            "php artisan migrate",
+            "php artisan test:custom-writer",
+        ]) {
+            expect((await shell(fake, agent, command)).effect).toBe("deny")
+        }
+    })
+
+    test("ac/explore keeps the CC rule: an artisan test run is no search", async () => {
+        const fake = await setup({})
+
+        expect((await shell(fake, "ac/explore", "php artisan test")).effect).toBe("deny")
+        expect((await shell(fake, "ac/explore", "php artisan route:list")).effect).toBe("allow")
+    })
+
     test("a reviewer reading a secret-shaped file is left to the agent's own permission rules", async () => {
         const fake = await setup({})
 
@@ -273,5 +307,34 @@ describe("shell default timeout", () => {
         const event = await fake.fire.tool("execute.before", { tool: "read", input: { path: "a.ts" } })
 
         expect(event.input).toEqual({ path: "a.ts" })
+    })
+})
+
+describe("shell environment", () => {
+    function created(env: Record<string, string | undefined> = {}) {
+        return { command: "git rebase --continue", cwd: "/repo", timeout: 0, shell: "/bin/zsh", env }
+    }
+
+    test("every shell gets a non-interactive git and the path of the ac CLI beside this package", async () => {
+        const fake = await setup()
+
+        const event = await fake.fire.shell("create.before", created())
+
+        expect(event.env).toMatchObject({
+            GIT_EDITOR: "true",
+            GIT_SEQUENCE_EDITOR: "true",
+            GIT_MERGE_AUTOEDIT: "no",
+            GIT_TERMINAL_PROMPT: "0",
+        })
+        expect(event.env.AC_CLI).toEndWith("/plugins/ac/cli/ac.js")
+        expect(existsSync(event.env.AC_CLI as string)).toBe(true)
+    })
+
+    test("a value already in the environment is kept", async () => {
+        const fake = await setup()
+
+        const event = await fake.fire.shell("create.before", created({ GIT_EDITOR: "vim" }))
+
+        expect(event.env.GIT_EDITOR).toBe("vim")
     })
 })

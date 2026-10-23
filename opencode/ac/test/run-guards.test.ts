@@ -56,9 +56,9 @@ function writePlan(text = PLAN): void {
     writeFileSync(join(dir, ".ac/plans/demo/plan.md"), text)
 }
 
-async function setup(): Promise<FakeCtx> {
+async function setup(shells?: { pending(sessionID: string): number }): Promise<FakeCtx> {
     const fake = createFakeCtx({ sessions: SESSIONS })
-    cleanup = await registerRunGuards(fake.ctx, { directory: dir })
+    cleanup = await registerRunGuards(fake.ctx, { directory: dir }, shells)
     fake.applyTransforms()
     return fake
 }
@@ -178,6 +178,20 @@ describe("stop guard", () => {
         expect(fake.calls.synthetic).toHaveLength(0)
 
         await push(fake, "session.execution.succeeded", { sessionID: "ses_worker" })
+        await push(fake, "session.execution.succeeded", { sessionID: "ses_root" })
+        expect(fake.calls.synthetic).toHaveLength(1)
+    })
+
+    test("stays silent while a background shell of the root will wake it", async () => {
+        writeMarker()
+        writePlan()
+        let pending = 1
+        const fake = await setup({ pending: (id) => (id === "ses_root" ? pending : 0) })
+
+        await push(fake, "session.execution.succeeded", { sessionID: "ses_root" })
+        expect(fake.calls.synthetic).toHaveLength(0)
+
+        pending = 0
         await push(fake, "session.execution.succeeded", { sessionID: "ses_root" })
         expect(fake.calls.synthetic).toHaveLength(1)
     })

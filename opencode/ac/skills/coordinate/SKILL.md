@@ -42,7 +42,9 @@ owner: <ids in owner_queue> (or none)
 status block and you turn that block into a `state.json` rewrite plus one `events.jsonl` line. Two writers would
 race on `state.json`, and a lane in its own worktree cannot reach this checkout's `.ac/` anyway. Mutate
 `state.json`, `roadmap.md`, `criteria.md`, `verdict.md` and the marker with `write` or `edit`; `shell` may append to
-`events.jsonl` (append-only, never rewritten), copy an archive, and `rm -f` the marker.
+`events.jsonl` (append-only, never rewritten), copy an archive, and `rm -f` the marker. Every `events.jsonl` line is
+one JSON object whose time key is `t`, taken from `date -u +%Y-%m-%dT%H:%M:%SZ` in the same shell command that
+appends it; a time you write from memory is wrong, and the log is what a resumed run reads.
 
 **Starting a lane.** Only `ac_lane_start({coord_slug, bundle, base_sha, brief})` starts one, and `ac_lane_send({session_id, message})` resumes it. Never spawn `ac/lane` with the `subagent` tool: a child session inherits this checkout as its location, so the lane would edit the main working tree instead of its own worktree. The plugin creates the worktree `<repo>/.ac/worktrees/lane/<slug>/<bundle>` on branch `lane/<slug>/<bundle>` and a root session inside it; you store the returned `session_id` as `lane_session_id` and the returned `worktree` and `branch`, and address the lane by that id from then on.
 
@@ -133,6 +135,18 @@ Call `ac_session` first; it returns `session_id` and `root_session_id` as JSON. 
   `gating` at Phase 7, or Phase 8 when `verdict.md` exists.
 - **Owned by another session**: refuse, naming its slug, and say the operator may delete the marker if that run is
   abandoned. Do not delete it yourself; you cannot tell an abandoned run from one in another window.
+- **A run Claude Code started**, which the owner asks you to continue (a marker without `"harness": "opencode"`, or
+  none, beside a `.ac/coord/<slug>/` with no `verdict.md`): adopt it. Write a fresh marker with `"harness":
+  "opencode"`, this session's ids, a new `started_at` from `date -u` (the old one would expire the 72 h bound mid-run),
+  the phase `state.json` implies and a `note` naming the adoption, and log one `adopted` event. Its lanes ran as
+  Claude Code subagents in `.claude/worktrees/agent-*` and cannot be resumed. A bundle whose lane reported DONE with
+  every step checked and its work committed is integrated by `references/integration.md` as usual, and when its
+  rebase conflicts only in lines both sides added side by side (two rows in one table, two keys in one list) you may
+  keep both and log `lane_finished_by_coordinator`. Every other such bundle (unchecked steps, a plan only, an
+  unresolvable conflict) is archived as `bundles/<id>-attempt<N>/`, its worktree removed without `--force` (commit any
+  uncommitted work on its branch first, so nothing is lost), and re-dispatched with `ac_lane_start`; name the archived
+  plan in the brief's goal so the new lane can reuse it. Never run a lane's remaining steps or its review yourself:
+  the bundle then ships without the plan, review and tests a lane gives it.
 
 Parse `--lanes N` (default 2) and `--max-workers N` (default 2, at most 5 and at most `maxParallel` from the `ac_models` tool, which is 2 under the gpt-unlimited preset; say so in one line when you cap it) from
 `REQUEST` and strip them. An empty request ends here with one line asking for it.
@@ -285,7 +299,8 @@ Set the bundle back to the status it resumes in (`planning` or `executing`) afte
 
 ### 6c. Advance planned lanes
 
-For a `planned` bundle, run `shell: node /Users/anilcan/Code/claude-code/plugins/ac/cli/ac.js plan-check <plan path>`:
+For a `planned` bundle, run `shell: node "$AC_CLI" plan-check <plan path>` (`AC_CLI` is set in every shell by the ac
+plugin):
 
 - **Exit 0**: record the step total it prints (the `<N> steps` count at the start of its last line) as the bundle's
   `steps_total` in `state.json` and in its `events.jsonl` line; integration compares the DONE count against

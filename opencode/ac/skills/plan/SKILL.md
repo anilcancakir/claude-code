@@ -497,8 +497,10 @@ Stage 4 complete.
 Scaffold the skeleton first, then fill it in with `edit`:
 
 ```
-shell: node /Users/anilcan/Code/claude-code/plugins/ac/cli/ac.js plan-scaffold <SLUG> --auto-mode <true|false> --qa <true|false>
+shell: node "$AC_CLI" plan-scaffold <SLUG> --auto-mode <true|false> --qa <true|false>
 ```
+
+`AC_CLI` is set in every shell by the ac plugin and names the ac CLI installed with it; never substitute a path of your own, since a pinned install and the repository's working tree can differ.
 
 `--auto-mode` is required and takes the Stage 4 `Lock all?` answer: `true` for option 1, `false` for option 2.
 There is no other source for it and no default. If you do not have that answer, Stage 4 did not complete: go back
@@ -533,7 +535,7 @@ Fill placeholders with concrete content; remove placeholder text inside angle br
 **Shape gate before the reviewer.** Run it once the plan is written:
 
 ```
-shell: node /Users/anilcan/Code/claude-code/plugins/ac/cli/ac.js plan-check <SLUG>
+shell: node "$AC_CLI" plan-check <SLUG>
 ```
 
 It exits 1 and names every deviation the executor would hit: a checkbox count that disagrees with the `Steps`

@@ -2,6 +2,7 @@ import { existsSync, readFileSync, realpathSync } from "node:fs"
 import { basename, dirname, join, resolve, sep } from "node:path"
 import type { Plugin } from "@opencode/plugin"
 import { type ExecutionMarker, ownsMarker, readMarker, rootSessionOf } from "./marker.ts"
+import type { BackgroundShells } from "./wake.ts"
 
 export interface RunGuardsOptions {
     /** The repository holding `.ac/`; defaults to the plugin instance's location, which its sessions share. */
@@ -114,7 +115,11 @@ function within(parent: string, child: string): boolean {
     return child.startsWith(parent + sep)
 }
 
-export async function registerRunGuards(ctx: Plugin.Context, options: RunGuardsOptions = {}): Promise<Cleanup> {
+export async function registerRunGuards(
+    ctx: Plugin.Context,
+    options: RunGuardsOptions = {},
+    shells?: BackgroundShells,
+): Promise<Cleanup> {
     const directory = options.directory ?? ctx.location.directory
     const roots = new Map<string, Promise<string>>()
     const nudges = new Map<string, NudgeState>()
@@ -224,8 +229,10 @@ export async function registerRunGuards(ctx: Plugin.Context, options: RunGuardsO
         const marker = ownedMarker(sessionID)
         // A lane's turn ends on a LANE STATUS block by design; its coordinator, not this guard, acts on it.
         if (!marker || marker.lane) return
-        // Running work wakes the session when it lands, so ending the turn is how the orchestrator waits for it.
+        // Running work wakes the session when it lands, so ending the turn is how the orchestrator waits for it:
+        // a subagent, or a background shell that will end (a gate run, a test suite).
         if ([...running.values()].includes(sessionID)) return
+        if ((shells?.pending(sessionID) ?? 0) > 0) return
 
         const state = stateOf(sessionID)
         if (state.interrupted || state.stalled || state.nudges >= MAX_NUDGES_PER_PROMPT) return

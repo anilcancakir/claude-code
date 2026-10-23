@@ -44,6 +44,8 @@ interface SetupOptions {
     failCreate?: boolean
     /** Makes the brief's `session.prompt` throw. */
     failPrompt?: boolean
+    /** Background shells the guard consults. */
+    shells?: { pending(sessionID: string): number }
 }
 
 function block(status: string, bundle = "b1"): string {
@@ -87,6 +89,7 @@ async function setup(options: SetupOptions = {}): Promise<Harness> {
     })
     const cleanup = await registerCoordinate(fake.ctx, loadConfig({ env: {} }), {
         directory: options.directory ?? repo,
+        ...(options.shells ? { shells: options.shells } : {}),
         git: {
             addWorktree: async (request) => {
                 mkdirSync(request.directory, { recursive: true })
@@ -351,6 +354,23 @@ describe("coordinate stop guard", () => {
         ended(harness, COORDINATOR)
         await settle()
         expect(harness.fake.calls.synthetic).toHaveLength(0)
+        harness.cleanup()
+    })
+
+    test("stays quiet while the owner's background gate run will wake it", async () => {
+        writeMarker({ phase: "integrate" })
+        writeState([{ id: "b1", status: "done" }])
+        let pending = 1
+        const harness = await setup({ shells: { pending: (id) => (id === COORDINATOR ? pending : 0) } })
+
+        ended(harness, COORDINATOR)
+        await settle()
+        expect(harness.fake.calls.synthetic).toHaveLength(0)
+
+        pending = 0
+        ended(harness, COORDINATOR)
+        await settle()
+        expect(harness.fake.calls.synthetic.map((call) => call.description)).toEqual(["ac coordinate stop guard"])
         harness.cleanup()
     })
 

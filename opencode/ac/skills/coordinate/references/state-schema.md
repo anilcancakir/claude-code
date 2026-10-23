@@ -36,7 +36,7 @@ Removed on every terminal branch: a verdict written, an owner abort, or an error
 | `state.json` | coordinator, rewritten on every status change | The bundle table, below. |
 | `roadmap.md` | coordinator, once the `Roadmap?` answer approves it | The oracle-reviewed roadmap: bundles, dependencies, hotspots. |
 | `criteria.md` | coordinator, before dispatch | The verifier's contract for the whole run, in the shape of `criteria-schema.md`. |
-| `events.jsonl` | coordinator, append-only | One JSON object per line for each lane message and status change. Never rewritten or truncated. |
+| `events.jsonl` | coordinator, append-only | One JSON object per line for each lane message and status change, with its time under `t` from `date -u +%Y-%m-%dT%H:%M:%SZ` run in the appending command. Never rewritten or truncated. |
 | `bundles/<id>/` | coordinator, once per bundle at archive | Copy of the bundle's plan directory and report, taken from the lane worktree before the worktree is removed. |
 | `verdict.md` | coordinator, once at the end | The verifier's returned body. Its presence marks the run as finished. |
 

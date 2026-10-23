@@ -6,6 +6,7 @@ import type { Plugin } from "@opencode/plugin"
 import type { ModelConfig } from "./config.ts"
 import { rootSessionOf } from "./marker.ts"
 import { readIfPresent } from "./memory.ts"
+import type { BackgroundShells } from "./wake.ts"
 
 type Context = Plugin.Context
 type Cleanup = () => void
@@ -14,6 +15,8 @@ type Cleanup = () => void
 export interface CoordinateOptions {
     directory?: string
     git?: LaneGit
+    /** Background shells that will wake a session; the plugin entry passes the one shared tracker. */
+    shells?: BackgroundShells
 }
 
 export interface WorktreeRequest {
@@ -425,6 +428,8 @@ export async function registerCoordinate(
         const bundles = stateBundles(directory, marker.slug)
         if (bundles.some((bundle) => WORKING_BUNDLE.has(bundle.status ?? ""))) return
         if ([...running.values()].includes(sessionID)) return
+        // A background gate run (bin/check, the full suite) wakes the coordinator when it ends.
+        if ((options.shells?.pending(sessionID) ?? 0) > 0) return
 
         const guard = guardOf(sessionID)
         const key = `${marker.started_at}:${marker.phase}`
