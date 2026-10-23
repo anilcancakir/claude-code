@@ -58,6 +58,11 @@
                     "KODIZM_MCP_TOKEN": "{env:KODIZM_MCP_TOKEN}",
                     "KODIZM_MCP_URL": "{env:KODIZM_MCP_URL}"
                 }
+            },
+            // The operator's own server, added on this machine; kept here so a re-install does not drop it.
+            "rea": {
+                "type": "local",
+                "command": ["npx", "-y", "rea-agents@6.7.0", "mcp"]
             }
         }
     },
