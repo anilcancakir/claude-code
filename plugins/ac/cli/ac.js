@@ -38244,10 +38244,15 @@ async function runMcpProxy(options) {
       cachedTools = buildCatalogue(null, clientMode);
       return { tools: cachedTools };
     }
-    await remote.ensureConnected();
-    const result = await remote.client.listTools();
-    cachedTools = buildCatalogue(result.tools, clientMode);
-    return { tools: cachedTools };
+    try {
+      cachedTools = buildCatalogue(await listUpstreamTools(remote), clientMode);
+      return { tools: cachedTools };
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err);
+      process.stderr.write(`ac mcp: upstream tool list failed, serving the local tools only: ${reason}
+`);
+      return { tools: buildCatalogue(null, clientMode) };
+    }
   });
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const requestedName = request.params.name;
@@ -38305,17 +38310,37 @@ async function runMcpProxy(options) {
   process.on("SIGINT", shutdown);
   process.on("SIGTERM", shutdown);
 }
+var UPSTREAM_LIST_ATTEMPTS = 3;
+var UPSTREAM_RETRY_DELAY_MS = 500;
+async function listUpstreamTools(remote) {
+  let lastError;
+  for (let attempt = 1;attempt <= UPSTREAM_LIST_ATTEMPTS; attempt++) {
+    try {
+      await remote.ensureConnected();
+      return (await remote.client.listTools()).tools;
+    } catch (err) {
+      lastError = err;
+      if (attempt < UPSTREAM_LIST_ATTEMPTS) {
+        await new Promise((resolve) => setTimeout(resolve, UPSTREAM_RETRY_DELAY_MS * attempt));
+      }
+    }
+  }
+  throw lastError;
+}
 function buildRemoteHandle(url, token) {
   const client = new Client({ name: "ac", version: AC_VERSION }, { capabilities: {} });
-  const transport = new StreamableHTTPClientTransport(new URL(url), {
-    requestInit: { headers: { Authorization: `Bearer ${token}` } }
-  });
   let connectPromise;
   return {
     client,
     ensureConnected: () => {
       if (connectPromise === undefined) {
-        connectPromise = client.connect(transport);
+        const transport = new StreamableHTTPClientTransport(new URL(url), {
+          requestInit: { headers: { Authorization: `Bearer ${token}` } }
+        });
+        connectPromise = client.connect(transport).catch((err) => {
+          connectPromise = undefined;
+          throw err;
+        });
       }
       return connectPromise;
     },
@@ -39903,4 +39928,4 @@ function formatSyncReport(report) {
 }
 await program2.parseAsync(process.argv);
 
-//# debugId=5713177A741D696764756E2164756E21
+//# debugId=5A032E6189BF295664756E2164756E21

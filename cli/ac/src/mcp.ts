@@ -291,11 +291,17 @@ export async function runMcpProxy(
             return { tools: cachedTools };
         }
 
-        await remote.ensureConnected();
-        const result = await remote.client.listTools();
-        cachedTools = buildCatalogue(result.tools, clientMode);
-
-        return { tools: cachedTools };
+        // An upstream that stays down still leaves the local tools usable: a client such as opencode marks a
+        // server failed when its first tools/list throws and never lists it again. The fallback is not cached,
+        // so the next tools/list tries the upstream once more.
+        try {
+            cachedTools = buildCatalogue(await listUpstreamTools(remote), clientMode);
+            return { tools: cachedTools };
+        } catch (err) {
+            const reason = err instanceof Error ? err.message : String(err);
+            process.stderr.write(`ac mcp: upstream tool list failed, serving the local tools only: ${reason}\n`);
+            return { tools: buildCatalogue(null, clientMode) };
+        }
     });
 
     server.setRequestHandler(CallToolRequestSchema, async (request) => {
@@ -397,25 +403,55 @@ export async function runMcpProxy(
  * and avoids a network round-trip when the orchestrator only ever
  * invokes a local tool such as search-history.
  */
+/** Upstream tools/list attempts before the proxy falls back to its local tools; the delay grows per attempt. */
+const UPSTREAM_LIST_ATTEMPTS = 3;
+const UPSTREAM_RETRY_DELAY_MS = 500;
+
+/**
+ * Several clients starting at once (an opencode coordinator and its lanes) have been seen to lose one upstream
+ * connect to a transient "fetch failed", so a failed attempt is retried before the caller gives up.
+ */
+async function listUpstreamTools(remote: RemoteHandle): Promise<Tool[]> {
+    let lastError: unknown;
+    for (let attempt = 1; attempt <= UPSTREAM_LIST_ATTEMPTS; attempt++) {
+        try {
+            await remote.ensureConnected();
+            return (await remote.client.listTools()).tools;
+        } catch (err) {
+            lastError = err;
+            if (attempt < UPSTREAM_LIST_ATTEMPTS) {
+                await new Promise((resolve) => setTimeout(resolve, UPSTREAM_RETRY_DELAY_MS * attempt));
+            }
+        }
+    }
+    throw lastError;
+}
+
 function buildRemoteHandle(url: string, token: string): RemoteHandle {
     const client = new Client(
         { name: "ac", version: AC_VERSION },
         { capabilities: {} },
-    );
-    const transport = new StreamableHTTPClientTransport(
-        new URL(url),
-        {
-            requestInit: { headers: { Authorization: `Bearer ${token}` } },
-        },
     );
 
     let connectPromise: Promise<void> | undefined;
 
     return {
         client,
+        // A failed connect is not kept: the next call starts over on a fresh transport, since a transport that
+        // was started once cannot be started again. A kept rejection would fail every later call for the life of
+        // the process.
         ensureConnected: (): Promise<void> => {
             if (connectPromise === undefined) {
-                connectPromise = client.connect(transport);
+                const transport = new StreamableHTTPClientTransport(
+                    new URL(url),
+                    {
+                        requestInit: { headers: { Authorization: `Bearer ${token}` } },
+                    },
+                );
+                connectPromise = client.connect(transport).catch((err: unknown) => {
+                    connectPromise = undefined;
+                    throw err;
+                });
             }
             return connectPromise;
         },

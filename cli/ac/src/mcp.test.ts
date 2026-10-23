@@ -361,3 +361,41 @@ test("mcp proxy normalizes a remote connection failure to isError, not a thrown 
         await client.close();
     }
 }, 30_000);
+
+test("mcp proxy lists its local tools when the remote is unreachable instead of failing tools/list", async () => {
+    // opencode marks an MCP server failed when its first tools/list throws and never asks again, so a
+    // network blip at startup used to leave the whole server (search-history included) unusable.
+    const env = Object.fromEntries(
+        Object.entries(process.env)
+            .filter((e): e is [string, string] => e[1] !== undefined)
+            .filter(([k]) => k !== "KODIZM_MCP_TOKEN" && k !== "KODIZM_MCP_URL"),
+    );
+    env["KODIZM_MCP_TOKEN"] = "kdz-dummy-unreachable";
+    env["KODIZM_MCP_URL"] = "http://127.0.0.1:1/mcp";
+
+    const transport = new StdioClientTransport(
+        {
+            command: "bun",
+            args: ["run", "src/index.ts", "mcp", "--client", "opencode"],
+            cwd: CLI_DIR,
+            env,
+        },
+    );
+    const client = new Client(
+        { name: "test-client", version: "0.0.0" },
+        { capabilities: {} },
+    );
+
+    try {
+        await client.connect(transport);
+
+        const { tools } = await client.listTools();
+
+        expect(tools.map((tool) => tool.name).sort()).toEqual([
+            "search-history",
+            "web-fetch",
+        ]);
+    } finally {
+        await client.close();
+    }
+}, 30_000);
