@@ -134,6 +134,14 @@
     // Default cap on ac workers running at once in an execute wave (--max-parallel overrides it). Every turn of a
     // worker spends several requests of the one shared 25 RPM group, so a wider wave mostly waits on 429s.
     "maxParallel": 3,
+    // Request starts per minute the plugin lets through per rate-limit group, for every session of the service at once
+    // (each lane, worker and main session of every project): requests beyond it wait in one queue, in arrival order,
+    // instead of being sent to fail. codefast's limit is 25 per rolling minute for the whole account
+    // (`rpm_limit: 25`, `rate_limit_scope: "group:unlimited"`), and a burst of quick retries over it also earns a
+    // temporary Cloudflare ban (error 1015), so pacing at the limit is both the fastest rate and the safe one.
+    "rateLimits": {
+        "codefast": 25
+    },
     // Cap on coordinate lanes working at once per coordinator, reported by ac_lane_start and kept by the coordinate
     // skill. Each lane runs its own workers, so lanes multiply the load on that same 25 RPM group.
     "maxLanes": 2

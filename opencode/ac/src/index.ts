@@ -7,6 +7,7 @@ import { registerDiagnostics } from "./diagnostics.ts"
 import { registerFallback } from "./fallback.ts"
 import { registerMemory } from "./memory.ts"
 import { registerPrompt } from "./prompt.ts"
+import { registerRateGate } from "./rate-gate.ts"
 import { registerRules } from "./rules.ts"
 import { registerRunGuards } from "./run-guards.ts"
 import { registerToolPolicy } from "./tool-policy.ts"
@@ -33,6 +34,7 @@ export default Plugin.define({
         const models = loadConfig({ options })
         const stopAgentModels = await registerAgentModels(ctx, models)
         const fallback = await registerFallback(ctx, models)
+        await registerRateGate(ctx, models)
         // No directory option: each instance must root itself at its own location, or more than one would relay a lane.
         const stopCoordinate = await registerCoordinate(ctx, models, { shells, rateLimit: fallback })
         await registerDiagnostics(ctx, options.diagnostics)

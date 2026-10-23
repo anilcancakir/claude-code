@@ -28,6 +28,8 @@ export interface ModelsConfigFile {
     maxParallel?: number
     /** Cap on coordinate lanes working at once per coordinator. */
     maxLanes?: number
+    /** Rate-limit group to the request starts per minute the plugin lets through, for every session at once. */
+    rateLimits?: Record<string, number>
 }
 
 export interface ModelConfig {
@@ -49,6 +51,8 @@ export interface ModelConfig {
     readonly maxParallel: number
     /** Coordinate lanes working at once per coordinator; `ac_lane_start` reports it and the skill keeps it. */
     readonly maxLanes: number
+    /** Request starts per minute per rate-limit group, queued across every session of the service. */
+    readonly rateLimits: Readonly<Record<string, number>>
 }
 
 export interface LoadConfigInput {
@@ -125,6 +129,7 @@ function merge(base: ModelsConfigFile, override: ModelsConfigFile): ModelsConfig
         groups: override.groups ?? base.groups,
         maxParallel: override.maxParallel ?? base.maxParallel,
         maxLanes: override.maxLanes ?? base.maxLanes,
+        rateLimits: override.rateLimits ?? base.rateLimits,
     }
 }
 
@@ -166,6 +171,10 @@ export function loadConfig(input: LoadConfigInput = {}): ModelConfig {
             && Number.isFinite(step.seconds)
             && step.seconds >= 0,
     )
+    for (const [group, limit] of Object.entries(merged.rateLimits ?? {})) {
+        if (Number.isInteger(limit) && limit >= 1) continue
+        throw new Error(`rateLimits.${group} must be a whole number of requests per minute, at least 1`)
+    }
     if (backoff.length === 0 || !ordered) {
         throw new Error("rateLimitBackoff must list bands with ascending whole `through` values and `seconds` >= 0")
     }
@@ -186,5 +195,6 @@ export function loadConfig(input: LoadConfigInput = {}): ModelConfig {
         groups: merged.groups ?? {},
         maxParallel: merged.maxParallel ?? 0,
         maxLanes: merged.maxLanes ?? 0,
+        rateLimits: merged.rateLimits ?? {},
     }
 }
