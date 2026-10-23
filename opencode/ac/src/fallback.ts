@@ -416,11 +416,14 @@ export async function registerFallback(
         const tier = known === undefined ? undefined : AGENT_TIERS[known.agent]
         if (known === undefined || tier === undefined) return false
         const session = await ctx.session.get({ sessionID })
-        if (session.parentID || session.model === undefined) return false
+        if (session.parentID) return false
 
         // 2. The model may have changed since the streak was counted (a switch on the step's last attempt), and a
-        //    count that belongs to another model must not spend this one's schedule.
-        const model = modelKey(session.model)
+        //    count that belongs to another model must not spend this one's schedule. A session that runs on its
+        //    agent's model has none of its own until a switch (a coordinate lane is created without one), so the
+        //    model the streak was counted on stands in.
+        const current = session.model ?? parseModelRef(known.model)
+        const model = modelKey(current)
         if (serverFailure && known.model !== model) return false
         const streak = known.model === model ? known : { agent: known.agent, model, count: 0 }
         streaks.set(sessionID, streak)
@@ -440,7 +443,7 @@ export async function registerFallback(
         let delay = config.rateLimitDelayMs(Math.max(streak.count, 1))
         if (spent) {
             const failure = { status: error.status, rateLimited }
-            if ((await switchDown(sessionID, tier, session.model, failure)) === undefined) return false
+            if ((await switchDown(sessionID, tier, current, failure)) === undefined) return false
             streaks.delete(sessionID)
             serverRuns.delete(sessionID)
             delay = 0

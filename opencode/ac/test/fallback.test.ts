@@ -864,6 +864,16 @@ describe("continuing a session whose step ran out on a 429", () => {
         expect(fake.calls.switchModel).toHaveLength(0)
     })
 
+    test("a session with no model of its own, as a coordinate lane is created, is continued too", async () => {
+        const fake = await setup(fixtureConfig({}, [{ through: 5, seconds: 0 }]))
+        await retry(fake, { sessionID: "ses_lane", agent: "ac/lane", model: MAIN[0] as string, status: 429, attempt: 2 })
+
+        failed(fake, "ses_lane")
+        await Bun.sleep(10)
+
+        expect(fake.calls.synthetic.map((call) => call.sessionID)).toEqual(["ses_lane"])
+    })
+
     test("past the schedule the session moves down its chain before it is continued", async () => {
         const fake = await setup(fixtureConfig({}, SHORT_BACKOFF), { currentModel: () => MAIN[0] })
         await retry(fake, { model: MAIN[0] as string, status: 429, attempt: 2 })
