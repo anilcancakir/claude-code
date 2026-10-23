@@ -1,11 +1,41 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test"
-import { cpSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs"
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { matchesRule, parseRule, registerRules } from "../src/rules.ts"
 import { createFakeCtx } from "./fake-ctx.ts"
 
-const REAL_RULES = join(import.meta.dir, "..", "..", "..", ".claude", "rules")
+/**
+ * The shape of this repository's .claude/rules, written per test: the real directory is gitignored, so a fresh
+ * checkout (CI, a pinned install worktree) does not have it.
+ */
+const RULE_FIXTURES: Readonly<Record<string, string>> = {
+    "golden-rules.md": "<!-- No `paths:` on purpose. -->\n\n# Golden Rules\n\n- golden body\n",
+    "ac-plugin.md": [
+        "---",
+        "paths:",
+        '  - "plugins/ac/**/*.md"',
+        '  - "plugins/ac/commands/**"',
+        '  - "plugins/ac/skills/**"',
+        '  - "plugins/ac/agents/**"',
+        "---",
+        "",
+        "# `ac` plugin authoring rules",
+        "",
+    ].join("\n"),
+    "cli-build.md": [
+        "---",
+        "paths:",
+        '  - "cli/**/*.ts"',
+        '  - "cli/ac/**"',
+        '  - "plugins/ac/cli/**"',
+        "---",
+        "",
+        "# CLI build rules",
+        "",
+    ].join("\n"),
+    "hooks.md": ["---", "paths:", '  - "plugins/ac/hooks/**"', "---", "", "# `ac` hook authoring rules", ""].join("\n"),
+}
 
 let root: string
 
@@ -31,7 +61,8 @@ function afterRead(
 beforeEach(() => {
     root = realpathSync(mkdtempSync(join(tmpdir(), "ac-oc-rules-")))
     mkdirSync(join(root, ".git"))
-    cpSync(REAL_RULES, join(root, ".claude", "rules"), { recursive: true })
+    mkdirSync(join(root, ".claude", "rules"), { recursive: true })
+    for (const [name, body] of Object.entries(RULE_FIXTURES)) writeFileSync(join(root, ".claude", "rules", name), body)
 })
 
 afterEach(() => {
