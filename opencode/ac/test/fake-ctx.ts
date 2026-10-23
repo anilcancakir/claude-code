@@ -205,7 +205,12 @@ export function createFakeCtx(input: FakeCtxInput = {}): FakeCtx {
         agent: {
             transform: async (callback: (editor: AgentEditor) => void) => {
                 agentTransforms.push(callback)
-                return { dispose: async () => {} }
+                return {
+                    dispose: async () => {
+                        const index = agentTransforms.indexOf(callback)
+                        if (index !== -1) agentTransforms.splice(index, 1)
+                    },
+                }
             },
         },
         event: { subscribe },

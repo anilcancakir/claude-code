@@ -5,12 +5,14 @@ Read at Stage 3 entry. The skill body carries the bounds that must hold all run;
 
 Every user question below is a `question` tool call: a `questions` array whose entries each carry `header`, `question`, `options` (`label` plus `description`) and, for zero-or-more picks, `multiple: true`. Free text is always available to the user, so no option stands in for "Other".
 
+Under `LANE_MODE` no `question` call below is made. Each one becomes a `pending_decisions[]` entry returned in a `DECISIONS` block, written as `<lane_mode>` in the skill body says; the 3a call becomes `Proceed?` and `TDD?` or `Tests?` as two entries of one block. `QA?` is not asked: the lane records `QA = false`, because `execute --lane` skips the QA pass and an answer would be discarded.
+
 ### 3a. Build the decision tree and surface the synthesis
 
 From the Stage 2 synthesis, extract the open questions. Each question is a node. Edges represent dependencies (answering X opens or closes Y). Group nodes into:
 
 - Sequential nodes: each answer materially affects the next question's framing.
-- Parallel branches: independent decisions that can be batched in one `question` call (up to 4 questions) or expressed as `multiple: true`.
+- Parallel branches: independent decisions that can be batched in one `question` call (up to 4 questions) or expressed as `multiple: true`. Under `LANE_MODE` all independent nodes go in one block with no cap of 4, since the coordinator does the batching into questions.
 
 Surface the synthesis as plain text in the chat before the first question:
 

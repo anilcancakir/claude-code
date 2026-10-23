@@ -12,7 +12,7 @@ const MAIN = ["alpha/one#high", "beta/two#high", "gamma/three#high"]
 const WORKER = ["alpha/code", "beta/two#high", "gamma/three#high"]
 
 /** Attempt at which the default `rateLimitAttempts` lets the fallback act on a 429. */
-const RATE_LIMIT_CAP = 10
+const RATE_LIMIT_CAP = 7
 /** Attempt at which the default `retryAttempts` lets the fallback act on any other retryable status. */
 const RETRY_CAP = 3
 
@@ -129,7 +129,7 @@ describe("main session fallback", () => {
 
         const event = await retry(fake, { model: MAIN[0] as string })
 
-        expect(event.decision).toEqual({ retry: true, delay: 2_000 })
+        expect(event.decision).toEqual({ retry: true, delay: 0 })
         expect(fake.calls.switchModel).toEqual([
             {
                 sessionID: "ses_main",
@@ -173,6 +173,26 @@ describe("main session fallback", () => {
         expect(fake.calls.switchModel.map((call) => call.model)).toEqual([
             modelRef(MAIN[2] as string),
             modelRef(MAIN[1] as string),
+        ])
+    })
+
+    test("from host attempt 10 a failure switches below the per-model cap, so later rungs get the last retries", async () => {
+        const config = loadConfig({
+            env: {},
+            options: { models: { rateLimitAttempts: 10, tiers: { main: MAIN } } },
+        })
+        const fake = await setup(config)
+
+        await retry(fake, { model: MAIN[0] as string, status: 500, attempt: RETRY_CAP })
+        await retry(fake, { model: MAIN[1] as string, attempt: 9 })
+        expect(fake.calls.switchModel).toHaveLength(1)
+
+        const event = await retry(fake, { model: MAIN[1] as string, attempt: 10 })
+
+        expect(event.decision).toEqual({ retry: true, delay: 0 })
+        expect(fake.calls.switchModel.map((call) => call.model)).toEqual([
+            modelRef(MAIN[1] as string),
+            modelRef(MAIN[2] as string),
         ])
     })
 
@@ -291,7 +311,7 @@ describe("main session fallback", () => {
 
         const event = await retry(fake, { model: MAIN[0] as string, attempt: RATE_LIMIT_CAP })
 
-        expect(event.decision).toEqual({ retry: true, delay: 2_000 })
+        expect(event.decision).toEqual({ retry: true, delay: 0 })
         expect(fake.calls.switchModel.map((call) => call.model)).toEqual([modelRef(MAIN[2] as string)])
         expect(fake.calls.prompt).toHaveLength(0)
     })
@@ -301,7 +321,7 @@ describe("main session fallback", () => {
 
         const event = await retry(fake, { model: MAIN[0] as string, status: 500, attempt: RETRY_CAP })
 
-        expect(event.decision).toEqual({ retry: true, delay: 2_000 })
+        expect(event.decision).toEqual({ retry: true, delay: 0 })
         expect(fake.calls.switchModel.map((call) => call.model)).toEqual([modelRef(MAIN[1] as string)])
     })
 
@@ -580,7 +600,7 @@ describe("switch logging", () => {
             await fake.fire.session("prompt", { sessionID: "ses_main" })
 
             expect(info.mock.calls).toEqual([
-                ["ac fallback: alpha/one#high -> beta/two#high (status 429, attempt 10)"],
+                ["ac fallback: alpha/one#high -> beta/two#high (status 429, attempt 7)"],
                 ["ac fallback: beta/two#high -> alpha/one#high (chain head available again)"],
             ])
         } finally {

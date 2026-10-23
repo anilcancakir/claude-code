@@ -1,7 +1,7 @@
 import type { Plugin } from "@opencode/plugin"
 import type { CommandDefinition } from "@opencode/plugin/promise/command"
 
-type Skill = "plan" | "execute" | "commit" | "qa"
+type Skill = "plan" | "execute" | "coordinate" | "commit" | "qa"
 
 /** Descriptions are the frontmatter of the CC plugin, so both hosts list the same command text. */
 const COMMANDS: ReadonlyArray<{ skill: Skill; description: string }> = [
@@ -16,6 +16,12 @@ const COMMANDS: ReadonlyArray<{ skill: Skill; description: string }> = [
         description:
             "Run an approved ac plan to completion, wave by wave, with cost-tiered workers, " +
             "per-wave verification and a final review.",
+    },
+    {
+        skill: "coordinate",
+        description:
+            "Turn a large request into a reviewed roadmap of bundles and drive them through parallel " +
+            "ac/lane worktrees.",
     },
     {
         skill: "commit",

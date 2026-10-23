@@ -33,11 +33,13 @@ interface AttemptWindow {
 }
 
 /**
- * Primary agents whose sessions this module switches. `ac/*` workers are absent on purpose: the execute skill
- * re-spawns them on the model `ac_fallback_next` names, so switching their session here would race that re-spawn.
+ * Agents whose sessions this module switches. `ac/*` workers are absent on purpose: the execute skill re-spawns them
+ * on the model `ac_fallback_next` names, so switching their session here would race that re-spawn. A coordinate lane
+ * is a root session that nothing re-spawns mid-turn, so it falls back in place like the main session.
  */
 const AGENT_TIERS: Readonly<Record<string, string>> = {
     build: "main",
+    "ac/lane": "lane",
 }
 
 /** Splits like opencode's `Model.Ref.parse`: the provider ends at the first slash, the model id may hold more. */
@@ -65,6 +67,14 @@ function modelKey(ref: ModelRef | PlainModel): string {
 
 /** HTTP status whose limit is shared by every provider of a group, so the whole group backs off together. */
 const RATE_LIMIT_STATUS = 429
+
+/**
+ * The host offers one step 10 retries, hook attempts 2 to 11, shared by every model the step runs on
+ * (core/src/model-retry.ts:22-28; past it the hook is never called, session/runner/retry.ts:37-38). From this attempt
+ * on, a failure switches whatever the per-model cap says, so the last two retries go to the next rung instead of the
+ * model that has been failing.
+ */
+const HOST_LAST_SWITCH_ATTEMPT = 10
 
 /** The form chain entries are written in, so a log line reads like the config. */
 function formatRef(model: PlainModel): ModelRef {
@@ -172,7 +182,8 @@ export async function registerFallback(ctx: Context, config: ModelConfig): Promi
         const status = event.error.status
         if (tier === undefined || status === undefined || !config.retryOn.includes(status)) return
         const cap = status === RATE_LIMIT_STATUS ? config.rateLimitAttempts : config.retryAttempts
-        if (modelAttempt(event.sessionID, event.attempt) < cap) return
+        const belowCap = modelAttempt(event.sessionID, event.attempt) < cap
+        if (belowCap && event.attempt < HOST_LAST_SWITCH_ATTEMPT) return
 
         // 2. One action per failure observation: a model already handled this turn, or a switch still in flight,
         //    is a repeat of an observation that was acted on.
@@ -188,12 +199,14 @@ export async function registerFallback(ctx: Context, config: ModelConfig): Promi
         const next = await nextEntry(tier, sessionTried, status)
         if (next === undefined) return
 
-        // 4. Switch and leave the decision alone: the host's next attempt reloads the session and runs on `next`.
-        //    The model's attempts start at this one, so it gets its own cap before the next switch.
+        // 4. Switch and keep the retry: the host's next attempt reloads the session and runs on `next`. The model's
+        //    attempts start at this one, so it gets its own cap before the next switch. The scheduled delay honours
+        //    the failed provider's retry-after (up to 15 min), which says nothing about `next`, so it goes to zero.
         switching.add(event.sessionID)
         try {
             await ctx.session.switchModel({ sessionID: event.sessionID, model: parseModelRef(next) })
             attempts.set(event.sessionID, { offset: event.attempt - 1, last: event.attempt })
+            if (event.decision.retry) event.decision = { retry: true, delay: 0 }
             console.info(
                 `ac fallback: ${formatRef(event.model)} -> ${next} (status ${status}, attempt ${event.attempt})`,
             )
@@ -206,6 +219,30 @@ export async function registerFallback(ctx: Context, config: ModelConfig): Promi
     })
 
     await ctx.tool.transform((editor) => {
+        // The skills read routing from here, not from config/models.jsonc: an installed preset replaces those chains
+        // through the plugin options, and only the plugin sees the merged result.
+        editor.add({
+            name: "ac_models",
+            description: [
+                "Returns the model routing this plugin runs on, as JSON: `tiers` maps each tier (an ac agent name",
+                "without the ac/ prefix, plus `main`) to its fallback chain, whose first entry is the model that agent",
+                "starts on; `groups` names the providers that share one rate limit; `maxParallel` is the default",
+                "worker cap per execute wave and `maxLanes` the coordinate lane cap.",
+            ].join(" "),
+            input: {
+                type: "object",
+                properties: {},
+                additionalProperties: false,
+            },
+            execute: async () => ({
+                content: JSON.stringify({
+                    tiers: Object.fromEntries(config.tiers().map((tier) => [tier, config.chain(tier)])),
+                    groups: config.groups,
+                    maxParallel: config.maxParallel,
+                    maxLanes: config.maxLanes,
+                }),
+            }),
+        })
         editor.add({
             name: "ac_fallback_next",
             description: [

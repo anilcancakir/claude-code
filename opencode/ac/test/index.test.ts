@@ -90,9 +90,16 @@ describe("plugin entry", () => {
         expect(hooks.session).toEqual(expect.arrayContaining(["context", "compaction", "generate", "retry"]))
         expect(hooks.permission).toContain("evaluate")
         expect(hooks.tool).toEqual(expect.arrayContaining(["execute.before", "execute.after"]))
-        expect([...fake.tools.keys()]).toEqual(expect.arrayContaining(["ac_session", "ac_fallback_next"]))
+        expect([...fake.tools.keys()]).toEqual(expect.arrayContaining([
+            "ac_session",
+            "ac_fallback_next",
+            "ac_models",
+            "ac_lane_start",
+            "ac_lane_send",
+        ]))
         expect(fake.commands.map((command) => command.name).sort()).toEqual([
             "ac/commit",
+            "ac/coordinate",
             "ac/execute",
             "ac/plan",
             "ac/qa",

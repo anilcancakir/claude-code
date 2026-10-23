@@ -83,6 +83,21 @@
             "codefast-glm/glm-5.3#high",
             "codefast-qwen/qwen3.8-flash#high",
             "anthropic/claude-sonnet-5-5#high"
+        ],
+        // A coordinate lane orchestrates one bundle's plan and execute runs, the main session's job inside a
+        // worktree, so it takes the main chain's builder. The verifier judges finished work against frozen
+        // criteria, so it takes the independent reviewer family first, as the oracle does.
+        "lane": [
+            "codefast-glm/glm-5.3#high",
+            "codefast-kimi/kimi-k3#high",
+            "codefast-deepseek/deepseek-v4.1-flash-1017#high",
+            "anthropic/claude-opus-5-5#high"
+        ],
+        "auto-verifier": [
+            "codefast-kimi/kimi-k3#max",
+            "codefast-glm/glm-5.3#max",
+            "codefast-deepseek/deepseek-v4.1-flash-1017#max",
+            "anthropic/claude-opus-5-5#high"
         ]
     },
     "cooldownSeconds": 30,
@@ -91,15 +106,21 @@
     // after a switch, on the new model.
     "retryAttempts": 3,
     // A 429 is an RPM limit that clears within seconds, so the host keeps retrying (it honours retry-after)
-    // until this attempt before the fallback acts.
-    "rateLimitAttempts": 10,
+    // until this attempt before the fallback acts. The host gives a step 10 retries across all its models, so this
+    // stays low enough to leave the later rungs a few of them; from attempt 10 any failure switches.
+    "rateLimitAttempts": 7,
     // Providers behind one shared rate limit. A failed 429 cools the whole group down, so the fallback skips
     // to an entry outside it. A provider not listed here is its own group. All four codefast endpoints
-    // share one group:unlimited limit (25 RPM).
+    // share one group:unlimited limit (25 RPM). The GPT unlimited endpoint is listed as a group of its own so the
+    // skills' shared-limit cap applies under the gpt-unlimited preset too: it allows 4 concurrent requests.
     "groups": {
-        "codefast": ["codefast-glm", "codefast-kimi", "codefast-deepseek", "codefast-qwen"]
+        "codefast": ["codefast-glm", "codefast-kimi", "codefast-deepseek", "codefast-qwen"],
+        "codefast-gpt-unlimited": ["codefast-gpt-unlimited"]
     },
     // Default cap on ac workers running at once in an execute wave (--max-parallel overrides it). Every turn of a
     // worker spends several requests of the one shared 25 RPM group, so a wider wave mostly waits on 429s.
-    "maxParallel": 3
+    "maxParallel": 3,
+    // Cap on coordinate lanes working at once per coordinator, reported by ac_lane_start and kept by the coordinate
+    // skill. Each lane runs its own workers, so lanes multiply the load on that same 25 RPM group.
+    "maxLanes": 2
 }

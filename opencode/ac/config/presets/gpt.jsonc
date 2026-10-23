@@ -1,0 +1,78 @@
+{
+    // GPT routing preset on the codefast codex-api package (`bun scripts/install.ts --preset gpt`), rendered the same way
+    // as presets/claude.jsonc. Needs an active codefast Codex package or PAYG balance; without one every GPT request
+    // answers 403 and the session shows the error.
+    //
+    // codefast counts requests with a per-model multiplier: gpt-6-astra 3.75x, gpt-6-sol and gpt-6.1-sol 0.75x,
+    // gpt-6-luna 0.03x. So the Opus-shaped review tiers that run rarely take astra, the main session, the senior worker and
+    // the lane take 6.1-sol, the workhorse tiers take 6-sol, and quick, explore and titles take luna. Each chain falls
+    // back to a second GPT entry, then to the head of its default codefast chain (its own rate-limit group).
+    "title": "codefast-gpt/gpt-6-luna#low",
+    "tiers": {
+        "main": [
+            "codefast-gpt/gpt-6.1-sol#high",
+            "codefast-gpt/gpt-6-sol#high",
+            "codefast-glm/glm-5.3#high"
+        ],
+        "oracle": [
+            "codefast-gpt/gpt-6-astra#high",
+            "codefast-gpt/gpt-6.1-sol#xhigh",
+            "codefast-kimi/kimi-k3#max"
+        ],
+        "plan-reviewer": [
+            "codefast-gpt/gpt-6.1-sol#high",
+            "codefast-gpt/gpt-6-astra#medium",
+            "codefast-kimi/kimi-k3#high"
+        ],
+        "plan-code-review": [
+            "codefast-gpt/gpt-6-astra#high",
+            "codefast-gpt/gpt-6.1-sol#xhigh",
+            "codefast-glm/glm-5.3#max"
+        ],
+        "plan-worker-senior": [
+            "codefast-gpt/gpt-6.1-sol#xhigh",
+            "codefast-gpt/gpt-6-astra#medium",
+            "codefast-glm/glm-5.3#max"
+        ],
+        "plan-worker-junior-high": [
+            "codefast-gpt/gpt-6-sol#high",
+            "codefast-gpt/gpt-6.1-sol#medium",
+            "codefast-deepseek/deepseek-v4.1-flash-1017#high"
+        ],
+        "plan-worker-junior": [
+            "codefast-gpt/gpt-6-sol#medium",
+            "codefast-gpt/gpt-6.1-sol#medium",
+            "codefast-deepseek/deepseek-v4.1-flash-1017#high"
+        ],
+        "plan-worker-quick": [
+            "codefast-gpt/gpt-6-luna#medium",
+            "codefast-gpt/gpt-6-sol#low",
+            "codefast-deepseek/deepseek-v4.1-flash-1017#low"
+        ],
+        "explore": [
+            "codefast-gpt/gpt-6-luna#low",
+            "codefast-gpt/gpt-6-sol#low",
+            "codefast-deepseek/deepseek-v4.1-flash-1017#low"
+        ],
+        "librarian": [
+            "codefast-gpt/gpt-6-luna#high",
+            "codefast-gpt/gpt-6-sol#medium",
+            "codefast-deepseek/deepseek-v4.1-flash-1017#high"
+        ],
+        "qa-tester": [
+            "codefast-gpt/gpt-6-sol#medium",
+            "codefast-gpt/gpt-6-luna#high",
+            "codefast-deepseek/deepseek-v4.1-flash-1017#high"
+        ],
+        "lane": [
+            "codefast-gpt/gpt-6.1-sol#high",
+            "codefast-gpt/gpt-6-sol#high",
+            "codefast-glm/glm-5.3#high"
+        ],
+        "auto-verifier": [
+            "codefast-gpt/gpt-6-astra#high",
+            "codefast-gpt/gpt-6.1-sol#xhigh",
+            "codefast-kimi/kimi-k3#max"
+        ]
+    }
+}

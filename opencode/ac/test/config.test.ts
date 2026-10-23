@@ -18,6 +18,8 @@ const TIERS = [
     "explore",
     "librarian",
     "qa-tester",
+    "lane",
+    "auto-verifier",
 ]
 
 const OPUS = "anthropic/claude-opus-5-5"
@@ -38,6 +40,8 @@ const CLAUDE_RUNG: Record<string, ModelRef> = {
     explore: `${HAIKU}#medium`,
     librarian: `${SONNET}#high`,
     "qa-tester": `${SONNET}#high`,
+    lane: `${OPUS}#high`,
+    "auto-verifier": `${OPUS}#high`,
 }
 
 const PRESET_PATH = fileURLToPath(new URL("../config/presets/claude.jsonc", import.meta.url))
@@ -116,6 +120,8 @@ describe("loadConfig defaults", () => {
             explore: "codefast-deepseek/deepseek-v4.1-flash-1017#low",
             librarian: "codefast-deepseek/deepseek-v4.1-flash-1017#high",
             "qa-tester": "codefast-deepseek/deepseek-v4.1-flash-1017#high",
+            lane: "codefast-glm/glm-5.3#high",
+            "auto-verifier": "codefast-kimi/kimi-k3#max",
         })
     })
 
@@ -131,10 +137,10 @@ describe("loadConfig defaults", () => {
         expect(config.retryOn).toEqual([429, 500, 502, 503, 504])
     })
 
-    test("rate limit policy: codefast endpoints share one group and 429 waits ten attempts", () => {
+    test("rate limit policy: codefast endpoints share one group and 429 waits seven attempts", () => {
         const config = loadConfig({ env: {} })
 
-        expect(config.rateLimitAttempts).toBe(10)
+        expect(config.rateLimitAttempts).toBe(7)
         expect(config.groups).toEqual({
             codefast: [
                 "codefast-glm",
@@ -142,11 +148,30 @@ describe("loadConfig defaults", () => {
                 "codefast-deepseek",
                 "codefast-qwen",
             ],
+            "codefast-gpt-unlimited": ["codefast-gpt-unlimited"],
         })
     })
 
     test("an unknown tier throws instead of returning an empty chain", () => {
         expect(() => loadConfig({ env: {} }).chain("nope")).toThrow("nope")
+    })
+
+    test("a malformed chain entry fails the load, naming the tier", () => {
+        expect(() => loadConfig({ env: {}, options: { models: { tiers: { oracle: ["no-slash"] } } } })).toThrow(
+            'Invalid model reference "no-slash" in tier "oracle"',
+        )
+    })
+
+    test("a lane or worker cap below one fails the load", () => {
+        expect(() => loadConfig({ env: {}, options: { models: { maxLanes: 0 } } })).toThrow("maxLanes")
+        expect(() => loadConfig({ env: {}, options: { models: { maxParallel: 1.5 } } })).toThrow("maxParallel")
+    })
+
+    test("tiers lists the tiers that have a chain", () => {
+        const config = loadConfig({ env: {}, options: { models: { tiers: { oracle: [] } } } })
+
+        expect(config.tiers()).toContain("main")
+        expect(config.tiers()).not.toContain("oracle")
     })
 
     test("hasChain answers for configured, unknown and emptied tiers without throwing", () => {
@@ -190,6 +215,47 @@ describe("claude preset", () => {
 
     test("names a fast low-effort Claude title model", () => {
         expect(claudePreset().title).toBe("anthropic/claude-haiku-5-5#low")
+    })
+})
+
+describe("gpt presets", () => {
+    const TEMPLATE_PATH = fileURLToPath(new URL("../templates/opencode.jsonc", import.meta.url))
+    const template = parseJsonc(readFileSync(TEMPLATE_PATH, "utf8"), TEMPLATE_PATH) as {
+        providers: Record<string, { models: Record<string, { capabilities: { reasoning: { effort: string[] } } }> }>
+    }
+    const preset = (name: string): Preset & { maxLanes?: number; maxParallel?: number } => {
+        const path = fileURLToPath(new URL(`../config/presets/${name}.jsonc`, import.meta.url))
+        return parseJsonc(readFileSync(path, "utf8"), path) as Preset
+    }
+
+    for (const [name, provider] of [["gpt", "codefast-gpt"], ["gpt-unlimited", "codefast-gpt-unlimited"]] as const) {
+        test(`${name}: every tier leads with two ${provider} entries, then its default chain head`, () => {
+            const { tiers } = preset(name)
+            const defaults = loadConfig({ env: {} })
+
+            expect(Object.keys(tiers).sort()).toEqual([...TIERS].sort())
+            for (const tier of TIERS) {
+                const chain = tiers[tier] as ModelRef[]
+                expect(chain.slice(0, 2).every((ref) => ref.startsWith(`${provider}/`))).toBe(true)
+                expect(chain[2]).toBe(defaults.chain(tier)[0] as string)
+            }
+        })
+
+        test(`${name}: every GPT entry and the title name a model and a variant the template declares`, () => {
+            const { tiers, title } = preset(name)
+            const refs = [title, ...Object.values(tiers).flat()].filter((ref) => ref.startsWith(`${provider}/`))
+
+            const undeclared = refs.filter((ref) => {
+                const [model, variant] = ref.slice(provider.length + 1).split("#") as [string, string]
+                const declared = template.providers[provider]?.models[model]
+                return !declared?.capabilities.reasoning.effort.includes(variant)
+            })
+            expect(undeclared).toEqual([])
+        })
+    }
+
+    test("gpt-unlimited stays within the endpoint's 4 concurrent requests: one lane, two workers", () => {
+        expect(preset("gpt-unlimited")).toMatchObject({ maxLanes: 1, maxParallel: 2 })
     })
 })
 

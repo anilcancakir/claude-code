@@ -29,6 +29,10 @@ export interface InstallOptions {
 interface Preset {
     title: string
     tiers: Record<string, string[]>
+    /** Coordinate lane cap for this preset's rate limit; absent keeps the default from config/models.jsonc. */
+    maxLanes?: number
+    /** Worker cap per execute wave for this preset's rate limit; absent keeps the default. */
+    maxParallel?: number
 }
 
 /** The slice of the opencode.jsonc template a preset rewrites. */
@@ -106,9 +110,14 @@ export function renderOpencodeJsonc(template: string, repoRoot: string, presetNa
 
     // 2. The plugin reads its chains from the plugin options, which replace the default chain of every tier.
     const pluginPackage = `${repoRoot}/opencode/ac`
+    const models = {
+        tiers: preset.tiers,
+        ...(preset.maxLanes === undefined ? {} : { maxLanes: preset.maxLanes }),
+        ...(preset.maxParallel === undefined ? {} : { maxParallel: preset.maxParallel }),
+    }
     config.plugins = config.plugins.map((entry) =>
         typeof entry === "object" && (entry as { package?: string }).package === pluginPackage
-            ? { package: pluginPackage, options: { models: { tiers: preset.tiers } } }
+            ? { package: pluginPackage, options: { models } }
             : entry,
     )
 
@@ -161,7 +170,8 @@ export function install({ repoRoot, home, dryRun, now, preset = DEFAULT_PRESET }
     const suffix = `.bak-${timestamp(now)}`
 
     const target = join(configDir, "opencode.jsonc")
-    if (existsSync(target)) {
+    // An unchanged file needs no copy, so re-running the same preset leaves no new backup behind.
+    if (existsSync(target) && readFileSync(target, "utf8") !== rendered.text) {
         if (!dryRun) copyFileSync(target, `${target}${suffix}`)
         lines.push(`${verb} copy ${target} -> ${target}${suffix}`)
     }

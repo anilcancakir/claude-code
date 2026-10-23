@@ -9,8 +9,8 @@ The preset splits the work by model shape across four model families on the code
 
 | Model | Shape | Tiers it carries as primary | Role |
 |---|---|---|---|
-| GLM-5.3 (`codefast-glm/glm-5.3`) | Opus-shaped builder | `senior` (variant `max`), plus the main session and `plan-code-review` | Agentic coder trained against a Claude Code shaped harness (ZCode): cross-layer work, architecture, migrations, long-horizon changes where correctness depends on reasoning about behaviour. Reviews the workers' diff because it is a different family from them. |
-| Kimi K3 (`codefast-kimi/kimi-k3`) | independent reviewer | `oracle` (variant `max`) and `plan-reviewer` (variant `high`) | A different family from whoever produced the artifact (planner GLM, so plan-reviewer Kimi; main GLM, so oracle Kimi), so review is a second eye rather than the author re-reading itself. The slowest model in the preset, acceptable because reviews are rare. |
+| GLM-5.3 (`codefast-glm/glm-5.3`) | Opus-shaped builder | `senior` (variant `max`), plus the main session, `plan-code-review` and the coordinate `lane` (variant `high`) | Agentic coder trained against a Claude Code shaped harness (ZCode): cross-layer work, architecture, migrations, long-horizon changes where correctness depends on reasoning about behaviour. Reviews the workers' diff because it is a different family from them. |
+| Kimi K3 (`codefast-kimi/kimi-k3`) | independent reviewer | `oracle` (variant `max`), `plan-reviewer` (variant `high`) and the coordinate `auto-verifier` (variant `max`) | A different family from whoever produced the artifact (planner GLM, so plan-reviewer Kimi; main GLM, so oracle Kimi), so review is a second eye rather than the author re-reading itself. The slowest model in the preset, acceptable because reviews are rare. |
 | DeepSeek V4.1 Flash 1017 (`codefast-deepseek/deepseek-v4.1-flash-1017`) | Sonnet- and Haiku-shaped workhorse | `junior` and `junior-high` (variant `high`), `quick` and `explore` (variant `low`), plus `librarian` and `qa-tester` | Artificial Analysis Intelligence Index 45 (tied with GLM-5.3; Kimi K3 44, Qwen3.8 Flash 40), speed class 4/4 against GLM 3/4, Qwen 2/4, Kimi 1/4; operator test 12/12. Standard implementation, pattern application, mechanical edits and fan-out search. Its sibling `deepseek-v4.1-flash` is the last rung of the fast chains. |
 | Qwen 3.8 Flash (`codefast-qwen/qwen3.8-flash`) | fast fallback | session titles | Second rung of the fast chains and last codefast rung of the junior, librarian and qa-tester chains. |
 | Claude 5.5 (`anthropic/claude-opus-5-5`, `claude-sonnet-5-5`, `claude-haiku-5-5`) | out-of-group last fallback | none in the default preset; every tier under the `claude` preset | Tier-matched as in the Claude Code ac plugin: Opus for main, oracle and plan-code-review (`high`) and plan-reviewer and senior (`medium`); Sonnet at `high` for junior, junior-high, librarian and qa-tester; Haiku at `medium` for quick and explore. Paid per token through an API key, so it is the rung of last resort. |
@@ -18,6 +18,8 @@ The preset splits the work by model shape across four model families on the code
 The codefast rungs sit inside one shared rate-limit group, so they mainly cover model-specific errors (5xx, malformed output) and a group-wide 429 is waited out. The Claude rung is a separate group, so it is the one entry a codefast outage or a sustained 429 can still reach.
 
 The `claude` preset (`/Users/anilcan/Code/claude-code/opencode/ac/config/presets/claude.jsonc`, applied with `bun scripts/install.ts --preset claude`) inverts the order: each chain leads with its Claude model and falls back to the first two codefast entries of the default chain. Re-running the installer without `--preset` restores the default.
+
+Two GPT presets need an active codefast Codex package: `gpt` (`config/presets/gpt.jsonc`, codex-api, counted per request with a model multiplier) leads with `codefast-gpt/gpt-6-astra` for oracle, plan-code-review and auto-verifier, `gpt-6.1-sol` for main, senior, plan-reviewer and lane, `gpt-6-sol` for the workhorse tiers and `gpt-6-luna` for quick, explore and librarian; `gpt-unlimited` (`config/presets/gpt-unlimited.jsonc`, the daily unlimited endpoint, at most 4 concurrent requests) does the same with `gpt-6-astra` and the `gpt-5.6` sol, terra and luna models and caps `maxLanes` at 1 and `maxParallel` at 2. Each GPT chain falls back to a second GPT entry, then to the head of its default codefast chain. Plans read the installed routing through the `ac_models` tool, never this table.
 
 ## Variant
 
@@ -81,6 +83,17 @@ The criticality rule (rule 5) does not route here. It escalates `junior` to `sen
 The execute skill's Phase 1c applies codebase-state escalation: when the plan's `Codebase State` is `legacy` or `chaotic`, every `quick` step is routed to `ac/plan-worker-junior` regardless of the step's declared tier. The plan file is NOT modified by this escalation; it is an in-memory routing decision.
 
 Steps with `Type: verification` skip worker spawn entirely. The orchestrator runs the step's `Commands` directly via `shell` and captures output to the `Evidence` paths. Tier and Why-this-tier are omitted on verification steps; this table does not apply to them.
+
+## Coordinate tiers (used by the coordinate skill, not by plan steps)
+
+Two agents sit outside the plan ladder because no plan step is ever assigned to them. The `coordinate` skill spawns them, and the plugin sets their model to the head of the chain below like any other agent's.
+
+| Tier | Agent | Primary model | Fallback chain, in order | Why |
+|---|---|---|---|---|
+| `lane` | `ac/lane` | `codefast-glm/glm-5.3#high` | `codefast-kimi/kimi-k3#high`, `codefast-deepseek/deepseek-v4.1-flash-1017#high`, `anthropic/claude-opus-5-5#high` | A lane runs one bundle's plan and execute skills inside a worktree, which is the main session's job, so it takes the main chain's builder. |
+| `auto-verifier` | `ac/auto-verifier` | `codefast-kimi/kimi-k3#max` | `codefast-glm/glm-5.3#max`, `codefast-deepseek/deepseek-v4.1-flash-1017#max`, `anthropic/claude-opus-5-5#high` | The verifier judges finished work against frozen criteria, so it takes the independent reviewer family first, as the oracle does. |
+
+Under the `claude` preset both chains lead with `anthropic/claude-opus-5-5#high`, followed by the first codefast entries of the default chain. The preset also raises `maxLanes` from 2 to 3: codefast shares one 25 requests per minute limit across its four providers, and every lane runs its own workers, so two lanes is what that limit carries, while Claude's per-account limit is separate.
 
 ## Sources
 

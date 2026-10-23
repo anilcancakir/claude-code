@@ -44,7 +44,7 @@ nobody asked for. One brief, one angle.
 
 ### 1c. Dedicated reuse-focused explore (counts toward 1d's explore total)
 
-Spawn one `ac/explore` dedicated to the reuse search. This explore is one of the explore slots counted in 1d's floor/target; it is not additional.
+Spawn one `ac/explore` dedicated to the reuse search. This explore is one of the explore slots counted in 1d's floor/target; it is not additional. Under `LANE_MODE` it counts toward the lane's 2 and is skipped when the brief anchors the files and lines.
 
 <reuse_explore_brief>
 CONTEXT: planning <topic>. The user has not yet decided whether to reuse existing code or write new code; that decision depends on what already exists. Directory survey landed at `RESEARCH_DIR/00-directory-survey.md`; anchor your search to the directories the survey flagged as likely homes for similar utilities.
@@ -73,7 +73,9 @@ In the same assistant turn that issues 1c, spawn the rest of the cohort. Use 1a'
   - Brief 3 (when target = 3): production-quality OSS reference examples for the specific shape this plan introduces, OR a second library / framework not covered by briefs 1-2. Brief shape in the same file under `## Brief 3`, framings (a) or (b).
 - `ac/oracle`: **1 only when the request signals architecture intent** (system design, infrastructure, non-trivial trade-offs). Advisory; non-blocking; do not gate on its return. Unchanged from prior behavior.
 
-**Shared rate-limit cap.** When one rate-limit group in `groups` of `../../config/models.jsonc` (relative to this skill's base directory) covers the provider of every chain the cohort runs on, as the shipped config does, cap the cohort at **3 `ac/explore` + 1 `ac/librarian`**, plus the optional `ac/oracle`, and drop the floor and target above. That one group allows 25 requests per minute across every model, and each subagent turn spends several of them, so a ten-agent cohort spends its time on 429 retries instead of finishing sooner. Keep the 1c reuse explore as one of the three and give the librarian brief 1 (idiomatic patterns); fold the known-bugs dimension into it as a second question only when the topic leans on a library version.
+Under `LANE_MODE` the floors do not apply: spawn at most 2 `ac/explore` and 1 `ac/librarian`, each only for an angle the coordinator's brief does not already anchor, none when the brief names the files and lines, and no Stage 1 `ac/oracle`. Several lanes run at once against one shared request rate limit and the coordinator already researched the request, so this cap replaces the shared rate-limit cap below.
+
+**Shared rate-limit cap.** When one rate-limit group in the `groups` the `ac_models` tool returns holds the provider of every chain head the cohort starts on, as the codefast preset does (the Claude last rungs sit outside it but only catch failures), cap the cohort at **3 `ac/explore` + 1 `ac/librarian`**, plus the optional `ac/oracle`, and drop the floor and target above. That one group allows 25 requests per minute across every model, and each subagent turn spends several of them, so a ten-agent cohort spends its time on 429 retries instead of finishing sooner. Keep the 1c reuse explore as one of the three and give the librarian brief 1 (idiomatic patterns); fold the known-bugs dimension into it as a second question only when the topic leans on a library version.
 
 Each brief targets ONE named angle and carries its own `DEPTH` and `BUDGET`. Do not bundle three libraries into one librarian brief, and do not add the reuse dimension to an explore spawned for something else.
 

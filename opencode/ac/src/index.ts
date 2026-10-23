@@ -2,6 +2,7 @@ import { Plugin } from "@opencode/plugin"
 import { registerAgentModels } from "./agent-models.ts"
 import { registerCommands } from "./commands.ts"
 import { loadConfig } from "./config.ts"
+import { registerCoordinate } from "./coordinate.ts"
 import { registerDiagnostics } from "./diagnostics.ts"
 import { registerFallback } from "./fallback.ts"
 import { registerMemory } from "./memory.ts"
@@ -28,11 +29,17 @@ export default Plugin.define({
         // 3. Model chains come from the bundled defaults, overridden by the `models` plugin option. One instance feeds
         //    the agents' starting models and the fallback walk, so both read the same chains.
         const models = loadConfig({ options })
-        await registerAgentModels(ctx, models)
+        const stopAgentModels = await registerAgentModels(ctx, models)
         await registerFallback(ctx, models)
+        // No option: each instance must root itself at its own location, or more than one would relay a lane.
+        const stopCoordinate = await registerCoordinate(ctx, models)
         await registerDiagnostics(ctx, options.diagnostics)
         await registerCommands(ctx)
 
-        return stopRunGuards
+        return () => {
+            stopRunGuards()
+            stopAgentModels()
+            stopCoordinate()
+        }
     },
 })

@@ -28,7 +28,8 @@ const STANDING_RULES = [
     "",
     "Turn termination: your turn ends on a question tool call, the Phase 4b execution summary, or a one-line wait " +
         "status while subagents you spawned still run. Nothing else ends it. Never end a turn by describing what " +
-        "you would do next, and never propose a fresh session to continue the run.",
+        "you would do next, and never propose a fresh session to continue the run. Under --lane (a coordinate " +
+        "lane) there is no question tool: every turn ends with the LANE STATUS block instead.",
     "",
     "Every branch that terminates the run deletes .ac/state/active-execution.json first. While it exists and no " +
         "subagent of this session runs, the ac plugin hands an ended turn back with the outstanding steps.",
@@ -221,7 +222,8 @@ export async function registerRunGuards(ctx: Plugin.Context, options: RunGuardsO
 
     const onSucceeded = async (sessionID: string): Promise<void> => {
         const marker = ownedMarker(sessionID)
-        if (!marker) return
+        // A lane's turn ends on a LANE STATUS block by design; its coordinator, not this guard, acts on it.
+        if (!marker || marker.lane) return
         // Running work wakes the session when it lands, so ending the turn is how the orchestrator waits for it.
         if ([...running.values()].includes(sessionID)) return
 

@@ -12,6 +12,8 @@
     // Claude 429 moves straight to codefast. The variants come from the models.dev catalogue of the built-in
     // `anthropic` provider (low, medium, high, xhigh, max), so templates/opencode.jsonc declares no provider for it.
     "title": "anthropic/claude-haiku-5-5#low",
+    // Claude's rate limit is per account and separate from codefast's shared 25 RPM, so three coordinate lanes fit.
+    "maxLanes": 3,
     "tiers": {
         "main": [
             "anthropic/claude-opus-5-5#high",
@@ -67,6 +69,16 @@
             "anthropic/claude-sonnet-5-5#high",
             "codefast-deepseek/deepseek-v4.1-flash-1017#high",
             "codefast-glm/glm-5.3#high"
+        ],
+        "lane": [
+            "anthropic/claude-opus-5-5#high",
+            "codefast-glm/glm-5.3#high",
+            "codefast-kimi/kimi-k3#high"
+        ],
+        "auto-verifier": [
+            "anthropic/claude-opus-5-5#high",
+            "codefast-kimi/kimi-k3#max",
+            "codefast-glm/glm-5.3#max"
         ]
     }
 }

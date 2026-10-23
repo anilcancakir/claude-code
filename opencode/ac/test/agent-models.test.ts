@@ -102,6 +102,22 @@ describe("registerAgentModels", () => {
         expect(fake.agents.get("ac/plan-worker-junior")?.model?.providerID).toBe("anthropic")
     })
 
+    test("a later activation that re-registers the host's transform behind ours is answered on its update", async () => {
+        const fake = await setup()
+        await settle(fake)
+
+        // A plugin listed after ac changed: the host reloads the suffix and its config transform lands last.
+        await fake.ctx.agent.transform((editor) => {
+            for (const agent of editor.list()) agent.model = { ...FRONTMATTER } as never
+        })
+        fake.applyTransforms()
+        expect(fake.agents.get("ac/plan-worker-junior")?.model).toEqual(FRONTMATTER)
+
+        await settle(fake)
+
+        expect(fake.agents.get("ac/plan-worker-junior")?.model?.providerID).toBe("anthropic")
+    })
+
     test("ignores every other event type", async () => {
         const fake = await setup()
 

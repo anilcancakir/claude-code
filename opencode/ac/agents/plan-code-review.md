@@ -37,6 +37,9 @@ permissions:
   - action: "ac_*"
     resource: "*"
     effect: allow
+  - action: "ac_lane_*"
+    resource: "*"
+    effect: deny
   - action: edit
     resource: "~/.claude/projects/**"
     effect: deny

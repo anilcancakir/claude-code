@@ -20,9 +20,13 @@ export interface ModelsConfigFile {
     groups?: Record<string, string[]>
     /** Default cap on workers running at once in an execute wave. */
     maxParallel?: number
+    /** Cap on coordinate lanes working at once per coordinator. */
+    maxLanes?: number
 }
 
 export interface ModelConfig {
+    /** Every tier with a non-empty chain. */
+    tiers(): readonly string[]
     /** Whether `tier` has a non-empty chain, so a caller can skip a tier instead of catching `chain`'s throw. */
     hasChain(tier: string): boolean
     chain(tier: string): readonly ModelRef[]
@@ -34,6 +38,8 @@ export interface ModelConfig {
     readonly groups: Readonly<Record<string, readonly string[]>>
     /** Default cap on workers running at once in an execute wave; `--max-parallel` overrides it per run. */
     readonly maxParallel: number
+    /** Coordinate lanes working at once per coordinator; `ac_lane_start` reports it and the skill keeps it. */
+    readonly maxLanes: number
 }
 
 export interface LoadConfigInput {
@@ -43,6 +49,9 @@ export interface LoadConfigInput {
 }
 
 const DEFAULTS_URL = new URL("../config/models.jsonc", import.meta.url)
+
+/** `provider/model` or `provider/model#variant`; the model id may hold slashes, as Model.Ref.parse allows. */
+const MODEL_REF = /^[^/#\s]+\/[^#\s]+(#[^#\s]+)?$/
 
 /**
  * Removes comments and trailing commas outside string literals. A regex pass would corrupt
@@ -106,6 +115,7 @@ function merge(base: ModelsConfigFile, override: ModelsConfigFile): ModelsConfig
         rateLimitAttempts: override.rateLimitAttempts ?? base.rateLimitAttempts,
         groups: override.groups ?? base.groups,
         maxParallel: override.maxParallel ?? base.maxParallel,
+        maxLanes: override.maxLanes ?? base.maxLanes,
     }
 }
 
@@ -127,7 +137,20 @@ export function loadConfig(input: LoadConfigInput = {}): ModelConfig {
 
     const hasChain = (tier: string): boolean => (tiers[tier]?.length ?? 0) > 0
 
+    // 3. A malformed ref would throw later inside an agent transform, and a failing transform disables the whole
+    //    plugin (core/src/plugin/state.ts:182-183), so it fails here instead, naming the tier.
+    for (const [tier, refs] of Object.entries(tiers)) {
+        const invalid = refs.find((ref) => !MODEL_REF.test(ref))
+        if (invalid !== undefined) throw new Error(`Invalid model reference "${invalid}" in tier "${tier}"`)
+    }
+    //    A cap below one would leave a wave or a coordinate run unable to start anything.
+    for (const [key, value] of [["maxParallel", merged.maxParallel], ["maxLanes", merged.maxLanes]] as const) {
+        if (Number.isInteger(value) && (value as number) >= 1) continue
+        throw new Error(`${key} must be a whole number of at least 1`)
+    }
+
     return {
+        tiers: () => Object.keys(tiers).filter(hasChain),
         hasChain,
         chain(tier) {
             if (!hasChain(tier)) throw new Error(`No model chain configured for tier "${tier}"`)
@@ -139,5 +162,6 @@ export function loadConfig(input: LoadConfigInput = {}): ModelConfig {
         cooldownSeconds: merged.cooldownSeconds ?? 0,
         groups: merged.groups ?? {},
         maxParallel: merged.maxParallel ?? 0,
+        maxLanes: merged.maxLanes ?? 0,
     }
 }

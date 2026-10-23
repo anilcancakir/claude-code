@@ -199,7 +199,18 @@ describe("install re-run on an ac v2 install", () => {
         install({ repoRoot: REPO_ROOT, home, dryRun: false, now: new Date(2026, 9, 25, 10, 0, 0) })
 
         expect(existsSync(join(configDir(), "cli.json.bak-20261025-100000"))).toBe(false)
-        expect(existsSync(join(configDir(), "opencode.jsonc.bak-20261025-100000"))).toBe(true)
+    })
+
+    test("re-running the same preset leaves no new opencode.jsonc backup, a changed file still gets one", () => {
+        seedV2()
+        install({ repoRoot: REPO_ROOT, home, dryRun: false, now: LATER })
+
+        install({ repoRoot: REPO_ROOT, home, dryRun: false, now: new Date(2026, 9, 25, 10, 0, 0) })
+        expect(existsSync(join(configDir(), "opencode.jsonc.bak-20261025-100000"))).toBe(false)
+
+        writeFileSync(join(configDir(), "opencode.jsonc"), "{ // hand edit\n}")
+        install({ repoRoot: REPO_ROOT, home, dryRun: false, now: new Date(2026, 9, 26, 10, 0, 0) })
+        expect(readFileSync(join(configDir(), "opencode.jsonc.bak-20261026-100000"), "utf8")).toContain("hand edit")
     })
 
     test("a first install, which has nothing to overwrite, leaves no backup file", () => {
@@ -344,7 +355,7 @@ describe("rendered opencode.jsonc", () => {
         ])
     })
 
-    test("the codefast providers declare only the four routed model families", () => {
+    test("the codefast providers declare the four routed families and the two GPT packages", () => {
         const { providers } = render()
 
         expect(Object.fromEntries(Object.entries(providers).map(([id, provider]) => [id, Object.keys(provider.models)])))
@@ -353,7 +364,23 @@ describe("rendered opencode.jsonc", () => {
                 "codefast-kimi": ["kimi-k3"],
                 "codefast-deepseek": ["deepseek-v4.1-flash-1017", "deepseek-v4.1-flash"],
                 "codefast-qwen": ["qwen3.8-flash"],
+                "codefast-gpt": ["gpt-6-astra", "gpt-6.1-sol", "gpt-6-sol", "gpt-6-luna"],
+                "codefast-gpt-unlimited": ["gpt-6-astra", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"],
             })
+    })
+
+    test("the GPT providers are native Responses endpoints on the same key, with no default chain routed to them", () => {
+        const { providers } = render()
+        const chains = loadConfig({ env: {} })
+
+        for (const id of ["codefast-gpt", "codefast-gpt-unlimited"]) {
+            const provider = providers[id] as (typeof providers)[string]
+            expect(provider.package).toBe("@opencode/ai/providers/openai/responses")
+            expect(provider.settings.apiKey).toBe("{env:CODEFAST_API_KEY}")
+            for (const tier of chains.tiers()) {
+                expect(chains.chain(tier).some((ref) => ref.startsWith(`${id}/`))).toBe(false)
+            }
+        }
     })
 
     test("the default and build models are the head of the main chain, the title model a fast low variant", () => {
@@ -365,16 +392,12 @@ describe("rendered opencode.jsonc", () => {
         expect(config.agents.title?.model).toBe("codefast-qwen/qwen3.8-flash#low")
     })
 
-    test("each codefast provider is an openai-compatible endpoint keyed by an env substitution", () => {
+    test("each routed codefast provider is an openai-compatible endpoint keyed by an env substitution", () => {
         const { providers } = render()
+        const routed = ["codefast-deepseek", "codefast-glm", "codefast-kimi", "codefast-qwen"]
 
-        expect(Object.keys(providers).sort()).toEqual([
-            "codefast-deepseek",
-            "codefast-glm",
-            "codefast-kimi",
-            "codefast-qwen",
-        ])
-        for (const provider of Object.values(providers)) {
+        expect(Object.keys(providers).filter((id) => !id.startsWith("codefast-gpt")).sort()).toEqual(routed)
+        for (const provider of routed.map((id) => providers[id] as (typeof providers)[string])) {
             expect(provider.package).toBe("aisdk:@ai-sdk/openai-compatible")
             expect(provider.settings.apiKey).toBe("{env:CODEFAST_API_KEY}")
             expect(provider.settings.baseURL).toMatch(/^https:\/\/api\.codefast\.app\/[a-z0-9-]+\/v1$/)
@@ -392,8 +415,9 @@ describe("rendered opencode.jsonc", () => {
 
         expect(config.default_agent).toBe("build")
         for (const id of ["plan", "explore", "general"]) expect(config.agents[id]?.disabled).toBe(true)
-        expect(config.plugins.slice(0, 6)).toEqual([
+        expect(config.plugins.slice(0, 7)).toEqual([
             "*",
+            "-opencode.prompt.verbosity",
             "-opencode.prompt.openai",
             "-opencode.prompt.kimi",
             "-opencode.prompt.anthropic",
@@ -477,7 +501,7 @@ describe("install --preset claude", () => {
 
         expect(pluginEntry(rendered)).toEqual({
             package: `${REPO_ROOT}/opencode/ac`,
-            options: { models: { tiers: claudePreset().tiers } },
+            options: { models: { tiers: claudePreset().tiers, maxLanes: 3 } },
         })
         expect(loadConfig({ env: {}, options: { models: { tiers: claudePreset().tiers } } }).chain("oracle")[0])
             .toBe("anthropic/claude-opus-5-5#high")

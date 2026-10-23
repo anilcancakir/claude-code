@@ -8,13 +8,15 @@ description: "Run an approved ac plan to completion, wave by wave, with cost-tie
 
 Executor that runs an approved plan to completion. Auto-continue between waves: never asks "should I continue". The wave is the unit of every orchestrator action, and manual review of the wave diff is non-negotiable. Final code-review gates the deliver.
 
-Plan: the request this skill was loaded with. `/ac/execute` passes the user's argument text (a plan slug or path, plus flags); the `plan` skill's auto chain passes `<slug> --auto`. Skills take no arguments, so that request text is the whole input.
+Plan: the request this skill was loaded with. `/ac/execute` passes the user's argument text (a plan slug or path, plus flags); the `plan` skill's auto chain passes `<slug> --auto`; the `ac/lane` agent passes `<bundle-id> --lane --max-parallel <N>`. Skills take no arguments, so that request text is the whole input.
 
 ## Standing rules
 
 These hold for the whole run, including after a compaction. Everything below this block is procedure; these are the bounds. They sit here because a compaction drops the loaded skill body: opencode keeps a summary plus the recent turns, and while you own a live marker the ac plugin re-injects a fixed copy of these bounds into every request and posts a note telling you to load this skill again (`../../src/run-guards.ts`). Until you do, a rule further down is gone from context on exactly the long runs that need it.
 
 **Turn termination.** Your turn ends on exactly one of: a `question` tool call, the Phase 4b execution summary, a named BLOCKER from `<auto_mode>`, or a one-line wait status while background subagents you spawned still run (each completion notification starts your next turn; never wait with a `sleep` or polling loop). Nothing else ends it. Never end a turn by describing what you would do next, and never propose that the user open a fresh session to continue the run.
+
+Under `LANE_MODE` (set by `--lane`: this run is an `ac/lane` session, which has no `question` tool and whose coordinator sees only its last message of each turn) the legal turn end is the lane status block defined in `../coordinate/references/lane-protocol.md`, and every turn ends with one. `status: WORKING` replaces the one-line wait status while workers run, `status: BLOCKED` replaces `question` at every BLOCKER (see `<auto_mode>`), `status: DONE` ends Phase 4b, and `status: FAILED` ends a halt that has no option to offer (plan not found, a truncated plan, a count mismatch). A lane never calls `question`, never pushes and never loads the `qa` skill.
 
 Every branch that terminates the run deletes `.ac/state/active-execution.json` first. That is not bookkeeping. While the marker exists, no subagent of this session is running, and your turn ends, the ac plugin's stop guard sends a synthetic continuation that names the unchecked steps from the plan file and tells you to continue (`../../src/run-guards.ts`). It sends at most one per stall (your next tool call ends the stall) and three per user prompt, and a user interrupt silences it. The marker's absence is what lets a terminal stop stay stopped.
 
@@ -100,6 +102,8 @@ code-review.
 | Wave checkpoint commit failed | BLOCKER | surfaces |
 | Verification failed on a step a later wave needs | BLOCKER | surfaces |
 
+`LANE_MODE` implies `AUTO_MODE`, so the 2a flow gate resolves as above. Under `LANE_MODE` no gate calls `question`: every BLOCKER row, plus each other site below that names one (the 1g and 2c plan-spec branch, the third briefing gap at 2e, 3c, and the 2f surface-first patch, all class `3c`), ends the turn with a `status: BLOCKED` block. Its `blocker` carries the class from `lane-protocol.md` (`2i`, `2j`, `3c` or `commit`), the question, the options the `question` call would have offered as single-token labels, and the recommended label. The marker stays, because the run resumes rather than ends. A `RESOLVE <label>` message continues as if the user had chosen that label, including that option's own marker handling: an option that stops the run deletes the marker and ends with `status: FAILED`.
+
 Flow gates resolve to the `(Recommended)` option and emit one heartbeat line. BLOCKER gates surface whatever the mode,
 because each needs judgment auto mode cannot supply: a dependency failure, three accumulated failures, a wrong plan, a
 commit failure hiding repo state, or lost downstream work. Before surfacing one, emit a line naming which class fired.
@@ -118,7 +122,8 @@ Nothing to load. The `question` tool is available directly, and there is no task
 ### 1a. Parse arguments
 
 - Strip `--auto` if present: `AUTO_MODE = true`. Engages auto mode per the `<auto_mode>` policy: auto-resolve the flow gates, halt only on BLOCKER classes. When this skill was chained from the `plan` skill's Stage 6 auto handoff, that skill loaded this one and continued with `<slug> --auto` as the request, so the flag arrives in the request text.
-- Strip `--max-parallel N` if present: `MAX_PARALLEL = N`, the cap on workers running at once within a wave (2c). Without the flag, `MAX_PARALLEL` is `maxParallel` from `../../config/models.jsonc` (relative to this skill's base directory, the file 1c reads its chains from), 3 in the shipped config: every chain sits in one rate-limit group of 25 requests per minute, and each worker turn spends several requests, so a wider wave mostly waits on 429s.
+- Strip `--lane` if present: `LANE_MODE = true`. Set by the `ac/lane` agent that `/ac/coordinate` dispatches. Implies `AUTO_MODE = true`, `NO_QA = true` (parallel lanes would collide on dev-server ports) and no push at 4a. The turn-end and BLOCKER behaviour is in `## Standing rules` and `<auto_mode>`.
+- Strip `--max-parallel N` if present: `MAX_PARALLEL = N`, the cap on workers running at once within a wave (2c). Without the flag, `MAX_PARALLEL` is `maxParallel` from the `ac_models` tool (1c), 3 in the shipped config: the codefast chain heads all sit in one rate-limit group of 25 requests per minute, and each worker turn spends several requests, so a wider wave mostly waits on 429s.
 - Strip `--no-oracle` if present: `NO_ORACLE = true`. Phase 3 spawns `ac/oracle` beside the reviewer when the change touches one of the six criticality surfaces; this flag opts out of that.
 - Strip `--no-qa` if present: `NO_QA = true`. Skips the Phase 3e QA pass whatever the plan's `**QA**` line says.
 - Strip `--no-checkpoint-commits` if present: `NO_CHECKPOINT_COMMITS = true`. Disables wave-after commits; Phase 4 final commit still runs.
@@ -141,14 +146,18 @@ zero in flat-style plans and would otherwise be mistaken for the plan-level swit
 
 ### 1c. Tier routing and escalation
 
-| Tier | Subagent | Model chain (`../../config/models.jsonc`, relative to this skill's base directory) |
+| Tier | Subagent | Model chain (from `ac_models`) |
 |---|---|---|
 | `quick` | `ac/plan-worker-quick` | `tiers.plan-worker-quick` |
 | `junior` | `ac/plan-worker-junior` | `tiers.plan-worker-junior` |
 | `junior-high` | `ac/plan-worker-junior-high` | `tiers.plan-worker-junior-high` |
 | `senior` | `ac/plan-worker-senior` | `tiers.plan-worker-senior` |
 
-Read that file once here and hold each tier's chain, plus the `oracle` and `plan-code-review` chains for Phase 3.
+Call the `ac_models` tool once here and hold each tier's chain, plus the `oracle` and `plan-code-review` chains for
+Phase 3, its `groups` and its `maxParallel`. Read the routing from the tool, never from `config/models.jsonc`: an
+installed preset (`install.ts --preset claude`) replaces those chains through the plugin options, the plugin moves
+every agent to its preset head, and the file still holds the default chains, so a skill reading the file would
+report the wrong model as tried at 2e.
 The head of a chain is the agent's own `model`, written as `provider/model#variant`, so an attempt that omits
 `model` runs on it; the entries after it are what `ac_fallback_next` walks at 2e.
 
@@ -182,7 +191,7 @@ the bounds above on every request of the owning session, the compaction recovery
 the stop guard continues a turn that ended with the run unfinished. Call the `ac_session` tool first; it returns
 `session_id` and `root_session_id` as JSON. Fields: `slug`, `session_id` and `root_session_id` (copy exactly what
 `ac_session` returned, never derive or recall them; the root id is what scopes every guard to this run),
-`harness` (exactly `"opencode"`; without it the plugin reads the marker as Claude Code's and ignores it), `started_at`
+`harness` (exactly `"opencode"`; without it the plugin reads the marker as Claude Code's and ignores it), `lane` (only under `LANE_MODE`: exactly `true`, so the stop guard leaves the nudge to the coordinator, the lane's supervisor; omit the field otherwise), `started_at`
 (24-hour age bound; take it from `date -u +%Y-%m-%dT%H:%M:%SZ`, never from your own sense of the time, since a local
 time with a `Z` reads as the future), `current_wave`, `wave_files`, `note`. Schema and per-field reasoning at
 `references/execution-state.md`.
@@ -848,13 +857,13 @@ Goal: commit the work, generate the dev report, render the execution summary.
 commit would snapshot it as this plan's deliverable. Skip it, say so in one line, and record it in the report under
 `## Commits` with the path and the count. The plan's `Git context:` field is a hint; git state is authoritative.
 
-Otherwise load the `commit` skill and run it on the request `--skip-preflight`:
+Otherwise load the `commit` skill and run it on the request `--skip-preflight`, plus `--no-push` when `LANE_MODE` is true (nobody is present to approve an outward-facing action, so a lane's final commit stays local; only the coordinator publishes):
 
 ```
-skill({ id: "commit" })    // then continue with the request: --skip-preflight
+skill({ id: "commit" })    // then continue with the request: --skip-preflight (plus --no-push under LANE_MODE)
 ```
 
-This is the final commit and it pushes as the `commit` skill does. Phase 2d and Phase 3 already covered the
+Outside a lane this is the final commit and it pushes as the `commit` skill does. Phase 2d and Phase 3 already covered the
 verification `--skip-preflight` refers to. A clean tree exits silently, which is fine.
 
 ### 4b. Report and summary
@@ -867,4 +876,4 @@ retry also fails, so the work is not lost in chat history.
 Then render the closing summary inline from `references/execution-summary-template.md`. The
 summary is chat output; `report.md` is the file artifact.
 
-End the turn.
+End the turn. Under `LANE_MODE` the last thing written is the `status: DONE` block, with `report.md` in `artifacts`.
