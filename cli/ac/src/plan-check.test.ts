@@ -330,13 +330,29 @@ test("waves named under Execution Strategy are compared for the flat steps they 
     ]);
 });
 
-test("a step named in two strategy waves belongs to the first, and plural mentions name no wave", () => {
+test("a step a second wave also names is left without a wave, so a passing mention raises nothing", () => {
     const source = strategyLayout(
-        "#### Wave 1\n\nStep 1.\n\n#### Wave 2\n\nStep 2, after Step 1; Steps 1 and 2 share nothing new.",
+        "#### Wave 1\n\nStep 1, which Step 2 also needs.\n\n#### Wave 2\n\nStep 2.",
         ["/repo/tests/Feature/ActionHistoryTest.php"],
     );
 
     expect(errors(checkPlan(source).filter((finding) => finding.scope.startsWith("wave")))).toEqual([]);
+});
+
+test("bullet waves with plural and ranged step lists are read like headings", () => {
+    const source = strategyLayout(
+        "- Wave 1: Steps 1-2 (the column and the batch).",
+        ["/repo/tests/Feature/ActionHistoryTest.php"],
+    );
+
+    expect(errors(checkPlan(source))).toHaveLength(1);
+});
+
+test("a directory in Files names no single file and is not compared", () => {
+    const source = strategyLayout("- Wave 1: Steps 1 and 2.", ["/repo/tests/Feature"])
+        .replace("        - /repo/tests/Feature/ActionHistoryTest.php", "        - /repo/tests/Feature");
+
+    expect(errors(checkPlan(source))).toEqual([]);
 });
 
 test("a Files entry counts only its path: a label, a trailing comma and a prose note are no path", () => {

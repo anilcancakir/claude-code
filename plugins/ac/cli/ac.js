@@ -38478,14 +38478,32 @@ var WAVE_TOKEN = /^#{2,6}\s+Wave\s+([^\s:]+)/;
 function filePath(entry) {
   for (const raw of entry.replace(/`/g, "").split(/\s+/)) {
     const token = raw.replace(/^[([]+/, "").replace(/[,;:)\]]+$/, "");
-    if (token.includes("/") || /\.[A-Za-z0-9]+$/.test(token)) {
+    if (/\.[A-Za-z0-9]+$/.test(token.split("/").at(-1) ?? "")) {
       return token;
     }
   }
   return;
 }
+function namedSteps(text) {
+  const numbers = [];
+  const list = /\bSteps?\s+(\d+(?:\s*-\s*\d+)?(?:\s*(?:,|and|&|\+)\s*\d+(?:\s*-\s*\d+)?)*)/g;
+  for (const match of text.matchAll(list)) {
+    for (const item of (match[1] ?? "").split(/\s*(?:,|and|&|\+)\s*/)) {
+      const [from, to] = item.split(/\s*-\s*/).map((value) => Number.parseInt(value, 10));
+      if (from === undefined || Number.isNaN(from)) {
+        continue;
+      }
+      const last = to === undefined || Number.isNaN(to) || to < from || to - from > 50 ? from : to;
+      for (let step = from;step <= last; step++) {
+        numbers.push(String(step));
+      }
+    }
+  }
+  return numbers;
+}
+var STRATEGY_WAVE = /^(?:#{2,6}\s+|\s*[-*]\s+\**)Wave\s+([^\s:*.,)]+)/;
 function strategyWaves(lines) {
-  const waves = new Map;
+  const named = new Map;
   let inStrategy = false;
   let wave;
   for (const line of lines) {
@@ -38497,20 +38515,24 @@ function strategyWaves(lines) {
     if (!inStrategy) {
       continue;
     }
-    const heading = WAVE_TOKEN.exec(line);
+    const heading = STRATEGY_WAVE.exec(line);
     if (heading !== null) {
       wave = heading[1];
-    } else if (line.startsWith("#")) {
+    } else if (line.startsWith("#") || /^\s*[-*]\s/.test(line)) {
       wave = undefined;
       continue;
     }
     if (wave === undefined) {
       continue;
     }
-    for (const match of line.matchAll(/\bStep\s+(\d+)\b/g)) {
-      if (!waves.has(match[1] ?? "")) {
-        waves.set(match[1] ?? "", wave);
-      }
+    for (const step of namedSteps(line)) {
+      named.set(step, (named.get(step) ?? new Set).add(wave));
+    }
+  }
+  const waves = new Map;
+  for (const [step, owners] of named) {
+    if (owners.size === 1) {
+      waves.set(step, [...owners][0]);
     }
   }
   return waves;
@@ -40043,4 +40065,4 @@ function formatSyncReport(report) {
 }
 await program2.parseAsync(process.argv);
 
-//# debugId=542C40DE8CA9D75764756E2164756E21
+//# debugId=09800FC373AE811464756E2164756E21

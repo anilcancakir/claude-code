@@ -136,26 +136,47 @@ function parseSteps(lines: string[]): ParsedStep[] {
 
 const WAVE_TOKEN = /^#{2,6}\s+Wave\s+([^\s:]+)/;
 
-/** The path in a Files entry: its first token that looks like one, without backticks, a label or punctuation. */
+/** The file in a Files entry: its first token whose last segment has an extension, without labels or punctuation. */
 function filePath(entry: string): string | undefined {
     for (const raw of entry.replace(/`/g, "").split(/\s+/)) {
         const token = raw.replace(/^[([]+/, "").replace(/[,;:)\]]+$/, "");
-        // A path has a slash or an extension; "NEW:", "same service + test (new)" and a verification step's
-        // "(no source edits; runs commands)" have neither.
-        if (token.includes("/") || /\.[A-Za-z0-9]+$/.test(token)) {
+        // A directory ("backend/tests"), a label ("NEW:") and prose name no single file, so they compare nothing.
+        if (/\.[A-Za-z0-9]+$/.test(token.split("/").at(-1) ?? "")) {
             return token;
         }
     }
     return undefined;
 }
 
+/** The step numbers a sentence names: "Step 4", "Steps 1, 3 and 5", "Steps 9-13". */
+function namedSteps(text: string): string[] {
+    const numbers: string[] = [];
+    const list = /\bSteps?\s+(\d+(?:\s*-\s*\d+)?(?:\s*(?:,|and|&|\+)\s*\d+(?:\s*-\s*\d+)?)*)/g;
+    for (const match of text.matchAll(list)) {
+        for (const item of (match[1] ?? "").split(/\s*(?:,|and|&|\+)\s*/)) {
+            const [from, to] = item.split(/\s*-\s*/).map((value) => Number.parseInt(value, 10));
+            if (from === undefined || Number.isNaN(from)) {
+                continue;
+            }
+            const last = to === undefined || Number.isNaN(to) || to < from || to - from > 50 ? from : to;
+            for (let step = from; step <= last; step++) {
+                numbers.push(String(step));
+            }
+        }
+    }
+    return numbers;
+}
+
+/** A wave under `## Execution Strategy`, as a heading or as the template's own bullet ("- Wave 2: Steps 3, 4"). */
+const STRATEGY_WAVE = /^(?:#{2,6}\s+|\s*[-*]\s+\**)Wave\s+([^\s:*.,)]+)/;
+
 /**
- * Step number to wave from the `Wave N` bodies under `## Execution Strategy`, the template's own layout
- * (plan-template.md): each singular `Step N` belongs to the first wave that names it, so "with Step 6" in a later
- * wave's note and a plural "Steps 1 and 5" assign nothing.
+ * Step number to wave from the waves under `## Execution Strategy`, the template's own layout (plan-template.md). A
+ * step named by exactly one wave belongs to it. A step a second wave also names ("which Step 6 also needs") is left
+ * without a wave, since a wrong wave turns into a false error that sends a lane's plan back.
  */
 function strategyWaves(lines: string[]): Map<string, string> {
-    const waves = new Map<string, string>();
+    const named = new Map<string, Set<string>>();
     let inStrategy = false;
     let wave: string | undefined;
     for (const line of lines) {
@@ -167,20 +188,24 @@ function strategyWaves(lines: string[]): Map<string, string> {
         if (!inStrategy) {
             continue;
         }
-        const heading = WAVE_TOKEN.exec(line);
+        const heading = STRATEGY_WAVE.exec(line);
         if (heading !== null) {
             wave = heading[1];
-        } else if (line.startsWith("#")) {
+        } else if (line.startsWith("#") || /^\s*[-*]\s/.test(line)) {
             wave = undefined;
             continue;
         }
         if (wave === undefined) {
             continue;
         }
-        for (const match of line.matchAll(/\bStep\s+(\d+)\b/g)) {
-            if (!waves.has(match[1] ?? "")) {
-                waves.set(match[1] ?? "", wave);
-            }
+        for (const step of namedSteps(line)) {
+            named.set(step, (named.get(step) ?? new Set<string>()).add(wave));
+        }
+    }
+    const waves = new Map<string, string>();
+    for (const [step, owners] of named) {
+        if (owners.size === 1) {
+            waves.set(step, [...owners][0] as string);
         }
     }
     return waves;
