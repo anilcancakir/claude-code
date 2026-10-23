@@ -19,10 +19,13 @@
         "allowImportingTsExtensions": true,
         "noEmit": true,
         "isolatedModules": true,
-        "verbatimModuleSyntax": true
+        "verbatimModuleSyntax": true,
+        "jsx": "preserve",
+        "jsxImportSource": "@opentui/solid"
     },
     "include": [
         "index.ts",
+        "tui.tsx",
         "src/**/*.ts",
         "test/**/*.ts",
         "scripts/**/*.ts"
