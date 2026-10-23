@@ -38474,6 +38474,80 @@ function parseSteps(lines) {
   }
   return steps;
 }
+function filePath(entry) {
+  const token = entry.trim().replace(/^`|`$/g, "").split(/\s/)[0]?.replace(/`/g, "") ?? "";
+  return token === "" || token.startsWith("(") ? undefined : token;
+}
+function filesByWave(lines) {
+  const waves = new Map;
+  let wave;
+  let label;
+  let inFiles = false;
+  const add = (entry) => {
+    const path = filePath(entry);
+    if (wave === undefined || label === undefined || path === undefined) {
+      return;
+    }
+    const files = waves.get(wave) ?? new Map;
+    waves.set(wave, files);
+    const owners = files.get(path) ?? [];
+    if (!owners.includes(label)) {
+      owners.push(label);
+    }
+    files.set(path, owners);
+  };
+  for (const line of lines) {
+    const waveMatch = /^#{2,6}\s+Wave\s+(\d+)\b/.exec(line);
+    if (waveMatch !== null) {
+      wave = Number.parseInt(waveMatch[1] ?? "", 10);
+      label = undefined;
+      continue;
+    }
+    const stepMatch = STEP_LINE.exec(line);
+    if (stepMatch !== null) {
+      const number = /^\*{0,2}Step\s+(\S+?)\*{0,2}\s*:/.exec((stepMatch[2] ?? "").trim())?.[1];
+      label = number === undefined ? undefined : `Step ${number}`;
+      inFiles = false;
+      continue;
+    }
+    if (line.startsWith("#")) {
+      if (/^##\s/.test(line)) {
+        wave = undefined;
+      }
+      label = undefined;
+      continue;
+    }
+    const field = FIELD_LINE.exec(line);
+    if (field !== null) {
+      inFiles = (field[1] ?? "").trim() === "Files";
+      if (inFiles && (field[2] ?? "").trim() !== "") {
+        for (const entry of (field[2] ?? "").split(",")) {
+          add(entry);
+        }
+      }
+      continue;
+    }
+    const item = /^\s+-\s+(.+)$/.exec(line);
+    if (inFiles && item !== null) {
+      add(item[1] ?? "");
+    }
+  }
+  return waves;
+}
+function checkWaveFiles(lines, findings) {
+  for (const [wave, files] of filesByWave(lines)) {
+    for (const [path, owners] of files) {
+      if (owners.length < 2) {
+        continue;
+      }
+      findings.push({
+        severity: "error",
+        scope: `wave ${wave}`,
+        message: `${owners.join(" and ")} both list ${path}; steps of one wave run in parallel, so move one ` + "to a later wave or merge them."
+      });
+    }
+  }
+}
 function isPlaceholder(value) {
   return value === "" || value.startsWith("<") && value.endsWith(">");
 }
@@ -38592,6 +38666,7 @@ function checkPlan(source) {
   for (const step of steps) {
     checkStep(step, findings);
   }
+  checkWaveFiles(lines, findings);
   if (lines.some((line) => line.trim() === "<fill>")) {
     findings.push({
       severity: "error",
@@ -39928,4 +40003,4 @@ function formatSyncReport(report) {
 }
 await program2.parseAsync(process.argv);
 
-//# debugId=5A032E6189BF295664756E2164756E21
+//# debugId=913CC936FFC5B2F164756E2164756E21

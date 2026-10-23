@@ -134,6 +134,100 @@ function parseSteps(lines: string[]): ParsedStep[] {
     return steps;
 }
 
+/** The first token of a Files entry, without the backticks or the trailing note a planner adds. */
+function filePath(entry: string): string | undefined {
+    const token = entry.trim().replace(/^`|`$/g, "").split(/\s/)[0]?.replace(/`/g, "") ?? "";
+    // A verification step's "(no source edits; runs commands)" names no file.
+    return token === "" || token.startsWith("(") ? undefined : token;
+}
+
+/**
+ * Every step's files by wave. `Files` is written one path per line under the field, and sometimes inline after it,
+ * so both are read; the wave is the most recent `Wave N` heading above the step within the same `## ` section.
+ */
+function filesByWave(lines: string[]): Map<number, Map<string, string[]>> {
+    const waves = new Map<number, Map<string, string[]>>();
+    let wave: number | undefined;
+    let label: string | undefined;
+    let inFiles = false;
+
+    const add = (entry: string): void => {
+        const path = filePath(entry);
+        if (wave === undefined || label === undefined || path === undefined) {
+            return;
+        }
+        const files = waves.get(wave) ?? new Map<string, string[]>();
+        waves.set(wave, files);
+        const owners = files.get(path) ?? [];
+        if (!owners.includes(label)) {
+            owners.push(label);
+        }
+        files.set(path, owners);
+    };
+
+    for (const line of lines) {
+        const waveMatch = /^#{2,6}\s+Wave\s+(\d+)\b/.exec(line);
+        if (waveMatch !== null) {
+            wave = Number.parseInt(waveMatch[1] ?? "", 10);
+            label = undefined;
+            continue;
+        }
+        const stepMatch = STEP_LINE.exec(line);
+        if (stepMatch !== null) {
+            const number = /^\*{0,2}Step\s+(\S+?)\*{0,2}\s*:/.exec((stepMatch[2] ?? "").trim())?.[1];
+            label = number === undefined ? undefined : `Step ${number}`;
+            inFiles = false;
+            continue;
+        }
+        if (line.startsWith("#")) {
+            // A wave holds only within its section: a plan that lists its waves under `## Execution Strategy` and
+            // its steps flat under `## Steps` gives no step a wave, so nothing is compared.
+            if (/^##\s/.test(line)) {
+                wave = undefined;
+            }
+            label = undefined;
+            continue;
+        }
+        const field = FIELD_LINE.exec(line);
+        if (field !== null) {
+            inFiles = (field[1] ?? "").trim() === "Files";
+            if (inFiles && (field[2] ?? "").trim() !== "") {
+                for (const entry of (field[2] ?? "").split(",")) {
+                    add(entry);
+                }
+            }
+            continue;
+        }
+        const item = /^\s+-\s+(.+)$/.exec(line);
+        if (inFiles && item !== null) {
+            add(item[1] ?? "");
+        }
+    }
+
+    return waves;
+}
+
+/**
+ * Steps of one wave run in parallel (plan-template.md: "Steps within a wave must not share files"), so two of them
+ * listing one file race on it. Measured on a live lane: a review fold-in added one test file to two steps of a
+ * wave after the plan had passed this gate.
+ */
+function checkWaveFiles(lines: string[], findings: Finding[]): void {
+    for (const [wave, files] of filesByWave(lines)) {
+        for (const [path, owners] of files) {
+            if (owners.length < 2) {
+                continue;
+            }
+            findings.push({
+                severity: "error",
+                scope: `wave ${wave}`,
+                message: `${owners.join(" and ")} both list ${path}; steps of one wave run in parallel, so move one `
+                    + "to a later wave or merge them.",
+            });
+        }
+    }
+}
+
 function isPlaceholder(value: string): boolean {
     return value === "" || (value.startsWith("<") && value.endsWith(">"));
 }
@@ -289,6 +383,7 @@ export function checkPlan(source: string): Finding[] {
     for (const step of steps) {
         checkStep(step, findings);
     }
+    checkWaveFiles(lines, findings);
 
     if (lines.some((line) => line.trim() === "<fill>")) {
         findings.push({

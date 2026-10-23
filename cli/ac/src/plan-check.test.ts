@@ -253,3 +253,69 @@ test("countSteps separates ticked steps from the total", () => {
     const source = wellFormed().replace("- [ ] **Step 1**", "- [x] **Step 1**");
     expect(countSteps(source)).toEqual({ checkedCount: 1, stepCount: 2 });
 });
+
+// Measured on a live opencode lane (2026-10-23): a Stage 5.5 fold-in added one test file to the
+// Files of two steps in the same wave, and the executor ran them in parallel on that file.
+function twoStepWave(secondFiles: string[]): string {
+    return [
+        "# Plan: demo",
+        "",
+        "**Steps**: 2",
+        "**Waves**: 1",
+        "**Auto mode**: false",
+        "**QA**: false",
+        "",
+        "## Steps",
+        "",
+        "### Wave 1",
+        "",
+        "- [ ] **Step 1**: add the column",
+        "    - **Type**: code",
+        "    - **Tier**: junior",
+        "    - **Why this tier**: rule-none: one migration.",
+        "    - **References**: /repo/database/migrations/add_y.php:1, the migration shape",
+        "    - **Files**:",
+        "        - /repo/database/migrations/add_x.php",
+        "        - /repo/tests/Feature/ActionHistoryTest.php",
+        "    - **Description**: Add the column.",
+        "    - **Done when**: the test passes.",
+        "    - **QA**: run the test.",
+        "    - **Must NOT**: touch other tables.",
+        "",
+        "- [ ] **Step 2**: batch the remainders",
+        "    - **Type**: code",
+        "    - **Tier**: junior",
+        "    - **Why this tier**: rule-none: one service.",
+        "    - **References**: /repo/app/Services/Counting.php:12, the loop to batch",
+        "    - **Files**:",
+        ...secondFiles.map((file) => `        - ${file}`),
+        "    - **Description**: Batch them.",
+        "    - **Done when**: the test passes.",
+        "    - **QA**: run the test.",
+        "    - **Must NOT**: change the API.",
+        "",
+    ].join("\n");
+}
+
+test("two steps of one wave listing the same file are an error naming both steps and the file", () => {
+    const messages = errors(checkPlan(twoStepWave([
+        "/repo/app/Services/Counting.php",
+        "/repo/tests/Feature/ActionHistoryTest.php (new cases)",
+    ])));
+
+    expect(messages).toHaveLength(1);
+    expect(messages[0]).toContain("Step 1");
+    expect(messages[0]).toContain("Step 2");
+    expect(messages[0]).toContain("/repo/tests/Feature/ActionHistoryTest.php");
+});
+
+test("steps of one wave with disjoint files pass", () => {
+    expect(errors(checkPlan(twoStepWave(["/repo/app/Services/Counting.php"])))).toEqual([]);
+});
+
+test("waves listed in another section give flat steps no wave, so nothing is compared", () => {
+    const source = twoStepWave(["/repo/tests/Feature/ActionHistoryTest.php"])
+        .replace("## Steps\n\n### Wave 1\n", "## Execution Strategy\n\n### Wave 1\n\n## Steps\n");
+
+    expect(errors(checkPlan(source))).toEqual([]);
+});
