@@ -33,13 +33,21 @@ interface AttemptWindow {
 }
 
 /**
- * Agents whose sessions this module switches. `ac/*` workers are absent on purpose: the execute skill re-spawns them
- * on the model `ac_fallback_next` names, so switching their session here would race that re-spawn. A coordinate lane
- * is a root session that nothing re-spawns mid-turn, so it falls back in place like the main session.
+ * Agents whose sessions this module switches. The four plan workers are absent on purpose: the execute skill
+ * re-spawns them on the model `ac_fallback_next` names, so switching their session here would race that re-spawn.
+ * A coordinate lane and the advisory agents are re-spawned only once a call has failed outright, so a retryable
+ * failure is cheapest handled in place, inside the call, before their caller ever sees it.
  */
 const AGENT_TIERS: Readonly<Record<string, string>> = {
     build: "main",
     "ac/lane": "lane",
+    "ac/oracle": "oracle",
+    "ac/plan-reviewer": "plan-reviewer",
+    "ac/plan-code-review": "plan-code-review",
+    "ac/explore": "explore",
+    "ac/librarian": "librarian",
+    "ac/auto-verifier": "auto-verifier",
+    "ac/qa-tester": "qa-tester",
 }
 
 /** Splits like opencode's `Model.Ref.parse`: the provider ends at the first slash, the model id may hold more. */

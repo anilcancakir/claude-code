@@ -276,6 +276,16 @@ describe("main session fallback", () => {
         expect(fake.calls.prompt).toHaveLength(0)
     })
 
+    test("an advisory ac agent falls back in place on its own tier's chain", async () => {
+        const config = loadConfig({ env: {}, options: { models: { tiers: { "plan-reviewer": MAIN } } } })
+        const fake = await setup(config)
+
+        const event = await retry(fake, { agent: "ac/plan-reviewer", model: MAIN[0] as string, status: 500 })
+
+        expect(event.decision).toEqual({ retry: true, delay: 0 })
+        expect(fake.calls.switchModel.map((call) => call.model)).toEqual([modelRef(MAIN[1] as string)])
+    })
+
     test("a non-retryable 400 is untouched", async () => {
         const fake = await setup()
 

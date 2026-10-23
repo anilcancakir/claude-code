@@ -22,6 +22,8 @@ after it; a stage whose question went unasked did not complete.
 
 **Lane mode.** `--lane` sets `LANE_MODE = true` and implies `--auto`. A lane is an `ac/lane` session in its own git worktree: it has no `question` tool, and its coordinator sees only its last message of each turn. So under `LANE_MODE` you never call `question`, wherever this body or a reference says to. A gate that would ask writes the question, exactly as it would have been asked, to the checkpoint's `pending_decisions[]`, and the turn ends with the lane status block defined in `../coordinate/references/lane-protocol.md`: `DECISIONS` for an interview gate, `BLOCKED` for a BLOCKER gate. The same block with `status: WORKING` replaces the one-line wait status while research or review agents run, and the run ends with `status: PLANNED`. The block is the only legal end because the coordinator reads nothing else. Gate outcomes are in the `<auto_mode>` table, the entry and resume rules in `<lane_mode>`.
 
+**A failed subagent moves down its model chain; it is not a question.** A subagent call that comes back with a provider failure (`Subagent failed (sessionID: ...)`, a `<subagent ... state="error">` message, an error such as `provider.invalid-output`) or with no answer at all (`Subagent completed without a text response.`, an empty report) failed on its model, not on the work. Call `ac_fallback_next({ tier: "<the agent name without ac/>", tried: [<every model this call ran on>], status: <the HTTP status, when the error carried one> })`, with `tried` starting at the agent's chain head from the `ac_models` tool unless you set its model yourself, then re-spawn the same agent with the same prompt and `model: "<the returned value>"`, and repeat on the next failure. `wait:<seconds>` means a shared rate limit is spent: wait that long with one `shell` `sleep` and re-spawn the same model. Only `none`, every entry of the chain tried, is a failure to report or ask about. Retrying the model that just failed, or asking the owner whether to, wastes a round on a provider fault the chain exists to absorb. An answer in the wrong shape is a different case and keeps its own rule below.
+
 **Context.** Compaction summarizes older turns and the run continues. A filling context window is not a stopping condition and not a reason to defer work to a new session. When the procedure you need has been truncated away, load the `plan` skill again with the `skill` tool (id `plan`) to restore this body and read `.ac/plans/<slug>/checkpoint.json` for where the run was.
 
 **No loop needs bounding here.** Stage 5.5 is one advisory reviewer pass, so nothing on the plan side counts iterations. The only bounded loops left are Stage 3d's stall check, which fires after three non-progress interview turns, and the Stage 1e re-spawn, which allows one retry per subagent.
@@ -251,8 +253,10 @@ assistant message, each a `subagent` call with `background: true`.
 
 ### 1e. Wait, archive, checkpoint
 
-A subagent returning empty or malformed output gets one re-spawn with a format reminder; a second failure is a
-BLOCKER, `question` (header `Agent fail?`, options `Retry (Recommended)` / `Skip this angle` / `Abandon`),
+A subagent that failed on its provider or returned nothing walks its model chain first (the standing rule on a
+failed subagent); this branch is for what that cannot fix. A subagent returning malformed output (an answer in the
+wrong shape) gets one re-spawn with a format reminder, and so does one whose chain came back `none`; a second failure
+is a BLOCKER, `question` (header `Agent fail?`, options `Retry (Recommended)` / `Skip this angle` / `Abandon`),
 surfaced even under auto mode, because dropping a research angle silently leaves the plan thinner than it claims. Under `LANE_MODE` it is returned as a `BLOCKED` block.
 
 Wait for all spawned agents by ending the turn with a one-line status (under `LANE_MODE`, a `status: WORKING` block); each completion arrives as a notification that starts your next turn. Never poll one with a `sleep` loop, by re-reading its output, or by asking the subagent for status. Write each agent's output to `RESEARCH_DIR/<agent-type>-<short-slug>.md`. The directory survey at `RESEARCH_DIR/00-directory-survey.md` is already on disk from 1a. Write a checkpoint with `last_stage: "1"` and the gathered research summary.
