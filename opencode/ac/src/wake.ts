@@ -5,7 +5,8 @@ import type { Plugin } from "@opencode/plugin"
  * `metadata.status: "running"` and a `shellID` (core/src/tool/plugin/shell.ts:84-93); its completion is admitted to
  * the session inbox as a synthetic item with `metadata.source: "shell"` and the same `shellID`
  * (core/src/shell/result.ts:46-61), published as `session.inbox.enqueued` (core/src/session/inbox.ts:186; a
- * `session.synthetic` event is never sent for it), and that starts the session's next turn. Ending a turn while one runs is how a session waits for it.
+ * `session.synthetic` event is never sent for it), and that starts the session's next turn. Ending a turn while one
+ * runs is how a session waits for it.
  *
  * Only a shell the strict rules of plugins/ac/hooks/lib/wake-count.jq call finite counts: a test, build, lint or
  * install run, or a command bounded by `timeout N`. A dev server or a log follow never ends, and counting one would
@@ -92,10 +93,10 @@ export interface BackgroundShells {
     pending(sessionID: string): number
 }
 
-/** Tracks every session's waking background shells from the shell tool's results and completion messages. */
 /** How long a completion is remembered, for a shell that ends before its tool result reaches the hook. */
 const COMPLETED_MEMORY_MS = 10 * 60_000
 
+/** Tracks every session's waking background shells from the shell tool's results and completion messages. */
 export async function registerBackgroundShells(ctx: Plugin.Context): Promise<BackgroundShells & { stop(): void }> {
     const shells = new Map<string, Pending>()
     // The completion watcher is forked before the tool returns (core/src/tool/plugin/shell.ts), so a command that

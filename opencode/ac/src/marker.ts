@@ -28,6 +28,8 @@ export interface ExecutionMarker {
     readonly note?: string
     /** Set by `execute --lane`: the coordinator supervises a lane's turn ends, so the stop nudge stays off. */
     readonly lane?: boolean
+    /** Set by a lane on `PAUSE` and cleared on `RESUME`: a compaction meanwhile must not restart the steps. */
+    readonly paused?: boolean
 }
 
 export const MARKER_PATH = ".ac/state/active-execution.json"
@@ -71,7 +73,8 @@ export function readMarker(dir: string, now: number = Date.now()): ExecutionMark
     if (typeof raw !== "object" || raw === null) return undefined
 
     const fields = raw as Record<string, unknown>
-    const { slug, session_id, root_session_id, harness, started_at, current_wave, wave_files, note, lane } = fields
+    const { slug, session_id, root_session_id, harness, started_at, current_wave, wave_files, note, lane, paused } =
+        fields
     if (harness !== "opencode") return undefined
     if (!nonEmptyString(slug) || !SLUG.test(slug)) return undefined
     if (!nonEmptyString(session_id) || !nonEmptyString(root_session_id)) return undefined
@@ -88,6 +91,7 @@ export function readMarker(dir: string, now: number = Date.now()): ExecutionMark
         wave_files: wave_files ?? [],
         ...(typeof note === "string" ? { note } : {}),
         ...(lane === true ? { lane } : {}),
+        ...(paused === true ? { paused } : {}),
     }
 }
 

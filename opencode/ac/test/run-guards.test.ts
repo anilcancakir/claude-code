@@ -403,6 +403,19 @@ describe("compaction recovery", () => {
         expect(text).toContain(join(dir, ".ac/plans/demo/plan.md"))
     })
 
+    test("a paused lane is told to wait for RESUME, not to continue its steps", async () => {
+        writeMarker({ lane: true, paused: true })
+        writePlan()
+        const fake = await setup()
+
+        await push(fake, "session.compaction.ended", { sessionID: "ses_root", reason: "auto", text: "summary" })
+
+        const text = fake.calls.synthetic[0]?.text ?? ""
+        expect(text).toContain("paused")
+        expect(text).toContain("wait for RESUME")
+        expect(text).not.toContain("next unchecked step")
+    })
+
     test("a worker's compaction is not the orchestrator's", async () => {
         writeMarker()
         const fake = await setup()

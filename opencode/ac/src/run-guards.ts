@@ -88,6 +88,13 @@ function stopNudge(marker: ExecutionMarker, plan: string, path: string): string 
 }
 
 function compactionNudge(marker: ExecutionMarker, path: string): string {
+    if (marker.paused) {
+        return [
+            `Context was just compacted while the ac execute run for '${marker.slug}' is paused by its coordinator.`,
+            "Start no step. Load the skill `execute` again only to keep its rules, then end the turn with the PAUSED " +
+                `status block and wait for RESUME; ${path} holds the step state to resume from.`,
+        ].join("\n")
+    }
     return [
         `Context was just compacted during the ac execute run for '${marker.slug}', and the execute skill body is no ` +
             "longer in context.",

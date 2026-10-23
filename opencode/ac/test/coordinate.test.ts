@@ -442,35 +442,37 @@ describe("markers and blocks", () => {
 describe("owner question timeout", () => {
     const MINUTE = 60_000
 
-    function waiting(since: number): unknown[] {
-        return [
-            {
-                type: "assistant",
-                content: [
-                    { type: "tool", id: "call_q1", name: "question", state: { status: "running" }, time: { ran: since } },
-                ],
+    function waiting(since: number, alongside = false): unknown[] {
+        const running = { status: "running" }
+        const question = { type: "tool", id: "call_q1", name: "question", state: running, time: { ran: since } }
+        const other = { type: "tool", id: "call_s1", name: "shell", state: running, time: { ran: since } }
+        return [{ type: "assistant", id: "msg_a1", content: alongside ? [question, other] : [question] }]
+    }
+
+    /** A lane relay as the coordinator's inbox publishes it. */
+    function relay(bundle = "b1") {
+        return {
+            type: "session.inbox.enqueued",
+            data: {
+                sessionID: COORDINATOR,
+                inboxID: `msg_relay_${bundle}`,
+                item: { type: "synthetic", payload: { text: "<lane>", metadata: { source: "ac_lane", bundle } } },
             },
-        ]
+        }
     }
 
-    function parked(at: number, status = "PLANNED"): unknown[] {
-        return [{ type: "assistant", time: { completed: at }, content: [{ type: "text", text: block(status) }] }]
-    }
-
-    async function armed(questionSince: number, laneParkedAt: number, status = "PLANNED"): Promise<Harness> {
+    async function armed(questionSince: number, options: { relay?: boolean; alongside?: boolean } = {}) {
         writeMarker()
-        writeState([{ id: "b1", status: "planning", lane_session_id: "ses_lane_b1" } as never])
+        writeState([{ id: "b1", status: "planning" }])
         const harness = await setup({ questionTimeoutMs: 10 * MINUTE })
-        harness.contexts.set(COORDINATOR, waiting(questionSince))
-        harness.contexts.set("ses_lane_b1", parked(laneParkedAt, status))
+        harness.contexts.set(COORDINATOR, waiting(questionSince, options.alongside))
+        if (options.relay ?? true) harness.fake.pushEvent(relay())
+        await new Promise((resolve) => setTimeout(resolve, 40))
         return harness
     }
 
-    test("withdraws a question past the timeout when a lane parked after it went up, once", async () => {
-        const now = Date.now()
-        const harness = await armed(now - 11 * MINUTE, now - MINUTE)
-
-        await new Promise((resolve) => setTimeout(resolve, 40))
+    test("withdraws a question past the timeout when a lane relay waits behind it, once", async () => {
+        const harness = await armed(Date.now() - 11 * MINUTE)
 
         expect(harness.interrupts).toEqual([{ sessionID: COORDINATOR, resume: true }])
         const note = harness.fake.calls.synthetic.find((call) => call.description === "ac question timeout")
@@ -479,35 +481,45 @@ describe("owner question timeout", () => {
         harness.cleanup()
     })
 
-    test("leaves a young question, a lane that parked before it, and a WORKING lane alone", async () => {
-        const now = Date.now()
-        for (const [since, parkedAt, status] of [
-            [now - 2 * MINUTE, now - MINUTE, "PLANNED"],
-            [now - 11 * MINUTE, now - 12 * MINUTE, "PLANNED"],
-            [now - 11 * MINUTE, now - MINUTE, "WORKING"],
+    test("leaves a young question, one with no relay behind it, and one beside another running tool", async () => {
+        for (const [since, options] of [
+            [Date.now() - 2 * MINUTE, {}],
+            [Date.now() - 11 * MINUTE, { relay: false }],
+            [Date.now() - 11 * MINUTE, { alongside: true }],
         ] as const) {
-            const harness = await armed(since, parkedAt, status)
-            await new Promise((resolve) => setTimeout(resolve, 30))
+            const harness = await armed(since, options)
             expect(harness.interrupts).toHaveLength(0)
             harness.cleanup()
         }
     })
 
-    test("its own interrupt does not silence the stop guard", async () => {
-        const now = Date.now()
-        const harness = await armed(now - 11 * MINUTE, now - MINUTE)
-        await new Promise((resolve) => setTimeout(resolve, 40))
+    test("its own interrupt does not silence the stop guard, the owner's next one does", async () => {
+        const harness = await armed(Date.now() - 11 * MINUTE)
         writeState([{ id: "b1", status: "planned" }])
         harness.contexts.delete(COORDINATOR)
+        const interrupted = { type: "session.execution.interrupted", data: { sessionID: COORDINATOR, reason: "user" } }
 
-        harness.fake.pushEvent({
-            type: "session.execution.interrupted",
-            data: { sessionID: COORDINATOR, reason: "user" },
-        })
+        harness.fake.pushEvent(interrupted)
         ended(harness, COORDINATOR)
         await settle()
-
         expect(harness.fake.calls.synthetic.map((call) => call.description)).toContain("ac coordinate stop guard")
+
+        harness.fake.pushEvent(interrupted)
+        await coordinatorToolCall(harness)
+        ended(harness, COORDINATOR)
+        await settle()
+        const nudges = harness.fake.calls.synthetic.filter((call) => call.description === "ac coordinate stop guard")
+        expect(nudges).toHaveLength(1)
         harness.cleanup()
     })
 })
+
+/** A coordinator tool call, which ends the guard's current stall. */
+async function coordinatorToolCall(harness: Harness): Promise<void> {
+    await harness.fake.fire.tool("execute.after", {
+        tool: "read",
+        sessionID: COORDINATOR,
+        status: "completed",
+        input: {},
+    })
+}

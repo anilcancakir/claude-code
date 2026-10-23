@@ -75,7 +75,7 @@ at most `--max-workers` workers at once. The defaults are `--lanes 2` and `--max
 tolerates 3 and 3. Keep the bundles in `planning` or `executing` at or under the smaller of `--lanes` and
 `max_lanes`, counted from `state.json`, and dispatch the next one when a lane message frees a slot.
 
-**A failed subagent moves down its model chain; it is not a question.** A subagent call that comes back with a provider failure (`Subagent failed (sessionID: ...)`, a `<subagent ... state="error">` message, an error such as `provider.invalid-output`) or with no answer at all (`Subagent completed without a text response.`, an empty report) failed on its model, not on the work. Re-spawn it with the same prompt on the same model until it has run `retryAttempts` times there (from the `ac_models` tool, 3 in the shipped config), since a stream error or an empty answer is often a one-off; then call `ac_fallback_next({ tier: "<the agent name without ac/>", tried: [<every model this call ran on>], status: <the HTTP status, when the error carried one> })`, with `tried` starting at the agent's chain head from `ac_models` unless you set its model yourself, re-spawn on `model: "<the returned value>"`, and give that model the same number of attempts. Rate limits and 5xx errors are retried inside the call already, so they reach you only once that model is spent. `wait:<seconds>` means a shared rate limit is spent: wait that long with one `shell` `sleep` and re-spawn the same model. Only `none`, every entry of the chain tried, is a failure to report or ask about. Retrying the model that just failed, or asking the owner whether to, wastes a round on a provider fault the chain exists to absorb. It covers the research agents, `ac/oracle` and `ac/auto-verifier`; a lane is not a subagent and keeps the lane rules.
+**A failed subagent moves down its model chain; it is not a question.** A subagent call that comes back with a provider failure (`Subagent failed (sessionID: ...)`, a `<subagent ... state="error">` message, an error such as `provider.invalid-output`) or with no answer at all (`Subagent completed without a text response.`, an empty report) failed on its model, not on the work. When it answered nothing or broke off mid-stream (`provider.invalid-output`, an empty report), re-spawn it with the same prompt on the same model until it has run `retryAttempts` times there (from the `ac_models` tool, 3 in the shipped config), since that is often a one-off; a rate limit or a 5xx was already retried inside the call, so it goes straight on. Then call `ac_fallback_next({ tier: "<the agent name without ac/>", tried: [<every model this call ran on>], status: <the HTTP status, when the error carried one> })`, with `tried` starting at the agent's chain head from `ac_models` unless you set its model yourself, re-spawn on `model: "<the returned value>"`, and give that model the same number of attempts. Rate limits and 5xx errors are retried inside the call already, so they reach you only once that model is spent. `wait:<seconds>` means a shared rate limit is spent: wait that long with one `shell` `sleep` and re-spawn the same model. Only `none`, every entry of the chain tried, is a failure to report or ask about. Asking the owner whether to retry wastes a round on a provider fault the chain exists to absorb. It covers the research agents, `ac/oracle` and `ac/auto-verifier`; a lane is not a subagent and keeps the lane rules.
 
 **Compaction.** Context pressure is not a stopping condition. When this procedure has been truncated away, load the
 `coordinate` skill again with the `skill` tool (id `coordinate`), then read `.ac/coord/<slug>/state.json` and the
@@ -278,7 +278,8 @@ integration and every pending bundle out of dispatch until the owner returns.
 Parse the lane's last `LANE STATUS` block out of the text inside the `<lane>` message. A message with
 `state="failed"` carries the lane session's error instead of a block: record it as FAILED with that error. Append
 the block to `events.jsonl`, then rewrite the bundle's entry in `state.json`: `status` from the block (`DECISIONS`
-and `BLOCKED` also join `owner_queue`; `PAUSED` records `paused`), `head`, `plan_slug` (the bundle id). `worktree` and `branch` were recorded
+and `BLOCKED` also join `owner_queue`; `PAUSED` records `paused`, and when the marker is no longer `paused` the lane
+gets its `RESUME` at once), `head`, `plan_slug` (the bundle id). `worktree` and `branch` were recorded
 at dispatch from the `ac_lane_start` result, and the block's `plan` path confirms the worktree. A `DONE` whose
 `phase` is `rebase` moves only `base` and `head`: the bundle returns to the status it held when
 the `REBASE` went out (`planned` stays `planned` and still goes through 6c for its `EXECUTE`; `done` stays `done`),
@@ -381,8 +382,10 @@ start one. End the turn with a wait status naming the lanes not yet paused; each
 (6a). Once every live bundle is `paused` or closed, tell the owner in one line that the run is paused and that "devam
 et" resumes it, and end the turn. The plugin's stop guard stays quiet while the marker says `paused`.
 
-**Resume**, when the owner says so. Set the marker back to the phase in its `note`, send `RESUME` to every `paused`
-bundle and set each back to its `paused_from`, then continue the lane loop from 6a: each lane picks up from its plan's
+**Resume**, when the owner says so. Set the marker back to the phase in its `note`, send `RESUME` to every bundle with
+a `paused_from`, parked `PAUSED` or not yet (a lane still waiting on its workers takes the `RESUME` after its
+`PAUSED`), and set each back to its `paused_from`. A `PAUSED` that arrives once the run is no longer paused gets its
+`RESUME` at once in 6a. Then continue the lane loop from 6a: each lane picks up from its plan's
 recorded state and parks again with its next block.
 
 ## Phase 7: Gate

@@ -108,26 +108,34 @@ interface ToolPartLike {
     readonly time?: { readonly created?: number; readonly ran?: number }
 }
 
-/** The `question` call the session's last assistant message is waiting on, with the time it started. */
-function openQuestion(messages: ReadonlyArray<{ type: string }>): { id: string; since: number } | undefined {
-    const last = [...messages].reverse().find((message) => message.type === "assistant")
-    const parts = (last as { content?: readonly ToolPartLike[] } | undefined)?.content ?? []
-    const part = parts.find(
-        (item) => item.type === "tool" && item.name === "question" && item.state?.status === "running",
-    )
-    const since = part?.time?.ran ?? part?.time?.created
-    return part?.id === undefined || since === undefined ? undefined : { id: part.id, since }
+interface OpenQuestion {
+    /** The assistant message id and the tool part id together, since a provider may reuse part ids. */
+    readonly key: string
+    readonly since: number
+    /** Another tool of the same step still runs; an interrupt would cancel it too. */
+    readonly alongside: boolean
 }
 
-/** When the session's last assistant message finished, and whether its LANE STATUS says the lane is parked. */
-function parkedSince(messages: ReadonlyArray<{ type: string }>): number | undefined {
+/** The `question` call the session's last assistant message is waiting on, with the time it started. */
+function openQuestion(messages: ReadonlyArray<{ type: string }>): OpenQuestion | undefined {
     const last = [...messages].reverse().find((message) => message.type === "assistant") as
-        | { time?: { completed?: number } }
+        | { id?: string; content?: readonly ToolPartLike[] }
         | undefined
-    const completed = last?.time?.completed
-    if (completed === undefined) return undefined
-    return laneStatus(lastAssistantText(messages)) === "WORKING" ? undefined : completed
+    const running = (last?.content ?? []).filter((item) => item.type === "tool" && item.state?.status === "running")
+    const part = running.find((item) => item.name === "question")
+    const since = part?.time?.ran ?? part?.time?.created
+    if (part?.id === undefined || since === undefined) return undefined
+    return { key: `${last?.id ?? ""}:${part.id}`, since, alongside: running.length > 1 }
 }
+
+/** A lane relay seen in a coordinator's inbox: the evidence that a parked lane waits behind its open question. */
+interface Relayed {
+    readonly at: number
+    readonly bundle: string
+}
+
+/** Relays older than this no longer matter to any open question. */
+const RELAY_MEMORY_MS = 24 * 3_600_000
 
 function questionTimeoutNote(minutes: number, bundles: readonly string[]): string {
     return [
@@ -289,8 +297,8 @@ function coordinateNudge(marker: CoordinateMarker, bundles: StateBundle[]): stri
  * been evicted for idling (location-activity.ts:29); `ctx.session.synthetic` reaches a session in any location.
  * Exactly one instance sits at that location, so a lane is relayed once whether or not an instance also sees
  * other locations' events. A message to a lane is a next-turn prompt (`delivery: "queue"`), so it never steers into
- * a turn in progress; only STOP and PAUSE steer. The lane cap is the skill's to keep, from state.json; the stop guard reads
- * the same file.
+ * a turn in progress; only STOP and PAUSE steer, and a steer still waits for the tool call in flight to return.
+ * The lane cap is the skill's to keep, from state.json; the stop guard reads the same file.
  */
 export async function registerCoordinate(
     ctx: Context,
@@ -310,6 +318,9 @@ export async function registerCoordinate(
     /** Question tool calls already withdrawn once, so a slow owner is not interrupted again for the same one. */
     const withdrawn = new Set<string>()
     const selfInterrupts = new Map<string, number>()
+    // Relays queued for each coordinator, read off its own inbox events. A lane mid-turn or compacting leaves no relay,
+    // so only a park that really waits behind the question can withdraw it.
+    const relayed = new Map<string, Relayed[]>()
 
     const laneOf = async (sessionID: string): Promise<Lane | undefined> => {
         const known = lanes.get(sessionID)
@@ -551,23 +562,24 @@ export async function registerCoordinate(
     //    one unanswered question kept a finished bundle out of integration for 32 minutes. Past the timeout, with a
     //    lane parked since the question went up, the question is withdrawn (a note, then an interrupt that resumes
     //    with the queued lane messages); the coordinator acts on them and asks again. Nothing is answered for the
-    //    owner. Only session reads and state.json are used, so it works whichever instance sees which events.
+    //    owner. The question is read off the session; the park off the coordinator's own inbox, which this instance
+    //    sees because the coordinator lives at its location.
     const checkQuestion = async (): Promise<void> => {
         const marker = readCoordinateMarker(directory)
         if (!marker) return
         const coordinator = marker.session_id
         const question = openQuestion(await ctx.session.context({ sessionID: coordinator }))
-        if (!question || withdrawn.has(question.id) || Date.now() - question.since < questionTimeoutMs) return
+        if (!question || question.alongside || withdrawn.has(question.key)) return
+        if (Date.now() - question.since < questionTimeoutMs) return
 
-        const parked: string[] = []
-        for (const bundle of stateBundles(directory, marker.slug)) {
-            if (!bundle.lane_session_id || bundle.status === "merged" || bundle.status === "dropped") continue
-            const since = parkedSince(await ctx.session.context({ sessionID: bundle.lane_session_id }))
-            if (since !== undefined && since > question.since) parked.push(bundle.id ?? bundle.lane_session_id)
-        }
+        const parked = [
+            ...new Set(
+                (relayed.get(coordinator) ?? []).filter((relay) => relay.at > question.since).map((r) => r.bundle),
+            ),
+        ]
         if (parked.length === 0) return
 
-        withdrawn.add(question.id)
+        withdrawn.add(question.key)
         selfInterrupts.set(coordinator, Date.now())
         await ctx.session.synthetic({
             sessionID: coordinator,
@@ -607,6 +619,8 @@ export async function registerCoordinate(
                         if (event.data.reason === "shutdown") break
                         const since = Date.now() - (selfInterrupts.get(event.data.sessionID) ?? 0)
                         const own = since < SELF_INTERRUPT_WINDOW_MS
+                        // One interrupt per withdrawal: the owner's own Esc right after it still counts.
+                        selfInterrupts.delete(event.data.sessionID)
                         if (event.data.reason === "user" && !own) guardOf(event.data.sessionID).interrupted = true
                         await onEnded(event.data.sessionID, "Lane session was interrupted.")
                         break
@@ -614,6 +628,18 @@ export async function registerCoordinate(
                     case "session.compaction.ended":
                         await onCompacted(event.data.sessionID)
                         break
+                    case "session.inbox.enqueued": {
+                        const item = event.data.item
+                        const metadata = item.type === "synthetic" ? item.payload.metadata : undefined
+                        if (metadata?.source !== "ac_lane") break
+                        const now = Date.now()
+                        const kept = (relayed.get(event.data.sessionID) ?? []).filter(
+                            (relay) => now - relay.at < RELAY_MEMORY_MS,
+                        )
+                        const bundle = typeof metadata.bundle === "string" ? metadata.bundle : "?"
+                        relayed.set(event.data.sessionID, [...kept, { at: now, bundle }])
+                        break
+                    }
                 }
             } catch (error) {
                 // One failed lookup must not end the stream and silently strand every lane of the run.
