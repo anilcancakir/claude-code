@@ -1,0 +1,45 @@
+<!-- ported-from: plugins/ac/skills/plan/references/plan-summary-template.md sha256:9aa847bd42d8a7eacec917aa93f66bc24b4342d34483f3769721cb2e5a7255b4 -->
+# Plan Summary Render Template
+
+The plain-text summary the planner renders at Stage 6 (Deliver) after the plan is locked and reviewed. This is the user-facing closing artifact of `/ac/plan`; it does not replace the plan file, it points at it.
+
+## When to read this
+
+Read in Stage 6 after deleting `CHECKPOINT_PATH`. Render the summary inline to the user with concrete values from the plan file. When `AUTO_MODE = true`, render this summary AND chain into the execute skill with `<slug> --auto` as its request (see SKILL.md Stage 6a).
+
+## Template
+
+```
+## Plan Generated: <title>
+
+**Path**: .ac/plans/<slug>/plan.md
+**Steps**: <N> | **Waves**: <N>
+**Tiers**: <N quick / N junior / N junior-high / N senior>
+**Codebase State**: <classification>
+
+### Key Decisions
+- <Decision>: <Brief rationale>
+
+### Scope
+- IN: <what is included>
+- OUT: <what is excluded>
+
+### Reuse Map
+- <N existing utilities and patterns to leverage>; full map in plan.md
+
+### Review (Stage 5.5)
+- Findings: <N CRITICAL fixed, N IMPORTANT deferred, or `none`>
+- Fixed: <count, or "None">
+- Issues noted in Risks Accepted: <count, or "None">
+
+### Cross-Project Observations (omit when zero)
+- <N findings flagged for sibling-fix follow-up; full list in plan.md `## Cross-Project Observations`>
+
+### Artifacts
+- Plan: .ac/plans/<slug>/plan.md
+- Interview log: .ac/plans/<slug>/interview-log.md (<N> rounds, <M> Q&A pairs)
+- Research: .ac/plans/<slug>/research/ (<N> files)
+
+### Next Step
+Run `/ac/execute <slug>` to execute the plan. `ac/oracle` runs beside the code review only when the change touches a criticality surface; opt out with `/ac/execute <slug> --no-oracle`. To skip the wave-after checkpoint commits, pass `--no-checkpoint-commits`.
+```

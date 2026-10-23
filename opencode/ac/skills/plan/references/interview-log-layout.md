@@ -1,0 +1,64 @@
+<!-- ported-from: plugins/ac/skills/plan/references/interview-log-layout.md sha256:73314ff7f99347a1da6dfb83b4b6f00b67f83a0b03875d14070f984751f5f2ee -->
+# Interview Log Layout
+
+Markdown structure for `.ac/plans/<slug>/interview-log.md`. The log is the audit trail of the planning interview: every research spawn, every decision-tree node, every user selection, every audit finding. It complements the plan file (which is the spec) by recording the conversation that produced the spec.
+
+## When to read this
+
+Read when writing or appending to `LOG_PATH`. The log is append-only across stages; a per-node `Append` happens in Stage 3 (one append per resolved decision), and a per-stage `Append` happens at the end of each stage that needs to leave a trace.
+
+## Template
+
+`.ac/plans/<slug>/interview-log.md`:
+
+```markdown
+# Interview Log: <slug>
+
+## Stage 0, Topic
+<original topic>
+
+## Stage 1: Codebase Survey + Research Spawns
+- directory survey: `research/00-directory-survey.md` (main agent, not delegated; lists top-level structure, language markers, project conventions, sub-projects, provisional research angles)
+- agent: `ac/explore` (reuse-focused, slot 1 of 4-7): brief <one-line>. Result `research/<file>.md`.
+- agent: `ac/explore` (topic angle, slot 2 of 4-7): brief <one-line>. Result `research/<file>.md`.
+- agent: `ac/explore` (topic angle, slot N of 4-7): brief <one-line>. Result `research/<file>.md`.
+- agent: `ac/librarian` (idiomatic-pattern verification, slot 1 of 2-3): brief <one-line>. Result `research/<file>.md`.
+- agent: `ac/librarian` (known-bugs dimension, slot 2 of 2-3): brief <one-line>. Result `research/<file>.md`.
+- agent: `ac/librarian` (OSS examples or second library, slot 3 of 2-3): brief <one-line>. Result `research/<file>.md`. Omit row when not spawned.
+- agent: `ac/oracle` (only when architecture intent): brief <one-line>. Result inline below.
+
+## Stage 2, Feasibility Synthesis
+<the internal synthesis from Stage 2d>
+
+## Stage 3, Interview
+### Node 1: <decision label>
+- Question: <text>
+- Options: <list>
+- User selection: <choice>
+- Notes: <freeform>
+
+### Node 2: ...
+
+## Stage 4, Synthesis Lock
+<rendered preview from Stage 4>
+
+## Stage 5, Plan Write
+- Path: .ac/plans/<slug>/plan.md
+- Waves: <N>
+- Steps: <N>
+- Tier distribution: <N quick / N junior / N senior>
+
+## Stage 5.5 Review
+- Findings: <N CRITICAL, N IMPORTANT>
+- Fixed: <list of section/step references>
+- Deferred: <list, with where each went>
+- Notes: <freeform>
+```
+
+## Append discipline
+
+- Stage 3 per-node: append after every resolved `question` turn (or auto-resolved node in auto mode), including the question text, the options presented, the user's selection (or `Auto mode: (Recommended) → <chosen option>`), and any freeform notes.
+- Stage 4: append the rendered Synthesis Preview.
+- Stage 5: append a one-paragraph wrap-up with wave / step / tier distribution.
+- Stage 5.5: append one `## Stage 5.5 Review` block. The review runs once, so there is one block per run.
+- Auto mode: the log records the same content as interactive mode; the `User selection:` line reads `Auto mode: (Recommended) → <chosen option>` and emits a heartbeat line per resolution.
