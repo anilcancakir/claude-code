@@ -56,6 +56,40 @@ export function relayOf(message: MessageLike): ({ lane: string } & Relay) | unde
     }
 }
 
+/** One lane as the footer line shows it. */
+export interface FooterLane {
+    readonly sessionID: string
+    readonly bundle: string
+    readonly running: boolean
+    /** Lowercase status for a parked lane (`planned`, `blocked`, `failed`); empty while it works or before a park. */
+    readonly label: string
+}
+
+/** Statuses after which a lane needs nothing more from the owner; the footer folds them into one count. */
+const SETTLED = new Set(["DONE"])
+
+/**
+ * The footer's compact view: every lane still in play, plus a count of the settled ones, so a run of twelve bundles
+ * stays one line. A lane that is working shows no label; its marker says it.
+ */
+export function footerLanes(
+    rows: readonly LaneRow[],
+    isRunning: (sessionID: string) => boolean,
+): { lanes: FooterLane[]; settled: number } {
+    const lanes: FooterLane[] = []
+    let settled = 0
+    for (const row of rows) {
+        const running = isRunning(row.sessionID)
+        if (!running && row.state !== "failed" && SETTLED.has(row.status ?? "")) {
+            settled++
+            continue
+        }
+        const label = running ? "" : row.state === "failed" ? "failed" : (row.status ?? "").toLowerCase()
+        lanes.push({ sessionID: row.sessionID, bundle: row.bundle, running, label })
+    }
+    return { lanes, settled }
+}
+
 /**
  * The lanes a coordinator started, oldest first, each with its last relayed status. Lanes are root sessions, so the
  * host's own subagent view never lists them; a session with a parent inherited the metadata and is skipped.

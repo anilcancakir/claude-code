@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { laneRows, relayOf } from "../src/lane-view.ts"
+import { footerLanes, laneRows, relayOf } from "../src/lane-view.ts"
 
 const COORDINATOR = "ses_coord"
 
@@ -41,6 +41,30 @@ describe("laneRows", () => {
         const worker = { ...lane("ses_worker", "b1", 5), parentID: "ses_b1" }
 
         expect(laneRows([lane("ses_b1", "b1", 1), worker], COORDINATOR, [])).toHaveLength(1)
+    })
+})
+
+describe("footerLanes", () => {
+    const rows = [
+        { sessionID: "s1", bundle: "b1", coordSlug: "x", status: "DONE", state: "completed" },
+        { sessionID: "s2", bundle: "b2", coordSlug: "x", status: "PLANNED", state: "completed" },
+        { sessionID: "s3", bundle: "b3", coordSlug: "x" },
+        { sessionID: "s4", bundle: "b4", coordSlug: "x", status: "DONE", state: "failed" },
+        { sessionID: "s5", bundle: "b5", coordSlug: "x", status: "DONE", state: "completed" },
+    ]
+
+    test("folds settled lanes into a count and labels parked ones; a working lane carries no label", () => {
+        const running = new Set(["s3", "s5"])
+
+        expect(footerLanes(rows, (id) => running.has(id))).toEqual({
+            lanes: [
+                { sessionID: "s2", bundle: "b2", running: false, label: "planned" },
+                { sessionID: "s3", bundle: "b3", running: true, label: "" },
+                { sessionID: "s4", bundle: "b4", running: false, label: "failed" },
+                { sessionID: "s5", bundle: "b5", running: true, label: "" },
+            ],
+            settled: 1,
+        })
     })
 })
 
