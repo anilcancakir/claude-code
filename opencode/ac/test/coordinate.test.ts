@@ -1,11 +1,14 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test"
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs"
+import { execFile } from "node:child_process"
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { promisify } from "node:util"
 import type { ToolContext } from "@opencode/plugin/promise/tool"
 import { loadConfig } from "../src/config.ts"
 import type { RateLimitResume } from "../src/fallback.ts"
 import {
+    cloneDependencies,
     COORDINATE_MARKER_PATH,
     laneStatus,
     readCoordinateMarker,
@@ -586,3 +589,28 @@ async function coordinatorToolCall(harness: Harness): Promise<void> {
         input: {},
     })
 }
+
+describe("lane dependency clone", () => {
+    test("clones ignored dependency directories into a new worktree and leaves tracked or present ones", async () => {
+        const root = realpathSync(mkdtempSync(join(tmpdir(), "ac-deps-")))
+        const repository = join(root, "repo")
+        const lane = join(root, "lane")
+        try {
+            mkdirSync(join(repository, "vendor/acme"), { recursive: true })
+            writeFileSync(join(repository, "vendor/acme/autoload.php"), "<?php")
+            mkdirSync(join(repository, "node_modules"), { recursive: true })
+            writeFileSync(join(repository, ".gitignore"), "/vendor\n")
+            await promisify(execFile)("git", ["init", "-q", repository])
+            mkdirSync(lane)
+
+            await cloneDependencies(repository, lane)
+
+            expect(existsSync(join(lane, "vendor/acme/autoload.php"))).toBe(true)
+            expect(lstatSync(join(lane, "vendor")).isSymbolicLink()).toBe(false)
+            // node_modules is not ignored in this repository, so it is not the clone's to make.
+            expect(existsSync(join(lane, "node_modules"))).toBe(false)
+        } finally {
+            rmSync(root, { recursive: true, force: true })
+        }
+    })
+})

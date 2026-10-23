@@ -173,9 +173,39 @@ const STANDING_RULES = [
 
 const run = promisify(execFile)
 
+/** Git-ignored dependency directories a fresh worktree lacks and a lane needs before its first test or formatter. */
+const DEPENDENCY_DIRS = [
+    "vendor",
+    "node_modules",
+]
+
+/**
+ * Clones the coordinator checkout's ignored dependency directories into a new lane worktree with `cp -c` (an APFS
+ * clone: instant, no extra space), so a lane does not spend its first worker turns on `composer install` or find
+ * `vendor/bin/pint` missing. A symlink would not do: composer's autoloader resolves paths from its own directory, so
+ * the lane would load the coordinator's source. A copy that cannot be made leaves the lane to install it itself.
+ */
+export async function cloneDependencies(repository: string, directory: string): Promise<void> {
+    for (const name of DEPENDENCY_DIRS) {
+        const source = join(repository, name)
+        const target = join(directory, name)
+        if (!existsSync(source) || existsSync(target)) continue
+        // `check-ignore` exits 1 for a path git does not ignore; such a directory came with the checkout, if at all.
+        const ignored = await run("git", ["-C", repository, "check-ignore", "-q", name]).then(
+            () => true,
+            () => false,
+        )
+        if (!ignored) continue
+        await run("cp", ["-cR", source, target]).catch((error: unknown) =>
+            log("error", `ac coordinate: could not clone ${name} into ${directory}; the lane installs it`, error),
+        )
+    }
+}
+
 const defaultGit: LaneGit = {
     addWorktree: async ({ repository, directory, branch, baseSha }) => {
         await run("git", ["-C", repository, "worktree", "add", "-b", branch, directory, baseSha])
+        await cloneDependencies(repository, directory)
     },
     // A worktree created a moment ago holds no work, so the plain remove succeeds; never --force.
     discardWorktree: async ({ repository, directory, branch }) => {
