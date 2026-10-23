@@ -5,20 +5,23 @@ Routing table used for tier assignment in `/ac/plan` Stage 5 and consumed by the
 
 ## Model shapes
 
-The preset splits the work by model shape and uses four model families only, all on the codefast endpoints:
+The preset splits the work by model shape across four model families on the codefast endpoints, and ends every chain with one Claude rung on the built-in `anthropic` provider:
 
 | Model | Shape | Tiers it carries as primary | Role |
 |---|---|---|---|
 | GLM-5.3 (`codefast-glm/glm-5.3`) | Opus-shaped builder | `senior` (variant `max`), plus the main session and `plan-code-review` | Agentic coder trained against a Claude Code shaped harness (ZCode): cross-layer work, architecture, migrations, long-horizon changes where correctness depends on reasoning about behaviour. Reviews the workers' diff because it is a different family from them. |
 | Kimi K3 (`codefast-kimi/kimi-k3`) | independent reviewer | `oracle` (variant `max`) and `plan-reviewer` (variant `high`) | A different family from whoever produced the artifact (planner GLM, so plan-reviewer Kimi; main GLM, so oracle Kimi), so review is a second eye rather than the author re-reading itself. The slowest model in the preset, acceptable because reviews are rare. |
 | DeepSeek V4.1 Flash 1017 (`codefast-deepseek/deepseek-v4.1-flash-1017`) | Sonnet- and Haiku-shaped workhorse | `junior` and `junior-high` (variant `high`), `quick` and `explore` (variant `low`), plus `librarian` and `qa-tester` | Artificial Analysis Intelligence Index 45 (tied with GLM-5.3; Kimi K3 44, Qwen3.8 Flash 40), speed class 4/4 against GLM 3/4, Qwen 2/4, Kimi 1/4; operator test 12/12. Standard implementation, pattern application, mechanical edits and fan-out search. Its sibling `deepseek-v4.1-flash` is the last rung of the fast chains. |
-| Qwen 3.8 Flash (`codefast-qwen/qwen3.8-flash`) | fast fallback | session titles | Second rung of the fast chains and last rung of the junior, librarian and qa-tester chains. |
+| Qwen 3.8 Flash (`codefast-qwen/qwen3.8-flash`) | fast fallback | session titles | Second rung of the fast chains and last codefast rung of the junior, librarian and qa-tester chains. |
+| Claude 5.5 (`anthropic/claude-opus-5-5`, `claude-sonnet-5-5`, `claude-haiku-5-5`) | out-of-group last fallback | none in the default preset; every tier under the `claude` preset | Tier-matched as in the Claude Code ac plugin: Opus for main, oracle and plan-code-review (`high`) and plan-reviewer and senior (`medium`); Sonnet at `high` for junior, junior-high, librarian and qa-tester; Haiku at `medium` for quick and explore. Paid per token through an API key, so it is the rung of last resort. |
 
-Every chain sits inside the one codefast rate-limit group, so a fallback rung mainly covers model-specific errors (5xx, malformed output); a group-wide 429 is waited out rather than routed around.
+The codefast rungs sit inside one shared rate-limit group, so they mainly cover model-specific errors (5xx, malformed output) and a group-wide 429 is waited out. The Claude rung is a separate group, so it is the one entry a codefast outage or a sustained 429 can still reach.
+
+The `claude` preset (`/Users/anilcan/Code/claude-code/opencode/ac/config/presets/claude.jsonc`, applied with `bun scripts/install.ts --preset claude`) inverts the order: each chain leads with its Claude model and falls back to the first two codefast entries of the default chain. Re-running the installer without `--preset` restores the default.
 
 ## Variant
 
-A variant (`low`, `high`, `max`) is the reasoning-effort lever inside one model, and it is fixed per agent: each `ac/*` agent's frontmatter `model` is the first entry of its tier chain, variant included. The plan does not set a variant per step, and the planner leaves the `subagent` tool's `model` parameter unset on every spawn it makes (research, oracle, reviewer), so each agent runs on its configured model.
+A variant (`low`, `medium`, `high`, `max`) is the reasoning-effort lever inside one model, and it is fixed per agent: the plugin sets each `ac/*` agent's model to the first entry of its tier chain, variant included, whichever preset is installed (the frontmatter `model` matches the default preset's head). The plan does not set a variant per step, and the planner leaves the `subagent` tool's `model` parameter unset on every spawn it makes (research, oracle, reviewer), so each agent runs on its configured model.
 
 Moving between models on failure belongs to the execute skill, not to the plan: when a worker fails on a provider error, execute takes the next entry of that tier's chain and re-spawns the worker on it, and only a failure attributed to the work itself escalates one tier. A variant bump is a within-model lever and cannot substitute for the gap between model shapes, which is why the tier decision below picks a worker rather than a variant.
 
@@ -64,10 +67,10 @@ Routing the residual to `junior-high` is deliberate: it is cheaper and faster th
 
 | Tier | Worker subagent | Primary model | Fallback chain, in order |
 |---|---|---|---|
-| `quick` | `ac/plan-worker-quick` | `codefast-deepseek/deepseek-v4.1-flash-1017#low` | `codefast-qwen/qwen3.8-flash#low`, `codefast-deepseek/deepseek-v4.1-flash#low` |
-| `junior` | `ac/plan-worker-junior` | `codefast-deepseek/deepseek-v4.1-flash-1017#high` | `codefast-glm/glm-5.3#high`, `codefast-qwen/qwen3.8-flash#high` |
-| `junior-high` | `ac/plan-worker-junior-high` | `codefast-deepseek/deepseek-v4.1-flash-1017#high` | `codefast-glm/glm-5.3#high`, `codefast-qwen/qwen3.8-flash#high` |
-| `senior` | `ac/plan-worker-senior` | `codefast-glm/glm-5.3#max` | `codefast-deepseek/deepseek-v4.1-flash-1017#max`, `codefast-kimi/kimi-k3#high` |
+| `quick` | `ac/plan-worker-quick` | `codefast-deepseek/deepseek-v4.1-flash-1017#low` | `codefast-qwen/qwen3.8-flash#low`, `codefast-deepseek/deepseek-v4.1-flash#low`, `anthropic/claude-haiku-5-5#medium` |
+| `junior` | `ac/plan-worker-junior` | `codefast-deepseek/deepseek-v4.1-flash-1017#high` | `codefast-glm/glm-5.3#high`, `codefast-qwen/qwen3.8-flash#high`, `anthropic/claude-sonnet-5-5#high` |
+| `junior-high` | `ac/plan-worker-junior-high` | `codefast-deepseek/deepseek-v4.1-flash-1017#high` | `codefast-glm/glm-5.3#high`, `codefast-qwen/qwen3.8-flash#high`, `anthropic/claude-sonnet-5-5#high` |
+| `senior` | `ac/plan-worker-senior` | `codefast-glm/glm-5.3#max` | `codefast-deepseek/deepseek-v4.1-flash-1017#max`, `codefast-kimi/kimi-k3#high`, `anthropic/claude-opus-5-5#medium` |
 
 The ladder is monotonic in cost and latency. `quick` runs the workhorse model at `low`. `junior` and `junior-high` run the same model at the same variant, so junior-high costs more per step only because heavier steps are routed there, not because it is a different worker. `senior` runs the Opus-shaped model at `max`, the slowest and most expensive rung, and it is the price of every unnecessary escalation, so plan around it. No per-step cost has been measured on these models yet; re-measure once a few dozen runs per tier exist rather than carrying numbers over from another harness.
 
@@ -82,4 +85,5 @@ Steps with `Type: verification` skip worker spawn entirely. The orchestrator run
 ## Sources
 
 - ac routing preset (tier chains, variants, retry and cooldown settings): `/Users/anilcan/Code/claude-code/opencode/ac/config/models.jsonc`
-- Worker agent definitions (frontmatter `model` is the first chain entry): `/Users/anilcan/Code/claude-code/opencode/ac/agents/plan-worker-*.md`
+- Claude preset (Claude-first chains, title model): `/Users/anilcan/Code/claude-code/opencode/ac/config/presets/claude.jsonc`
+- Worker agent definitions (frontmatter `model` is the default preset's chain head; `src/agent-models.ts` applies the installed preset's): `/Users/anilcan/Code/claude-code/opencode/ac/agents/plan-worker-*.md`

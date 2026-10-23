@@ -1,0 +1,72 @@
+{
+    // Claude routing preset, the switchable counterpart of config/models.jsonc.
+    // `bun scripts/install.ts --preset claude` renders it into opencode.jsonc: the top-level and build models take
+    // the head of `main`, `title` becomes the title agent's model, and `tiers` reaches the ac plugin as
+    // `options.models.tiers`: the fallback walks these chains instead of the default ones, and the plugin moves every
+    // ac agent to the head of its own tier (a config `agents` entry would lose to the agent file's frontmatter model).
+    // Re-running the installer without `--preset` restores the codefast routing.
+    //
+    // Each chain leads with the model and effort the Claude Code ac plugin gives that agent (Opus 5.5 for the
+    // Opus-shaped tiers, Sonnet 5.5 at high for the Sonnet-shaped ones, Haiku 5.5 at medium for quick and explore),
+    // followed by the first two entries of the default codefast chain. Anthropic is its own rate-limit group, so a
+    // Claude 429 moves straight to codefast. The variants come from the models.dev catalogue of the built-in
+    // `anthropic` provider (low, medium, high, xhigh, max), so templates/opencode.jsonc declares no provider for it.
+    "title": "anthropic/claude-haiku-5-5#low",
+    "tiers": {
+        "main": [
+            "anthropic/claude-opus-5-5#high",
+            "codefast-glm/glm-5.3#high",
+            "codefast-deepseek/deepseek-v4.1-flash-1017#high"
+        ],
+        "oracle": [
+            "anthropic/claude-opus-5-5#high",
+            "codefast-kimi/kimi-k3#max",
+            "codefast-deepseek/deepseek-v4.1-flash-1017#max"
+        ],
+        "plan-reviewer": [
+            "anthropic/claude-opus-5-5#medium",
+            "codefast-kimi/kimi-k3#high",
+            "codefast-deepseek/deepseek-v4.1-flash-1017#max"
+        ],
+        "plan-code-review": [
+            "anthropic/claude-opus-5-5#high",
+            "codefast-glm/glm-5.3#max",
+            "codefast-kimi/kimi-k3#high"
+        ],
+        "plan-worker-senior": [
+            "anthropic/claude-opus-5-5#medium",
+            "codefast-glm/glm-5.3#max",
+            "codefast-deepseek/deepseek-v4.1-flash-1017#max"
+        ],
+        "plan-worker-junior-high": [
+            "anthropic/claude-sonnet-5-5#high",
+            "codefast-deepseek/deepseek-v4.1-flash-1017#high",
+            "codefast-glm/glm-5.3#high"
+        ],
+        "plan-worker-junior": [
+            "anthropic/claude-sonnet-5-5#high",
+            "codefast-deepseek/deepseek-v4.1-flash-1017#high",
+            "codefast-glm/glm-5.3#high"
+        ],
+        "plan-worker-quick": [
+            "anthropic/claude-haiku-5-5#medium",
+            "codefast-deepseek/deepseek-v4.1-flash-1017#low",
+            "codefast-qwen/qwen3.8-flash#low"
+        ],
+        "explore": [
+            "anthropic/claude-haiku-5-5#medium",
+            "codefast-deepseek/deepseek-v4.1-flash-1017#low",
+            "codefast-qwen/qwen3.8-flash#low"
+        ],
+        "librarian": [
+            "anthropic/claude-sonnet-5-5#high",
+            "codefast-deepseek/deepseek-v4.1-flash-1017#high",
+            "codefast-kimi/kimi-k3#high"
+        ],
+        "qa-tester": [
+            "anthropic/claude-sonnet-5-5#high",
+            "codefast-deepseek/deepseek-v4.1-flash-1017#high",
+            "codefast-glm/glm-5.3#high"
+        ]
+    }
+}

@@ -41,7 +41,7 @@ const AGENT_TIERS: Readonly<Record<string, string>> = {
 }
 
 /** Splits like opencode's `Model.Ref.parse`: the provider ends at the first slash, the model id may hold more. */
-function parseModelRef(ref: ModelRef): SessionModel {
+export function parseModelRef(ref: ModelRef): SessionModel {
     const providerEnd = ref.indexOf("/")
     const variantStart = ref.indexOf("#", providerEnd + 1)
     if (providerEnd <= 0) throw new Error(`Invalid model reference in fallback chain: ${ref}`)

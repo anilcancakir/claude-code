@@ -11,10 +11,14 @@ const INSTRUCTIONS = "Instructions from: /repo/AGENTS.md"
 const UPSTREAM_MODEL_DESCRIPTION = "NEVER set this unless the user explicitly asks for a particular model or variant."
 
 const PRIMARY_ONLY = "<!-- primary-only -->"
-const OVERLAYS = ["gpt", "glm", "kimi", "deepseek", "qwen"] as const
+const OVERLAYS = ["gpt", "glm", "kimi", "deepseek", "qwen", "claude"] as const
+
+/** A family whose overlay file is not named after it; claude.md would be CLAUDE.md on a case-insensitive disk. */
+const OVERLAY_FILE: Readonly<Record<string, string>> = { claude: "anthropic" }
 
 const prompt = (name: string): string => readFileSync(`${PROMPTS_DIR}${name}.md`, "utf8").trim()
-const sections = (name: string): string[] => prompt(name).split(PRIMARY_ONLY).map((part) => part.trim())
+const overlayFile = (family: string): string => prompt(OVERLAY_FILE[family] ?? family)
+const sections = (family: string): string[] => overlayFile(family).split(PRIMARY_ONLY).map((part) => part.trim())
 const primaryOverlay = (name: string): string => sections(name).filter(Boolean).join("\n\n")
 const sharedOverlay = (name: string): string => sections(name)[0] as string
 const primaryOnly = (name: string): string => sections(name)[1] ?? ""
@@ -63,6 +67,8 @@ describe("registerPrompt system[0]", () => {
         ["deepseek-v4-pro", "deepseek"],
         ["deepseek-v4.1-flash-1017", "deepseek"],
         ["qwen3.8-flash", "qwen"],
+        ["claude-opus-5-5", "claude"],
+        ["claude-haiku-5-5", "claude"],
     ])("build on %s gets the core plus the %s overlay", async (modelID, overlay) => {
         const fake = await setup()
 
@@ -133,6 +139,24 @@ describe("registerPrompt ac subagent overlay", () => {
         expect(event.system[0]?.text).toBe(`${ORACLE_BODY}\n\n${sharedOverlay("kimi")}`)
     })
 
+    test("ac/plan-worker-junior on Claude Sonnet gets its body plus the claude overlay only", async () => {
+        const fake = await setup()
+
+        const event = await fake.fire.session(
+            "context",
+            contextEvent("ac/plan-worker-junior", "claude-sonnet-5-5", JUNIOR_BODY),
+        )
+
+        expect(event.system[0]?.text).toBe(`${JUNIOR_BODY}\n\n${sharedOverlay("claude")}`)
+        expect(event.system[0]?.text).not.toContain(prompt("core"))
+        expect(event.system[0]?.cache).toEqual({ type: "ephemeral" })
+    })
+
+    test("the claude overlay carries the comment-density rule and stays shared-only", () => {
+        expect(sharedOverlay("claude")).toMatch(/comment density/i)
+        expect(primaryOnly("claude")).toBe("")
+    })
+
     test("an ac subagent on an unknown family keeps its body", async () => {
         const fake = await setup()
 
@@ -170,7 +194,14 @@ describe("registerPrompt ac subagent overlay", () => {
 
     test.each(OVERLAYS)("the %s overlay sends no primary-only line to a subagent", async (overlay) => {
         const fake = await setup()
-        const modelID = { gpt: "gpt-6-luna", glm: "glm-5.3", kimi: "kimi-k3", deepseek: "deepseek-v4", qwen: "qwen3.8" }
+        const modelID = {
+            gpt: "gpt-6-luna",
+            glm: "glm-5.3",
+            kimi: "kimi-k3",
+            deepseek: "deepseek-v4",
+            qwen: "qwen3.8",
+            claude: "claude-sonnet-5-5",
+        }
 
         const sub = await fake.fire.session("context", contextEvent("ac/oracle", modelID[overlay], ORACLE_BODY))
         const primary = await fake.fire.session("context", contextEvent("build", modelID[overlay]))
@@ -186,7 +217,7 @@ describe("registerPrompt ac subagent overlay", () => {
     })
 
     test.each(OVERLAYS)("the %s overlay trusts no instruction that arrives inside a tool result", (overlay) => {
-        for (const text of [prompt(overlay), sharedOverlay(overlay)]) {
+        for (const text of [overlayFile(overlay), sharedOverlay(overlay)]) {
             expect(text).not.toMatch(/tool (messages|results).{0,40}authoritative|inside user or tool/i)
         }
     })
@@ -258,10 +289,14 @@ describe("prompt files", () => {
         }
     })
 
+    test("carry no file a case-insensitive disk reads as the CLAUDE.md that Claude Code loads", () => {
+        expect(readdirSync(PROMPTS_DIR).filter((file) => /^claude/i.test(file))).toEqual([])
+    })
+
     test("stay inside their size budget", () => {
         expect(prompt("core").length).toBeLessThanOrEqual(6200)
         for (const overlay of OVERLAYS) {
-            expect(prompt(overlay).length).toBeLessThanOrEqual(2700)
+            expect(overlayFile(overlay).length).toBeLessThanOrEqual(2700)
         }
     })
 })

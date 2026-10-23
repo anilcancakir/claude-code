@@ -134,6 +134,24 @@ describe("plugin entry", () => {
         expect(result?.content).toBe("acme/first#high")
     })
 
+    test("the agent transform moves an ac agent to its chain head once the host settles its plugins", async () => {
+        const fake = fakeAt(repo, {
+            agents: [{ id: "ac/plan-worker-junior", model: { providerID: "frontmatter", id: "model" }, permissions: [] }],
+            options: { models: { tiers: { "plan-worker-junior": { replace: ["acme/first#high"] } } } },
+        })
+        await plugin.setup(fake.ctx)
+
+        fake.pushEvent({ type: "plugin.updated" })
+        await new Promise((resolve) => setTimeout(resolve, 0))
+        fake.applyTransforms()
+
+        expect(fake.agents.get("ac/plan-worker-junior")?.model).toEqual({
+            providerID: "acme",
+            id: "first",
+            variant: "high",
+        })
+    })
+
     test("the diagnostics option overrides a checker", async () => {
         const fake = fakeAt(repo, {
             options: {

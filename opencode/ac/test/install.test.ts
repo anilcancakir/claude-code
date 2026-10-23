@@ -18,6 +18,43 @@ import { install } from "../scripts/install.ts"
 const REPO_ROOT = resolve(import.meta.dir, "../../..")
 const SCRIPT = join(REPO_ROOT, "opencode/ac/scripts/install.ts")
 const NOW = new Date(2026, 9, 23, 14, 5, 9)
+const PRESET_PATH = join(REPO_ROOT, "opencode/ac/config/presets/claude.jsonc")
+const AGENTS_DIR = join(REPO_ROOT, "opencode/ac/agents")
+
+/**
+ * Claude models opencode serves from its models.dev catalogue under the built-in `anthropic` provider, with the
+ * variants core/src/variant.ts (anthropicMessages) derives from each model's `reasoning_options` in the snapshot
+ * (`.anthropic.models`): the effort values, plus `none` where the model also offers the thinking toggle.
+ */
+const ANTHROPIC_CATALOGUE: Record<string, string[]> = {
+    "claude-opus-5-5": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max",
+    ],
+    "claude-sonnet-5-5": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max",
+    ],
+    "claude-haiku-5-5": [
+        "none",
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max",
+    ],
+}
+
+interface Preset {
+    title: string
+    tiers: Record<string, string[]>
+}
 
 interface Variant {
     id: string
@@ -69,9 +106,32 @@ function seedV1(): void {
     writeFileSync(join(configDir(), "opencode.json"), '{"theme":"v1"}')
 }
 
-function render(): Rendered {
-    install({ repoRoot: REPO_ROOT, home, dryRun: false, now: NOW })
+function render(preset?: string, now: Date = NOW): Rendered {
+    install({ repoRoot: REPO_ROOT, home, dryRun: false, now, preset })
     return readJsonc<Rendered>(join(configDir(), "opencode.jsonc"))
+}
+
+const claudePreset = (): Preset => readJsonc<Preset>(PRESET_PATH)
+const acAgents = (): string[] =>
+    readdirSync(AGENTS_DIR)
+        .filter((file) => file.endsWith(".md"))
+        .map((file) => file.replace(/\.md$/, ""))
+
+/** Chain entries that name neither a provider the rendered config declares nor a Claude catalogue model. */
+function unresolvedRefs(rendered: Rendered, refs: string[]): string[] {
+    return refs.filter((ref) => {
+        const [path = "", variant] = ref.split("#")
+        const slash = path.indexOf("/")
+        const providerID = path.slice(0, slash)
+        const modelID = path.slice(slash + 1)
+        const declared = rendered.providers?.[providerID]?.models?.[modelID]
+        const variantIDs = declared
+            ? declared.variants.map((entry) => entry.id)
+            : providerID === "anthropic"
+              ? ANTHROPIC_CATALOGUE[modelID]
+              : undefined
+        return !variantIDs || (variant !== undefined && !variantIDs.includes(variant))
+    })
 }
 
 describe("install backup", () => {
@@ -230,29 +290,58 @@ describe("install dry run", () => {
 
         expect(result.exitCode).toBe(2)
     })
+
+    test("the CLI accepts --preset claude and prints the build and title models only", () => {
+        const result = Bun.spawnSync(["bun", SCRIPT, "--dry-run", "--preset", "claude", "--home", home])
+        const { tiers, title } = claudePreset()
+
+        expect(result.exitCode).toBe(0)
+        const lines = result.stdout.toString().split("\n").filter((line) => line.includes("set model"))
+        expect(lines).toEqual([
+            `would set model build -> ${tiers.main?.[0]}`,
+            `would set model title -> ${title}`,
+        ])
+        expect(existsSync(join(home, ".config"))).toBe(false)
+    })
+
+    test.each(["nope", "../presets/claude", "Claude"])("the CLI rejects the preset %s", (preset) => {
+        const result = Bun.spawnSync(["bun", SCRIPT, "--dry-run", "--preset", preset, "--home", home])
+
+        expect(result.exitCode).toBe(2)
+        expect(existsSync(join(home, ".config"))).toBe(false)
+    })
 })
 
 describe("rendered opencode.jsonc", () => {
-    test("every models.jsonc chain entry resolves to a declared provider, model and variant", () => {
+    test("every models.jsonc chain entry resolves to a declared provider or a Claude catalogue model", () => {
         const rendered = render()
         const models = readJsonc<{ tiers: Record<string, string[]> }>(
             join(REPO_ROOT, "opencode/ac/config/models.jsonc"),
         )
 
-        const unresolved: string[] = []
-        for (const refs of Object.values(models.tiers)) {
-            for (const ref of refs) {
-                const [path = "", variant] = ref.split("#")
-                const slash = path.indexOf("/")
-                const providerID = path.slice(0, slash)
-                const modelID = path.slice(slash + 1)
-                const model = rendered.providers?.[providerID]?.models?.[modelID]
-                const variantIDs = (model?.variants ?? []).map((entry) => entry.id)
-                if (!model || (variant && !variantIDs.includes(variant))) unresolved.push(ref)
-            }
-        }
+        expect(unresolvedRefs(rendered, Object.values(models.tiers).flat())).toEqual([])
+    })
 
-        expect(unresolved).toEqual([])
+    test("every claude preset chain entry and its title model resolve the same way", () => {
+        const rendered = render("claude")
+        const { tiers, title } = claudePreset()
+
+        expect(unresolvedRefs(rendered, [...Object.values(tiers).flat(), title])).toEqual([])
+    })
+
+    test("the resolution check reports an undeclared provider, model or variant", () => {
+        const rendered = render()
+
+        expect(unresolvedRefs(rendered, [
+            "acme/big#high",
+            "anthropic/claude-opus-5-5#ultra",
+            "codefast-glm/glm-5.3#medium",
+            "anthropic/claude-sonnet-5-5#xhigh",
+        ])).toEqual([
+            "acme/big#high",
+            "anthropic/claude-opus-5-5#ultra",
+            "codefast-glm/glm-5.3#medium",
+        ])
     })
 
     test("the codefast providers declare only the four routed model families", () => {
@@ -356,6 +445,91 @@ describe("rendered opencode.jsonc", () => {
         for (const name of ["opencode.jsonc", "cli.json"]) {
             expect(readFileSync(join(configDir(), name), "utf8")).not.toMatch(/sk-|kdz-|Bearer [A-Za-z0-9]/)
         }
+    })
+})
+
+describe("install --preset claude", () => {
+    const pluginEntry = (rendered: Rendered) => rendered.plugins.at(-1) as { package: string; options?: unknown }
+
+    test("the default and build models are the head of the preset main chain, the title model Claude Haiku", () => {
+        const rendered = render("claude")
+        const { tiers } = claudePreset()
+
+        expect(rendered.model).toBe(tiers.main?.[0] as string)
+        expect(rendered.agents.build?.model).toBe(tiers.main?.[0] as string)
+        expect(rendered.agents.title?.model).toBe("anthropic/claude-haiku-5-5#low")
+    })
+
+    test("renders no per-agent override: the plugin gives each ac agent the head of its tier chain", () => {
+        const rendered = render("claude")
+        const { tiers } = claudePreset()
+
+        expect(Object.keys(rendered.agents).filter((id) => id.startsWith("ac/"))).toEqual([])
+        const { models } = pluginEntry(rendered).options as { models: { tiers: Record<string, string[]> } }
+        for (const agent of acAgents()) {
+            expect(tiers[agent]?.[0]).toBeString()
+            expect(models.tiers[agent]?.[0]).toBe(tiers[agent]?.[0] as string)
+        }
+    })
+
+    test("the ac plugin entry hands the preset chains to the fallback as plugin options", () => {
+        const rendered = render("claude")
+
+        expect(pluginEntry(rendered)).toEqual({
+            package: `${REPO_ROOT}/opencode/ac`,
+            options: { models: { tiers: claudePreset().tiers } },
+        })
+        expect(loadConfig({ env: {}, options: { models: { tiers: claudePreset().tiers } } }).chain("oracle")[0])
+            .toBe("anthropic/claude-opus-5-5#high")
+    })
+
+    test("keeps the rest of the template: providers, disabled agents, permissions, mcp and plugin toggles", () => {
+        const preset = render("claude")
+        rmSync(configDir(), { recursive: true, force: true })
+        const base = render()
+
+        expect(preset.providers).toEqual(base.providers)
+        expect(preset.permissions).toEqual(base.permissions)
+        expect(preset.mcp).toEqual(base.mcp)
+        expect(preset.instructions).toEqual(base.instructions)
+        expect(preset.skills).toEqual(base.skills)
+        expect(preset.plugins.slice(0, -1)).toEqual(base.plugins.slice(0, -1))
+        for (const id of ["plan", "explore", "general"]) expect(preset.agents[id]?.disabled).toBe(true)
+        expect(readFileSync(join(configDir(), "opencode.jsonc"), "utf8")).not.toContain("<repo>")
+    })
+
+    test("a re-run without --preset restores the default render and backs up the preset one", () => {
+        render("claude")
+        const presetText = readFileSync(join(configDir(), "opencode.jsonc"), "utf8")
+        writeFileSync(join(configDir(), "service.json"), '{"port":4096}')
+        writeFileSync(join(configDir(), "AGENTS.md"), "# Role\n\nFilled in by the operator.\n")
+
+        const restored = render(undefined, new Date(2026, 9, 24, 9, 0, 0))
+
+        expect(Object.keys(restored.agents).filter((id) => id.startsWith("ac/"))).toEqual([])
+        expect(pluginEntry(restored)).toEqual({ package: `${REPO_ROOT}/opencode/ac` })
+        expect(restored.model).toBe(loadConfig({ env: {} }).chain("main")[0] as string)
+        expect(restored.agents.title?.model).toBe("codefast-qwen/qwen3.8-flash#low")
+        expect(readFileSync(join(configDir(), "opencode.jsonc.bak-20261024-090000"), "utf8")).toBe(presetText)
+        expect(readFileSync(join(configDir(), "service.json"), "utf8")).toBe('{"port":4096}')
+        expect(readFileSync(join(configDir(), "AGENTS.md"), "utf8")).toBe("# Role\n\nFilled in by the operator.\n")
+    })
+
+    test("the default preset renders the template unchanged and names only the build and title models", () => {
+        const lines = install({ repoRoot: REPO_ROOT, home, dryRun: true, now: NOW, preset: "codefast" })
+
+        expect(lines.filter((line) => line.includes("set model"))).toEqual([
+            "would set model build -> codefast-glm/glm-5.3#high",
+            "would set model title -> codefast-qwen/qwen3.8-flash#low",
+        ])
+        render("codefast")
+        const template = readFileSync(join(REPO_ROOT, "opencode/ac/templates/opencode.jsonc"), "utf8")
+        expect(readFileSync(join(configDir(), "opencode.jsonc"), "utf8")).toBe(template.replaceAll("<repo>", REPO_ROOT))
+    })
+
+    test("an unknown preset throws before anything is written", () => {
+        expect(() => install({ repoRoot: REPO_ROOT, home, dryRun: false, now: NOW, preset: "nope" })).toThrow("nope")
+        expect(existsSync(join(home, ".config"))).toBe(false)
     })
 })
 

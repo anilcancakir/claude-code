@@ -8,64 +8,81 @@
     //   (planner GLM -> plan-reviewer Kimi; main GLM -> oracle Kimi); workers run DeepSeek, so plan-code-review is GLM.
     // - DeepSeek V4.1 Flash 1017: Sonnet- and Haiku-shaped workhorse (Artificial Analysis Intelligence Index 45 =
     //   GLM-5.3, Kimi K3 44, Qwen3.8 Flash 40; speed class 4/4 vs GLM 3/4, Qwen 2/4, Kimi 1/4; operator test 12/12).
-    // - Qwen 3.8 Flash: last fallback (the title model is set in templates/opencode.jsonc, not routed here).
-    // Every chain sits inside the one codefast rate-limit group, so the fallback mainly covers model-specific errors
-    // (5xx, malformed output); a group-wide 429 waits (rateLimitAttempts).
+    // - Qwen 3.8 Flash: last codefast fallback (the title model is set in templates/opencode.jsonc, not routed here).
+    // The codefast entries sit inside the one codefast rate-limit group, so they mainly cover model-specific errors
+    // (5xx, malformed output); a group-wide 429 waits (rateLimitAttempts). Every chain then ends with one Claude rung
+    // on the built-in `anthropic` provider (API key, catalogue variants), outside that group, so a codefast outage
+    // still has somewhere to go. The rung follows the Claude Code ac mapping: Opus 5.5 for the Opus-shaped tiers
+    // (main, oracle, plan-code-review at high; plan-reviewer, plan-worker-senior at medium), Sonnet 5.5 at high for
+    // the Sonnet-shaped ones, Haiku 5.5 at medium for plan-worker-quick and explore.
+    // config/presets/claude.jsonc is the opposite routing, Claude first and codefast after it
+    // (scripts/install.ts --preset claude).
     "tiers": {
         "main": [
             "codefast-glm/glm-5.3#high",
             "codefast-deepseek/deepseek-v4.1-flash-1017#high",
-            "codefast-kimi/kimi-k3#high"
+            "codefast-kimi/kimi-k3#high",
+            "anthropic/claude-opus-5-5#high"
         ],
         "oracle": [
             "codefast-kimi/kimi-k3#max",
             "codefast-deepseek/deepseek-v4.1-flash-1017#max",
-            "codefast-glm/glm-5.3#max"
+            "codefast-glm/glm-5.3#max",
+            "anthropic/claude-opus-5-5#high"
         ],
         "plan-reviewer": [
             "codefast-kimi/kimi-k3#high",
             "codefast-deepseek/deepseek-v4.1-flash-1017#max",
-            "codefast-glm/glm-5.3#max"
+            "codefast-glm/glm-5.3#max",
+            "anthropic/claude-opus-5-5#medium"
         ],
         "plan-code-review": [
             "codefast-glm/glm-5.3#max",
             "codefast-kimi/kimi-k3#high",
-            "codefast-deepseek/deepseek-v4.1-flash-1017#max"
+            "codefast-deepseek/deepseek-v4.1-flash-1017#max",
+            "anthropic/claude-opus-5-5#high"
         ],
         "plan-worker-senior": [
             "codefast-glm/glm-5.3#max",
             "codefast-deepseek/deepseek-v4.1-flash-1017#max",
-            "codefast-kimi/kimi-k3#high"
+            "codefast-kimi/kimi-k3#high",
+            "anthropic/claude-opus-5-5#medium"
         ],
         "plan-worker-junior-high": [
             "codefast-deepseek/deepseek-v4.1-flash-1017#high",
             "codefast-glm/glm-5.3#high",
-            "codefast-qwen/qwen3.8-flash#high"
+            "codefast-qwen/qwen3.8-flash#high",
+            "anthropic/claude-sonnet-5-5#high"
         ],
         "plan-worker-junior": [
             "codefast-deepseek/deepseek-v4.1-flash-1017#high",
             "codefast-glm/glm-5.3#high",
-            "codefast-qwen/qwen3.8-flash#high"
+            "codefast-qwen/qwen3.8-flash#high",
+            "anthropic/claude-sonnet-5-5#high"
         ],
         "plan-worker-quick": [
             "codefast-deepseek/deepseek-v4.1-flash-1017#low",
             "codefast-qwen/qwen3.8-flash#low",
-            "codefast-deepseek/deepseek-v4.1-flash#low"
+            "codefast-deepseek/deepseek-v4.1-flash#low",
+            "anthropic/claude-haiku-5-5#medium"
         ],
         "explore": [
             "codefast-deepseek/deepseek-v4.1-flash-1017#low",
             "codefast-qwen/qwen3.8-flash#low",
-            "codefast-deepseek/deepseek-v4.1-flash#low"
+            "codefast-deepseek/deepseek-v4.1-flash#low",
+            "anthropic/claude-haiku-5-5#medium"
         ],
         "librarian": [
             "codefast-deepseek/deepseek-v4.1-flash-1017#high",
             "codefast-kimi/kimi-k3#high",
-            "codefast-qwen/qwen3.8-flash#high"
+            "codefast-qwen/qwen3.8-flash#high",
+            "anthropic/claude-sonnet-5-5#high"
         ],
         "qa-tester": [
             "codefast-deepseek/deepseek-v4.1-flash-1017#high",
             "codefast-glm/glm-5.3#high",
-            "codefast-qwen/qwen3.8-flash#high"
+            "codefast-qwen/qwen3.8-flash#high",
+            "anthropic/claude-sonnet-5-5#high"
         ]
     },
     "cooldownSeconds": 30,

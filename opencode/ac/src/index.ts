@@ -1,4 +1,5 @@
 import { Plugin } from "@opencode/plugin"
+import { registerAgentModels } from "./agent-models.ts"
 import { registerCommands } from "./commands.ts"
 import { loadConfig } from "./config.ts"
 import { registerDiagnostics } from "./diagnostics.ts"
@@ -24,8 +25,11 @@ export default Plugin.define({
         const stopRunGuards = await registerRunGuards(ctx, options.runGuards)
         await registerToolPolicy(ctx, options.toolPolicy)
 
-        // 3. Fallback chains come from the bundled defaults, overridden by the `models` plugin option.
-        await registerFallback(ctx, loadConfig({ options }))
+        // 3. Model chains come from the bundled defaults, overridden by the `models` plugin option. One instance feeds
+        //    the agents' starting models and the fallback walk, so both read the same chains.
+        const models = loadConfig({ options })
+        await registerAgentModels(ctx, models)
+        await registerFallback(ctx, models)
         await registerDiagnostics(ctx, options.diagnostics)
         await registerCommands(ctx)
 

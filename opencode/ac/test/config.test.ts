@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test"
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { loadConfig } from "../src/config.ts"
+import { fileURLToPath } from "node:url"
+import { loadConfig, type ModelRef, parseJsonc } from "../src/config.ts"
 import { createFakeCtx } from "./fake-ctx.ts"
 
 const TIERS = [
@@ -18,6 +19,35 @@ const TIERS = [
     "librarian",
     "qa-tester",
 ]
+
+const OPUS = "anthropic/claude-opus-5-5"
+const SONNET = "anthropic/claude-sonnet-5-5"
+const HAIKU = "anthropic/claude-haiku-5-5"
+const CODEFAST = /^codefast-(glm\/glm-5\.3|kimi\/kimi-k3|deepseek\/deepseek-v4\.1-flash(-1017)?|qwen\/qwen3\.8-flash)#/
+
+/** The Claude rung per tier, following the Claude Code ac mapping of agent to model and effort. */
+const CLAUDE_RUNG: Record<string, ModelRef> = {
+    main: `${OPUS}#high`,
+    oracle: `${OPUS}#high`,
+    "plan-reviewer": `${OPUS}#medium`,
+    "plan-code-review": `${OPUS}#high`,
+    "plan-worker-senior": `${OPUS}#medium`,
+    "plan-worker-junior-high": `${SONNET}#high`,
+    "plan-worker-junior": `${SONNET}#high`,
+    "plan-worker-quick": `${HAIKU}#medium`,
+    explore: `${HAIKU}#medium`,
+    librarian: `${SONNET}#high`,
+    "qa-tester": `${SONNET}#high`,
+}
+
+const PRESET_PATH = fileURLToPath(new URL("../config/presets/claude.jsonc", import.meta.url))
+
+interface Preset {
+    title: ModelRef
+    tiers: Record<string, ModelRef[]>
+}
+
+const claudePreset = (): Preset => parseJsonc(readFileSync(PRESET_PATH, "utf8"), PRESET_PATH) as Preset
 
 let dir: string
 
@@ -36,13 +66,15 @@ describe("loadConfig defaults", () => {
         expect(config.chain("oracle")[0]).toBe("codefast-kimi/kimi-k3#max")
     })
 
-    test("every chain stays inside the four codefast families", () => {
+    test("every chain runs the four codefast families, then one Claude rung outside the codefast group", () => {
         const config = loadConfig({ env: {} })
-        const families = /^codefast-(glm\/glm-5\.3|kimi\/kimi-k3|deepseek\/deepseek-v4\.1-flash(-1017)?|qwen\/qwen3\.8-flash)#/
 
         for (const tier of TIERS) {
-            for (const ref of config.chain(tier)) expect(ref).toMatch(families)
+            const chain = config.chain(tier)
+            for (const ref of chain.slice(0, -1)) expect(ref).toMatch(CODEFAST)
+            expect(chain.at(-1)).toBe(CLAUDE_RUNG[tier] as string)
         }
+        expect(Object.values(config.groups).flat()).not.toContain("anthropic")
     })
 
     test("every tier of the Balanced preset has a chain", () => {
@@ -52,18 +84,21 @@ describe("loadConfig defaults", () => {
             "codefast-glm/glm-5.3#high",
             "codefast-deepseek/deepseek-v4.1-flash-1017#high",
             "codefast-kimi/kimi-k3#high",
+            "anthropic/claude-opus-5-5#high",
         ])
         expect(config.chain("plan-code-review")).toEqual([
             "codefast-glm/glm-5.3#max",
             "codefast-kimi/kimi-k3#high",
             "codefast-deepseek/deepseek-v4.1-flash-1017#max",
+            "anthropic/claude-opus-5-5#high",
         ])
         expect(config.chain("plan-worker-quick")).toEqual([
             "codefast-deepseek/deepseek-v4.1-flash-1017#low",
             "codefast-qwen/qwen3.8-flash#low",
             "codefast-deepseek/deepseek-v4.1-flash#low",
+            "anthropic/claude-haiku-5-5#medium",
         ])
-        for (const tier of TIERS) expect(config.chain(tier).length).toBe(3)
+        for (const tier of TIERS) expect(config.chain(tier).length).toBe(4)
     })
 
     test("chain heads per tier", () => {
@@ -112,6 +147,49 @@ describe("loadConfig defaults", () => {
 
     test("an unknown tier throws instead of returning an empty chain", () => {
         expect(() => loadConfig({ env: {} }).chain("nope")).toThrow("nope")
+    })
+
+    test("hasChain answers for configured, unknown and emptied tiers without throwing", () => {
+        const config = loadConfig({ env: {}, options: { models: { tiers: { oracle: [] } } } })
+
+        expect(config.hasChain("main")).toBe(true)
+        expect(config.hasChain("nope")).toBe(false)
+        expect(config.hasChain("oracle")).toBe(false)
+    })
+})
+
+describe("claude preset", () => {
+    test("covers every tier, each chain led by its Claude rung and followed by codefast entries", () => {
+        const { tiers } = claudePreset()
+
+        expect(Object.keys(tiers).sort()).toEqual([...TIERS].sort())
+        for (const tier of TIERS) {
+            const chain = tiers[tier] as ModelRef[]
+            expect(chain[0]).toBe(CLAUDE_RUNG[tier] as string)
+            expect(chain.length).toBeGreaterThanOrEqual(3)
+            for (const ref of chain.slice(1)) expect(ref).toMatch(CODEFAST)
+        }
+    })
+
+    test("follows the Claude rung with the first two codefast entries of the default chain", () => {
+        const { tiers } = claudePreset()
+        const defaults = loadConfig({ env: {} })
+
+        for (const tier of TIERS) expect(tiers[tier]?.slice(1)).toEqual(defaults.chain(tier).slice(0, 2))
+    })
+
+    test("loads as plugin options and replaces every default chain", () => {
+        const { tiers } = claudePreset()
+
+        const config = loadConfig({ env: {}, options: { models: { tiers } } })
+
+        for (const tier of TIERS) expect(config.chain(tier)).toEqual(tiers[tier] as ModelRef[])
+        expect(config.groups).toEqual(loadConfig({ env: {} }).groups)
+        expect(config.retryAttempts).toBe(3)
+    })
+
+    test("names a fast low-effort Claude title model", () => {
+        expect(claudePreset().title).toBe("anthropic/claude-haiku-5-5#low")
     })
 })
 

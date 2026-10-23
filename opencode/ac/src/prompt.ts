@@ -11,7 +11,6 @@ export interface PromptOptions {
     subagentOverlay?: boolean
 }
 
-type Family = "gpt" | "glm" | "kimi" | "deepseek" | "qwen"
 type ToolDefinition = SessionContext["tools"][string]
 
 /** The two renderings of one family overlay: the primary agent gets both parts, an ac subagent the shared one. */
@@ -20,13 +19,22 @@ interface Overlay {
     subagent: string
 }
 
-const FAMILIES: readonly Family[] = [
-    "gpt",
-    "glm",
-    "kimi",
-    "deepseek",
-    "qwen",
-]
+/**
+ * Overlay file per model family, in match order. The Claude family lives in `anthropic.md`: on a case-insensitive
+ * disk `claude.md` is the same name as CLAUDE.md, which Claude Code loads as nested project instructions.
+ */
+const FAMILY_FILES = {
+    gpt: "gpt",
+    glm: "glm",
+    kimi: "kimi",
+    deepseek: "deepseek",
+    qwen: "qwen",
+    claude: "anthropic",
+} as const
+
+type Family = keyof typeof FAMILY_FILES
+
+const FAMILIES = Object.keys(FAMILY_FILES) as Family[]
 
 const SUBAGENT_TOOL = "subagent"
 const AC_SUBAGENT_PREFIX = "ac/"
@@ -51,7 +59,7 @@ function readPrompt(name: string): string {
 }
 
 function readOverlay(family: Family): Overlay {
-    const [shared = "", primaryOnly = ""] = readPrompt(family)
+    const [shared = "", primaryOnly = ""] = readPrompt(FAMILY_FILES[family])
         .split(PRIMARY_ONLY_MARKER)
         .map((part) => part.trim())
 

@@ -23,6 +23,8 @@ export interface ModelsConfigFile {
 }
 
 export interface ModelConfig {
+    /** Whether `tier` has a non-empty chain, so a caller can skip a tier instead of catching `chain`'s throw. */
+    hasChain(tier: string): boolean
     chain(tier: string): readonly ModelRef[]
     readonly retryOn: readonly number[]
     readonly retryAttempts: number
@@ -120,13 +122,16 @@ export function loadConfig(input: LoadConfigInput = {}): ModelConfig {
 
     // 2. Fold them; the defaults file is complete, so the result has every field.
     const merged = layers.reduce((acc, layer) => merge(acc, layer))
-    const tiers = merged.tiers ?? {}
+    // merge() resolves every override against its base, so each folded tier is a plain list.
+    const tiers = (merged.tiers ?? {}) as Readonly<Record<string, ModelRef[]>>
+
+    const hasChain = (tier: string): boolean => (tiers[tier]?.length ?? 0) > 0
 
     return {
+        hasChain,
         chain(tier) {
-            const refs = tiers[tier] as ModelRef[] | undefined
-            if (!refs || refs.length === 0) throw new Error(`No model chain configured for tier "${tier}"`)
-            return refs
+            if (!hasChain(tier)) throw new Error(`No model chain configured for tier "${tier}"`)
+            return tiers[tier] as ModelRef[]
         },
         retryOn: merged.retryOn ?? [],
         retryAttempts: merged.retryAttempts ?? 0,

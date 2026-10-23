@@ -1,4 +1,5 @@
 import type { Plugin } from "@opencode/plugin"
+import type { AgentEditor } from "@opencode/plugin/promise/agent"
 import type { CommandDefinition, CommandEditor } from "@opencode/plugin/promise/command"
 import type { PermissionHooks } from "@opencode/plugin/promise/permission"
 import type { SessionHooks } from "@opencode/plugin/promise/session"
@@ -25,8 +26,17 @@ export interface FakeSession {
     parentID?: string
 }
 
+/** An agent as the fake keeps it: the model a transform edits and the permission list it must leave alone. */
+export interface FakeAgent {
+    id: string
+    model?: { providerID: string; id: string; variant?: string }
+    permissions: unknown[]
+}
+
 export interface FakeCtxInput {
     options?: Readonly<Record<string, unknown>>
+    /** Agents every `applyTransforms` starts from, as the host rebuilds its agent state from empty. */
+    agents?: readonly FakeAgent[]
     /** Scripted answers for `session.get`, keyed by session id. */
     sessions?: Record<string, FakeSession>
 }
@@ -45,8 +55,9 @@ export interface FakeCtx {
     }
     /** Feeds one event to every live `event.subscribe` iterator. */
     pushEvent(event: { type: string } & Record<string, unknown>): void
-    /** Re-runs every registered `tool.transform` and `command.transform` callback against fresh editors. */
+    /** Re-runs every registered `tool`, `command` and `agent` transform against fresh editors, in registration order. */
     applyTransforms(): void
+    readonly agents: ReadonlyMap<string, FakeAgent>
     readonly tools: ReadonlyMap<string, ToolEntry>
     readonly commands: readonly CommandDefinition[]
     readonly calls: {
@@ -95,9 +106,11 @@ export function createFakeCtx(input: FakeCtxInput = {}): FakeCtx {
     const toolHooks = new HookRegistry()
     const toolTransforms: Array<(editor: ToolEditor) => void> = []
     const commandTransforms: Array<(editor: CommandEditor) => void> = []
+    const agentTransforms: Array<(editor: AgentEditor) => void> = []
     const subscribers = new Set<Subscriber>()
     const tools = new Map<string, ToolEntry>()
     const commands: CommandDefinition[] = []
+    const agents = new Map<string, FakeAgent>()
     const calls: FakeCtx["calls"] = { synthetic: [], prompt: [], switchModel: [], get: [] }
 
     const toolEditor: ToolEditor = {
@@ -116,6 +129,19 @@ export function createFakeCtx(input: FakeCtxInput = {}): FakeCtx {
         },
     }
     const commandEditor: CommandEditor = { add: (definition) => void commands.push(definition) }
+    const agentEditor = {
+        list: () => [...agents.values()],
+        get: (id: string) => agents.get(id),
+        default: () => {},
+        update: (id: string, update: (agent: FakeAgent) => void) => {
+            const entry = agents.get(id) ?? { id, permissions: [] }
+            agents.set(id, entry)
+            update(entry)
+        },
+        remove: (id: string) => {
+            agents.delete(id)
+        },
+    } as unknown as AgentEditor
 
     const close = (subscriber: Subscriber): void => {
         subscriber.closed = true
@@ -176,6 +202,12 @@ export function createFakeCtx(input: FakeCtxInput = {}): FakeCtx {
                 return { dispose: async () => {} }
             },
         },
+        agent: {
+            transform: async (callback: (editor: AgentEditor) => void) => {
+                agentTransforms.push(callback)
+                return { dispose: async () => {} }
+            },
+        },
         event: { subscribe },
     } as unknown as Context
 
@@ -195,9 +227,13 @@ export function createFakeCtx(input: FakeCtxInput = {}): FakeCtx {
         applyTransforms: () => {
             tools.clear()
             commands.length = 0
+            agents.clear()
+            for (const seed of input.agents ?? []) agents.set(seed.id, structuredClone(seed))
             for (const transform of toolTransforms) transform(toolEditor)
             for (const transform of commandTransforms) transform(commandEditor)
+            for (const transform of agentTransforms) transform(agentEditor)
         },
+        agents,
         tools,
         commands,
         calls,

@@ -3,10 +3,11 @@ import { cpSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync }
 import { tmpdir } from "node:os"
 import { basename, join } from "node:path"
 import { fileURLToPath } from "node:url"
-import { loadConfig } from "../src/config.ts"
+import { loadConfig, parseJsonc } from "../src/config.ts"
 
 const AGENTS_DIR = fileURLToPath(new URL("../agents/", import.meta.url))
 const MODEL_LINE = /^model:\s*"([^"]+)"\s*$/m
+const PRESET_PATH = fileURLToPath(new URL("../config/presets/claude.jsonc", import.meta.url))
 
 const temporaries: string[] = []
 
@@ -41,5 +42,17 @@ describe("agent models", () => {
         writeFileSync(oracle, readFileSync(oracle, "utf8").replace(MODEL_LINE, 'model: "acme/other#low"'))
 
         expect(mismatchedAgents(copy)).toEqual(["oracle"])
+    })
+
+    test("the claude preset has a chain for every agent file, which the plugin turns into the agent's model", () => {
+        const { tiers } = parseJsonc(readFileSync(PRESET_PATH, "utf8"), PRESET_PATH) as {
+            tiers: Record<string, string[]>
+        }
+
+        const unrouted = readdirSync(AGENTS_DIR)
+            .filter((file) => file.endsWith(".md"))
+            .map((file) => basename(file, ".md"))
+            .filter((tier) => !tiers[tier]?.[0])
+        expect(unrouted).toEqual([])
     })
 })
