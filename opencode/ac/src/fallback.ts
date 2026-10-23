@@ -4,9 +4,6 @@ import type { ModelConfig, ModelRef } from "./config.ts"
 
 type Context = Plugin.Context
 type SessionModel = SessionRetry["model"]
-type SessionMessage = Awaited<ReturnType<Context["session"]["context"]>>[number]
-type UserMessage = Extract<SessionMessage, { type: "user" }>
-type PromptInput = Parameters<Context["session"]["prompt"]>[0]
 /** A live model reference; the retry hook brands its ids, `session.get` does not. */
 interface PlainModel {
     readonly providerID: string
@@ -27,15 +24,21 @@ interface FallenBack {
 }
 
 /**
+ * Where the current model's attempts start within the host's per-step retry count. The host counts attempts across
+ * the whole step, including after a switch, so `offset` is the attempt number the previous model ended on.
+ */
+interface AttemptWindow {
+    offset: number
+    last: number
+}
+
+/**
  * Primary agents whose sessions this module switches. `ac/*` workers are absent on purpose: the execute skill
  * re-spawns them on the model `ac_fallback_next` names, so switching their session here would race that re-spawn.
  */
 const AGENT_TIERS: Readonly<Record<string, string>> = {
     build: "main",
 }
-
-/** Prompt metadata key that marks a replay, so the prompt hook does not mistake it for a new user turn. */
-export const REPLAY_MARKER = "ac.fallback"
 
 /** Splits like opencode's `Model.Ref.parse`: the provider ends at the first slash, the model id may hold more. */
 function parseModelRef(ref: ModelRef): SessionModel {
@@ -73,38 +76,11 @@ function providerOf(ref: ModelRef | SessionModel): string {
     return typeof ref === "string" ? ref.slice(0, ref.indexOf("/")) : ref.providerID
 }
 
-function lastUserMessage(messages: readonly SessionMessage[]): UserMessage | undefined {
-    for (let index = messages.length - 1; index >= 0; index--) {
-        const message = messages[index]
-        if (message?.type === "user") return message
-    }
-    return undefined
-}
-
 /**
- * Rebuilds prompt input from a stored user message. Stored files are already resolved to bytes, so they go back
- * as data URLs; agents and skills keep their mentions, which still line up because the text is unchanged.
- */
-function replayInput(message: UserMessage): Pick<PromptInput, "text" | "files" | "agents" | "skills"> {
-    return {
-        text: message.text,
-        files: message.files?.map((file) => ({
-            uri: `data:${file.mime};base64,${file.data}`,
-            name: file.name,
-            description: file.description,
-            mention: file.mention,
-        })),
-        agents: message.agents,
-        skills: message.skills?.map((skill) => ({
-            id: skill.id,
-            mention: skill.mention,
-        })),
-    }
-}
-
-/**
- * Main-session model fallback. A failure at the retry cap moves the session one step down its tier chain and
- * replays the last user message; `ac_fallback_next` gives the execute skill the same chain walk for workers.
+ * Main-session model fallback. A failure at the retry cap moves the session one step down its tier chain and leaves
+ * the host retry going: opencode reloads the session and resolves its current model on every retry
+ * (core/src/session/runner/llm.ts:211-212, session/context.ts:169), so the retry runs on the switched model without
+ * a second copy of the user prompt. `ac_fallback_next` gives the execute skill the same chain walk for workers.
  */
 export async function registerFallback(ctx: Context, config: ModelConfig): Promise<void> {
     // Keyed `model:<provider/model>` or `group:<name>`; a provider outside `config.groups` is its own group.
@@ -113,6 +89,7 @@ export async function registerFallback(ctx: Context, config: ModelConfig): Promi
     const tried = new Map<string, Set<string>>()
     const switching = new Set<string>()
     const fallenBack = new Map<string, FallenBack>()
+    const attempts = new Map<string, AttemptWindow>()
     const groupByProvider = new Map<string, string>(
         Object.entries(config.groups).flatMap(([group, providers]) => providers.map((provider) => [provider, group])),
     )
@@ -133,12 +110,35 @@ export async function registerFallback(ctx: Context, config: ModelConfig): Promi
     const connectedModels = async (): Promise<ReadonlySet<string>> =>
         new Set((await ctx.model.list()).data.map((model) => `${model.providerID}/${model.id}`))
 
-    const isUsable = (ref: ModelRef, connected: ReadonlySet<string>): boolean =>
-        connected.has(modelKey(ref)) && !isCoolingDown(`model:${modelKey(ref)}`) && !isCoolingDown(groupKey(ref))
+    // A group cooldown says the shared rate limit is spent; a 5xx is the model's own failure, so a sibling in a
+    // cooling group can still take it.
+    const isUsable = (ref: ModelRef, connected: ReadonlySet<string>, groupCooldown: boolean): boolean =>
+        connected.has(modelKey(ref))
+        && !isCoolingDown(`model:${modelKey(ref)}`)
+        && !(groupCooldown && isCoolingDown(groupKey(ref)))
 
-    const nextEntry = async (tier: string, excluded: ReadonlySet<string>): Promise<ModelRef | undefined> => {
+    /** Untried, connected entries outside a model cooldown; the group cooldown is applied by the caller. */
+    const candidates = async (tier: string, excluded: ReadonlySet<string>): Promise<ModelRef[]> => {
         const connected = await connectedModels()
-        return config.chain(tier).find((ref) => !excluded.has(modelKey(ref)) && isUsable(ref, connected))
+        return config.chain(tier).filter((ref) => !excluded.has(modelKey(ref)) && isUsable(ref, connected, false))
+    }
+
+    const nextEntry = async (
+        tier: string,
+        excluded: ReadonlySet<string>,
+        status: number | undefined,
+    ): Promise<ModelRef | undefined> =>
+        (await candidates(tier, excluded)).find(
+            (ref) => status !== RATE_LIMIT_STATUS || !isCoolingDown(groupKey(ref)),
+        )
+
+    /** The attempt number on the session's current model, counted from where the previous model's attempts ended. */
+    const modelAttempt = (sessionID: string, attempt: number): number => {
+        // A new step restarts the host count, so a number at or below the last one seen opens a fresh window.
+        const window = attempts.get(sessionID)
+        const offset = window === undefined || attempt <= window.last ? 0 : window.offset
+        attempts.set(sessionID, { offset, last: attempt })
+        return attempt - offset
     }
 
     /**
@@ -149,7 +149,8 @@ export async function registerFallback(ctx: Context, config: ModelConfig): Promi
         const switched = fallenBack.get(sessionID)
         if (switched === undefined) return
         const head = config.chain(switched.tier)[0] as ModelRef
-        if (!isUsable(head, await connectedModels())) return
+        // Returning onto a group whose shared limit is still spent would fail the turn at once.
+        if (!isUsable(head, await connectedModels(), true)) return
 
         fallenBack.delete(sessionID)
         const current = (await ctx.session.get({ sessionID })).model
@@ -159,7 +160,6 @@ export async function registerFallback(ctx: Context, config: ModelConfig): Promi
     }
 
     await ctx.session.hook("prompt", async (event) => {
-        if (event.metadata?.[REPLAY_MARKER] !== undefined) return
         tried.delete(event.sessionID)
         await switchBack(event.sessionID)
     })
@@ -172,7 +172,7 @@ export async function registerFallback(ctx: Context, config: ModelConfig): Promi
         const status = event.error.status
         if (tier === undefined || status === undefined || !config.retryOn.includes(status)) return
         const cap = status === RATE_LIMIT_STATUS ? config.rateLimitAttempts : config.retryAttempts
-        if (event.attempt < cap) return
+        if (modelAttempt(event.sessionID, event.attempt) < cap) return
 
         // 2. One action per failure observation: a model already handled this turn, or a switch still in flight,
         //    is a repeat of an observation that was acted on.
@@ -184,30 +184,22 @@ export async function registerFallback(ctx: Context, config: ModelConfig): Promi
         //    The cooldown covers the whole group on a rate limit, since siblings share it, else just the model.
         coolDown(status === RATE_LIMIT_STATUS ? groupKey(event.model) : `model:${failed}`)
 
-        // 3. An exhausted chain or nothing to replay leaves the host decision, so the error stays visible.
-        const next = await nextEntry(tier, sessionTried)
+        // 3. An exhausted chain leaves the host decision, so the error stays visible.
+        const next = await nextEntry(tier, sessionTried, status)
         if (next === undefined) return
-        const replay = lastUserMessage(await ctx.session.context({ sessionID: event.sessionID }))
-        if (replay === undefined) return
 
-        // 4. Veto, switch, replay. The replay is queued because the vetoed turn is still settling; opencode
-        //    starts it as the next turn, on the switched model.
-        event.decision = { retry: false }
+        // 4. Switch and leave the decision alone: the host's next attempt reloads the session and runs on `next`.
+        //    The model's attempts start at this one, so it gets its own cap before the next switch.
         switching.add(event.sessionID)
         try {
             await ctx.session.switchModel({ sessionID: event.sessionID, model: parseModelRef(next) })
+            attempts.set(event.sessionID, { offset: event.attempt - 1, last: event.attempt })
             console.info(
                 `ac fallback: ${formatRef(event.model)} -> ${next} (status ${status}, attempt ${event.attempt})`,
             )
             // Landing on the head again needs no switch back.
             if (modelKey(next) === modelKey(config.chain(tier)[0] as ModelRef)) fallenBack.delete(event.sessionID)
             else fallenBack.set(event.sessionID, { tier, to: next })
-            await ctx.session.prompt({
-                sessionID: event.sessionID,
-                ...replayInput(replay),
-                metadata: { [REPLAY_MARKER]: { from: failed, to: next } },
-                delivery: "queue",
-            })
         } finally {
             switching.delete(event.sessionID)
         }
@@ -220,8 +212,11 @@ export async function registerFallback(ctx: Context, config: ModelConfig): Promi
                 "Returns the next model to re-spawn a failed ac worker on: the first entry of the tier's fallback",
                 "chain that is not in `tried`, not cooling down after a recent failure and on a provider with a",
                 "credential. Pass the worker's provider error `status`: a 429 is a rate limit shared by every",
-                "provider of a group, so it cools down the groups of the `tried` models and skips their entries.",
-                "Returns `none` when the chain is exhausted; then report the failure instead of re-spawning.",
+                "provider of a group, so it cools down the groups of the `tried` models and skips their entries;",
+                "any other status ignores group cooldowns, since a 5xx is the model's own failure.",
+                "Returns `wait:<seconds>` on a 429 when every remaining entry shares a tried model's group: wait that",
+                "long and re-spawn the same model. Returns `none` when the chain is exhausted; then report the",
+                "failure instead of re-spawning.",
             ].join(" "),
             input: {
                 type: "object",
@@ -248,9 +243,21 @@ export async function registerFallback(ctx: Context, config: ModelConfig): Promi
             },
             execute: async (input: unknown) => {
                 const { tier, tried: triedRefs, status } = input as FallbackNextInput
-                if (status === RATE_LIMIT_STATUS) for (const ref of triedRefs) coolDown(groupKey(ref))
-                const next = await nextEntry(tier, new Set(triedRefs.map(modelKey)))
-                return { content: next ?? "none" }
+                const excluded = new Set(triedRefs.map(modelKey))
+                if (status !== RATE_LIMIT_STATUS) {
+                    return { content: (await nextEntry(tier, excluded, status)) ?? "none" }
+                }
+
+                // 1. A 429 spends the whole group's limit, so the groups of the tried models cool down together.
+                const failedGroups = new Set(triedRefs.map(groupKey))
+                for (const group of failedGroups) coolDown(group)
+
+                // 2. When only those groups are left, switching cannot help, but the limit clears within the cooldown.
+                const rest = await candidates(tier, excluded)
+                const next = rest.find((ref) => !isCoolingDown(groupKey(ref)))
+                if (next !== undefined) return { content: next }
+                const onlyFailedGroups = rest.length > 0 && rest.every((ref) => failedGroups.has(groupKey(ref)))
+                return { content: onlyFailedGroups ? `wait:${config.cooldownSeconds}` : "none" }
             },
         })
     })

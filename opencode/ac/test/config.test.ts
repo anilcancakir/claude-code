@@ -17,7 +17,6 @@ const TIERS = [
     "explore",
     "librarian",
     "qa-tester",
-    "title",
 ]
 
 let dir: string
@@ -64,11 +63,7 @@ describe("loadConfig defaults", () => {
             "codefast-qwen/qwen3.8-flash#low",
             "codefast-deepseek/deepseek-v4.1-flash#low",
         ])
-        expect(config.chain("title")).toEqual([
-            "codefast-qwen/qwen3.8-flash#low",
-            "codefast-deepseek/deepseek-v4.1-flash-1017#low",
-        ])
-        for (const tier of TIERS.filter((name) => name !== "title")) expect(config.chain(tier).length).toBe(3)
+        for (const tier of TIERS) expect(config.chain(tier).length).toBe(3)
     })
 
     test("chain heads per tier", () => {
@@ -86,14 +81,17 @@ describe("loadConfig defaults", () => {
             explore: "codefast-deepseek/deepseek-v4.1-flash-1017#low",
             librarian: "codefast-deepseek/deepseek-v4.1-flash-1017#high",
             "qa-tester": "codefast-deepseek/deepseek-v4.1-flash-1017#high",
-            title: "codefast-qwen/qwen3.8-flash#low",
         })
+    })
+
+    test("no title tier: the title model is set in templates/opencode.jsonc, nothing routes a chain for it", () => {
+        expect(() => loadConfig({ env: {} }).chain("title")).toThrow("title")
     })
 
     test("retry policy", () => {
         const config = loadConfig({ env: {} })
 
-        expect(config.retryAttempts).toBe(2)
+        expect(config.retryAttempts).toBe(3)
         expect(config.cooldownSeconds).toBe(30)
         expect(config.retryOn).toEqual([429, 500, 502, 503, 504])
     })
@@ -157,7 +155,12 @@ describe("loadConfig overrides", () => {
 
         expect(config.groups).toEqual({ acme: ["acme-a", "acme-b"] })
         expect(config.rateLimitAttempts).toBe(4)
-        expect(config.retryAttempts).toBe(2)
+        expect(config.retryAttempts).toBe(3)
+    })
+
+    test("maxParallel defaults to 3, the worker cap under one shared 25 RPM group, and is overridable", () => {
+        expect(loadConfig({ env: {} }).maxParallel).toBe(3)
+        expect(loadConfig({ env: {}, options: { models: { maxParallel: 6 } } }).maxParallel).toBe(6)
     })
 
     test("prepend puts a custom provider in front of the default chain", () => {

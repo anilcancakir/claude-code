@@ -44,7 +44,8 @@ function isSymlink(path: string): boolean {
 /**
  * Returns one line per action; with `dryRun` the lines describe what would happen and nothing is written.
  * A v1 tree is moved aside whole. A re-run on an ac v2 install rewrites only the files this repo owns
- * (opencode.jsonc, cli.json, the agents link) and leaves the operator's AGENTS.md, service.json and the rest.
+ * (opencode.jsonc, cli.json, the agents link), copying the first two to `<name>.bak-<stamp>` beforehand, and
+ * leaves the operator's AGENTS.md, service.json and the rest.
  */
 export function install({ repoRoot, home, dryRun, now }: InstallOptions): string[] {
     const configDir = join(home, ".config", "opencode")
@@ -61,14 +62,28 @@ export function install({ repoRoot, home, dryRun, now }: InstallOptions): string
         lines.push(`${verb} move ${configDir} -> ${backupDir}`)
     }
 
-    // 2. The two config files, with the checkout path resolved.
+    // 2. The two config files, with the checkout path resolved. A file this run replaces is copied aside first, since
+    //    the operator may have edited it by hand; cli.json is copied only when the template would change it.
     if (!dryRun) mkdirSync(configDir, { recursive: true })
     const opencodeJsonc = readFileSync(join(templates, "opencode.jsonc"), "utf8").replaceAll("<repo>", repoRoot)
-    if (!dryRun) writeFileSync(join(configDir, "opencode.jsonc"), opencodeJsonc)
-    lines.push(`${verb} write ${join(configDir, "opencode.jsonc")}`)
+    const cliJson = readFileSync(join(templates, "cli.json"), "utf8")
+    const suffix = `.bak-${timestamp(now)}`
 
-    if (!dryRun) copyFileSync(join(templates, "cli.json"), join(configDir, "cli.json"))
-    lines.push(`${verb} write ${join(configDir, "cli.json")}`)
+    const target = join(configDir, "opencode.jsonc")
+    if (existsSync(target)) {
+        if (!dryRun) copyFileSync(target, `${target}${suffix}`)
+        lines.push(`${verb} copy ${target} -> ${target}${suffix}`)
+    }
+    if (!dryRun) writeFileSync(target, opencodeJsonc)
+    lines.push(`${verb} write ${target}`)
+
+    const cliTarget = join(configDir, "cli.json")
+    if (existsSync(cliTarget) && readFileSync(cliTarget, "utf8") !== cliJson) {
+        if (!dryRun) copyFileSync(cliTarget, `${cliTarget}${suffix}`)
+        lines.push(`${verb} copy ${cliTarget} -> ${cliTarget}${suffix}`)
+    }
+    if (!dryRun) writeFileSync(cliTarget, cliJson)
+    lines.push(`${verb} write ${cliTarget}`)
 
     // 3. Global instructions, first install only: the operator fills the placeholders and owns the file after.
     if (!rerun) {

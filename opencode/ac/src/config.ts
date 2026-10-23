@@ -18,6 +18,8 @@ export interface ModelsConfigFile {
     rateLimitAttempts?: number
     /** Rate-limit group name to the provider ids that share its limit. */
     groups?: Record<string, string[]>
+    /** Default cap on workers running at once in an execute wave. */
+    maxParallel?: number
 }
 
 export interface ModelConfig {
@@ -28,6 +30,8 @@ export interface ModelConfig {
     readonly cooldownSeconds: number
     /** Providers not listed here form a group of their own. */
     readonly groups: Readonly<Record<string, readonly string[]>>
+    /** Default cap on workers running at once in an execute wave; `--max-parallel` overrides it per run. */
+    readonly maxParallel: number
 }
 
 export interface LoadConfigInput {
@@ -99,6 +103,7 @@ function merge(base: ModelsConfigFile, override: ModelsConfigFile): ModelsConfig
         retryAttempts: override.retryAttempts ?? base.retryAttempts,
         rateLimitAttempts: override.rateLimitAttempts ?? base.rateLimitAttempts,
         groups: override.groups ?? base.groups,
+        maxParallel: override.maxParallel ?? base.maxParallel,
     }
 }
 
@@ -128,5 +133,6 @@ export function loadConfig(input: LoadConfigInput = {}): ModelConfig {
         rateLimitAttempts: merged.rateLimitAttempts ?? 0,
         cooldownSeconds: merged.cooldownSeconds ?? 0,
         groups: merged.groups ?? {},
+        maxParallel: merged.maxParallel ?? 0,
     }
 }

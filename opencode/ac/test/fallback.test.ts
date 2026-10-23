@@ -1,12 +1,9 @@
 import { afterEach, describe, expect, setSystemTime, spyOn, test } from "bun:test"
-import type { Plugin } from "@opencode/plugin"
 import type { SessionRetry } from "@opencode/plugin/promise/session"
 import type { ToolContext } from "@opencode/plugin/promise/tool"
 import { loadConfig, type ModelConfig } from "../src/config.ts"
 import { registerFallback } from "../src/fallback.ts"
 import { createFakeCtx, type FakeCtx } from "./fake-ctx.ts"
-
-type SessionMessage = Awaited<ReturnType<Plugin.Context["session"]["context"]>>[number]
 
 /**
  * Fixture chains, independent of config/models.jsonc, so a preset edit cannot break the fallback mechanics.
@@ -17,7 +14,7 @@ const WORKER = ["alpha/code", "beta/two#high", "gamma/three#high"]
 /** Attempt at which the default `rateLimitAttempts` lets the fallback act on a 429. */
 const RATE_LIMIT_CAP = 10
 /** Attempt at which the default `retryAttempts` lets the fallback act on any other retryable status. */
-const RETRY_CAP = 2
+const RETRY_CAP = 3
 
 /** `alpha` and `beta` share one rate-limit group; `gamma` is its own. */
 const SHARED_GROUPS = { shared: ["alpha", "beta"] }
@@ -39,15 +36,6 @@ function modelRef(ref: string): SessionRetry["model"] {
     } as SessionRetry["model"]
 }
 
-function userMessage(text: string): SessionMessage {
-    return {
-        type: "user",
-        id: "msg_user",
-        text,
-        time: { created: 0 },
-    } as unknown as SessionMessage
-}
-
 /** Every fixture model; `ctx.model.list()` answers with the models of connected providers only. */
 const CONNECTED = [
     ...MAIN,
@@ -63,25 +51,15 @@ interface SetupOptions {
 }
 
 /**
- * The Step 1 fake scripts neither `session.context` nor `model.list`, so the transcript the replay reads and the
- * connected model catalogue are attached here. `session.get` reports the model the last switch selected, as the host
- * does once it has applied `switchModel`.
+ * The Step 1 fake does not script `model.list`, so the connected model catalogue is attached here. `session.get`
+ * reports the model the last switch selected, as the host does once it has applied `switchModel`.
  */
-async function setup(
-    config: ModelConfig = fixtureConfig(),
-    messages: SessionMessage[] = [
-        userMessage("first request"),
-        { type: "assistant", id: "msg_assistant" } as unknown as SessionMessage,
-        userMessage("fix the failing build"),
-    ],
-    options: SetupOptions = {},
-): Promise<FakeCtx> {
+async function setup(config: ModelConfig = fixtureConfig(), options: SetupOptions = {}): Promise<FakeCtx> {
     const fake = createFakeCtx()
     const connected = options.connected ?? CONNECTED
     const lastSwitched = (sessionID: string): { providerID: string; id: string } | undefined =>
         fake.calls.switchModel.filter((call) => call.sessionID === sessionID).at(-1)?.model
     Object.assign(fake.ctx.session, {
-        context: async () => messages,
         get: async (query: { sessionID: string }) => {
             const current = options.currentModel?.(query.sessionID)
             return {
@@ -146,24 +124,56 @@ afterEach(() => {
 })
 
 describe("main session fallback", () => {
-    test("a 429 at the attempt cap vetoes the retry, switches to chain[1] and replays once", async () => {
+    test("a failure at the attempt cap switches to chain[1] and leaves the retry going, with no replay", async () => {
         const fake = await setup()
 
         const event = await retry(fake, { model: MAIN[0] as string })
 
-        expect(event.decision).toEqual({ retry: false })
+        expect(event.decision).toEqual({ retry: true, delay: 2_000 })
         expect(fake.calls.switchModel).toEqual([
             {
                 sessionID: "ses_main",
                 model: modelRef(MAIN[1] as string),
             },
         ] as unknown as typeof fake.calls.switchModel)
-        expect(fake.calls.prompt).toHaveLength(1)
-        expect(fake.calls.prompt[0]).toMatchObject({
-            sessionID: "ses_main",
-            text: "fix the failing build",
-            delivery: "queue",
-        })
+        expect(fake.calls.prompt).toHaveLength(0)
+    })
+
+    test("the replacement model gets its own retryAttempts before the next switch", async () => {
+        const fake = await setup()
+
+        await retry(fake, { model: MAIN[0] as string, status: 500, attempt: RETRY_CAP })
+        await retry(fake, { model: MAIN[1] as string, status: 500, attempt: RETRY_CAP + 1 })
+        expect(fake.calls.switchModel).toHaveLength(1)
+
+        await retry(fake, { model: MAIN[1] as string, status: 500, attempt: RETRY_CAP + 2 })
+        expect(fake.calls.switchModel.map((call) => call.model)).toEqual([
+            modelRef(MAIN[1] as string),
+            modelRef(MAIN[2] as string),
+        ])
+    })
+
+    test("a new step restarts the attempt count on the switched model", async () => {
+        const fake = await setup()
+
+        await retry(fake, { model: MAIN[0] as string, status: 500, attempt: RETRY_CAP })
+        await retry(fake, { model: MAIN[1] as string, status: 500, attempt: 2 })
+        expect(fake.calls.switchModel).toHaveLength(1)
+
+        await retry(fake, { model: MAIN[1] as string, status: 500, attempt: RETRY_CAP })
+        expect(fake.calls.switchModel).toHaveLength(2)
+    })
+
+    test("a 502 right after a group-wide 429 still switches inside the cooling group", async () => {
+        const fake = await setup(fixtureConfig(SHARED_GROUPS))
+
+        await retry(fake, { model: MAIN[0] as string, attempt: RATE_LIMIT_CAP })
+        await retry(fake, { model: MAIN[2] as string, status: 502, attempt: RATE_LIMIT_CAP + RETRY_CAP - 1 })
+
+        expect(fake.calls.switchModel.map((call) => call.model)).toEqual([
+            modelRef(MAIN[2] as string),
+            modelRef(MAIN[1] as string),
+        ])
     })
 
     test("a second failure on the replacement moves to chain[2]", async () => {
@@ -176,7 +186,7 @@ describe("main session fallback", () => {
             modelRef(MAIN[1] as string),
             modelRef(MAIN[2] as string),
         ])
-        expect(fake.calls.prompt).toHaveLength(2)
+        expect(fake.calls.prompt).toHaveLength(0)
     })
 
     test("an exhausted chain switches no further and leaves the host decision alone", async () => {
@@ -188,7 +198,7 @@ describe("main session fallback", () => {
 
         expect(last.decision).toEqual({ retry: true, delay: 2_000 })
         expect(fake.calls.switchModel).toHaveLength(2)
-        expect(fake.calls.prompt).toHaveLength(2)
+        expect(fake.calls.prompt).toHaveLength(0)
     })
 
     test("a repeated observation of an already handled model is not acted on twice", async () => {
@@ -199,7 +209,6 @@ describe("main session fallback", () => {
 
         expect(stale.decision).toEqual({ retry: true, delay: 2_000 })
         expect(fake.calls.switchModel).toHaveLength(1)
-        expect(fake.calls.prompt).toHaveLength(1)
     })
 
     test("a cooled-down model is skipped within the cooldown and offered again after it", async () => {
@@ -219,14 +228,10 @@ describe("main session fallback", () => {
         expect(await fallbackNext(fake, { tier: "main", tried: [] })).toBe(MAIN[0])
     })
 
-    test("a new user turn starts a fresh descent, the replay does not", async () => {
+    test("a new user turn starts a fresh descent", async () => {
         const fake = await setup()
 
         await retry(fake, { model: MAIN[0] as string })
-        await fake.fire.session("prompt", {
-            sessionID: "ses_main",
-            metadata: (fake.calls.prompt[0] as { metadata?: Record<string, unknown> }).metadata,
-        })
         await retry(fake, { model: MAIN[1] as string })
         expect(fake.calls.switchModel).toHaveLength(2)
 
@@ -286,9 +291,9 @@ describe("main session fallback", () => {
 
         const event = await retry(fake, { model: MAIN[0] as string, attempt: RATE_LIMIT_CAP })
 
-        expect(event.decision).toEqual({ retry: false })
+        expect(event.decision).toEqual({ retry: true, delay: 2_000 })
         expect(fake.calls.switchModel.map((call) => call.model)).toEqual([modelRef(MAIN[2] as string)])
-        expect(fake.calls.prompt).toHaveLength(1)
+        expect(fake.calls.prompt).toHaveLength(0)
     })
 
     test("a 500 at retryAttempts switches to the next entry even within the group", async () => {
@@ -296,70 +301,12 @@ describe("main session fallback", () => {
 
         const event = await retry(fake, { model: MAIN[0] as string, status: 500, attempt: RETRY_CAP })
 
-        expect(event.decision).toEqual({ retry: false })
+        expect(event.decision).toEqual({ retry: true, delay: 2_000 })
         expect(fake.calls.switchModel.map((call) => call.model)).toEqual([modelRef(MAIN[1] as string)])
     })
 
     test("a 429 with only same-group entries left leaves the host decision alone", async () => {
         const fake = await setup(fixtureConfig({ all: ["alpha", "beta", "gamma"] }))
-
-        const event = await retry(fake, { model: MAIN[0] as string })
-
-        expect(event.decision).toEqual({ retry: true, delay: 2_000 })
-        expect(fake.calls.switchModel).toHaveLength(0)
-    })
-
-    test("the replay carries the stored attachments back as prompt input", async () => {
-        const message = {
-            ...(userMessage("look at @shot.png with @ac/oracle") as object),
-            files: [
-                {
-                    data: "aGk=",
-                    mime: "image/png",
-                    source: { type: "uri", uri: "file:///tmp/shot.png" },
-                    name: "shot.png",
-                },
-            ],
-            agents: [
-                {
-                    name: "ac/oracle",
-                },
-            ],
-            skills: [
-                {
-                    id: "plan",
-                    name: "plan",
-                    text: "skill body",
-                },
-            ],
-        } as unknown as SessionMessage
-        const fake = await setup(fixtureConfig(), [message])
-
-        await retry(fake, { model: MAIN[0] as string })
-
-        expect(fake.calls.prompt[0]).toMatchObject({
-            text: "look at @shot.png with @ac/oracle",
-            files: [
-                {
-                    uri: "data:image/png;base64,aGk=",
-                    name: "shot.png",
-                },
-            ],
-            agents: [
-                {
-                    name: "ac/oracle",
-                },
-            ],
-            skills: [
-                {
-                    id: "plan",
-                },
-            ],
-        })
-    })
-
-    test("no user message to replay leaves the host decision alone", async () => {
-        const fake = await setup(fixtureConfig(), [])
 
         const event = await retry(fake, { model: MAIN[0] as string })
 
@@ -412,10 +359,10 @@ describe("ac_fallback_next", () => {
 
         await retry(fake, { model: MAIN[0] as string })
 
-        expect(await fallbackNext(fake, { tier: "main", tried: [] })).toBe(MAIN[2])
+        expect(await fallbackNext(fake, { tier: "main", tried: [], status: 429 })).toBe(MAIN[2])
 
         setSystemTime(new Date("2026-10-23T10:00:31Z"))
-        expect(await fallbackNext(fake, { tier: "main", tried: [] })).toBe(MAIN[0])
+        expect(await fallbackNext(fake, { tier: "main", tried: [], status: 429 })).toBe(MAIN[0])
     })
 
     test("a 500 cools down the model only, not its group", async () => {
@@ -457,9 +404,54 @@ describe("ac_fallback_next with a worker's provider status", () => {
 
         await fallbackNext(fake, { tier: "plan-worker-junior", tried: [WORKER[0] as string], status: 429 })
 
-        expect(await fallbackNext(fake, { tier: "main", tried: [] })).toBe(MAIN[2])
+        expect(await fallbackNext(fake, { tier: "main", tried: [], status: 429 })).toBe(MAIN[2])
         setSystemTime(new Date("2026-10-23T10:00:31Z"))
-        expect(await fallbackNext(fake, { tier: "main", tried: [] })).toBe(MAIN[0])
+        expect(await fallbackNext(fake, { tier: "main", tried: [], status: 429 })).toBe(MAIN[0])
+    })
+
+    test("a 500 after a group-wide 429 still offers the cooling group's entries", async () => {
+        const fake = await setup(fixtureConfig(SHARED_GROUPS))
+
+        expect(await fallbackNext(fake, { tier: "plan-worker-junior", tried: [WORKER[0] as string], status: 429 }))
+            .toBe(WORKER[2])
+        const next = await fallbackNext(fake, {
+            tier: "plan-worker-junior",
+            tried: [
+                WORKER[0] as string,
+                WORKER[2] as string,
+            ],
+            status: 500,
+        })
+
+        expect(next).toBe(WORKER[1])
+    })
+
+    test("a 429 with only the failed group left answers wait for the cooldown", async () => {
+        const fake = await setup(fixtureConfig({ all: ["alpha", "beta", "gamma"] }))
+
+        const next = await fallbackNext(fake, { tier: "plan-worker-junior", tried: [WORKER[0] as string], status: 429 })
+
+        expect(next).toBe("wait:30")
+    })
+
+    test("a 429 on an exhausted chain still answers none", async () => {
+        const fake = await setup(fixtureConfig({ all: ["alpha", "beta", "gamma"] }))
+
+        expect(await fallbackNext(fake, { tier: "plan-worker-junior", tried: WORKER, status: 429 })).toBe("none")
+    })
+
+    test("a 500 with only the failed group left answers the next entry, never wait", async () => {
+        const fake = await setup(fixtureConfig({ all: ["alpha", "beta", "gamma"] }))
+
+        expect(await fallbackNext(fake, { tier: "plan-worker-junior", tried: [WORKER[0] as string], status: 500 }))
+            .toBe(WORKER[1])
+    })
+
+    test("the tool description names the wait verdict", async () => {
+        const fake = await setup()
+        fake.applyTransforms()
+
+        expect(fake.tools.get("ac_fallback_next")?.description).toContain("wait:<seconds>")
     })
 
     test("another status keeps the group in play", async () => {
@@ -490,7 +482,7 @@ describe("ac_fallback_next with a worker's provider status", () => {
 
 describe("providers without a credential", () => {
     test("ac_fallback_next skips an entry whose model is not connected", async () => {
-        const fake = await setup(fixtureConfig(), undefined, {
+        const fake = await setup(fixtureConfig(), {
             connected: [
                 WORKER[0] as string,
                 WORKER[2] as string,
@@ -503,13 +495,13 @@ describe("providers without a credential", () => {
     })
 
     test("ac_fallback_next returns none when only unconnected entries remain", async () => {
-        const fake = await setup(fixtureConfig(), undefined, { connected: [WORKER[0] as string] })
+        const fake = await setup(fixtureConfig(), { connected: [WORKER[0] as string] })
 
         expect(await fallbackNext(fake, { tier: "plan-worker-junior", tried: [WORKER[0] as string] })).toBe("none")
     })
 
     test("the main session never switches onto an unconnected model", async () => {
-        const fake = await setup(fixtureConfig(), undefined, {
+        const fake = await setup(fixtureConfig(), {
             connected: [
                 MAIN[0] as string,
                 MAIN[2] as string,
@@ -522,7 +514,7 @@ describe("providers without a credential", () => {
     })
 
     test("a chain with no connected entry left leaves the host decision alone", async () => {
-        const fake = await setup(fixtureConfig(), undefined, { connected: [MAIN[0] as string] })
+        const fake = await setup(fixtureConfig(), { connected: [MAIN[0] as string] })
 
         const event = await retry(fake, { model: MAIN[0] as string })
 
@@ -551,20 +543,6 @@ describe("switch back to the chain head", () => {
         ])
     })
 
-    test("the replay prompt does not switch back", async () => {
-        setSystemTime(new Date("2026-10-23T10:00:00Z"))
-        const fake = await setup()
-        await retry(fake, { model: MAIN[0] as string })
-
-        setSystemTime(new Date("2026-10-23T10:00:31Z"))
-        await fake.fire.session("prompt", {
-            sessionID: "ses_main",
-            metadata: (fake.calls.prompt[0] as { metadata?: Record<string, unknown> }).metadata,
-        })
-
-        expect(fake.calls.switchModel).toHaveLength(1)
-    })
-
     test("a group still cooling down keeps the session on its fallback", async () => {
         setSystemTime(new Date("2026-10-23T10:00:00Z"))
         const fake = await setup(fixtureConfig(SHARED_GROUPS))
@@ -580,7 +558,7 @@ describe("switch back to the chain head", () => {
 
     test("a model the user picked after the fallback is left alone", async () => {
         setSystemTime(new Date("2026-10-23T10:00:00Z"))
-        const fake = await setup(fixtureConfig(), undefined, { currentModel: () => "gamma/three#max" })
+        const fake = await setup(fixtureConfig(), { currentModel: () => "gamma/three#max" })
         await retry(fake, { model: MAIN[0] as string })
 
         setSystemTime(new Date("2026-10-23T10:00:31Z"))

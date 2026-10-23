@@ -1,7 +1,6 @@
 import { existsSync, readFileSync, realpathSync } from "node:fs"
 import { basename, dirname, join, resolve, sep } from "node:path"
 import type { Plugin } from "@opencode/plugin"
-import { REPLAY_MARKER } from "./fallback.ts"
 import { type ExecutionMarker, ownsMarker, readMarker, rootSessionOf } from "./marker.ts"
 
 export interface RunGuardsOptions {
@@ -168,10 +167,8 @@ export async function registerRunGuards(ctx: Plugin.Context, options: RunGuardsO
         })
     })
 
-    // 2. A user prompt opens a fresh nudge budget; any root tool call ends the current stall. A fallback replay
-    //    re-sends the prompt that already opened this budget, so it is not a new one.
+    // 2. A user prompt opens a fresh nudge budget; any root tool call ends the current stall.
     await ctx.session.hook("prompt", (event) => {
-        if (event.metadata?.[REPLAY_MARKER] !== undefined) return
         nudges.delete(event.sessionID)
     })
     await ctx.tool.hook("execute.after", (event) => {

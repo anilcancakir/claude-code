@@ -156,24 +156,6 @@ describe("stop guard", () => {
         expect(fake.calls.synthetic).toHaveLength(4)
     })
 
-    test("a fallback replay prompt does not reopen the per-prompt budget", async () => {
-        writeMarker()
-        writePlan()
-        const fake = await setup()
-
-        for (let stall = 0; stall < 3; stall++) {
-            await push(fake, "session.execution.succeeded", { sessionID: "ses_root" })
-            await toolCall(fake, "ses_root")
-        }
-        await fake.fire.session("prompt", {
-            sessionID: "ses_root",
-            metadata: { "ac.fallback": { from: "alpha/one", to: "beta/two#high" } },
-        })
-        await push(fake, "session.execution.succeeded", { sessionID: "ses_root" })
-
-        expect(fake.calls.synthetic).toHaveLength(3)
-    })
-
     test("a worker's tool call does not reset the root's stall", async () => {
         writeMarker()
         writePlan()

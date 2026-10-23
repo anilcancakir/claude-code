@@ -122,6 +122,42 @@ describe("install re-run on an ac v2 install", () => {
         expect(realpathSync(link)).toBe(realpathSync(join(REPO_ROOT, "opencode/ac/agents")))
     })
 
+    test("copies the existing opencode.jsonc to a timestamped backup before overwriting it", () => {
+        seedV2()
+
+        install({ repoRoot: REPO_ROOT, home, dryRun: false, now: LATER })
+
+        expect(readFileSync(join(configDir(), "opencode.jsonc.bak-20261024-090000"), "utf8")).toBe("{}")
+        expect(readFileSync(join(configDir(), "opencode.jsonc"), "utf8")).toContain(`${REPO_ROOT}/opencode/ac`)
+    })
+
+    test("backs up cli.json only when it differs from the template", () => {
+        seedV2()
+        install({ repoRoot: REPO_ROOT, home, dryRun: false, now: LATER })
+        expect(readFileSync(join(configDir(), "cli.json.bak-20261024-090000"), "utf8")).toBe("{}")
+
+        install({ repoRoot: REPO_ROOT, home, dryRun: false, now: new Date(2026, 9, 25, 10, 0, 0) })
+
+        expect(existsSync(join(configDir(), "cli.json.bak-20261025-100000"))).toBe(false)
+        expect(existsSync(join(configDir(), "opencode.jsonc.bak-20261025-100000"))).toBe(true)
+    })
+
+    test("a first install, which has nothing to overwrite, leaves no backup file", () => {
+        install({ repoRoot: REPO_ROOT, home, dryRun: false, now: NOW })
+
+        expect(readdirSync(configDir()).filter((name) => name.includes(".bak-"))).toEqual([])
+    })
+
+    test("the dry run names the backups and writes none", () => {
+        seedV2()
+
+        const lines = install({ repoRoot: REPO_ROOT, home, dryRun: true, now: LATER }).join("\n")
+
+        expect(lines).toContain("opencode.jsonc.bak-20261024-090000")
+        expect(lines).toContain("cli.json.bak-20261024-090000")
+        expect(readdirSync(configDir()).filter((name) => name.includes(".bak-"))).toEqual([])
+    })
+
     test("the dry run of a re-run names no move and no AGENTS.md write", () => {
         seedV2()
 
@@ -231,13 +267,13 @@ describe("rendered opencode.jsonc", () => {
             })
     })
 
-    test("the default, build and title models are the heads of the main and title chains", () => {
+    test("the default and build models are the head of the main chain, the title model a fast low variant", () => {
         const config = render()
         const chains = loadConfig({ env: {} })
 
         expect(config.model).toBe(chains.chain("main")[0] as string)
         expect(config.agents.build?.model).toBe(chains.chain("main")[0] as string)
-        expect(config.agents.title?.model).toBe(chains.chain("title")[0] as string)
+        expect(config.agents.title?.model).toBe("codefast-qwen/qwen3.8-flash#low")
     })
 
     test("each codefast provider is an openai-compatible endpoint keyed by an env substitution", () => {

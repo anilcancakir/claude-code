@@ -176,6 +176,66 @@ describe("explore read-only shell guard", () => {
     })
 })
 
+describe("read-only reviewer shell guard", () => {
+    const REVIEWERS = ["ac/oracle", "ac/plan-reviewer", "ac/plan-code-review", "ac/librarian"]
+
+    function shell(fake: Awaited<ReturnType<typeof setup>>, agent: string, ...resources: string[]) {
+        return fake.fire.permission("evaluate", {
+            sessionID: "ses_a",
+            agent: agent as AgentId,
+            action: "shell",
+            resources,
+            effect: "allow",
+        })
+    }
+
+    test.each(REVIEWERS)("%s is denied sed -i, prettier --write and a redirect with the read-only reason", async (agent) => {
+        const fake = await setup({})
+
+        for (const command of ["sed -i x f", "prettier --write f", "echo a > f"]) {
+            const event = await shell(fake, agent, command)
+
+            expect(event.effect).toBe("deny")
+            expect(event.message).toContain(`${agent} is read-only`)
+        }
+    })
+
+    test.each(REVIEWERS)("%s may still run rg, git log and bun test", async (agent) => {
+        const fake = await setup({})
+
+        for (const command of ["rg foo", "git log", "bun test"]) {
+            expect((await shell(fake, agent, command)).effect).toBe("allow")
+        }
+    })
+
+    test("a reviewer reading a secret-shaped file is left to the agent's own permission rules", async () => {
+        const fake = await setup({})
+
+        expect((await shell(fake, "ac/oracle", "cat .env")).effect).toBe("allow")
+    })
+
+    test("a reviewer's shell calls spend no budget", async () => {
+        const fake = await setup()
+        for (let call = 0; call < BUDGET * 3; call++) await shell(fake, "ac/oracle", "rg foo")
+
+        expect((await shell(fake, "ac/oracle", "rg foo")).effect).toBe("allow")
+    })
+
+    test("workers and the primary agent are unaffected", async () => {
+        const fake = await setup({})
+
+        for (const agent of ["ac/plan-worker-junior", "ac/plan-worker-senior", "build"]) {
+            expect((await shell(fake, agent, "sed -i x f")).effect).toBe("allow")
+        }
+    })
+
+    test("a reviewer's non-shell actions are untouched", async () => {
+        const fake = await setup({})
+
+        expect((await evaluate(fake, "ac/oracle", "edit")).effect).toBe("allow")
+    })
+})
+
 describe("shell default timeout", () => {
     test("adds 180000 when the call carries no timeout", async () => {
         const fake = await setup()

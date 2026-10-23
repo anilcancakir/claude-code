@@ -194,6 +194,9 @@ Counts policy, which governs the fan-out and stays here:
 - `ac/librarian`: floor 2, target 3. Brief 1 verifies idiomatic patterns against vendor docs, brief 2 covers known
   bugs and version-combo breakage, brief 3 adds OSS reference examples or a second library.
 - `ac/oracle`: 1, only when the request signals architecture intent. Advisory and non-blocking; do not gate on it.
+- Shared rate limit: when one group in `groups` of `../../config/models.jsonc` covers every chain the cohort runs on
+  (the shipped config), cap the cohort at 3 `ac/explore` + 1 `ac/librarian` plus the optional oracle, in place of
+  the floors above. That group allows 25 requests per minute across all models, so a wider cohort waits on 429s.
 
 Every brief carries a `DEPTH` and a `BUDGET`, or the agent falls back to its own default and searches wider than
 the angle needs. The reuse angle is one dedicated brief, not a clause added to the others. Issue all spawns in ONE

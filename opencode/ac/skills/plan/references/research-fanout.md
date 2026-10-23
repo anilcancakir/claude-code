@@ -73,9 +73,11 @@ In the same assistant turn that issues 1c, spawn the rest of the cohort. Use 1a'
   - Brief 3 (when target = 3): production-quality OSS reference examples for the specific shape this plan introduces, OR a second library / framework not covered by briefs 1-2. Brief shape in the same file under `## Brief 3`, framings (a) or (b).
 - `ac/oracle`: **1 only when the request signals architecture intent** (system design, infrastructure, non-trivial trade-offs). Advisory; non-blocking; do not gate on its return. Unchanged from prior behavior.
 
+**Shared rate-limit cap.** When one rate-limit group in `groups` of `../../config/models.jsonc` (relative to this skill's base directory) covers the provider of every chain the cohort runs on, as the shipped config does, cap the cohort at **3 `ac/explore` + 1 `ac/librarian`**, plus the optional `ac/oracle`, and drop the floor and target above. That one group allows 25 requests per minute across every model, and each subagent turn spends several of them, so a ten-agent cohort spends its time on 429 retries instead of finishing sooner. Keep the 1c reuse explore as one of the three and give the librarian brief 1 (idiomatic patterns); fold the known-bugs dimension into it as a second question only when the topic leans on a library version.
+
 Each brief targets ONE named angle and carries its own `DEPTH` and `BUDGET`. Do not bundle three libraries into one librarian brief, and do not add the reuse dimension to an explore spawned for something else.
 
-All agents launched with `background: true` on the `subagent` call so you can collect results as they complete; each completion arrives as a notification. Issue all calls in ONE assistant message with multiple `subagent` calls for true parallelism. Reaching the target (7 + 3) is preferable when the topic supports it; the floor exists so trivial plans do not pay maximum token cost.
+All agents launched with `background: true` on the `subagent` call so you can collect results as they complete; each completion arrives as a notification. Issue all calls in ONE assistant message with multiple `subagent` calls for true parallelism. Reaching the target (7 + 3) is preferable when the topic supports it and the shared rate-limit cap does not apply; the floor exists so trivial plans do not pay maximum token cost.
 
 <brief_shape>
 CONTEXT: [why this research, in 1-2 sentences; cite the survey-anchored path]

@@ -22,7 +22,7 @@ Every branch that terminates the run deletes `.ac/state/active-execution.json` f
 
 **A stop needs a name.** "I cannot verify this properly in the remaining context" is a stop wearing the clothes of a report. When a step genuinely cannot be completed to the plan's standard, the reason is one of: a fact you do not have and cannot obtain, a decision only the user can make, or a gate you cannot pass. Each maps to a BLOCKER branch (2i, 2j, 3c) that surfaces a `question` and deletes the marker. Name the class, take the branch, report what did land. Never substitute a capacity limit for the real reason.
 
-**No review loop needs bounding.** Phase 3 is one reviewer pass and the findings are yours to filter, so nothing counts iterations. Five bounded loops remain: at most two retries per step at 2e (a variant rung, then a tier rung), at most two briefing-gap re-spawns per step at 2e, the provider-fallback re-spawns at 2e, which end when the tier's model chain does, the three-failed-steps-across-two-waves halt at 2j, and the one QA retest that the `qa` skill runs after its own fixes at 3e. The first counts in `WORKER_RETRY_PER_STEP` and the fourth reads `STEP_FAILURES`, which gets one entry per step at terminal failure; the second counts re-spawns for the step in front of you; the third is bounded by the `tried` list you pass to `ac_fallback_next`; the fifth is owned and counted inside `qa`, so 3e never re-invokes it.
+**No review loop needs bounding.** Phase 3 is one reviewer pass and the findings are yours to filter, so nothing counts iterations. Five bounded loops remain: at most two retries per step at 2e (a variant rung, then a tier rung), at most two briefing-gap re-spawns per step at 2e, the provider-fallback re-spawns at 2e, which end when the tier's model chain does (plus at most three `wait:` re-spawns per step), the three-failed-steps-across-two-waves halt at 2j, and the one QA retest that the `qa` skill runs after its own fixes at 3e. The first counts in `WORKER_RETRY_PER_STEP` and the fourth reads `STEP_FAILURES`, which gets one entry per step at terminal failure; the second counts re-spawns for the step in front of you; the third is bounded by the `tried` list you pass to `ac_fallback_next`; the fifth is owned and counted inside `qa`, so 3e never re-invokes it.
 
 **Progress surface.** Two surfaces carry it and neither is a tool. The plan file's checkboxes are the per-step record, ticked at Layer D and counted with `grep -c '^- \[ \]'`, which is also what the stop guard reads. Phase 2h prints the per-step table after each wave. Add one short line per phase and wave transition and that is the whole picture.
 
@@ -118,7 +118,7 @@ Nothing to load. The `question` tool is available directly, and there is no task
 ### 1a. Parse arguments
 
 - Strip `--auto` if present: `AUTO_MODE = true`. Engages auto mode per the `<auto_mode>` policy: auto-resolve the flow gates, halt only on BLOCKER classes. When this skill was chained from the `plan` skill's Stage 6 auto handoff, that skill loaded this one and continued with `<slug> --auto` as the request, so the flag arrives in the request text.
-- Strip `--max-parallel N` if present: `MAX_PARALLEL = N`, the cap on workers running at once within a wave (2c). Default unlimited.
+- Strip `--max-parallel N` if present: `MAX_PARALLEL = N`, the cap on workers running at once within a wave (2c). Without the flag, `MAX_PARALLEL` is `maxParallel` from `../../config/models.jsonc` (relative to this skill's base directory, the file 1c reads its chains from), 3 in the shipped config: every chain sits in one rate-limit group of 25 requests per minute, and each worker turn spends several requests, so a wider wave mostly waits on 429s.
 - Strip `--no-oracle` if present: `NO_ORACLE = true`. Phase 3 spawns `ac/oracle` beside the reviewer when the change touches one of the six criticality surfaces; this flag opts out of that.
 - Strip `--no-qa` if present: `NO_QA = true`. Skips the Phase 3e QA pass whatever the plan's `**QA**` line says.
 - Strip `--no-checkpoint-commits` if present: `NO_CHECKPOINT_COMMITS = true`. Disables wave-after commits; Phase 4 final commit still runs.
@@ -548,13 +548,21 @@ adding every fallback you have spawned for the step since. `status` is the HTTP 
 (429 for a rate limit); omit it when the failure named none. Pass it every time: a 429 is a limit shared by every
 provider of a rate-limit group, and only with the status does the tool skip the failed model's whole group instead
 of re-spawning on a sibling that is throttled too. The tool returns the next chain entry that is not tried, not
-cooling down after a recent failure and on a provider with a credential, or `none`. On a model, re-spawn the same
-agent with the same briefing and `model: "<the returned value>"`, add it to `tried`, and take the same route on
-another provider error. Every entry joins `tried`, so the loop ends within the chain's length. These re-spawns are
+cooling down after a recent failure and on a provider with a credential, or `wait:<seconds>`, or `none`. On a
+model, re-spawn the same agent with the same briefing and `model: "<the returned value>"`, add it to `tried`, and
+take the same route on another provider error. Every entry joins `tried`, so the loop ends within the chain's
+length. These re-spawns are
 not retries: they do not count in `WORKER_RETRY_PER_STEP` and keep the step on its current rung. On `none` the
 tier's chain is exhausted: count it as the step's failure and take the tier rung below directly, because the variant
 rung would re-run a model that is not answering; for a senior step it is terminal. The tier-rung spawn starts a fresh
 `tried` on its own tier's chain.
+
+`wait:<seconds>` comes back only on a 429 when every entry left in the chain shares the failed model's rate-limit
+group: switching would land on the same spent limit, and the limit clears within the cooldown. Wait that long in one
+`shell` call (`sleep <seconds>` with the call's timeout above it), then re-spawn the SAME model with the same
+briefing, leaving `tried` as it is. A wait is not a step failure and not a retry: it adds nothing to
+`WORKER_RETRY_PER_STEP` or `STEP_FAILURES` and keeps the step on its rung. Allow at most three waits per step; on
+the next 429 after the third, treat the answer as `none`. Only `none` counts as the step's failure.
 
 **Worker reported `[BRIEFING GAP]`**: it could not proceed because something Section 6 should have carried
 was missing. Re-assemble the missing block and re-spawn at the SAME tier. Never escalate for this: the

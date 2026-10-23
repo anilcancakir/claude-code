@@ -7,6 +7,14 @@ export interface ToolPolicyOptions {
 }
 
 const EXPLORE_AGENT = "ac/explore"
+// Advisory agents that never change the tree; their shell is judged by the same write-mode check as explore's.
+const READ_ONLY_AGENTS: ReadonlySet<string> = new Set([
+    EXPLORE_AGENT,
+    "ac/oracle",
+    "ac/plan-reviewer",
+    "ac/plan-code-review",
+    "ac/librarian",
+])
 const BUDGETED_ACTIONS: ReadonlySet<string> = new Set(["read", "grep", "glob", "shell"])
 
 // Same tail-calibrated number as pretooluse-explore-budget.sh: it never fires on a median run and cuts the outliers.
@@ -31,10 +39,14 @@ function budgetMessage(maxCalls: number): string {
 const SECRET_REASON =
     "ac/explore does not open secret-shaped files. Report the path only (it exists, it is or is not tracked), " +
     "and continue with the rest of the search."
-const WRITE_REASON =
-    "ac/explore is read-only: it does not run formatters or fixers in write mode, install packages, write files, " +
-    "or change git state. Read the tool's config and the manifest instead (a --version check is fine), note the " +
-    "command in your report for the orchestrator, and continue."
+
+function writeReason(agent: string): string {
+    return (
+        `${agent} is read-only: it does not run formatters or fixers in write mode, install packages, write files, ` +
+        "or change git state. Read the tool's config and the manifest instead (a --version check is fine), note the " +
+        "command in your report for the orchestrator, and continue."
+    )
+}
 
 // Ported from plugins/ac/hooks/pretooluse-explore-budget.sh (is_secret, is_write) so the two harnesses refuse
 // the same commands. A template or a public half (.env.example, .pub, a .d.ts type file) stays readable.
@@ -218,14 +230,17 @@ function writes(raw: string, judged: string): boolean {
         .some((segment) => WRITE_COMMANDS.some((pattern) => pattern.test(segment)))
 }
 
-/** The reason an `ac/explore` shell command is refused, or undefined when it may run. */
-function exploreShellDenial(command: string): string | undefined {
-    if (readsSecret(command)) return SECRET_REASON
+/**
+ * The reason a read-only agent's shell command is refused, or undefined when it may run. Only `ac/explore` gets the
+ * secret check: the other reviewers carry deny rules for secret files in their own permission blocks.
+ */
+function shellDenial(agent: string, command: string): string | undefined {
+    if (agent === EXPLORE_AGENT && readsSecret(command)) return SECRET_REASON
 
     const blanked = blankQuotes(command)
-    if (writes(command, blanked)) return WRITE_REASON
+    if (writes(command, blanked)) return writeReason(agent)
     const interpreted = blanked.split(/[;|&\n]/).some((segment) => INTERPRETER.test(segment.trimStart()))
-    if (interpreted && writes(command, command)) return WRITE_REASON
+    if (interpreted && writes(command, command)) return writeReason(agent)
     return undefined
 }
 
@@ -236,17 +251,22 @@ export async function registerToolPolicy(ctx: Plugin.Context, options: ToolPolic
 
     // A call refused here is not counted, so the count stays at the limit and every later call is refused too.
     await ctx.permission.hook("evaluate", (event) => {
-        if (event.agent !== EXPLORE_AGENT || !BUDGETED_ACTIONS.has(event.action)) return
+        if (event.agent === undefined || !READ_ONLY_AGENTS.has(event.agent)) return
 
         // The read-only guard runs before the count, as in the CC hook, so a refused command spends no budget.
         if (event.action === "shell") {
-            const denial = event.resources.map(exploreShellDenial).find((reason) => reason !== undefined)
+            const agent = event.agent
+            const denial = event.resources
+                .map((command) => shellDenial(agent, command))
+                .find((reason) => reason !== undefined)
             if (denial) {
                 event.effect = "deny"
                 event.message = denial
                 return
             }
         }
+
+        if (event.agent !== EXPLORE_AGENT || !BUDGETED_ACTIONS.has(event.action)) return
 
         const made = calls.get(event.sessionID) ?? 0
         if (made >= maxCalls) {

@@ -8,7 +8,7 @@
     //   (planner GLM -> plan-reviewer Kimi; main GLM -> oracle Kimi); workers run DeepSeek, so plan-code-review is GLM.
     // - DeepSeek V4.1 Flash 1017: Sonnet- and Haiku-shaped workhorse (Artificial Analysis Intelligence Index 45 =
     //   GLM-5.3, Kimi K3 44, Qwen3.8 Flash 40; speed class 4/4 vs GLM 3/4, Qwen 2/4, Kimi 1/4; operator test 12/12).
-    // - Qwen 3.8 Flash: titles and last fallback.
+    // - Qwen 3.8 Flash: last fallback (the title model is set in templates/opencode.jsonc, not routed here).
     // Every chain sits inside the one codefast rate-limit group, so the fallback mainly covers model-specific errors
     // (5xx, malformed output); a group-wide 429 waits (rateLimitAttempts).
     "tiers": {
@@ -66,16 +66,13 @@
             "codefast-deepseek/deepseek-v4.1-flash-1017#high",
             "codefast-glm/glm-5.3#high",
             "codefast-qwen/qwen3.8-flash#high"
-        ],
-        "title": [
-            "codefast-qwen/qwen3.8-flash#low",
-            "codefast-deepseek/deepseek-v4.1-flash-1017#low"
         ]
     },
     "cooldownSeconds": 30,
     "retryOn": [429, 500, 502, 503, 504],
-    // Non-429 retryable statuses switch model at this attempt.
-    "retryAttempts": 2,
+    // Non-429 retryable statuses switch model at this attempt, counted per model: the host retry carries on
+    // after a switch, on the new model.
+    "retryAttempts": 3,
     // A 429 is an RPM limit that clears within seconds, so the host keeps retrying (it honours retry-after)
     // until this attempt before the fallback acts.
     "rateLimitAttempts": 10,
@@ -84,5 +81,8 @@
     // share one group:unlimited limit (25 RPM).
     "groups": {
         "codefast": ["codefast-glm", "codefast-kimi", "codefast-deepseek", "codefast-qwen"]
-    }
+    },
+    // Default cap on ac workers running at once in an execute wave (--max-parallel overrides it). Every turn of a
+    // worker spends several requests of the one shared 25 RPM group, so a wider wave mostly waits on 429s.
+    "maxParallel": 3
 }
