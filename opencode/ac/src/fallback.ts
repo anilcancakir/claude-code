@@ -515,6 +515,9 @@ export async function registerFallback(
         // through the plugin options, and only the plugin sees the merged result.
         editor.add({
             name: "ac_models",
+            // A direct tool, not a Code Mode one: an agent whose permissions deny `execute` (a lane, every ac
+            // agent) would never see it inside Code Mode (core/src/tool.ts:236-239).
+            options: { codemode: false },
             description: [
                 "Returns the model routing this plugin runs on, as JSON: `tiers` maps each tier (an ac agent name",
                 "without the ac/ prefix, plus `main`) to its fallback chain, whose first entry is the model that agent",
@@ -539,6 +542,7 @@ export async function registerFallback(
         })
         editor.add({
             name: "ac_fallback_next",
+            options: { codemode: false },
             description: [
                 "Returns the next model to re-spawn a failed ac worker on: the first entry of the tier's fallback",
                 "chain that is not in `tried`, not cooling down after a recent failure and on a provider with a",

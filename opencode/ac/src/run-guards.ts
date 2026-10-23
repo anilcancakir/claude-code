@@ -164,6 +164,9 @@ export async function registerRunGuards(
     await ctx.tool.transform((editor) => {
         editor.add({
             name: "ac_session",
+            // A direct tool, not a Code Mode one: an agent whose permissions deny `execute` (a lane, every ac
+            // agent) would never see it inside Code Mode (core/src/tool.ts:236-239).
+            options: { codemode: false },
             description:
                 "Returns this session's id and its root session id (the top of the parent chain) as JSON. " +
                 "The ac execute skill writes both into .ac/state/active-execution.json.",

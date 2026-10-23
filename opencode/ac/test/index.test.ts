@@ -97,6 +97,8 @@ describe("plugin entry", () => {
             "ac_lane_start",
             "ac_lane_send",
         ]))
+        // A Code Mode tool is invisible to an agent that denies `execute`, as every ac agent does.
+        for (const tool of fake.tools.values()) expect(tool.options?.codemode).toBe(false)
         expect(fake.commands.map((command) => command.name).sort()).toEqual([
             "ac/commit",
             "ac/coordinate",

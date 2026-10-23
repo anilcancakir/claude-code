@@ -354,6 +354,9 @@ export async function registerCoordinate(
     await ctx.tool.transform((editor) => {
         editor.add({
             name: "ac_lane_start",
+            // A direct tool, not a Code Mode one: an agent whose permissions deny `execute` (a lane, every ac
+            // agent) would never see it inside Code Mode (core/src/tool.ts:236-239).
+            options: { codemode: false },
             description: [
                 "Starts one ac coordinate lane: creates the git worktree",
                 "<repo>/.ac/worktrees/lane/<coord_slug>/<bundle> on a new branch lane/<coord_slug>/<bundle> at",
@@ -437,6 +440,7 @@ export async function registerCoordinate(
 
         editor.add({
             name: "ac_lane_send",
+            options: { codemode: false },
             description: [
                 "Resumes an ac coordinate lane with one protocol message whose first token is ANSWERS, EXECUTE,",
                 "REBASE, RESOLVE, REVISE, PAUSE, RESUME or STOP. The message waits for the lane's current turn to end;",
