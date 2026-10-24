@@ -190,8 +190,9 @@ const STANDING_RULES = [
     "",
     "Away mode: while the marker carries `away: true` the owner is away. Ask no question except Push?: answer " +
         "every decision, lane block and conflict yourself with its Recommended option, record it as `away, not " +
-        "owner-approved` in events.jsonl and state.json `timed_out`, and send it on. Finish the run: integrate, gate " +
-        "with ac/auto-verifier, then the away review with ac/oracle (Phase 7), then ask Push?, which waits. An owner " +
+        "owner-approved` in events.jsonl and state.json `timed_out`, and send it on. Finish the run: integrate, the QA " +
+        "lane (7a), gate with ac/auto-verifier (7b), then the away review with ac/oracle, then ask Push?, which " +
+        "waits. An owner " +
         "message saying they are back clears `away`.",
     "",
     "Context: when the coordinate procedure is gone from context, load the skill `coordinate` again, then read " +
@@ -434,7 +435,7 @@ export async function registerCoordinate(
                     coord_slug: { type: "string", description: "The coordinate run slug (lowercase kebab-case)." },
                     bundle: { type: "string", description: "The bundle id, e.g. b1." },
                     base_sha: { type: "string", description: "The integration head the lane branch starts at." },
-                    brief: { type: "string", description: "The eight-field lane brief from the coordinate skill." },
+                    brief: { type: "string", description: "The lane brief from the coordinate skill: eight fields, plus `mode: qa` for the QA lane." },
                 },
                 required: [
                     "coord_slug",

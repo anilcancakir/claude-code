@@ -72,7 +72,7 @@ question timeout` note, then the lane messages): act on those messages first, th
 option, record each as `away, not owner-approved` in an `events.jsonl` line and in `state.json` `timed_out` (a list
 of `{bundle, question, choice}`), and send it on (`ANSWERS`, `RESOLVE`) in the same turn. A question you ask anyway
 is withdrawn by the plugin after a minute with an `ac away answer` note, which you act on the same way. Run the
-whole remaining procedure: integrate, the Phase 7 gate and its away review, then `Push?`, which waits for the owner,
+whole remaining procedure: integrate, the 7a QA lane, the 7b gate and its away review, then `Push?`, which waits for the owner,
 because publishing is theirs to approve. An owner message saying they are back removes `away` from the marker; every
 `timed_out` choice is listed in the Phase 8 report.
 
@@ -368,7 +368,7 @@ hotspots: <paths>"
 })
 ```
 
-The brief is exactly those eight fields; the lane reads the protocol itself. The goal carries requirements and test
+The brief is exactly those eight fields (the 7a QA lane adds a ninth, `mode: qa`); the lane reads the protocol itself. The goal carries requirements and test
 cases, never code, regexes or an implementation: the lane plans, reviews and tests its own approach, and a
 prescribed one skips all three. The tool returns `{session_id, worktree, branch, max_lanes}`. Record
 `lane_session_id`, `worktree` and `branch` from it, `status: planning`, `steps_total: null` (a re-dispatched lane
@@ -399,6 +399,37 @@ a `paused_from`, parked `PAUSED` or not yet (a lane still waiting on its workers
 recorded state and parks again with its next block.
 
 ## Phase 7: Gate
+
+### 7a. QA pass
+
+Lanes never run a QA pass: parallel lanes would fight over the app's ports, so `execute --lane` skips it, and
+nothing else tests the integrated result end to end. Once every bundle is `merged` or `dropped` and
+`integration_head` differs from `base_sha`, refresh the marker to `phase: "qa"` and start one QA lane on the
+integration head; it is the only lane running, so it owns the ports:
+
+```
+ac_lane_start({
+  coord_slug: "<slug>",
+  bundle: "qa",
+  base_sha: "<integration_head>",
+  brief: "coord slug: <slug>
+bundle id: qa
+goal: QA the integrated change of this run end to end against the live app: <the roadmap goal lines>. The change is git diff <base_sha>...HEAD.
+scope: any file the fixes need
+base sha: <integration_head>
+bootstrap commands: <the integration bootstrap commands, or none>
+max workers: 1
+hotspots: none
+mode: qa"
+})
+```
+
+Record it in `state.json` as bundle `qa` (`status: executing`, no `depends_on`). It ends with DONE (its fixes
+committed, the QA result in `artifacts`), which you integrate as in 6d, or BLOCKED class `qa` when the app or its
+test tool cannot run, with `Retry` and `Skip-QA`. A skipped or failed QA pass is a gap in the Phase 8 report, never
+a pass. Write the QA result block to `.ac/coord/<slug>/qa.md`. Then run the gate.
+
+### 7b. Verifier
 
 Refresh the marker to `phase: "gating"`. Then:
 
