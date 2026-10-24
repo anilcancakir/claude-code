@@ -64,7 +64,17 @@ the lane could not resolve), `Push?` (the final push). A bundle decision header 
 to 12 characters. Every question waits for the owner, so a question you ask is a turn you end on; nothing answers
 one for the owner. A question open for 10 minutes while a lane parks behind it is withdrawn by the plugin (an `ac
 question timeout` note, then the lane messages): act on those messages first, then ask the same question again from
-`owner_queue`. Never answer a question ahead of the owner or infer the answer from the request.
+`owner_queue`. Never answer a question ahead of the owner or infer the answer from the request, except in away mode.
+
+**Away mode.** When the owner says they are leaving and the run should go on without them (in any language), write
+`"away": true` into the marker, keeping its other fields, and say so in one line. From then on ask no question but
+`Push?`: answer every roadmap question, bundle decision, lane block and conflict yourself with its Recommended
+option, record each as `away, not owner-approved` in an `events.jsonl` line and in `state.json` `timed_out` (a list
+of `{bundle, question, choice}`), and send it on (`ANSWERS`, `RESOLVE`) in the same turn. A question you ask anyway
+is withdrawn by the plugin after a minute with an `ac away answer` note, which you act on the same way. Run the
+whole remaining procedure: integrate, the Phase 7 gate and its away review, then `Push?`, which waits for the owner,
+because publishing is theirs to approve. An owner message saying they are back removes `away` from the marker; every
+`timed_out` choice is listed in the Phase 8 report.
 
 **RPM budget.** Every lane turn and every worker turn spends several requests of the rate limit the models share.
 Under the codefast preset all four providers sit in one group of 25 requests per minute, so lanes and their
@@ -408,6 +418,24 @@ wait status. When the body arrives, `write` the returned body verbatim to `.ac/c
 or malformed body gets one re-spawn with the same two paths; a second unusable body is written as
 `status: human_needed` with one line naming what the gate did, never `passed`.
 
+**Away review.** In away mode, once `verdict.md` is written, have `ac/oracle` review what the owner did not see:
+
+```
+subagent({
+  agent: "ac/oracle",
+  description: "Away review <slug>",
+  background: true,
+  prompt: "Review the integrated change on branch coord/<slug> in <integration worktree> against its base <base_sha>
+(git diff <base_sha>...coord/<slug>). The owner was away; these choices were made for them: <state.json timed_out>.
+The gate's verdict is at <repo>/.ac/coord/<slug>/verdict.md. Return ranked findings with file:line evidence."
+})
+```
+
+Write its body to `.ac/coord/<slug>/away-review.md`. A CRITICAL finding gets one fix bundle: add it to `state.json`
+with the finding as its request and the integration head as its base, start it with `ac_lane_start` as in 6f, run
+the lane loop until it is integrated, then gate and review again. At most two fix rounds per run; a CRITICAL still
+open after the second goes to the Phase 8 report as an open finding, and so do all lower findings.
+
 ## Phase 8: Push and close
 
 When `integration_head` equals `base_sha` nothing landed: skip the question. Otherwise one `question`,
@@ -418,7 +446,8 @@ header `Push?`, naming the verdict status and the gaps: `Push` (`git push -u ori
 Then close: `git worktree remove <integration worktree>` (plain; a refusal leaves it and the report names it),
 `rm -f .ac/state/active-coordinate.json`, and report in at most 8 lines: slug, integration branch and head, the
 verdict status with criteria passed against total, each gap, merged and dropped bundles, any worktree left in
-place, and what the push did.
+place, and what the push did. After an away run, add the `timed_out` choices and the away review's open findings,
+and the 8-line limit does not apply to them.
 
 ## Terminal branches
 

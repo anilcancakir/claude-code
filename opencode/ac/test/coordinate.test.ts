@@ -559,6 +559,28 @@ describe("owner question timeout", () => {
         }
     })
 
+    test("away: any question but Push? is withdrawn after a minute for the coordinator to answer", async () => {
+        for (const [header, withdrawn] of [["b2 Scope?", true], ["Push?", false]] as const) {
+            writeMarker({ away: true })
+            writeState([{ id: "b1", status: "planning" }])
+            const harness = await setup({ questionTimeoutMs: 10 * MINUTE })
+            const question = {
+                type: "tool",
+                id: "call_q1",
+                name: "question",
+                state: { status: "running", input: { questions: [{ header }] } },
+                time: { ran: Date.now() - 2 * MINUTE },
+            }
+            harness.contexts.set(COORDINATOR, [{ type: "assistant", id: "msg_a1", content: [question] }])
+            await new Promise((resolve) => setTimeout(resolve, 40))
+
+            const note = harness.fake.calls.synthetic.find((call) => call.description === "ac away answer")
+            expect(note !== undefined).toBe(withdrawn)
+            if (withdrawn) expect(note?.text).toContain("Recommended")
+            harness.cleanup()
+        }
+    })
+
     test("its own interrupt does not silence the stop guard, the owner's next one does", async () => {
         const harness = await armed(Date.now() - 11 * MINUTE)
         writeState([{ id: "b1", status: "planned" }])

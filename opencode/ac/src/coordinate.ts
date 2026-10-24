@@ -63,6 +63,8 @@ export interface CoordinateMarker {
     readonly session_id: string
     readonly started_at: string
     readonly phase: string
+    /** Set by the coordinator while the owner is away: it answers with the Recommended options instead of asking. */
+    readonly away?: boolean
 }
 
 interface GuardState {
@@ -93,6 +95,12 @@ const MAX_NUDGES_PER_PHASE = 3
 // CC's question timeout offers 60s, 5m and 10m; 10m leaves the owner time to read a decision batch.
 const DEFAULT_QUESTION_TIMEOUT_MS = 10 * 60_000
 const DEFAULT_QUESTION_CHECK_MS = 60_000
+
+/** How long a question may stay open while the owner is away before it is withdrawn for the coordinator to answer. */
+const AWAY_QUESTION_TIMEOUT_MS = 60_000
+
+/** The one question away mode leaves for the owner: publishing the run is theirs to approve. */
+const OWNER_ONLY_HEADER = "Push?"
 /** An interrupt this module caused is not the owner's, so it must not silence the stop guard. */
 const SELF_INTERRUPT_WINDOW_MS = 60_000
 
@@ -108,7 +116,7 @@ interface ToolPartLike {
     readonly type: string
     readonly id?: string
     readonly name?: string
-    readonly state?: { readonly status?: string }
+    readonly state?: { readonly status?: string; readonly input?: unknown }
     readonly time?: { readonly created?: number; readonly ran?: number }
 }
 
@@ -118,6 +126,8 @@ interface OpenQuestion {
     readonly since: number
     /** Another tool of the same step still runs; an interrupt would cancel it too. */
     readonly alongside: boolean
+    /** The headers of the questions it asks, so away mode can leave Push? to the owner. */
+    readonly headers: readonly string[]
 }
 
 /** The `question` call the session's last assistant message is waiting on, with the time it started. */
@@ -129,7 +139,9 @@ function openQuestion(messages: ReadonlyArray<{ type: string }>): OpenQuestion |
     const part = running.find((item) => item.name === "question")
     const since = part?.time?.ran ?? part?.time?.created
     if (part?.id === undefined || since === undefined) return undefined
-    return { key: `${last?.id ?? ""}:${part.id}`, since, alongside: running.length > 1 }
+    const questions = (part.state?.input as { questions?: ReadonlyArray<{ header?: unknown }> } | undefined)?.questions
+    const headers = (questions ?? []).flatMap((item) => (typeof item.header === "string" ? [item.header] : []))
+    return { key: `${last?.id ?? ""}:${part.id}`, since, alongside: running.length > 1, headers }
 }
 
 /** A lane relay seen in a coordinator's inbox: the evidence that a parked lane waits behind its open question. */
@@ -140,6 +152,15 @@ interface Relayed {
 
 /** Relays older than this no longer matter to any open question. */
 const RELAY_MEMORY_MS = 24 * 3_600_000
+
+function awayQuestionNote(headers: readonly string[]): string {
+    return (
+        `ac coordinate: the owner is away (away mode), so the plugin withdrew the open question ` +
+        `${headers.length > 0 ? headers.join(", ") : ""}. Answer it yourself now with each question's Recommended ` +
+        "option, record each choice as `away, not owner-approved` in events.jsonl and in state.json `timed_out`, " +
+        "send it on (ANSWERS or RESOLVE), and carry on without asking it again."
+    )
+}
 
 function questionTimeoutNote(minutes: number, bundles: readonly string[]): string {
     return [
@@ -166,6 +187,12 @@ const STANDING_RULES = [
         "block; resume one only with ac_lane_send. Keep the lanes in planning or executing at or under max_lanes. " +
         "Never push without the owner's Push? answer, never `git worktree remove --force`, never patch a lane's " +
         "work yourself.",
+    "",
+    "Away mode: while the marker carries `away: true` the owner is away. Ask no question except Push?: answer " +
+        "every decision, lane block and conflict yourself with its Recommended option, record it as `away, not " +
+        "owner-approved` in events.jsonl and state.json `timed_out`, and send it on. Finish the run: integrate, gate " +
+        "with ac/auto-verifier, then the away review with ac/oracle (Phase 7), then ask Push?, which waits. An owner " +
+        "message saying they are back clears `away`.",
     "",
     "Context: when the coordinate procedure is gone from context, load the skill `coordinate` again, then read " +
         ".ac/coord/<slug>/state.json and the marker's phase and note; those files are the run's state.",
@@ -241,12 +268,18 @@ export function readCoordinateMarker(dir: string, now: number = Date.now()): Coo
     const raw = text === undefined ? undefined : parseJson(text)
     if (typeof raw !== "object" || raw === null) return undefined
 
-    const { slug, session_id, started_at, phase, harness } = raw as Record<string, unknown>
+    const { slug, session_id, started_at, phase, harness, away } = raw as Record<string, unknown>
     if (harness !== "opencode") return undefined
     if (typeof slug !== "string" || !NAME.test(slug)) return undefined
     if (typeof session_id !== "string" || session_id.length === 0) return undefined
     if (typeof started_at !== "string" || !isFresh(started_at, now)) return undefined
-    return { slug, session_id, started_at, phase: typeof phase === "string" ? phase : "unknown" }
+    return {
+        slug,
+        session_id,
+        started_at,
+        phase: typeof phase === "string" ? phase : "unknown",
+        ...(away === true ? { away } : {}),
+    }
 }
 
 /** The status of the last LANE STATUS block in `text`, or undefined when it carries none. */
@@ -615,21 +648,27 @@ export async function registerCoordinate(
         const coordinator = marker.session_id
         const question = openQuestion(await ctx.session.context({ sessionID: coordinator }))
         if (!question || question.alongside || withdrawn.has(question.key)) return
-        if (Date.now() - question.since < questionTimeoutMs) return
+
+        // Away, any question but Push? goes back to the coordinator to answer after a minute, parked lane or not.
+        const away = marker.away === true
+        if (away && question.headers.includes(OWNER_ONLY_HEADER)) return
+        if (Date.now() - question.since < (away ? AWAY_QUESTION_TIMEOUT_MS : questionTimeoutMs)) return
 
         const parked = [
             ...new Set(
                 (relayed.get(coordinator) ?? []).filter((relay) => relay.at > question.since).map((r) => r.bundle),
             ),
         ]
-        if (parked.length === 0) return
+        if (!away && parked.length === 0) return
 
         withdrawn.add(question.key)
         selfInterrupts.set(coordinator, Date.now())
         await ctx.session.synthetic({
             sessionID: coordinator,
-            description: "ac question timeout",
-            text: questionTimeoutNote(Math.round(questionTimeoutMs / 60_000), parked),
+            description: away ? "ac away answer" : "ac question timeout",
+            text: away
+                ? awayQuestionNote(question.headers)
+                : questionTimeoutNote(Math.round(questionTimeoutMs / 60_000), parked),
             delivery: "steer",
         })
         await ctx.session.interrupt({ sessionID: coordinator, resume: true })
