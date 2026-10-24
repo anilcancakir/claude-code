@@ -14,7 +14,8 @@ export class Gate {
     private tail: Promise<void> = Promise.resolve()
 
     constructor(
-        private readonly limit: number,
+        /** Request starts per window; a reload with a new config changes it on the live gate. */
+        public limit: number,
         private readonly windowMs: number = WINDOW_MS,
     ) {}
 
@@ -46,13 +47,17 @@ const GATES = Symbol.for("ac.opencode.rate-gates")
 const registry = globalThis as typeof globalThis & { [GATES]?: Map<string, Gate> }
 const gates: Map<string, Gate> = (registry[GATES] ??= new Map<string, Gate>())
 
-/** The process-wide gate of `group`, created on first use with `limit` request starts per window. */
+/**
+ * The process-wide gate of `group`, created on first use with `limit` request starts per window. A later call with
+ * another limit (a plugin reload after a config change) retunes the live gate, keeping its queue and its history.
+ */
 export function gateOf(group: string, limit: number): Gate {
     let gate = gates.get(group)
     if (gate === undefined) {
         gate = new Gate(limit)
         gates.set(group, gate)
     }
+    gate.limit = limit
     return gate
 }
 

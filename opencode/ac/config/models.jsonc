@@ -138,9 +138,11 @@
     // (each lane, worker and main session of every project): requests beyond it wait in one queue, in arrival order,
     // instead of being sent to fail. codefast's limit is 25 per rolling minute for the whole account
     // (`rpm_limit: 25`, `rate_limit_scope: "group:unlimited"`), and a burst of quick retries over it also earns a
-    // temporary Cloudflare ban (error 1015), so pacing at the limit is both the fastest rate and the safe one.
+    // temporary Cloudflare ban (error 1015). The gate counts a request when it leaves and codefast when it arrives,
+    // so 25 here still drew an occasional RPM 429 from latency jitter at the window's edge; one below is the fastest
+    // rate that does not.
     "rateLimits": {
-        "codefast": 25
+        "codefast": 24
     },
     // Cap on coordinate lanes working at once per coordinator, reported by ac_lane_start and kept by the coordinate
     // skill. Each lane runs its own workers, so lanes multiply the load on that same 25 RPM group.

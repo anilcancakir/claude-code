@@ -53,7 +53,14 @@ describe("rate gate", () => {
         ])
     })
 
-    test("the shipped config paces codefast at its 25 requests per minute", () => {
-        expect(loadConfig({ env: {} }).rateLimits).toEqual({ codefast: 25 })
+    test("the shipped config paces codefast one below its 25 requests per minute", () => {
+        expect(loadConfig({ env: {} }).rateLimits).toEqual({ codefast: 24 })
+    })
+
+    test("a second gateOf with another limit retunes the live gate", () => {
+        const gate = gateOf("test-retune", 5)
+
+        expect(gateOf("test-retune", 7)).toBe(gate)
+        expect(gate.limit).toBe(7)
     })
 })
