@@ -37,7 +37,7 @@ Read in Phase 4b before calling `Write` on `.ac/plans/<slug>/report.md`. After W
 - Final tests: <N pass, N fail>
 - Final lint: PASS | FAIL
 - Code-review: <N CRITICAL fixed, N IMPORTANT deferred, or `no findings`>
-- Oracle: <bottom line> | SKIPPED (no criticality surface touched) | SKIPPED (--no-oracle)
+- Oracle: <bottom line> | SKIPPED (planner judged nothing critical) | SKIPPED (path-only criticality, routed to the reviewer) | SKIPPED (--no-oracle)
 - QA: <status from the QA result block, cases run/passed/failed/blocked, findings by severity; report at .ac/plans/<slug>/qa/<run id>/report.md> | could-not-run (<reason>) | SKIPPED (plan QA is false) | SKIPPED (--no-qa)
 
 ## Wisdom Accumulated

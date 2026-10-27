@@ -81,7 +81,7 @@ Wave 1 (parallel, <K> steps):
 Wave 2 (after Wave 1):
 - Step 3: <title> [<tier>] depends on Steps 1, 2
 
-Final review: ac:plan-code-review<, + ac:oracle when a criticality surface is touched>
+Final review: ac:plan-code-review<, + ac:oracle when the plan marks a step rule-5-criticality or carries Stage 3.5 findings>
 Checkpoint commits: <after any wave that changed tracked files | disabled>
 ```
 

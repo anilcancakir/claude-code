@@ -119,7 +119,7 @@ Nothing to load. `AskUserQuestion` arrives directly on the main thread, and ther
 - Strip `--auto` flag if present → `AUTO_MODE = true`. Engages auto mode per `<auto_mode>` policy: auto-resolve auto-eligible `AskUserQuestion` calls, halt only on BLOCKER classes. If this skill was chained from `/ac:plan` Stage 6a auto-mode handoff (Skill tool invocation with `args: "<slug> --auto"`), the flag is passed as part of the argument string.
 - Strip `--lane` flag if present → `LANE_MODE = true`. Set by the `ac:lane` subagent that `/ac:coordinate` dispatches. Implies `AUTO_MODE = true`, `NO_QA = true` (parallel lanes would collide on dev-server ports) and no push at 4a. The turn-end and BLOCKER behaviour is in `## Standing rules` and `<auto_mode>`.
 - Strip `--max-parallel N` if present → `MAX_PARALLEL = N`, the cap on workers running at once within a wave (2c). Default unlimited; a lane passes 5.
-- Strip `--no-oracle` flag if present → `NO_ORACLE = true`. Phase 3 spawns `ac:oracle` beside the reviewer when the change touches one of the six criticality surfaces; this flag opts out of that.
+- Strip `--no-oracle` flag if present → `NO_ORACLE = true`. Phase 3 spawns `ac:oracle` beside the reviewer when the planner judged the change critical (3b signals 2 or 3); this flag opts out of that.
 - Strip `--no-qa` flag if present → `NO_QA = true`. Skips the Phase 3e QA pass whatever the plan's `**QA**` line says.
 - Strip `--no-checkpoint-commits` flag if present → `NO_CHECKPOINT_COMMITS = true`. Disables wave-after commits; Phase 4 final commit still runs.
 - Resolve the remaining argument to `PLAN_PATH`:
@@ -153,8 +153,8 @@ criticality rule never routes there; it escalates to `senior`.
 
 The Agent tool's `effort` parameter overrides a worker's frontmatter effort for one spawn, and its description
 reserves it for spawns where the user or an instruction such as a skill explicitly asks. This skill is that
-instruction, for exactly two spawns: the 2e effort retry and the 3b oracle spawn when only signal 1 fired. Every
-other spawn omits `effort` and runs at the table's default.
+instruction, for exactly two spawns: the 2e effort retry and the 3b oracle spawn, which passes `high`. Every other
+spawn omits `effort` and runs at the table's default.
 
 When the plan's `Codebase State` is `legacy` or `chaotic`, route every `quick` step to `ac:plan-worker-junior`
 whatever its declared tier: mechanical work in an inconsistent codebase is not mechanical, and Haiku 5.5 trails
@@ -667,14 +667,15 @@ Agent({ subagent_type: "ac:plan-code-review",
         description: "Final code-review for <plan title>",
         prompt: "Plan: <PLAN_PATH>
 Modified files: <MODIFIED_FILES, newline-separated>
-Wisdom: <wisdom.md path>" })
+Wisdom: <wisdom.md path>
+<only when signal 1 below fired alone: Criticality surfaces by path: <the surfaces>. Weigh failure scenarios there.>" })
 ```
 
 One reviewer, whatever the plan's size. A standard and deep split would be a fiction: measured across
 139 review runs a lighter standard variant ran twice, so size almost never changed which body reviewed.
 
-**Spawn `ac:oracle` alongside it only when the change touches a criticality surface.** Three signals,
-any one of which fires it, and `--no-oracle` forces the skip either way:
+**Spawn `ac:oracle` alongside it only when the planner judged the change critical.** Three signals; 2 or 3 fires
+it, 1 alone does not, and `--no-oracle` forces the skip either way:
 
 1. `MODIFIED_FILES` lands on one of the closed six surfaces in `model-tiers.md` rule 5: authentication
    or authorization, payment or billing, cryptographic operations, user-input to SQL or shell or file
@@ -685,19 +686,20 @@ any one of which fires it, and `--no-oracle` forces the skip either way:
 3. The plan carries an `### Oracle Sanity-Check Findings` section, meaning Stage 3.5 already found
    something worth a second opinion at planning time.
 
-Signal 1 alone is weak on its own: a file path rarely announces "cryptographic operations" or
-"destructive migration", where signals 2 and 3 are the planner's own conclusions written into the file
-you are already holding. So when only signal 1 fired, pass `effort: "medium"` on the oracle spawn below; when
-signal 2 or 3 fired, omit it and the agent's own `high` applies. `CLAUDE_CODE_EFFORT_LEVEL` removes the
-parameter, in which case omit it either way.
+Signal 1 alone is weak: a file path rarely announces "cryptographic operations" or "destructive migration",
+where signals 2 and 3 are the planner's own conclusions written into the file you are already holding. Measured
+over 2026-10-07 to 10-27, the three signals together fired an oracle on about 56% of execute runs, which is not a
+gate. So signal 1 alone adds the `Criticality surfaces by path` line to the reviewer brief above and spawns no
+oracle. When signal 2 or 3 fired, pass `effort: "high"` on the oracle spawn below: the agent's own default is
+`medium`, sized for its high-volume done-reviews, and this is the pipeline's one criticality review.
+`CLAUDE_CODE_EFFORT_LEVEL` removes the parameter, in which case omit it.
 
-This is the same trigger shape `/ac:plan` Stage 3.5 uses at planning time, so the pattern is proven in
-this pipeline rather than invented here. The trigger reads the surfaces directly, with no plan-wide label
-standing in for them.
+Signals 2 and 3 are conclusions `/ac:plan` wrote into the plan at Stage 5 and Stage 3.5, so this gate reuses
+the planner's judgement instead of re-deriving it from paths.
 
 ```
 Agent({ subagent_type: "ac:oracle", description: "Oracle strategic review for <plan title>",
-        effort: "medium",   // only when signal 1 alone fired; omit otherwise
+        effort: "high",
         prompt: "Plan: <PLAN_PATH>
 Modified files: <MODIFIED_FILES>
 Research the plan was built on: <.ac/plans/<slug>/research/>

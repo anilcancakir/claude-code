@@ -16,7 +16,7 @@ Steps: <N>/<total> | Escalations: <N>
 
 Verification:
 - Code-review: <N CRITICAL fixed, N IMPORTANT deferred, or `no findings`>
-- Oracle: <bottom line> | SKIPPED (no criticality surface touched) | SKIPPED (--no-oracle) | <verdict if accepted with findings>
+- Oracle: <bottom line> | SKIPPED (planner judged nothing critical) | SKIPPED (path-only criticality, routed to the reviewer) | SKIPPED (--no-oracle) | <verdict if accepted with findings>
 - QA: <status, cases passed/run, findings by severity> | could-not-run (<reason>) | SKIPPED (plan QA is false) | SKIPPED (--no-qa)
 
 Artifacts:

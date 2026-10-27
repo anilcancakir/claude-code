@@ -2,7 +2,7 @@
 name: oracle
 description: "Read-only reviewer and advisor. Use this when a plan, diff, report or config change needs checking against its sources, or a stalled decision needs settling. Returns ranked findings."
 model: opus
-effort: high
+effort: medium
 color: purple
 disallowedTools: Edit, Write, NotebookEdit, Agent
 ---

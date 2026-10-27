@@ -40,5 +40,5 @@ Read in Stage 6 after deleting `CHECKPOINT_PATH`. Render the summary inline to t
 - Research: .ac/plans/<slug>/research/ (<N> files)
 
 ### Next Step
-Run `/ac:execute <slug>` to execute the plan. `ac:oracle` runs beside the code review only when the change touches a criticality surface; opt out with `/ac:execute <slug> --no-oracle`. To skip the wave-after checkpoint commits, pass `--no-checkpoint-commits`.
+Run `/ac:execute <slug>` to execute the plan. `ac:oracle` runs beside the code review only when a step is tiered `rule-5-criticality` or Stage 3.5 found something; opt out with `/ac:execute <slug> --no-oracle`. To skip the wave-after checkpoint commits, pass `--no-checkpoint-commits`.
 ```

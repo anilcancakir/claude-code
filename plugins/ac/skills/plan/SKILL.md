@@ -414,10 +414,10 @@ Trigger evaluation is mechanical, match locked decisions and conventions against
 
 Spawn one `ac:oracle` with `run_in_background: true`, using the brief at
 `${CLAUDE_SKILL_DIR}/references/research-fanout.md` under `## Stage 3.5 oracle brief shape`. Include only the GOAL
-bullets for the triggers that actually fired. Pass `effort: "medium"` on the spawn when exactly one trigger fired and
-it is not trigger 4; otherwise pass none and the agent runs at its own `high`. The Agent tool takes `effort`
-only when a skill asks for it, and this is that instruction. Omit it when `CLAUDE_CODE_EFFORT_LEVEL` is set, which
-removes the parameter.
+bullets for the triggers that actually fired. Pass `effort: "high"` on the spawn when two or more triggers fired or
+trigger 4 (a migration) fired; otherwise pass none and the agent runs at its own `medium`, which is what most of its
+spawns (done-reviews, research checks) need. The Agent tool takes `effort` only when a skill asks for it, and this is
+that instruction. Omit it when `CLAUDE_CODE_EFFORT_LEVEL` is set, which removes the parameter.
 
 ### 3.5c. Wait, classify, route
 
