@@ -521,7 +521,7 @@ and 18 repair edits before its first worker spawned.
 
 Write the plan to `PLAN_PATH` using the markdown structure at `${CLAUDE_SKILL_DIR}/references/plan-template.md`. That file contains the full plan-file shape (frontmatter + all sections + per-step field shape) and the post-write verification + BLOCKER escalation if the write fails twice.
 
-Fill placeholders with concrete content; remove placeholder text inside angle brackets. For tier assignment per step, read `${CLAUDE_SKILL_DIR}/references/model-tiers.md` (capability summaries + decision heuristic). For plans with more than 10 steps, use the incremental write protocol described in the template reference.
+Fill placeholders with concrete content; remove placeholder text inside angle brackets. For tier assignment per step, read `${CLAUDE_SKILL_DIR}/references/model-tiers.md` (tier table + decision heuristic). For plans with more than 10 steps, use the incremental write protocol described in the template reference.
 
 **Write the plan as if no reviewer will look at it.** Stage 5.5 is a single advisory pass, not a loop that will grind a draft into shape, so a plan that arrives there needing work simply ships with the findings deferred. Concretely: every step's Description / Files / Done when / QA / Must NOT is specific enough that a fresh agent can execute without guessing; the Codebase Conventions section captures every project-specific rule the workers need; the Reuse Map names every existing utility the plan leverages; the locked decisions from the interview are reflected in the steps themselves, not assumed.
 
