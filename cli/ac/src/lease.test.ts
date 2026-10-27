@@ -44,7 +44,13 @@ afterEach(() => {
     while (nodeChildren.length > 0) {
         nodeChildren.pop()?.kill("SIGKILL");
     }
-    process.env.TMPDIR = ORIGINAL_TMPDIR;
+    // Assigning undefined back would store the string "undefined", which os.tmpdir() then returns to every later test
+    // file in the process; CI runners leave TMPDIR unset.
+    if (ORIGINAL_TMPDIR === undefined) {
+        delete process.env.TMPDIR;
+    } else {
+        process.env.TMPDIR = ORIGINAL_TMPDIR;
+    }
     rmSync(scratch, { force: true, recursive: true });
 });
 
