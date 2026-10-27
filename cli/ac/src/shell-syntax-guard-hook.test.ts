@@ -69,6 +69,11 @@ const DENIED = [
     'cat <<< "${(f)x}"',
     "echo $((1<<2)); for k in ${(f)x}; do :; done",
     "(true)# it's\necho ${(f)x}",
+    "l=$(echo x | (cat)); echo $l",
+    'l="$(echo x | (cat))"; echo $l',
+    "l=$( (echo a)); echo $l",
+    "l=$(echo a; (echo b)); echo $l",
+    "for f in a b; do l=$(grep x $f | (cd test && xargs wc -l | tail -1 | awk '{print $1}')); echo $l; done",
 ];
 
 const ALLOWED = [
@@ -90,6 +95,13 @@ const ALLOWED = [
     "echo \"`echo '${(f)lit}'`\"",
     "x=a; echo ${!x}",
     "echo $(( 16#ff )); x=foo; echo ${x/#f/b}",
+    "l=$(echo x | (cat) ); echo $l",
+    "l=$( (echo a) | cat ); echo $l",
+    "l=$(echo $((1+2))); echo $l",
+    "echo $((1+(2*3)))",
+    "l=$(echo $(date)); echo $l",
+    "l=`echo x | (cat)`; echo $l",
+    "l=$(echo a | grep -c \"(\"); echo $l",
 ];
 
 for (const command of DENIED) {
@@ -105,6 +117,15 @@ test("denies inside a subagent too", () => {
     const result = runHook(payload("x=a; echo ${(f)x}", "ac:explore"));
 
     expect(decision(result.stdout)).toBe("deny");
+});
+
+test("the deny for a back-to-back close names the one-space fix", () => {
+    const result = runHook(payload("l=$(echo x | (cat)); echo $l"));
+    const reason = (JSON.parse(result.stdout) as { hookSpecificOutput: { permissionDecisionReason: string } })
+        .hookSpecificOutput.permissionDecisionReason;
+
+    expect(reason).toContain("))");
+    expect(reason).toContain("space");
 });
 
 test("the deny names the construct and a bash rewrite", () => {

@@ -18,6 +18,10 @@
 #      arithmetic and ran unprompted.
 #   c. `${${...}}`, a nested expansion.
 #   Each also after a `#` or `!` prefix: `${#a[(i)y]}`, `${!a[(i)y]}` and `${#${x}}` prompted too.
+#   d. A subshell closed right against the `$(...)` around it, `$(cmd | (cd dir && other))`: the parser takes the
+#      `))` for the end of an arithmetic expansion. Measured 2026-10-28 from a watchools run; `(cat) )` with a space,
+#      `$( (cmd) | x )`, `$((1+2))`, `$(echo $(date))` and the backtick form all ran unprompted. The deny names the
+#      one-space fix.
 # Ran unprompted, so not denied: `${=x}`, `${~x}`, `${^x}`, `*(.)`, `=(cmd)`, `${x:u}`, `$((1+2))`, `${#x}`,
 # `${a[@]}`, the unbraced `$a[(i)y]`. Single-quoted text, `$'...'`, a backslash-escaped `$` and a comment are not
 # code and pass, as they did in the probe. A `$(...)` or a backtick span inside double quotes is code again, so
@@ -40,7 +44,8 @@ cmd="$(printf '%s' "$input" | jq -r 'select(.tool_name == "Bash") | .tool_input.
     || exit 0
 [ -n "$cmd" ] || exit 0
 
-# 1. Scan the command as code. Frames: top level, a double-quoted span, a `$(...)` substitution, a backtick span.
+# 1. Scan the command as code. Frames: top level, a double-quoted span, a `$(...)` substitution, a `$((...))`
+#    arithmetic expansion, a backtick span.
 #    A match prints the construct and exits 0; a clean scan exits 1.
 construct="$(perl -e '
     my $s = shift // "";
@@ -70,9 +75,28 @@ construct="$(perl -e '
             exit 0;
         }
 
+        if (substr($s, $i, 3) eq "\$((") {
+            push @frames, ["arith", 0];
+            $i += 3;
+            next;
+        }
+
         if (substr($s, $i, 2) eq "\$(") {
             push @frames, ["sub", 0];
             $i += 2;
+            next;
+        }
+
+        if ($kind eq "arith") {
+            if ($c eq "(") {
+                $frame->[1]++;
+            } elsif ($c eq ")" && $frame->[1] > 0) {
+                $frame->[1]--;
+            } elsif ($c eq ")") {
+                pop @frames;
+                $i++;
+            }
+            $i++;
             next;
         }
 
@@ -134,6 +158,11 @@ construct="$(perl -e '
                 pop @frames;
             } else {
                 $frame->[1]--;
+                if ($frame->[1] == 0 && substr($s, $i + 1, 1) eq ")") {
+                    my $from = $i < 30 ? 0 : $i - 30;
+                    print "PAREN:" . substr($s, $from, $i + 2 - $from);
+                    exit 0;
+                }
             }
         }
 
@@ -143,7 +172,25 @@ construct="$(perl -e '
     exit 1;
 ' "$cmd" 2>/dev/null)" || exit 0
 
-# 2. Deny with the construct and a rewrite both shells read alike, so the retry is one step.
+# 2. Deny with the construct and the rewrite, so the retry is one step.
+case "$construct" in
+    PAREN:*)
+        jq -n --arg construct "${construct#PAREN:}" '{
+    hookSpecificOutput: {
+        hookEventName: "PreToolUse",
+        permissionDecision: "deny",
+        permissionDecisionReason: (
+            "This command closes a subshell and the command substitution around it back to back (`))` in `"
+            + $construct + "`). Claude Code reads that pair as the end of an arithmetic expansion, so it would stop"
+            + " at a permission prompt that bypass mode does not skip. Put one space between the two closing"
+            + " parentheses, `$(cmd | (cd dir && other) )`, or drop the inner parentheses."
+        )
+    }
+}'
+        exit 0
+        ;;
+esac
+
 jq -n --arg construct "$construct" '{
     hookSpecificOutput: {
         hookEventName: "PreToolUse",
