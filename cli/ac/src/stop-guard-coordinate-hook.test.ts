@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -264,4 +264,58 @@ test("the gating phase names the verdict as the next action", () => {
     const output = expectBlock(runGuard());
 
     expect(output.reason).toContain(`.ac/coord/${SLUG}/verdict.md`);
+});
+
+describe("status lines", () => {
+    const lane = { background_tasks: [{ type: "subagent" }] };
+    const status = (phase: string): string =>
+        `Merged b1.\n\nprogress: 1/3 bundles merged, phase ${phase}\nlanes: b2 executing [2/5]\nowner: none`;
+
+    test("a turn that ends without the status lines is sent back once, even while a lane runs", () => {
+        seedRun();
+
+        const output = expectBlock(runGuard(SESSION, { ...lane, last_assistant_message: "Waiting on b2." }));
+
+        expect(output.reason).toContain("progress: <merged>/<total> bundles merged, phase dispatch");
+        expect(existsSync(counterPath())).toBe(false);
+    });
+
+    test("status lines that name the marker's phase let the turn end", () => {
+        seedRun();
+
+        expectAllow(runGuard(SESSION, { ...lane, last_assistant_message: status("dispatch") }));
+    });
+
+    test("a phase that is not the marker's is sent back, so the line is read off disk", () => {
+        seedRun({ phase: "integrate" });
+
+        expectBlock(runGuard(SESSION, { ...lane, last_assistant_message: status("dispatch") }));
+    });
+
+    test("a second stop in the same prompt is never sent back for the status lines", () => {
+        seedRun();
+
+        expectAllow(runGuard(SESSION, { ...lane, last_assistant_message: "Waiting.", stop_hook_active: true }));
+    });
+
+    test("bold, bulleted or space-trailed status lines still count", () => {
+        seedRun();
+        const loose = "Waiting.\n\n- **progress:** 1/3 bundles merged, phase dispatch  \nlanes: b2 executing\nowner: none";
+
+        expectAllow(runGuard(SESSION, { ...lane, last_assistant_message: loose }));
+    });
+
+    test("a turn ending on a timed-out question's one-line wait is not sent back", () => {
+        seedRun();
+        writeLatch();
+
+        expectAllow(runGuard(SESSION, { last_assistant_message: "Waiting on Lane block? for b2." }));
+    });
+
+    test("the final report after the verdict needs no status lines", () => {
+        seedRun();
+        writeFileSync(join(runDir(), "verdict.md"), "# Verdict\n");
+
+        expectAllow(runGuard(SESSION, { last_assistant_message: "Run closed." }));
+    });
 });

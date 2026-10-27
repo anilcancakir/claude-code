@@ -1,5 +1,5 @@
 #!/bin/sh
-# Stop guard for /ac:coordinate runs. Sequencing only.
+# Stop guard for /ac:coordinate runs: sequencing, plus one status-line check per prompt (5b).
 #
 # Blocks a turn-ending attempt only while a coordinator run this session owns has no verdict on
 # disk yet, with nothing running that will wake the session. That is the stall this exists for: a
@@ -87,19 +87,6 @@ started_epoch="$(date -u -d "$started_at" +%s 2>/dev/null)" \
 age=$((now_epoch - started_epoch))
 { [ "$age" -ge -50400 ] && [ "$age" -le 259200 ]; } || exit 0
 
-# 3a. A timed-out question armed the latch (lib/question-wait.sh): the turn ends to wait for the
-#     answer, which is correct. Read, never consumed: the other Stop guards see this same event.
-qw_lib="$(dirname "$0")/lib/question-wait.sh"
-if [ -f "$qw_lib" ]; then
-    . "$qw_lib"
-    qw_active "$hook_session" "$transcript_path" && exit 0
-fi
-
-# 3b. Work in flight that will wake the session: ending the turn is how the run waits for it.
-wake_count="$(printf '%s' "$input" | jq -r --arg mode strict -f "$(dirname "$0")/lib/wake-count.jq" 2>/dev/null)" || exit 0
-case "$wake_count" in '' | *[!0-9]*) exit 0 ;; esac
-[ "$wake_count" -eq 0 ] || exit 0
-
 # 4. The slug names a directory, so it is checked before any path is built from it
 #    (posttooluse-question-timeout.sh:169). A missing run directory is a malformed run.
 slug="$(jq -r '.slug // empty' "$marker" 2>/dev/null)"
@@ -114,6 +101,40 @@ phase="$(jq -r '.phase // empty' "$marker" 2>/dev/null)"
 
 # 5. The whole predicate: a verdict exists, so the run has its ending, whatever it says.
 [ -f "$run_dir/verdict.md" ] && exit 0
+
+# 5a. A timed-out question armed the latch (lib/question-wait.sh): the turn ends to wait for the
+#     answer, which is correct, and its one-line wait carries no status lines. Read, never consumed: the other Stop guards see this same event.
+qw_lib="$(dirname "$0")/lib/question-wait.sh"
+if [ -f "$qw_lib" ]; then
+    . "$qw_lib"
+    qw_active "$hook_session" "$transcript_path" && exit 0
+fi
+
+# 5b. Status lines. The skill asks every turn end for three lines read off state.json and the marker; a Sonnet
+#     coordinator measured on 2026-10-27 dropped the phase from every one, so the owner could not tell an
+#     integration from a dispatch. Checked once per prompt (`stop_hook_active` false), whatever is running, and
+#     only when the payload carries the reply; it never touches the sequencing budget below.
+if [ "$(printf '%s' "$input" | jq -r '.stop_hook_active // false' 2>/dev/null)" != "true" ]; then
+    reply="$(printf '%s' "$input" | jq -r '.last_assistant_message // empty' 2>/dev/null)"
+    if [ -n "$reply" ] && ! printf '%s\n' "$reply" | grep -Eq "^[-*> ]*[*]*progress:[*]*[[:space:]]+[0-9]+/[0-9]+ bundles merged, phase $phase[*]*[[:space:]]*\$"; then
+        status_reason="End every /ac:coordinate turn with the three status lines, read off state.json and the marker (phase $phase now), as the last thing before the turn ends or before an AskUserQuestion call:
+
+progress: <merged>/<total> bundles merged, phase $phase
+lanes: <id> <status> [<checked>/<total>], ... (or none)
+owner: <ids in owner_queue> (or none)
+
+Write them now and end the turn again; nothing else is needed."
+        jq -cn --arg r "$status_reason" \
+            --arg m "ac coordinate stop-guard: status lines missing for $slug" \
+            '{decision: "block", reason: $r, systemMessage: $m}'
+        exit 0
+    fi
+fi
+
+# 5c. Work in flight that will wake the session: ending the turn is how the run waits for it.
+wake_count="$(printf '%s' "$input" | jq -r --arg mode strict -f "$(dirname "$0")/lib/wake-count.jq" 2>/dev/null)" || exit 0
+case "$wake_count" in '' | *[!0-9]*) exit 0 ;; esac
+[ "$wake_count" -eq 0 ] || exit 0
 
 # 6. Counter, per phase with a spent latch; see the header for why.
 counter="$run_dir/stop-guard-coordinate.json"

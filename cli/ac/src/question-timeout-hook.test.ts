@@ -366,10 +366,10 @@ test("a coordinator owner continues on a bundle decision header", () => {
     expectContinue(runHook(payload([question("B2 Scope?")])), "ac:coordinate");
 });
 
-test("Push?, Lane block? and Conflict? wait and arm the latch even with an owned coordinator marker", () => {
+test("Push?, Lane block?, Conflict?, Relock? and Add bundle? wait and arm the latch with an owned coordinator marker", () => {
     seedCoordinatorRun();
 
-    for (const header of ["Push?", "Lane block?", "Conflict?"]) {
+    for (const header of ["Push?", "Lane block?", "Conflict?", "Relock?", "Add bundle?"]) {
         rmSync(latchPath(), { force: true });
         expectWait(runHook(payload([question(header)])));
         expect(existsSync(latchPath())).toBe(true);

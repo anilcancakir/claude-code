@@ -179,7 +179,7 @@ confirmed_run() {
     while IFS= read -r header; do
         case "$header" in
             'Topic?' | 'Agent fail?' | 'Write fail?' | 'Dep failed?' | 'Halted?' | 'Budget?') return 1 ;;
-            'Push?' | 'Lane block?' | 'Conflict?') return 1 ;;
+            'Push?' | 'Lane block?' | 'Conflict?' | 'Relock?' | 'Add bundle?') return 1 ;;
             'Oracle CRIT?') crit=1 ;;
             'Premise failed?') premise=1 ;;
         esac
