@@ -97,7 +97,7 @@ Plan-then-execute is a crowded category. Three things here are not common:
 | `ac:plan-worker-junior` | sonnet | Standard steps: one to three files, business logic, framework idiom. |
 | `ac:plan-worker-junior-high` | sonnet | Junior's model and effort, for steps the planner marks borderline on coupling or context depth. |
 | `ac:plan-worker-senior` | opus | Cross-layer changes, migrations and complex edges with caller-impact checks. |
-| `ac:plan-reviewer` | opus | Advisory pass over the written plan. Reports findings, gives no verdict. |
+| `ac:plan-reviewer` | sonnet | Advisory pass over the written plan at effort `xhigh`. Reports findings, gives no verdict. |
 | `ac:plan-code-review` | opus | Post-implementation pass over the diff. Reports findings, gives no verdict. |
 | `ac:auto-verifier` | opus | Read-only completion gate for `/ac:auto` and `/ac:coordinate`. Holds no `Edit`, `Write` or `Agent`. |
 | `ac:qa-tester` | sonnet | Runs the QA cases from a brief and writes a report with evidence. Never edits application code; writes only inside its run directory. |

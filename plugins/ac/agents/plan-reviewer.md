@@ -1,8 +1,8 @@
 ---
 name: plan-reviewer
 description: "Advisory review of one ac plan file before execution; returns findings, no verdict. Spawned only by /ac:plan; not for general tasks."
-model: opus
-effort: medium
+model: sonnet
+effort: xhigh
 disallowedTools: Edit, Write, NotebookEdit, Agent
 color: yellow
 ---
