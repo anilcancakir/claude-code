@@ -2,7 +2,7 @@
 name: plan-code-review
 description: "Post-implementation review of an executed ac plan's diff; returns findings, no verdict. Spawned only by /ac:execute; not for general tasks."
 model: opus
-effort: high
+effort: medium
 skills: my-coding
 disallowedTools: Edit, Write, NotebookEdit, Agent
 color: red
