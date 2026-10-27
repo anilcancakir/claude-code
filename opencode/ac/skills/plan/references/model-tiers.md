@@ -1,4 +1,7 @@
-<!-- ported-from: plugins/ac/skills/plan/references/model-tiers.md sha256:8dd9db17b03639e16580df609ad868a6167a96ab09c6526bc930f0d6bf32d630 -->
+<!-- ported-from: plugins/ac/skills/plan/references/model-tiers.md sha256:35aa6408a79939a16edace44b8c0058f34a081e4b4b46f7bad05b48206b0dd64 -->
+
+This port keeps the benchmark and cost evidence inline; the Claude Code source moved it to `model-tiers-evidence.md` to shrink what a run reads.
+
 # Model Tier Reference
 
 Routing table used for tier assignment in `/ac/plan` Stage 5 and consumed by the execute skill's Phase 1c. The models come from the ac routing preset at `/Users/anilcan/Code/claude-code/opencode/ac/config/models.jsonc`: each tier maps to an ordered fallback chain of `provider/model#variant`, the first entry is the primary, and the rest are tried in order when the one before it fails. The routing the plugin runs on is the source of truth; the tables below are a snapshot of the default preset taken on 2026-10-23, so call the `ac_models` tool when an exact model id decides something (an installed preset replaces the file's chains).

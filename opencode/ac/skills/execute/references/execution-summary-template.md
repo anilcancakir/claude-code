@@ -1,4 +1,4 @@
-<!-- ported-from: plugins/ac/skills/execute/references/execution-summary-template.md sha256:0f5e8122a388885c82d6d346d33945fa0cf28e45577870df2ccc37b953357b0b -->
+<!-- ported-from: plugins/ac/skills/execute/references/execution-summary-template.md sha256:e65a07d1ee0094b87e43a8601ced0b26161cad9e21bb79bdd5d231a7f05520dc -->
 # Execution Summary Render Template
 
 The plain-text summary rendered to the user at Phase 4b after the final commit and dev-report write. This is the closing heartbeat that confirms the plan delivered.
@@ -17,7 +17,7 @@ Steps: <N>/<total> | Escalations: <N>
 
 Verification:
 - Code-review: <N CRITICAL fixed, N IMPORTANT deferred, or `no findings`>
-- Oracle: <bottom line> | SKIPPED (no criticality surface touched) | SKIPPED (--no-oracle) | <verdict if accepted with findings>
+- Oracle: <bottom line> | SKIPPED (planner judged nothing critical) | SKIPPED (path-only criticality, routed to the reviewer) | SKIPPED (--no-oracle) | <verdict if accepted with findings>
 - QA: <status, cases passed/run, findings by severity> | could-not-run (<reason>) | SKIPPED (plan QA is false) | SKIPPED (--no-qa)
 
 Artifacts:

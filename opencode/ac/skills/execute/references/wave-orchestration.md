@@ -1,4 +1,4 @@
-<!-- ported-from: plugins/ac/skills/execute/references/wave-orchestration.md sha256:85c9e5590498451d5b1439b08e6c0a768f92c50dd0ff06d01ee70836b427cff2 -->
+<!-- ported-from: plugins/ac/skills/execute/references/wave-orchestration.md sha256:3a82fc101f81056899978f7b23793869fdd506a0dacc96dd284ade16ddeee735 -->
 # Wave Orchestration: the Progress Surface and the Dependency Gate
 
 Read at Phase 1g and again at the first wave barrier. The skill body carries the rules and the gate conditions; this file carries the procedure.
@@ -80,7 +80,7 @@ Wave 1 (parallel, <K> steps):
 Wave 2 (after Wave 1):
 - Step 3: <title> [<tier>] depends on Steps 1, 2
 
-Final review: ac/plan-code-review<, + ac/oracle when a criticality surface is touched>
+Final review: ac/plan-code-review<, + ac/oracle when the plan marks a step rule-5-criticality or carries Stage 3.5 findings>
 Checkpoint commits: <after any wave that changed tracked files | disabled>
 ```
 

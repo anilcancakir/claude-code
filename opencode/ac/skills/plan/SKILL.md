@@ -2,7 +2,7 @@
 name: plan
 description: "Plan a change interactively: research in parallel, ask the decisions only you can make, then write a tiered plan. Writes no code. Use before work that crosses modules, carries design decisions, or is a refactor, or from a .ac/tasks/*.yaml file; hands off to the execute skill. Request text: [--auto] [--lane] [--slug <s>] [--revise] <topic description | .ac/tasks/*.yaml>."
 ---
-<!-- ported-from: plugins/ac/skills/plan/SKILL.md sha256:08e03dd91d2ffceb4ab26a30ca4cd9fe0ea36ee0aa074955c4423a451fceda1c -->
+<!-- ported-from: plugins/ac/skills/plan/SKILL.md sha256:9bfe5d0a4807214669cee4d83e4bd6ff328b78802a89a2503dccda41bfbeb3b5 -->
 
 # /ac/plan
 
@@ -237,8 +237,10 @@ Counts policy, which governs the fan-out and stays here:
 - `ac/librarian`: floor 2, target 3. Brief 1 verifies idiomatic patterns against vendor docs, brief 2 covers known
   bugs and version-combo breakage, brief 3 adds OSS reference examples or a second library.
 - `ac/oracle`: 1, only when the request signals architecture intent. Advisory and non-blocking; do not gate on it.
-- Under `LANE_MODE` the coordinator's own research already mapped the surfaces, so spawn at most 2 `ac/explore` (the 1c reuse explore
-  counts toward them) and 1 `ac/librarian`, each only for an angle the brief does not already anchor, none when the brief names the files and
+- Under `LANE_MODE` the coordinator's own research already mapped the surfaces: read the `research:` file the lane brief names at 1a, copy
+  its anchors for this bundle into the directory survey (a file in `git diff --name-only <research sha> <base sha>` was changed by an earlier
+  merge, so its anchors count as unanchored; an unreadable file means no anchors), and spawn at most 2 `ac/explore` (the 1c reuse explore
+  counts toward them) and 1 `ac/librarian`, each only for an angle neither the brief nor that file anchors, none when they name the files and
   lines, and no Stage 1 oracle. Several lanes run at once against one shared request rate limit, and the coordinator's budget
   prices a planning lane at this cap. This replaces the shared-rate-limit cap below.
 - Shared rate limit: call the `ac_models` tool once; when one group in its `groups` holds the provider of every

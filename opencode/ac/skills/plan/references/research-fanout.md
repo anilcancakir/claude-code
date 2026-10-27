@@ -1,4 +1,4 @@
-<!-- ported-from: plugins/ac/skills/plan/references/research-fanout.md sha256:ed02c875e7bdeff2ff0a53ccad1c3ebf275a999ce63da718764eda4afb4bd73b -->
+<!-- ported-from: plugins/ac/skills/plan/references/research-fanout.md sha256:18340305a315365e93b002d2ee8357ddddfb7dab412141173fc0bf3439e9b01b -->
 # Stage 1 Survey and Fan-out Briefs
 
 Read at Stage 1 entry. The skill body carries the counts policy and the reuse-bias rule; this file carries the survey command block and the brief shapes, which are needed once per run.
@@ -73,7 +73,7 @@ In the same assistant turn that issues 1c, spawn the rest of the cohort. Use 1a'
   - Brief 3 (when target = 3): production-quality OSS reference examples for the specific shape this plan introduces, OR a second library / framework not covered by briefs 1-2. Brief shape in the same file under `## Brief 3`, framings (a) or (b).
 - `ac/oracle`: **1 only when the request signals architecture intent** (system design, infrastructure, non-trivial trade-offs). Advisory; non-blocking; do not gate on its return. Unchanged from prior behavior.
 
-Under `LANE_MODE` the floors do not apply: spawn at most 2 `ac/explore` and 1 `ac/librarian`, each only for an angle the coordinator's brief does not already anchor, none when the brief names the files and lines, and no Stage 1 `ac/oracle`. Several lanes run at once against one shared request rate limit and the coordinator already researched the request, so this cap replaces the shared rate-limit cap below.
+Under `LANE_MODE` the floors do not apply: spawn at most 2 `ac/explore` and 1 `ac/librarian`, each only for an angle neither the coordinator's brief nor its `research:` digest already anchors, none when they name the files and lines, and no Stage 1 `ac/oracle`. Several lanes run at once against one shared request rate limit and the coordinator already researched the request, so this cap replaces the shared rate-limit cap below.
 
 **Shared rate-limit cap.** When one rate-limit group in the `groups` the `ac_models` tool returns holds the provider of every chain head the cohort starts on, as the codefast preset does (the Claude last rungs sit outside it but only catch failures), cap the cohort at **3 `ac/explore` + 1 `ac/librarian`**, plus the optional `ac/oracle`, and drop the floor and target above. That one group allows 25 requests per minute across every model, and each subagent turn spends several of them, so a ten-agent cohort spends its time on 429 retries instead of finishing sooner. Keep the 1c reuse explore as one of the three and give the librarian brief 1 (idiomatic patterns); fold the known-bugs dimension into it as a second question only when the topic leans on a library version.
 

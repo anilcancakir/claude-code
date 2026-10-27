@@ -1,4 +1,4 @@
-<!-- ported-from: plugins/ac/skills/execute/references/report-template.md sha256:7ec40af8944a84b24ef034d84fc1b9481222dcc6df5eb77f675852d680915c6c -->
+<!-- ported-from: plugins/ac/skills/execute/references/report-template.md sha256:74289d0c4c633f7c51dda3131028158dd9c8ea45e543eae0e529067664dde2fd -->
 # Execution Report Template
 
 Markdown structure for `.ac/plans/<slug>/report.md`. Written at Phase 4b after all waves verify and the final code-review settles. This is the long-form artifact for the user; the inline execution summary (Phase 4b) is the short-form heartbeat.
@@ -39,7 +39,7 @@ Read in Phase 4b before calling `write` on `.ac/plans/<slug>/report.md`. After t
 - Final tests: <N pass, N fail>
 - Final lint: PASS | FAIL
 - Code-review: <N CRITICAL fixed, N IMPORTANT deferred, or `no findings`>
-- Oracle: <bottom line> | SKIPPED (no criticality surface touched) | SKIPPED (--no-oracle)
+- Oracle: <bottom line> | SKIPPED (planner judged nothing critical) | SKIPPED (path-only criticality, routed to the reviewer) | SKIPPED (--no-oracle)
 - QA: <status from the QA result block, cases run/passed/failed/blocked, findings by severity; report at .ac/plans/<slug>/qa/<run id>/report.md> | could-not-run (<reason>) | SKIPPED (plan QA is false) | SKIPPED (--no-qa)
 
 ## Wisdom Accumulated

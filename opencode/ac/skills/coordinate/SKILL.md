@@ -2,7 +2,7 @@
 name: coordinate
 description: "Turn a large request into a reviewed roadmap of bundles and drive them through parallel ac/lane worktrees. Use when a request is too large for one plan and splits into bundles that can run in parallel worktrees; ends in one approved push. Request text: <request> [--lanes N] [--max-workers N]."
 ---
-<!-- ported-from: plugins/ac/skills/coordinate/SKILL.md sha256:1552cef50601e3c7a4b3949dc6f48041e0609dba2011ed6d8eb7edd2f2399b74 -->
+<!-- ported-from: plugins/ac/skills/coordinate/SKILL.md sha256:c395c50737051ac5a1ce24d27c7a7ab6636fd52bf6bce5db3d9b4a431d5c1af5 -->
 
 # /ac/coordinate
 
@@ -201,6 +201,11 @@ parallel lanes will plan in detail), REQUEST, DEPTH and BUDGET. End the turn wit
 starts a turn. Append one `events.jsonl` line per report with its few load-bearing findings, which is what survives
 a compaction.
 
+Once every report is in, `write` `.ac/coord/<slug>/research.md`, its first line `research sha: <base_sha>`: per
+surface the request touches, the `file:line` anchors, the conventions, the gate and bootstrap commands, and each
+external fact with its URL. Every lane's brief names this file, and its planner counts the angles it anchors as
+already researched, so lanes do not map the same surfaces again.
+
 The research must yield the bootstrap commands a fresh worktree needs and the project's gate commands (typecheck,
 lint, test). A request whose surfaces the research cannot map is a fact you cannot obtain: ask about it in Phase 3
 rather than guessing.
@@ -364,11 +369,12 @@ scope: <paths or areas the bundle may touch>
 base sha: <integration_head>
 bootstrap commands: <commands, or none>
 max workers: <max_workers>
-hotspots: <paths>"
+hotspots: <paths>
+research: <absolute path of .ac/coord/<slug>/research.md>"
 })
 ```
 
-The brief is exactly those eight fields (the 7a QA lane adds a ninth, `mode: qa`); the lane reads the protocol itself. The goal carries requirements and test
+The brief is exactly those nine fields (the 7a QA lane adds a tenth, `mode: qa`); the lane reads the protocol itself. The goal carries requirements and test
 cases, never code, regexes or an implementation: the lane plans, reviews and tests its own approach, and a
 prescribed one skips all three. The tool returns `{session_id, worktree, branch, max_lanes}`. Record
 `lane_session_id`, `worktree` and `branch` from it, `status: planning`, `steps_total: null` (a re-dispatched lane

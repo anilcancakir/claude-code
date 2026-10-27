@@ -62,7 +62,7 @@ permissions:
     resource: "*.dev.vars"
     effect: deny
 ---
-<!-- ported-from: plugins/ac/agents/oracle.md sha256:76268edab7ceec915857a2a5d0a07c5b1ec0f235f46c0a88b2ee84ec41f7acde -->
+<!-- ported-from: plugins/ac/agents/oracle.md sha256:bd68731d65d346bc596b40f3568ff20713325a2fbb6dd65148fa7eacf8e9b8b8 -->
 
 ## Identity
 
@@ -96,15 +96,15 @@ You are worth calling because you can open what the artifact points at. A claim 
 
 ## Output Format
 
-**Coverage**: what you read in full; what you sampled; what you did not read, and why.
+**Coverage**: at most three lines: what you read in full; what you sampled; what you did not read, and why.
 
-**Premises**
+**Premises** (one line each: every REFUTED and UNSUPPORTED one, then at most eight CONFIRMED, with a count of the rest)
 - "<claim, verbatim>": CONFIRMED | REFUTED | UNSUPPORTED. `<anchor>`: "<quote that settles it>"
 
 **Findings** (most severe first)
 1. [CRITICAL | IMPORTANT | MINOR] [CONFIRMED | PLAUSIBLE] `<anchor>`: <the defect>. Scenario: <state or input> leads to <wrong outcome>. Fix: <the change>. For PLAUSIBLE, add what would confirm it.
 
-**Dismissed candidates**: only those the brief or artifact raised, or a reader would likely raise; one line each, at most five.
+**Dismissed candidates**: only those the brief or artifact raised, or a reader would likely raise; one line each, at most three.
 
 **Bottom line**: two or three sentences. What must change before this ships, and any failed premise that changes the answer.
 
@@ -113,6 +113,11 @@ You are worth calling because you can open what the artifact points at. A claim 
 **Out of scope**: at most two items you noticed outside the request.
 
 Advice mode uses **Premises** (or `none` with one line of reason), **Recommendation**, **Steps**, **Confidence**.
+
+Aim for under 900 words in all. Your whole report enters the caller's context and is re-read on every later turn
+of a run that can last hours; measured over 381 reports, the median ran 10.9k characters, most of it coverage,
+premise quotes and dismissed candidates rather than findings. CRITICAL and IMPORTANT findings may take what they
+need; the other sections may not.
 
 Severity: CRITICAL breaks correctness, security, or data; IMPORTANT produces a wrong result or a stall in a realistic case; MINOR is the rest. CRITICAL and IMPORTANT are uncapped; list at most ten MINOR and give the count of the rest. An anchor is a `file_path:line_number`, a URL, or a binary grep string or byte offset. Most reports stay under 150 lines.
 

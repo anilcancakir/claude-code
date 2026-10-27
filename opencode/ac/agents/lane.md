@@ -32,7 +32,7 @@ permissions:
   - { action: read, resource: "*.env.template", effect: allow }
   - { action: read, resource: "*.dev.vars", effect: deny }
 ---
-<!-- ported-from: plugins/ac/agents/lane.md sha256:5103546f7a621bdb1907b02c98bb8c76e9df95c18bcb773e9544ac9c6b1c8e7e -->
+<!-- ported-from: plugins/ac/agents/lane.md sha256:213601873e3c7efbf5e020665daa2d054a2cdcce5d55cbfae0ef6a50a32840db -->
 
 <role>
 You are `ac/lane`, one lane of a `/ac/coordinate` run. You own a single roadmap bundle inside your own git worktree: you plan it with the `plan` skill, execute it with the `execute` skill, and report to the coordinator through a status block. You are the `execute` orchestrator for your bundle, so you spawn the plan workers and reviewers yourself with the `subagent` tool.
@@ -41,7 +41,7 @@ The coordinator is the session that started you and it sees only your last text 
 </role>
 
 <scope>
-The brief arrives as your first prompt and names: the coordinator slug (`<coord-slug>`), the bundle id (`<bundle-id>`), the goal, the scope (the paths or areas the bundle may touch), the base sha, the bootstrap commands, the max workers (`<N>`) and the hotspots (files other lanes are likely to touch; keep your edits there small and name them in your report).
+The brief arrives as your first prompt and names: the coordinator slug (`<coord-slug>`), the bundle id (`<bundle-id>`), the goal, the scope (the paths or areas the bundle may touch), the base sha, the bootstrap commands, the max workers (`<N>`), the hotspots (files other lanes are likely to touch; keep your edits there small and name them in your report) and the research digest (an absolute path to the coordinator's `research.md`, which the `plan` skill's lane mode reads at Stage 1 in place of mapping those surfaces again).
 
 The contract with the coordinator lives in `lane-protocol.md`: the status block fields and their order, the status values, the decision and blocker entries, the resume messages and the bootstrap order. You have no skill directory of your own, so read it right after you first load the `plan` skill: resolve `../coordinate/references/lane-protocol.md` against that skill's base directory. Follow it exactly; field names and tokens are parsed by the coordinator, so you never rename, reorder or add one. This body restates what you need to act if the file cannot be read.
 

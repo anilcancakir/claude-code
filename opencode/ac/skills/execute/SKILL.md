@@ -2,7 +2,7 @@
 name: execute
 description: "Run an approved ac plan to completion, wave by wave, with cost-tiered workers, per-wave verification and a final review. Loaded by /ac/execute; the request carries a plan slug or path plus flags."
 ---
-<!-- ported-from: plugins/ac/skills/execute/SKILL.md sha256:c81ec90caaeea20c7ac1af038dae154477d3502bcbd3155a488021b7247182e0 -->
+<!-- ported-from: plugins/ac/skills/execute/SKILL.md sha256:50ca98ab4533e609832df84f6b73ee21c67542bf0df07eaba8e1bbb5cfd73f44 -->
 
 # /ac/execute
 
@@ -40,7 +40,7 @@ You are the Developer orchestrating execution of an approved plan at `.ac/plans/
 
 <scope>
 Source code in the project, scoped to the files each step declares, plus these artifacts under
-`.ac/plans/<slug>/`: `wisdom.md` (max 15 items, max 5 per wave), `evidence/<step-id>-<scenario>.<ext>`,
+`.ac/plans/<slug>/`: `wisdom.md` (max 15 items, max 5 per wave; the `[RETRY]` and `[REMEDIATION]` records sit outside both caps), `evidence/<step-id>-<scenario>.<ext>`,
 `review-log.md` (append-only, one entry per Phase 3 review, kept as a record rather than as a loop counter),
 `qa/<run id>/` (the Phase 3e QA run directory, written by the `qa` skill), and `report.md`. The wave commit is a plain `git commit`; the final commit at Phase 4 goes through the `commit` skill.
 
@@ -126,7 +126,7 @@ Nothing to load. The `question` tool is available directly, and there is no task
 - Strip `--auto` if present: `AUTO_MODE = true`. Engages auto mode per the `<auto_mode>` policy: auto-resolve the flow gates, halt only on BLOCKER classes. When this skill was chained from the `plan` skill's Stage 6 auto handoff, that skill loaded this one and continued with `<slug> --auto` as the request, so the flag arrives in the request text.
 - Strip `--lane` if present: `LANE_MODE = true`. Set by the `ac/lane` agent that `/ac/coordinate` dispatches. Implies `AUTO_MODE = true`, `NO_QA = true` (parallel lanes would collide on dev-server ports) and no push at 4a. The turn-end and BLOCKER behaviour is in `## Standing rules` and `<auto_mode>`.
 - Strip `--max-parallel N` if present: `MAX_PARALLEL = N`, the cap on workers running at once within a wave (2c). Without the flag, `MAX_PARALLEL` is `maxParallel` from the `ac_models` tool (1c), 3 in the shipped config: the codefast chain heads all sit in one rate-limit group of 25 requests per minute, and each worker turn spends several requests, so a wider wave mostly waits on 429s.
-- Strip `--no-oracle` if present: `NO_ORACLE = true`. Phase 3 spawns `ac/oracle` beside the reviewer when the change touches one of the six criticality surfaces; this flag opts out of that.
+- Strip `--no-oracle` if present: `NO_ORACLE = true`. Phase 3 spawns `ac/oracle` beside the reviewer when the planner judged the change critical (3b signals 2 or 3); this flag opts out of that.
 - Strip `--no-qa` if present: `NO_QA = true`. Skips the Phase 3e QA pass whatever the plan's `**QA**` line says.
 - Strip `--no-checkpoint-commits` if present: `NO_CHECKPOINT_COMMITS = true`. Disables wave-after commits; Phase 4 final commit still runs.
 - Resolve the remaining argument to `PLAN_PATH`:
@@ -167,9 +167,8 @@ The head of a chain is the agent's own `model`, written as `provider/model#varia
 or context depth. The criticality rule never routes there; it escalates to `senior`.
 
 The `subagent` tool's `model` parameter overrides a worker's own model for one spawn, and its description says never
-to set it unless the user explicitly asks. This skill is that explicit instruction, for exactly three spawns: the 2e
-provider-fallback re-spawn, the 2e variant retry, and the 3b oracle spawn when only signal 1 fired. Every other spawn
-omits `model` and runs on the agent's own.
+to set it unless the user explicitly asks. This skill is that explicit instruction, for exactly two spawns: the 2e
+provider-fallback re-spawn and the 2e variant retry. Every other spawn omits `model` and runs on the agent's own.
 
 When the plan's `Codebase State` is `legacy` or `chaotic`, route every `quick` step to `ac/plan-worker-junior`
 whatever its declared tier: mechanical work in an inconsistent codebase is not mechanical, and the quick tier's fast
@@ -361,7 +360,7 @@ Layer A commands; it does not depend on their results and they do not depend on 
 
 The allowed set is `wave_files` (this wave's declared union, from 2c) plus `MODIFIED_FILES` (earlier
 waves) plus anything under `.ac/`. A dirty path outside all three is an unreverted mutation or an
-out-of-scope edit: restore it from git, and record it as a `[REMEDIATION]` wisdom line naming the step.
+out-of-scope edit: restore it from git, and record it as a `[REMEDIATION] Step <N> <tier>: <what you restored>` wisdom line.
 Compare against `wave_files`, NOT against `MODIFIED_FILES` alone: that list is only appended at 2e, after
 this check, so at this point it holds the previous waves and none of the current one. Compare against it
 alone and every file this wave legitimately changed reads as a mutation to be reverted.
@@ -455,13 +454,17 @@ whole files. The diff is the stronger instrument against a worker that
 overstates what it did: it is the delta itself, where a full read shows an end state and asks you to
 remember the before.
 
-1. Read the wave diff taken above, hunk by hunk. Open a full file only on one of these four triggers,
-   which are the whole list:
-   - the file was created by this wave, so there is no before to diff against;
+1. Read the wave diff taken above, hunk by hunk. A file this wave created is already in it whole, as added
+   lines, so it needs no `Read`. When the diff comes back as a persisted preview (`Output too large ... Preview`),
+   read the saved file in windows before reviewing; the preview is the first 2KB, not the wave. Read beyond the diff only on one of these three triggers, which are the whole
+   list:
    - the file is under 150 lines, where reading it whole costs no more than reading its hunks;
    - the diff carries deletion hunks, where what was removed matters as much as what replaced it;
    - the step declares a contract in its `References` that the hunk appears to change.
 
+   Outside the 150-line case, read the region around the hunk with `Read` `offset` and `limit` (about 60 lines
+   each side), not the whole file: everything you read stays in your context for the rest of the run, and
+   measured over 43 execute and coordinate sessions, file reads were a fifth of what the orchestrator carried.
    "When it looks ambiguous" is not a trigger. If you find yourself opening files outside this list,
    the plan's `Files` were wrong and that is a finding, not a reason to read more.
 
@@ -607,8 +610,15 @@ then `question` (`Edit plan to fill the gap and re-verify` / `Accept as Risk and
 2. **Tier rung, second failure** (or the first when rung 1 is skipped): re-spawn one tier up (`quick` to `junior`,
    `junior` and `junior-high` to `senior`) on the new tier's own model, with no `model` argument.
 
+Record each rung as it fires, as a wisdom line for the current wave: `[RETRY] Step <N> <tier>: rung <1|2>, <one-line
+cause>`, with the tier that failed, and nothing when no rung fired. `[RETRY]` lines do not count toward the five
+wisdom items in 2f. They are how `ac
+plan-stats` measures what each tier costs in quality, and a downgrade judged without them looks free.
+
 `senior` has no rung 1, because its chain already runs at `#max`, and no rung 2, because nothing sits above it: a
-senior step's first failure is terminal, as before. A failure after rung 2 is terminal too.
+senior step's first failure is terminal, as before. A failure after rung 2 is terminal too. Record a terminal failure
+the same way, `[RETRY] Step <N> <tier>: terminal, <one-line cause>`, so a senior step that fails shows up in the count a
+rung never gives it.
 
 These re-spawns keep the step's current model and do not advance the ladder: a malformed report with no
 `### Changes Made` or `### Verification` (re-spawn at the SAME tier with a format reminder, because the tier is
@@ -637,10 +647,12 @@ what the orchestrator has to fix or record itself.
 1. **Remediate what the orchestrator owns**: `[CONTRADICTION]` reports, cross-file findings deferred from
    Layer B, and plan oversights your review surfaced. Apply the minimal patch to the file that structurally owns the
    missing piece, update `MODIFIED_FILES`, clear any `pending-remediation` step whose `Done when` now passes, and
-   record each as a `[REMEDIATION]` wisdom line. Surface first when a patch would change a downstream contract;
+   record each as a `[REMEDIATION] Step <N> <tier>: <what you fixed>` wisdom line (`Step - -` when no step owns
+   it). Surface first when a patch would change a downstream contract;
    mechanical framework-completeness patches do not need a gate.
 2. **Extract wisdom**: up to 5 concrete items this wave, 15 total, codified patterns rather than platitudes.
-   `[REMEDIATION]` lines count toward the 5. Persist to `wisdom.md` under `## Wave <N>`.
+   `[REMEDIATION]` and `[RETRY]` lines are records, outside the 5 and the 15. Persist all of them to `wisdom.md`
+   under `## Wave <N>`.
 3. **Re-ground**: emit a 2-3 line wave summary and refresh the marker's `note` with a resume hint, which is what you
    read back after a compaction. Re-read `PLAN_PATH` and `wisdom.md` only when a compaction has actually happened
    since you last held them; the plan runs to tens of thousands of characters and re-admitting it every wave is a cost with no
@@ -740,14 +752,15 @@ subagent({ agent: "ac/plan-code-review",
            description: "Final code-review",
            prompt: "Plan: <PLAN_PATH>
 Modified files: <MODIFIED_FILES, newline-separated>
-Wisdom: <wisdom.md path>" })
+Wisdom: <wisdom.md path>
+<only when signal 1 below fired alone: Criticality surfaces by path: <the surfaces>. Weigh failure scenarios there.>" })
 ```
 
 One reviewer, whatever the plan's size. A standard and deep split would be a fiction: measured across
 139 review runs a lighter standard variant ran twice, so size almost never changed which body reviewed.
 
-**Spawn `ac/oracle` alongside it, in the same response, only when the change touches a criticality surface.** Three
-signals, any one of which fires it, and `--no-oracle` forces the skip either way:
+**Spawn `ac/oracle` alongside it, in the same response, only when the planner judged the change critical.** Three
+signals: signal 2 or signal 3 fires it, signal 1 alone does not, and `--no-oracle` forces the skip either way:
 
 1. `MODIFIED_FILES` lands on one of the closed six surfaces in `../plan/references/model-tiers.md` rule 5:
    authentication or authorization, payment or billing, cryptographic operations, user-input to SQL or shell or file
@@ -758,19 +771,17 @@ signals, any one of which fires it, and `--no-oracle` forces the skip either way
 3. The plan carries an `### Oracle Sanity-Check Findings` section, meaning Stage 3.5 already found
    something worth a second opinion at planning time.
 
-Signal 1 alone is weak on its own: a file path rarely announces "cryptographic operations" or
-"destructive migration", where signals 2 and 3 are the planner's own conclusions written into the file
-you are already holding. So when only signal 1 fired, pass `model` on the oracle spawn below: the head of the
-`oracle` chain (1c) one reasoning variant down (`#max` to `#high`) on the same model. When signal 2 or 3 fired,
-omit it and the agent's own model applies.
+Signal 1 alone is weak: a file path rarely announces "cryptographic operations" or "destructive migration",
+where signals 2 and 3 are the planner's own conclusions written into the file you are already holding. Measured on
+the Claude Code side over 2026-10-07 to 10-27, the three signals together fired an oracle on about 56% of execute
+runs, which is not a gate. So signal 1 alone adds the `Criticality surfaces by path` line to the reviewer brief above
+and spawns no oracle; when signal 2 or 3 fired, the oracle runs on its own model.
 
-This is the same trigger shape the `plan` skill's Stage 3.5 uses at planning time, so the pattern is proven in
-this pipeline rather than invented here. The trigger reads the surfaces directly, with no plan-wide label
-standing in for them.
+Signals 2 and 3 are conclusions the `plan` skill wrote into the plan at Stage 5 and Stage 3.5, so this gate reuses
+the planner's judgement instead of re-deriving it from paths.
 
 ```
 subagent({ agent: "ac/oracle", description: "Oracle strategic review",
-           model: "<oracle chain head, one variant down>",   // only when signal 1 alone fired; omit otherwise
            prompt: "Plan: <PLAN_PATH>
 Modified files: <MODIFIED_FILES>
 Research the plan was built on: <.ac/plans/<slug>/research/>
@@ -809,8 +820,10 @@ a signal the code is bad.
 it, then `question` (`Edit plan to fix and re-verify` / `Accept as Risk and proceed` / `Stop`).
 Never silently rewrite the plan.
 
-Append the outcome to `.ac/plans/<slug>/review-log.md` under `## Run <marker started_at>`: findings by
-severity, what was fixed, what was deferred. The log is a record now, not a loop counter.
+Append the outcome to `.ac/plans/<slug>/review-log.md` under `## Run <marker started_at>`: first one line per
+reviewer that ran, exactly `Review: <ac:plan-code-review | ac:oracle> CRITICAL <n> IMPORTANT <n> MINOR <n>`
+counting the findings it returned, then what was fixed and what was deferred. `ac plan-stats` reads those lines to
+judge a reviewer's effort level against what it finds. The log is a record now, not a loop counter.
 
 ### 3d. Convergence
 

@@ -1,4 +1,4 @@
-<!-- ported-from: plugins/ac/skills/coordinate/references/state-schema.md sha256:d9239698c666ea6ab0854f164652557e751f648d58af46f9184461d25f480190 -->
+<!-- ported-from: plugins/ac/skills/coordinate/references/state-schema.md sha256:292f36eee00e6240a696805889983deb5c41d33643e2427b48fe84551ac1aceb -->
 # Coordinate State Schema
 
 On-disk shapes behind `/ac/coordinate`: a state marker naming the live run, and a run directory holding the roadmap, the contract, the bundle table and the log. The layout mirrors `criteria-schema.md` in this directory (a criteria file plus a run directory). The lane side of the contract lives in `lane-protocol.md` beside it.
@@ -35,6 +35,7 @@ Removed on every terminal branch: a verdict written, an owner abort, or an error
 |---|---|---|
 | `state.json` | coordinator, rewritten on every status change | The bundle table, below. |
 | `roadmap.md` | coordinator, once the `Roadmap?` answer approves it | The oracle-reviewed roadmap: bundles, dependencies, hotspots. |
+| `research.md` | coordinator, at the end of Phase 2 | The research digest every lane brief names: per surface the `file:line` anchors, conventions, gate and bootstrap commands, external facts with URLs. |
 | `criteria.md` | coordinator, before dispatch | The verifier's contract for the whole run, in the shape of `criteria-schema.md`. |
 | `events.jsonl` | coordinator, append-only | One JSON object per line for each lane message and status change, with its time under `t` from `date -u +%Y-%m-%dT%H:%M:%SZ` run in the appending command. Never rewritten or truncated. |
 | `bundles/<id>/` | coordinator, once per bundle at archive | Copy of the bundle's plan directory and report, taken from the lane worktree before the worktree is removed. |

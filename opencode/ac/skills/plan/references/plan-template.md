@@ -1,4 +1,4 @@
-<!-- ported-from: plugins/ac/skills/plan/references/plan-template.md sha256:d7a497655f7d7fa592920fce1ed6259f811969c93d7ae19773b261ce92632491 -->
+<!-- ported-from: plugins/ac/skills/plan/references/plan-template.md sha256:0bd2ae9e61c8540a22efa3e0f1e14c0bb4477de4e4bf8f172d15a64ac54a1f94 -->
 # Plan File Template
 
 Copy-paste-ready markdown structure the planner writes to `.ac/plans/<slug>/plan.md` in Stage 5. The plan file is LLM-friendly: structured markdown, concrete `file_path:line_number`, parsable field labels, no prose flourish, no decorative narration. Downstream agents (`ac/plan-reviewer`, the execute skill, plan-worker tier subagents) read it as a spec.
