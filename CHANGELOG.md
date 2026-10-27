@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+Cost and speed work from a measured audit: 20 days, 77 sessions, about $13.9k at API list prices, 54% of it the Opus main thread's resident context and most of the rest Opus subagents. Every change below is measurable with the new `ac cost` and the extended `ac plan-stats`. The two review-effort reductions are experiments that land together; `ac cost` splits each agent type by the effort its runs used and `ac plan-stats` sums findings per reviewer, so each can be judged on its own.
+
+### Added
+
+- `ac cost [--days N] [--since YYYY-MM-DD] [--project <substring>] [--all-sessions]`: prices the main thread and each subagent type, split by the effort its runs used, from the session transcripts: runs, turns, output and context per turn, active minutes and dollars per run, and the share of cache writes that rebuilt a context after an idle gap. It uses the published per-model rates, older models included, with one-hour cache writes and the Haiku 5.5 tier above 100k prompt tokens, and counts a message a resumed session copied only once.
+- `ac plan-stats --since YYYY-MM-DD`, lane plans archived under `.ac/coord/<slug>/bundles/`, and for executed plans the `[RETRY]` and `[REMEDIATION]` records per tier (as a share of that tier's executed steps) from each `wisdom.md`, plus findings per reviewer from the `Review:` lines of each `review-log.md`.
+- `/ac:execute` records every retry rung and terminal step failure as `[RETRY] Step <N> <tier>: <rung 1|rung 2|terminal>, <cause>` and every orchestrator fix as `[REMEDIATION] Step <N> <tier>: <fix>`, both outside the wisdom caps, and opens each review-log entry with one `Review: <reviewer> CRITICAL <n> IMPORTANT <n> MINOR <n>` line per reviewer, so a tier or effort downgrade has a quality signal.
+- `/ac:coordinate` writes `.ac/coord/<slug>/research.md` after Phase 2, stamped with the sha it describes, and names it in a ninth lane brief field, `research:`; `ac:plan --lane` reads it at Stage 1, skips the angles it anchors, and treats files an earlier merge changed as unanchored.
+
+- `plugins/ac/hooks/pretooluse-shell-syntax-guard.sh`, a PreToolUse guard on Bash for every session. It denies `${(flags)name}`, a subscript flag such as `${a[(i)x]}` and a nested `${${...}}`, also after a `#` or `!` prefix and inside backticks, the zsh-only forms measured on Claude Code 2.1.311 to stop at the "Dangerous rm operation not ruled out" prompt, which is a safety check that bypass mode does not skip and which held an unattended `ac:explore` run overnight. The deny names a rewrite that bash and zsh read alike. Single-quoted text, `$'...'`, an escaped `$`, a comment, a heredoc body and an arithmetic subscript such as `${a[(i+1)]}` pass.
+
+### Changed
+
+- `ac:lane` sets `experimental: {cacheTtl: 1h}`. A lane ends its turn while its workers run, and 66% of its cache writes were full context rebuilds after the five-minute subagent TTL expired (median idle gap 526 s). Checked live on 2.1.311 that a plugin agent with the key writes one-hour cache entries.
+- `ac:oracle` defaults to effort `medium`, sized for its high-volume done-reviews and research checks. The pipeline's own criticality reviews pass `effort: "high"` per spawn: `ac:plan` Stage 3.5 when two or more triggers or the migration trigger fired, `/ac:execute` 3b, and the `/ac:coordinate` roadmap review.
+- `/ac:execute` 3b spawns `ac:oracle` only on the planner's own signals (a `rule-5-criticality` tier or a Stage 3.5 findings section). A path match alone, which fired an oracle on about 56% of execute runs, now adds a criticality line to the code-review brief instead.
+- Experiment: `ac:plan-code-review` runs at effort `medium` (was `high`). A skill's `effort` frontmatter applies only to the turn that invokes it, and `/ac:execute` continues on task-notification turns at the session level, so its orchestrator effort is the session's to set, not the skill's.
+
+### Fixed
+
+- `ac run-stats` summed the first streamed copy of each message's usage, which carries a partial `output_tokens`; it now keeps the largest count per message id.
+
 ## [0.33.0] - 2026-10-20
 
 Adds `/ac:coordinate`, a coordinator for a request too large for one plan. It researches the request, settles a roadmap with the owner, has `ac:oracle` review it, splits it into bundles and runs each through an `ac:lane` subagent in its own git worktree, merging finished bundles in dependency order into a local `coord/<slug>` branch. It ends with an `ac:auto-verifier` verdict and one push the owner approves. Checked live in fresh interactive Claude Code 2.1.303 sessions driven through tmux: one lane, two parallel lanes, a forced BLOCKER resumed with `RESOLVE`, a two-bundle away-mode run, and a real four-bundle run on a clone of this repository whose fixes ship in this release.
