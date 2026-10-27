@@ -153,8 +153,8 @@ criticality rule never routes there; it escalates to `senior`.
 
 The Agent tool's `effort` parameter overrides a worker's frontmatter effort for one spawn, and its description
 reserves it for spawns where the user or an instruction such as a skill explicitly asks. This skill is that
-instruction, for exactly two spawns: the 2e effort retry and the 3b oracle spawn, which passes `high`. Every other
-spawn omits `effort` and runs at the table's default.
+instruction, for exactly one spawn: the 2e effort retry. Every other spawn omits `effort` and runs at the table's
+default.
 
 When the plan's `Codebase State` is `legacy` or `chaotic`, route every `quick` step to `ac:plan-worker-junior`
 whatever its declared tier: mechanical work in an inconsistent codebase is not mechanical, and Haiku 5.5 trails
@@ -674,8 +674,8 @@ Wisdom: <wisdom.md path>
 One reviewer, whatever the plan's size. A standard and deep split would be a fiction: measured across
 139 review runs a lighter standard variant ran twice, so size almost never changed which body reviewed.
 
-**Spawn `ac:oracle` alongside it only when the planner judged the change critical.** Three signals; 2 or 3 fires
-it, 1 alone does not, and `--no-oracle` forces the skip either way:
+**Spawn `ac:oracle` alongside it only when the planner judged the change critical.** Three signals: signal 2 or
+signal 3 fires it, signal 1 alone does not, and `--no-oracle` forces the skip either way:
 
 1. `MODIFIED_FILES` lands on one of the closed six surfaces in `model-tiers.md` rule 5: authentication
    or authorization, payment or billing, cryptographic operations, user-input to SQL or shell or file
@@ -690,16 +690,13 @@ Signal 1 alone is weak: a file path rarely announces "cryptographic operations" 
 where signals 2 and 3 are the planner's own conclusions written into the file you are already holding. Measured
 over 2026-10-07 to 10-27, the three signals together fired an oracle on about 56% of execute runs, which is not a
 gate. So signal 1 alone adds the `Criticality surfaces by path` line to the reviewer brief above and spawns no
-oracle. When signal 2 or 3 fired, pass `effort: "high"` on the oracle spawn below: the agent's own default is
-`medium`, sized for its high-volume done-reviews, and this is the pipeline's one criticality review.
-`CLAUDE_CODE_EFFORT_LEVEL` removes the parameter, in which case omit it.
+oracle. When signal 2 or 3 fired, the oracle runs at its own `high`.
 
 Signals 2 and 3 are conclusions `/ac:plan` wrote into the plan at Stage 5 and Stage 3.5, so this gate reuses
 the planner's judgement instead of re-deriving it from paths.
 
 ```
 Agent({ subagent_type: "ac:oracle", description: "Oracle strategic review for <plan title>",
-        effort: "high",
         prompt: "Plan: <PLAN_PATH>
 Modified files: <MODIFIED_FILES>
 Research the plan was built on: <.ac/plans/<slug>/research/>

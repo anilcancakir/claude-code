@@ -200,17 +200,12 @@ own decisions. Record each answer as an `events.jsonl` line.
 Agent({
   subagent_type: "ac:oracle",
   description: "Roadmap review <slug>",
-  effort: "high",
   prompt: "<the roadmap draft inline>
 Review this roadmap for parallel worktree lanes merged by fast-forward in dependency order. Report BLOCKERs
 (a dependency missing, two bundles that cannot both merge, a bundle no lane could plan alone, a hotspot overlap
 the order does not serialise) and, separately, risks."
 })
 ```
-
-`effort: "high"` overrides the oracle's own `medium`, which is sized for its high-volume done-reviews: a roadmap
-error costs every lane. The Agent tool takes `effort` only when a skill asks for it, and this is that instruction;
-omit it when `CLAUDE_CODE_EFFORT_LEVEL` is set, which removes the parameter.
 
 End the turn with a wait status; the report starts the next one. At most two rounds. After round 1, revise the draft and freeze the blocker list in one `events.jsonl` line. Round
 2 checks only that frozen list; anything new it raises is a risk, not a blocker, because a list that grows each

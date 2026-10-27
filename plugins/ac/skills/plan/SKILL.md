@@ -239,7 +239,7 @@ Counts policy, which governs the fan-out and stays here:
   ones near the target. One brief per independent angle; do not bundle.
 - `ac:librarian`: floor 2, target 3. Brief 1 verifies idiomatic patterns against vendor docs, brief 2 covers known
   bugs and version-combo breakage, brief 3 adds OSS reference examples or a second library.
-- `ac:oracle`: 1, only when the request signals architecture intent. Advisory and non-blocking; do not gate on it.
+- `ac:oracle`: 1, only when the request signals architecture intent. Advisory and non-blocking; do not gate on it. Pass `effort: "medium"` on that spawn (omit it when `CLAUDE_CODE_EFFORT_LEVEL` is set): it informs the interview and gates nothing.
 - Under `LANE_MODE` the coordinator's own research already mapped the surfaces: read the `research:` file the lane brief names at 1a, copy
   its anchors for this bundle into the directory survey (a file in `git diff --name-only <research sha> <base sha>` was changed by an earlier
   merge, so its anchors count as unanchored; an unreadable file means no anchors), and spawn at most 2 `ac:explore` (the 1c reuse explore counts toward them) and 1
@@ -416,10 +416,9 @@ Trigger evaluation is mechanical, match locked decisions and conventions against
 
 Spawn one `ac:oracle` with `run_in_background: true`, using the brief at
 `${CLAUDE_SKILL_DIR}/references/research-fanout.md` under `## Stage 3.5 oracle brief shape`. Include only the GOAL
-bullets for the triggers that actually fired. Pass `effort: "high"` on the spawn when two or more triggers fired or
-trigger 4 (a migration) fired; otherwise pass none and the agent runs at its own `medium`, which is what most of its
-spawns (done-reviews, research checks) need. The Agent tool takes `effort` only when a skill asks for it, and this is
-that instruction. Omit it when `CLAUDE_CODE_EFFORT_LEVEL` is set, which removes the parameter.
+bullets for the triggers that actually fired. Pass no `effort`: the agent runs at its own `high`, which a
+security or migration trigger needs. A 2026-10-27 replay of the code reviewer at `medium` found 17 CRITICAL or
+IMPORTANT findings against `high`'s 29 for 14% less, and an oracle review is the same kind of read.
 
 ### 3.5c. Wait, classify, route
 

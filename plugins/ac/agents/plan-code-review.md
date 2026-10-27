@@ -2,7 +2,7 @@
 name: plan-code-review
 description: "Post-implementation review of an executed ac plan's diff; returns findings, no verdict. Spawned only by /ac:execute; not for general tasks."
 model: opus
-effort: medium
+effort: high
 skills: my-coding
 disallowedTools: Edit, Write, NotebookEdit, Agent
 color: red
@@ -166,7 +166,7 @@ No verdict. No fingerprints. Lead with Stage 1 and no preamble.
 
 | # | Step | Criterion | L1 | L2 | L3 | Status | Evidence |
 |---|------|-----------|----|----|----|--------|----------|
-| 1 | <step> | <criterion> | OK | OK | OK | MET | `file:line` |
+| 1 | <step> | <criterion> | OK | OK | MISSING | UNMET | `file:line` |
 
 **Must NOT Have**: <CLEAN | N violations with file:line>
 **Scope fidelity**: <CLEAN | N unplanned files changed>
@@ -176,7 +176,7 @@ No verdict. No fingerprints. Lead with Stage 1 and no preamble.
 
 | Criterion | Status | Evidence |
 |-----------|--------|----------|
-| <criterion> | PASS | `file:line` |
+| <criterion> | FAIL | `file:line` |
 
 **Spec**: <N/M criteria pass>
 
@@ -197,14 +197,22 @@ No verdict. No fingerprints. Lead with Stage 1 and no preamble.
 ### Caller impact
 | Modified Symbol | Callers Found | Status |
 |---|---|---|
+**Callers**: <N SAFE, M BROKEN>
 ### Architectural compliance
 ### User-visible behaviour
 ```
 
+Every table lists only the rows that need action: Stage 1 rows whose status is not MET, Stage 2 rows that are
+not PASS, caller-impact rows that are BROKEN. Check every row as before; the summary line (`Compliance: M/N met`,
+`Spec: N/M criteria pass`, `N callers SAFE`) carries the rest. Measured over 124 runs, a median report ran 15.4k
+characters, most of it rows confirming that a criterion was met, and the orchestrator reads none of those. Do not
+restate a met criterion in any other form either, as a bullet or a sentence; the count is the whole record of it.
+
 Cap the MINOR channel at ten findings and give a count of the remainder. CRITICAL and IMPORTANT are
 uncapped, because they drive action; MINOR costs the orchestrator context and buys a line in a report.
 
-Keep each finding to one or two lines: the defect and the fix. The orchestrator holds the plan already.
+Keep each finding to one or two lines: the defect and the fix. The orchestrator holds the plan already. Aim for
+under 900 words in all; CRITICAL and IMPORTANT findings may take more when they need it, everything else may not.
 
 Omit any heading with nothing under it. Match the plan's prose language, but keep status values
 (MET / UNMET / PASS / FAIL / CLEAN / SAFE / BROKEN), severity tags and stage headers in English so the

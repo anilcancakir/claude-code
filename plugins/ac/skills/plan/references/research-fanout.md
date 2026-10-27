@@ -70,7 +70,7 @@ In the same assistant turn that issues 1c, spawn the rest of the cohort. Use 1a'
   - Brief 1 (always): idiomatic-pattern verification against vendor docs for the libraries the topic touches. Brief shape at `${CLAUDE_SKILL_DIR}/references/librarian-brief.md` under `## Brief 1`.
   - Brief 2 (always): known-bugs research dimension (incompatibilities, deprecations, breaking default values, version-combo toolchain bugs). Brief shape in the same file under `## Brief 2`.
   - Brief 3 (when target = 3): production-quality OSS reference examples for the specific shape this plan introduces, OR a second library / framework not covered by briefs 1-2. Brief shape in the same file under `## Brief 3`, framings (a) or (b).
-- `ac:oracle`: **1 only when the request signals architecture intent** (system design, infrastructure, non-trivial trade-offs). Advisory; non-blocking; do not gate on its return. Unchanged from prior behavior.
+- `ac:oracle`: **1 only when the request signals architecture intent** (system design, infrastructure, non-trivial trade-offs). Advisory; non-blocking; do not gate on its return. Pass `effort: "medium"` (it gates nothing), unless `CLAUDE_CODE_EFFORT_LEVEL` is set.
 
 Under `LANE_MODE` the floors do not apply: spawn at most 2 `ac:explore` and 1 `ac:librarian`, each only for an angle neither the coordinator's brief nor its `research:` digest already anchors, none when they name the files and lines, and no Stage 1 `ac:oracle`. Many lanes share one session-wide subagent cap and the coordinator already researched the request.
 
