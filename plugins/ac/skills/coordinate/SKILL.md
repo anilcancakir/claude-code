@@ -175,6 +175,12 @@ repository the request depends on. Each brief carries CONTEXT, GOAL, DOWNSTREAM 
 lanes will plan in detail) and REQUEST. End the turn with a wait status; each completion starts a turn. Append one
 `events.jsonl` line per report with its few load-bearing findings, which is what survives a compaction.
 
+Once every report is in, `Write` `.ac/coord/<slug>/research.md`, its first line `research sha: <base_sha>`: per
+surface the request touches, the `file:line` anchors, the conventions, the gate and bootstrap commands, and each
+external fact with its URL. Every lane's brief
+names this file, and its planner counts the angles it anchors as already researched, so lanes do not map the same
+surfaces again.
+
 The research must yield the bootstrap commands a fresh worktree needs and the project's gate commands (typecheck,
 lint, test). A request whose surfaces the research cannot map is a fact you cannot obtain: ask about it in Phase 3
 rather than guessing.
@@ -324,11 +330,12 @@ scope: <paths or areas the bundle may touch>
 base sha: <integration_head>
 bootstrap commands: <commands, or none>
 max workers: <max_workers>
-hotspots: <paths>"
+hotspots: <paths>
+research: <absolute path of .ac/coord/<slug>/research.md>"
 })
 ```
 
-Exactly those eight fields; the lane reads the protocol itself. The goal carries requirements and test cases, never
+Exactly those nine fields; the lane reads the protocol itself. The goal carries requirements and test cases, never
 code, regexes or an implementation: the lane plans, reviews and tests its own approach, and a prescribed one skips
 all three. In an interactive session every spawn runs in the
 background. Record `lane_agent_id` from the result, `branch: lane/<slug>/<bundle-id>`, `status: planning`,

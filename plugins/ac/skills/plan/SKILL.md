@@ -240,9 +240,11 @@ Counts policy, which governs the fan-out and stays here:
 - `ac:librarian`: floor 2, target 3. Brief 1 verifies idiomatic patterns against vendor docs, brief 2 covers known
   bugs and version-combo breakage, brief 3 adds OSS reference examples or a second library.
 - `ac:oracle`: 1, only when the request signals architecture intent. Advisory and non-blocking; do not gate on it.
-- Under `LANE_MODE` the coordinator's own research already mapped the surfaces, so spawn at most 2 `ac:explore` (the 1c reuse explore
-  counts toward them) and 1 `ac:librarian`, each only for an angle the brief does not already anchor, none when the brief names the files and
-  lines, and no Stage 1 oracle. Many lanes share one session-wide subagent cap, and the coordinator's slot budget
+- Under `LANE_MODE` the coordinator's own research already mapped the surfaces: read the `research:` file the lane brief names at 1a, copy
+  its anchors for this bundle into the directory survey (a file in `git diff --name-only <research sha> <base sha>` was changed by an earlier
+  merge, so its anchors count as unanchored; an unreadable file means no anchors), and spawn at most 2 `ac:explore` (the 1c reuse explore counts toward them) and 1
+  `ac:librarian`, each only for an angle neither the brief nor that file anchors, none when they name the files and lines, and no Stage 1
+  oracle. Many lanes share one session-wide subagent cap, and the coordinator's slot budget
   prices a planning lane at this cap.
 
 Every brief carries a `DEPTH` and a `BUDGET`, or the agent falls back to its own default and searches wider than
