@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-Cost and speed work from a measured audit: 20 days, 77 sessions, about $13.9k at API list prices, 54% of it the Opus main thread's resident context and most of the rest Opus subagents. Every change below is measurable with the new `ac cost` and the extended `ac plan-stats`. The two review-effort reductions are experiments that land together; `ac cost` splits each agent type by the effort its runs used and `ac plan-stats` sums findings per reviewer, so each can be judged on its own.
+Cost and speed work from a measured audit: 20 days, 77 sessions, about $13.9k at API list prices, 54% of it the Opus main thread's resident context and most of the rest Opus subagents. Every change below is measurable with the new `ac cost` and the extended `ac plan-stats`. `ac cost` splits each agent type by the effort its runs used and `ac plan-stats` sums findings per reviewer, so a later effort change can be judged on both.
 
 ### Added
 
@@ -20,10 +20,16 @@ Cost and speed work from a measured audit: 20 days, 77 sessions, about $13.9k at
 
 ### Changed
 
+- `opencode/ac` ports carry these changes where they apply (oracle gating on planner signals, the `[RETRY]`, `[REMEDIATION]` and `Review:` records, the research digest, the report budgets, Layer B); the Claude Code only `effort` and `cacheTtl` settings have no port. The earlier push left the `opencode-ac` provenance test red until the ports were re-stamped.
 - `ac:lane` sets `experimental: {cacheTtl: 1h}`. A lane ends its turn while its workers run, and 66% of its cache writes were full context rebuilds after the five-minute subagent TTL expired (median idle gap 526 s). Checked live on 2.1.311 that a plugin agent with the key writes one-hour cache entries.
-- `ac:oracle` defaults to effort `medium`, sized for its high-volume done-reviews and research checks. The pipeline's own criticality reviews pass `effort: "high"` per spawn: `ac:plan` Stage 3.5 when two or more triggers or the migration trigger fired, `/ac:execute` 3b, and the `/ac:coordinate` roadmap review.
+- `ac:oracle` stays at effort `high`; only the advisory Stage 1 architecture oracle of `ac:plan`, which gates nothing, passes `effort: "medium"`. A `medium` default was tried in this release and reverted on the code-review replay below, because an oracle done-review is the same kind of read and is often the only independent one a change gets.
 - `/ac:execute` 3b spawns `ac:oracle` only on the planner's own signals (a `rule-5-criticality` tier or a Stage 3.5 findings section). A path match alone, which fired an oracle on about 56% of execute runs, now adds a criticality line to the code-review brief instead.
-- Experiment: `ac:plan-code-review` runs at effort `medium` (was `high`). A skill's `effort` frontmatter applies only to the turn that invokes it, and `/ac:execute` continues on task-notification turns at the session level, so its orchestrator effort is the session's to set, not the skill's.
+- The orchestrator's context, measured over 43 execute and coordinate sessions: file reads were a fifth of what it carried, agent reports a sixth and skill bodies a seventh. Four cuts follow from that.
+  - `plan/references/model-tiers.md` keeps the tier table, the five rules and the routing notes (6.5k characters, was 23.5k); the benchmarks, effort curves and cost measurements move to `model-tiers-evidence.md`, which no run reads.
+  - `ac:plan-code-review` lists only the table rows that need action (not MET, not PASS, BROKEN) beside the summary counts, restates no met criterion in any form, and aims for under 900 words. Its median report ran 15.4k characters, mostly rows confirming a met criterion.
+  - `ac:oracle` caps Coverage at three lines, CONFIRMED premises at eight (every REFUTED and UNSUPPORTED one is still listed, since plan 3.5c and execute 3c branch on them) and Dismissed candidates at three, and aims for under 900 words; its median report ran 10.9k characters.
+  - `/ac:execute` Layer B no longer reads a file the wave created, which the diff already shows whole, reads a persisted diff in windows when the output came back as a 2KB preview, and reads beyond the diff in a window around the hunk instead of the whole file.
+- `ac:plan-code-review` stays at effort `high`: the `medium` experiment was replayed on four real plans at both levels, and `medium` cost 14% less ($12.90 against $15.07) while returning 17 CRITICAL or IMPORTANT findings against 29, missing a defect the built app showed. A skill's `effort` frontmatter applies only to the turn that invokes it, and `/ac:execute` continues on task-notification turns at the session level, so its orchestrator effort is the session's to set, not the skill's.
 
 ### Fixed
 
