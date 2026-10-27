@@ -179,6 +179,36 @@ describe("checker resolution", () => {
 })
 
 describe("checker execution", () => {
+    test("a checker that splits its error across stdout and stderr keeps both", async () => {
+        // php -l with display_errors off (the default on some Linux builds) prints only "Errors parsing <file>" on
+        // stdout and the line-numbered error on stderr.
+        // The texts travel base64-encoded so the checker label, which quotes the arguments, cannot satisfy the
+        // assertions.
+        const script = [
+            'console.log(atob("RXJyb3JzIHBhcnNpbmcgYS50eHQ="))',
+            'console.error(atob("UGFyc2UgZXJyb3I6IHVuZXhwZWN0ZWQgZW5kIG9uIGxpbmUgMg=="))',
+            'process.exit(255)',
+        ].join("; ")
+        const fake = await setup({ checkers: { ".txt": [{ bin: process.execPath, args: ["-e", script] }] } })
+        write("a.txt", "x")
+
+        const text = await complete(fake, "edit", { path: "a.txt" }, { content: "ok" })
+
+        expect(text).toContain("Errors parsing a.txt")
+        expect(text).toContain("on line 2")
+    })
+
+    test("a checker that prints the same error on both streams shows it once", async () => {
+        const line = '"UGFyc2UgZXJyb3Igb24gbGluZSAy"'
+        const script = `console.log(atob(${line})); console.error(atob(${line})); process.exit(255)`
+        const fake = await setup({ checkers: { ".txt": [{ bin: process.execPath, args: ["-e", script] }] } })
+        write("a.txt", "x")
+
+        const text = await complete(fake, "edit", { path: "a.txt" }, { content: "ok" })
+
+        expect(text.split("Parse error on line 2").length).toBe(2)
+    })
+
     test("checkers run in the project directory, not the host process directory", async () => {
         const fake = await setup({
             checkers: {

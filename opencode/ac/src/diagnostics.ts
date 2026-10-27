@@ -155,8 +155,11 @@ async function run(
         if (timedOut) return `[${label}] timed out after ${Math.round(timeoutMs / 1000)}s`
         if (code === 0) return undefined
 
-        // php -l prints the same error on both streams; stdout carries it for the others.
-        const output = (stdout.trim() === "" ? stderr : stdout).trim()
+        // php -l prints the error on both streams where display_errors is on, and only "Errors parsing <file>" on
+        // stdout with the line-numbered error on stderr where it is off (the Ubuntu CLI default). Keep each distinct
+        // stream once.
+        const streams = new Set([stdout.trim(), stderr.trim()])
+        const output = [...streams].filter((part) => part !== "").join("\n")
         return `[${label}] ${output === "" ? `exited with code ${code}` : output}`
     } finally {
         clearTimeout(timer)
