@@ -410,13 +410,17 @@ whole files. The diff is the stronger instrument against a worker that
 overstates what it did: it is the delta itself, where a full read shows an end state and asks you to
 remember the before.
 
-1. Read the wave diff taken above, hunk by hunk. Open a full file only on one of these four triggers,
-   which are the whole list:
-   - the file was created by this wave, so there is no before to diff against;
+1. Read the wave diff taken above, hunk by hunk. A file this wave created is already in it whole, as added
+   lines, so it needs no `Read`. When the diff comes back as a persisted preview (`Output too large ... Preview`),
+   read the saved file in windows before reviewing; the preview is the first 2KB, not the wave. Read beyond the diff only on one of these three triggers, which are the whole
+   list:
    - the file is under 150 lines, where reading it whole costs no more than reading its hunks;
    - the diff carries deletion hunks, where what was removed matters as much as what replaced it;
    - the step declares a contract in its `References` that the hunk appears to change.
 
+   Outside the 150-line case, read the region around the hunk with `Read` `offset` and `limit` (about 60 lines
+   each side), not the whole file: everything you read stays in your context for the rest of the run, and
+   measured over 43 execute and coordinate sessions, file reads were a fifth of what the orchestrator carried.
    "When it looks ambiguous" is not a trigger. If you find yourself opening files outside this list,
    the plan's `Files` were wrong and that is a finding, not a reason to read more.
 
@@ -528,13 +532,15 @@ then `AskUserQuestion` (`Edit plan to fill the gap and re-verify` / `Accept as R
    `junior` and `junior-high` to `senior`) at the new tier's default effort, with no `effort` argument.
 
 Record each rung as it fires, as a wisdom line for the current wave: `[RETRY] Step <N> <tier>: rung <1|2>, <one-line
-cause>`, with the tier that failed. `[RETRY]` lines do not count toward the five wisdom items in 2f. They are how `ac
+cause>`, with the tier that failed, and nothing when no rung fired. `[RETRY]` lines do not count toward the five
+wisdom items in 2f. They are how `ac
 plan-stats` measures what each tier costs in quality, and a downgrade judged without them looks free.
 
-`senior` has no rung 1, because Opus 5.5 scores best at medium (`plan/references/model-tiers.md:39`), and no rung
-2, because nothing sits above it: a senior step's first failure is terminal, as before. A failure after rung 2 is
-terminal too. Record a terminal failure the same way, `[RETRY] Step <N> <tier>: terminal, <one-line cause>`, so a
-senior step that fails shows up in the count a rung never gives it.
+`senior` has no rung 1, because Opus 5.5 scores best at medium (the Effort section of
+`plan/references/model-tiers-evidence.md`), and no rung 2, because nothing sits above it: a senior step's first
+failure is terminal, as before. A failure after rung 2 is terminal too. Record a terminal failure the same way,
+`[RETRY] Step <N> <tier>: terminal, <one-line cause>`, so a senior step that fails shows up in the count a rung
+never gives it.
 
 These re-spawns keep the step's current effort and do not advance the ladder: a malformed report with no
 `### Changes Made` or `### Verification` (re-spawn at the SAME tier with a format reminder, because the tier is
