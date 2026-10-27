@@ -101,7 +101,7 @@ Plan-then-execute is a crowded category. Three things here are not common:
 | `ac:plan-code-review` | opus | Post-implementation pass over the diff. Reports findings, gives no verdict. |
 | `ac:auto-verifier` | opus | Read-only completion gate for `/ac:auto` and `/ac:coordinate`. Holds no `Edit`, `Write` or `Agent`. |
 | `ac:qa-tester` | sonnet | Runs the QA cases from a brief and writes a report with evidence. Never edits application code; writes only inside its run directory. |
-| `ac:lane` | opus | One roadmap bundle of a `/ac:coordinate` run, in its own git worktree: plans it with `ac:plan --lane`, executes it with `ac:execute --lane`, reports to the coordinator. Spawned only by `/ac:coordinate`. |
+| `ac:lane` | sonnet | One roadmap bundle of a `/ac:coordinate` run, in its own git worktree: plans it with `ac:plan --lane`, executes it with `ac:execute --lane`, reports to the coordinator. Spawned only by `/ac:coordinate`. |
 
 The six authoring skills (`ac:skill-creator`, `ac:command-creator`, `ac:agent-creator`, `ac:claude-md-rules-creator`, `ac:prompt-writer`, `ac:git-master`) are what the plan chain calls when the work is itself a skill, command, agent or `CLAUDE.md` file.
 

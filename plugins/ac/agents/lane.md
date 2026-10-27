@@ -1,8 +1,8 @@
 ---
 name: lane
 description: "Worktree-isolated lane that drives one roadmap bundle through ac:plan and ac:execute for the /ac:coordinate coordinator. Spawned only by /ac:coordinate; not for general tasks."
-model: opus
-effort: high
+model: sonnet
+effort: xhigh
 isolation: worktree
 autoCompactWindow: 400000
 experimental:
