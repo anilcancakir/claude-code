@@ -39,7 +39,7 @@ You are the Developer orchestrating execution of an approved plan at `.ac/plans/
 
 <scope>
 Source code in the project, scoped to the files each step declares, plus these artifacts under
-`.ac/plans/<slug>/`: `wisdom.md` (max 15 items, max 5 per wave), `evidence/<step-id>-<scenario>.<ext>`,
+`.ac/plans/<slug>/`: `wisdom.md` (max 15 items, max 5 per wave; the `[RETRY]` and `[REMEDIATION]` records sit outside both caps), `evidence/<step-id>-<scenario>.<ext>`,
 `review-log.md` (append-only, one entry per Phase 3 review, kept as a record rather than as a loop counter),
 `qa/<run id>/` (the Phase 3e QA run directory, written by `ac:qa`), and `report.md`. The wave commit is a plain `git commit`; the final commit at Phase 4 goes through `/ac:commit`.
 
@@ -332,7 +332,7 @@ Layer A commands; it does not depend on their results and they do not depend on 
 
 The allowed set is `wave_files` (this wave's declared union, from 2c) plus `MODIFIED_FILES` (earlier
 waves) plus anything under `.ac/`. A dirty path outside all three is an unreverted mutation or an
-out-of-scope edit: restore it from git, and record it as a `[REMEDIATION]` wisdom line naming the step.
+out-of-scope edit: restore it from git, and record it as a `[REMEDIATION] Step <N> <tier>: <what you restored>` wisdom line.
 Compare against `wave_files`, NOT against `MODIFIED_FILES` alone: that list is only appended at 2e, after
 this check, so at this point it holds the previous waves and none of the current one. Compare against it
 alone and every file this wave legitimately changed reads as a mutation to be reverted.
@@ -527,9 +527,14 @@ then `AskUserQuestion` (`Edit plan to fill the gap and re-verify` / `Accept as R
 2. **Tier rung, second failure** (or the first when rung 1 is skipped): re-spawn one tier up (`quick` to `junior`,
    `junior` and `junior-high` to `senior`) at the new tier's default effort, with no `effort` argument.
 
+Record each rung as it fires, as a wisdom line for the current wave: `[RETRY] Step <N> <tier>: rung <1|2>, <one-line
+cause>`, with the tier that failed. `[RETRY]` lines do not count toward the five wisdom items in 2f. They are how `ac
+plan-stats` measures what each tier costs in quality, and a downgrade judged without them looks free.
+
 `senior` has no rung 1, because Opus 5.5 scores best at medium (`plan/references/model-tiers.md:39`), and no rung
 2, because nothing sits above it: a senior step's first failure is terminal, as before. A failure after rung 2 is
-terminal too.
+terminal too. Record a terminal failure the same way, `[RETRY] Step <N> <tier>: terminal, <one-line cause>`, so a
+senior step that fails shows up in the count a rung never gives it.
 
 These re-spawns keep the step's current effort and do not advance the ladder: a malformed report with no
 `### Changes Made` or `### Verification` (re-spawn at the SAME tier with a format reminder, because the tier is
@@ -557,10 +562,12 @@ what the orchestrator has to fix or record itself.
 1. **Remediate what the orchestrator owns**: `[CONTRADICTION]` reports, cross-file findings deferred from
    Layer B, and plan oversights your review surfaced. Apply the minimal patch to the file that structurally owns the
    missing piece, update `MODIFIED_FILES`, clear any `pending-remediation` step whose `Done when` now passes, and
-   record each as a `[REMEDIATION]` wisdom line. Surface first when a patch would change a downstream contract;
+   record each as a `[REMEDIATION] Step <N> <tier>: <what you fixed>` wisdom line (`Step - -` when no step owns
+   it). Surface first when a patch would change a downstream contract;
    mechanical framework-completeness patches do not need a gate.
 2. **Extract wisdom**: up to 5 concrete items this wave, 15 total, codified patterns rather than platitudes.
-   `[REMEDIATION]` lines count toward the 5. Persist to `wisdom.md` under `## Wave <N>`.
+   `[REMEDIATION]` and `[RETRY]` lines are records, outside the 5 and the 15. Persist all of them to `wisdom.md`
+   under `## Wave <N>`.
 3. **Re-ground**: emit a 2-3 line wave summary and refresh the marker's `note` with a resume hint, which the
    SessionStart hook reads back. Re-read `PLAN_PATH` and `wisdom.md` only when a compaction has actually happened
    since you last held them; the plan runs to tens of thousands of characters and re-admitting it every wave is a cost with no
@@ -729,8 +736,10 @@ a signal the code is bad.
 it, then `AskUserQuestion` (`Edit plan to fix and re-verify` / `Accept as Risk and proceed` / `Stop`).
 Never silently rewrite the plan.
 
-Append the outcome to `.ac/plans/<slug>/review-log.md` under `## Run <marker started_at>`: findings by
-severity, what was fixed, what was deferred. The log is a record now, not a loop counter.
+Append the outcome to `.ac/plans/<slug>/review-log.md` under `## Run <marker started_at>`: first one line per
+reviewer that ran, exactly `Review: <ac:plan-code-review | ac:oracle> CRITICAL <n> IMPORTANT <n> MINOR <n>`
+counting the findings it returned, then what was fixed and what was deferred. `ac plan-stats` reads those lines to
+judge a reviewer's effort level against what it finds. The log is a record now, not a loop counter.
 
 ### 3d. Convergence
 

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { collectPlanStats, formatPlanStats, summarisePlan } from "./plan-stats.ts";
@@ -156,5 +156,90 @@ describe("formatPlanStats", () => {
         expect(rendered).toContain("Plans: 1");
         expect(rendered).toContain("Steps: 2");
         expect(rendered).toContain("50.0%");
+    });
+});
+
+describe("execution outcomes", () => {
+    const plan = [
+        "## Steps",
+        "- [x] **Step 1**: a",
+        "    - **Tier**: junior",
+        "- [x] **Step 2**: b",
+        "    - **Tier**: junior",
+        "- [x] **Step 3**: c",
+        "    - **Tier**: senior",
+    ].join("\n");
+
+    test("counts retries per tier and remediation lines from the wisdom file beside the plan", () => {
+        const root = freshRoot();
+        const planPath = writePlan(root, "alpha", "one", plan);
+        writeFileSync(join(planPath, "..", "wisdom.md"), [
+            "## Wave 1",
+            "- [RETRY] Step 2 junior: rung 1, missed the null branch",
+            "- [RETRY] Step 2 junior: rung 2, still failing the suite",
+            "- [REMEDIATION] Step 3: added the missing export",
+            "- A plain wisdom line naming [RETRY] mid-sentence is not a record",
+        ].join("\n"));
+
+        const stats = collectPlanStats(root);
+
+        expect(stats.executed).toBe(1);
+        expect(stats.retries).toEqual([{ count: 2, name: "junior" }]);
+        expect(stats.remediations).toBe(1);
+        expect(formatPlanStats(stats)).toContain("Retries per tier");
+    });
+
+    test("reads lane plans archived under .ac/coord/<slug>/bundles and skips failed attempts", () => {
+        const root = freshRoot();
+        for (const id of ["b1", "b2-failed-1"]) {
+            const dir = join(root, "app", ".ac", "coord", "ship", "bundles", id);
+            mkdirSync(dir, { recursive: true });
+            writeFileSync(join(dir, "plan.md"), plan);
+            writeFileSync(join(dir, "wisdom.md"), "- [RETRY] Step 3 senior: terminal, suite red\n");
+        }
+
+        const stats = collectPlanStats(root);
+
+        expect(stats.plans).toBe(1);
+        expect(stats.retries).toEqual([{ count: 1, name: "senior" }]);
+    });
+
+    test("sums the Review lines of review-log.md per reviewer and counts remediations per tier", () => {
+        const root = freshRoot();
+        const planPath = writePlan(root, "alpha", "one", plan);
+        writeFileSync(join(planPath, "..", "wisdom.md"), [
+            "- [REMEDIATION] Step 2 junior: wired the missing export",
+            "- [REMEDIATION] Step - -: fixed a cross-step import",
+        ].join("\n"));
+        writeFileSync(join(planPath, "..", "review-log.md"), [
+            "## Run 2026-10-27T10:00:00Z",
+            "Review: ac:plan-code-review CRITICAL 0 IMPORTANT 2 MINOR 3",
+            "Review: ac:oracle CRITICAL 1 IMPORTANT 0 MINOR 1",
+            "## Run 2026-10-27T12:00:00Z",
+            "Review: ac:plan-code-review CRITICAL 1 IMPORTANT 1 MINOR 0",
+        ].join("\n"));
+
+        const stats = collectPlanStats(root);
+
+        expect(stats.remediations).toBe(2);
+        expect(stats.remediationTiers).toEqual([{ count: 1, name: "junior" }]);
+        expect(stats.reviews).toEqual([
+            { critical: 1, important: 3, minor: 3, name: "ac:plan-code-review", runs: 2 },
+            { critical: 1, important: 0, minor: 1, name: "ac:oracle", runs: 1 },
+        ]);
+        const text = formatPlanStats(stats);
+        expect(text).toContain("Review findings per run");
+        expect(text).toContain("ac:plan-code-review");
+    });
+
+    test("--since keeps only plans written on or after the date", () => {
+        const root = freshRoot();
+        const old = writePlan(root, "alpha", "old", plan);
+        writePlan(root, "alpha", "new", plan);
+        const before = new Date("2026-09-01T00:00:00Z");
+        utimesSync(old, before, before);
+
+        expect(collectPlanStats(root, { since: "2026-10-01" }).plans).toBe(1);
+        expect(collectPlanStats(root).plans).toBe(2);
     });
 });

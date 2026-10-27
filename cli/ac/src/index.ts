@@ -176,12 +176,17 @@ program
     .description(
         "Scan a directory tree for `.ac/plans/<slug>/plan.md` files and print the tier and "
             + "codebase-state distributions across them, plus complexity for plans old enough to "
-            + "carry that retired field. Use it to measure what the plan-time tier rules actually "
-            + "produce, before and after a rule change.",
+            + "carry that retired field, and for executed plans the [RETRY] rungs per tier and the "
+            + "[REMEDIATION] lines from wisdom.md. Use it to measure what the plan-time tier rules actually "
+            + "produce, and what a tier or effort change costs in quality, before and after the change.",
     )
     .option("--dir <value>", "Root to scan.", process.cwd())
-    .action((opts: { dir: string }): void => {
-        process.stdout.write(formatPlanStats(collectPlanStats(opts.dir)) + "\n");
+    .option("--since <date>", "Only plans whose plan.md changed on or after this UTC date (YYYY-MM-DD).")
+    .action((opts: { dir: string; since?: string }): void => {
+        if (opts.since !== undefined && !/^\d{4}-\d{2}-\d{2}$/.test(opts.since)) {
+            throw new Error(`--since must be YYYY-MM-DD, got ${opts.since}`);
+        }
+        process.stdout.write(formatPlanStats(collectPlanStats(opts.dir, { since: opts.since })) + "\n");
     });
 
 const lease = program
