@@ -39438,8 +39438,26 @@ function readAgentType2(metaPath) {
     return;
   }
 }
+function groupByModel(turns) {
+  const groups = new Map;
+  for (const turn of turns) {
+    if (turn.model === "" || turn.model.startsWith("<")) {
+      continue;
+    }
+    const label = [turn.model.replace(/^claude-/, ""), turn.effort].filter((part) => part !== "").join(" ");
+    const name = `main [${label}]`;
+    const group = groups.get(name);
+    if (group === undefined) {
+      groups.set(name, [turn]);
+    } else {
+      group.push(turn);
+    }
+  }
+  return groups;
+}
 function collectRunCost(options) {
   const main = emptyBucket();
+  const mainByModel = new Map;
   const byType = new Map;
   const seen = new Set;
   let sessions = 0;
@@ -39483,8 +39501,15 @@ function collectRunCost(options) {
           counted = true;
         }
       }
-      if (addRun(main, unseen(join8(projectDir, entry)), options.since)) {
+      const mainTurns = unseen(join8(projectDir, entry));
+      if (addRun(main, mainTurns, options.since)) {
         counted = true;
+      }
+      for (const [name, turns] of groupByModel(mainTurns)) {
+        const bucket = mainByModel.get(name) ?? emptyBucket();
+        if (addRun(bucket, turns, options.since)) {
+          mainByModel.set(name, bucket);
+        }
       }
       if (counted) {
         sessions += 1;
@@ -39493,6 +39518,7 @@ function collectRunCost(options) {
   }
   return {
     main: toRow("main thread", main),
+    mainByModel: [...mainByModel.entries()].map(([name, bucket]) => toRow(name, bucket)).sort((a, b) => b.dollars - a.dollars),
     rows: [...byType.entries()].map(([name, bucket]) => toRow(name, bucket)).sort((a, b) => b.dollars - a.dollars),
     sessions,
     since: options.since
@@ -39522,7 +39548,7 @@ function formatRunCost(report) {
   const subagents = report.rows.reduce((sum, row) => sum + row.dollars, 0);
   const total = subagents + report.main.dollars;
   const share = (value) => total === 0 ? "0%" : `${(100 * value / total).toFixed(0)}%`;
-  const nameWidth = Math.max(11, ...report.rows.map((row) => row.name.length));
+  const nameWidth = Math.max(11, ...[...report.rows, ...report.mainByModel].map((row) => row.name.length));
   const header = [
     "agent".padEnd(nameWidth),
     "runs".padStart(6),
@@ -39540,6 +39566,7 @@ function formatRunCost(report) {
     "",
     header,
     formatRow(report.main, nameWidth),
+    ...report.mainByModel.length > 1 ? report.mainByModel.map((row) => formatRow(row, nameWidth)) : [],
     ...report.rows.map((row) => formatRow(row, nameWidth)),
     "",
     "ctx/turn: input plus cache read and write per turn. min/r: active minutes, idle gaps over five minutes left " + "out. idle-rb: share of cache writes that rewrote at least half the context after more than five idle " + "minutes; on a subagent that is the five-minute TTL expiring, on the main thread (one-hour TTL) mostly " + "compactions."
@@ -40454,4 +40481,4 @@ function formatSyncReport(report) {
 }
 await program2.parseAsync(process.argv);
 
-//# debugId=239979BF4AC0448A64756E2164756E21
+//# debugId=F4C5AE4FFE4FE2F764756E2164756E21

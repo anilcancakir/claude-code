@@ -209,6 +209,27 @@ describe("collectRunCost", () => {
         expect(lane?.minutes).toBe(1);
     });
 
+    test("splits the main thread by the model and effort each turn ran on", () => {
+        const root = freshRoot();
+        const lane = {
+            agentType: "ac:lane",
+            id: "l1",
+            turns: [{ at: "2026-10-20T10:01:00Z", id: "l1t", model: OPUS, output: 1 }],
+        };
+        writeSession(root, "-Users-me-app", "s1", [
+            { at: "2026-10-20T10:00:00Z", effort: "high", id: "o1", model: OPUS, output: 100 },
+            { at: "2026-10-20T10:01:00Z", effort: "xhigh", id: "s1", model: SONNET, output: 200 },
+            { at: "2026-10-20T10:02:00Z", effort: "xhigh", id: "s2", model: SONNET, output: 300 },
+        ], [lane]);
+
+        const report = collectRunCost({ root, since: "2026-10-01" });
+        const rows = report.mainByModel.map((row) => `${row.name}:${row.turns}:${row.usage.output}`);
+
+        expect(rows.sort()).toEqual(["main [opus-5-5 high]:1:100", "main [sonnet-5-5 xhigh]:2:500"]);
+        expect(report.main.usage.output).toBe(600);
+        expect(formatRunCost(report)).toContain("main [sonnet-5-5 xhigh]");
+    });
+
     test("splits an agent type by the effort its runs used", () => {
         const root = freshRoot();
         const oracle = (id: string, effort: string): { id: string; agentType: string; turns: TurnSpec[] } => ({

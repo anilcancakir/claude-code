@@ -87,6 +87,8 @@ export interface RunCostReport {
     readonly since: string;
     readonly sessions: number;
     readonly main: CostRow;
+    /** The main thread split by the model and effort each turn ran on, most expensive first. */
+    readonly mainByModel: readonly CostRow[];
     /** Subagent rows, most expensive first. */
     readonly rows: readonly CostRow[];
 }
@@ -213,6 +215,25 @@ function readAgentType(metaPath: string): string | undefined {
     }
 }
 
+/** Groups turns under `main [<model without the claude- prefix> <effort>]`, keeping their order. */
+function groupByModel(turns: readonly Turn[]): Map<string, Turn[]> {
+    const groups = new Map<string, Turn[]>();
+    for (const turn of turns) {
+        if (turn.model === "" || turn.model.startsWith("<")) {
+            continue;
+        }
+        const label = [turn.model.replace(/^claude-/, ""), turn.effort].filter((part) => part !== "").join(" ");
+        const name = `main [${label}]`;
+        const group = groups.get(name);
+        if (group === undefined) {
+            groups.set(name, [turn]);
+        } else {
+            group.push(turn);
+        }
+    }
+    return groups;
+}
+
 /**
  * Rolls up what ac runs cost across every session transcript under the projects root.
  *
@@ -222,6 +243,7 @@ function readAgentType(metaPath: string): string | undefined {
  */
 export function collectRunCost(options: RunCostOptions): RunCostReport {
     const main = emptyBucket();
+    const mainByModel = new Map<string, Bucket>();
     const byType = new Map<string, Bucket>();
     const seen = new Set<string>();
     let sessions = 0;
@@ -276,8 +298,16 @@ export function collectRunCost(options: RunCostOptions): RunCostReport {
                     counted = true;
                 }
             }
-            if (addRun(main, unseen(join(projectDir, entry)), options.since)) {
+            const mainTurns = unseen(join(projectDir, entry));
+            if (addRun(main, mainTurns, options.since)) {
                 counted = true;
+            }
+            // A session can switch model or effort mid-way, so the split is per turn, not per session.
+            for (const [name, turns] of groupByModel(mainTurns)) {
+                const bucket = mainByModel.get(name) ?? emptyBucket();
+                if (addRun(bucket, turns, options.since)) {
+                    mainByModel.set(name, bucket);
+                }
             }
             if (counted) {
                 sessions += 1;
@@ -287,6 +317,9 @@ export function collectRunCost(options: RunCostOptions): RunCostReport {
 
     return {
         main: toRow("main thread", main),
+        mainByModel: [...mainByModel.entries()]
+            .map(([name, bucket]) => toRow(name, bucket))
+            .sort((a, b) => b.dollars - a.dollars),
         rows: [...byType.entries()]
             .map(([name, bucket]) => toRow(name, bucket))
             .sort((a, b) => b.dollars - a.dollars),
@@ -323,7 +356,7 @@ export function formatRunCost(report: RunCostReport): string {
     const subagents = report.rows.reduce((sum, row) => sum + row.dollars, 0);
     const total = subagents + report.main.dollars;
     const share = (value: number): string => (total === 0 ? "0%" : `${((100 * value) / total).toFixed(0)}%`);
-    const nameWidth = Math.max(11, ...report.rows.map((row) => row.name.length));
+    const nameWidth = Math.max(11, ...[...report.rows, ...report.mainByModel].map((row) => row.name.length));
     const header = [
         "agent".padEnd(nameWidth),
         "runs".padStart(6),
@@ -343,6 +376,7 @@ export function formatRunCost(report: RunCostReport): string {
         "",
         header,
         formatRow(report.main, nameWidth),
+        ...(report.mainByModel.length > 1 ? report.mainByModel.map((row) => formatRow(row, nameWidth)) : []),
         ...report.rows.map((row) => formatRow(row, nameWidth)),
         "",
         "ctx/turn: input plus cache read and write per turn. min/r: active minutes, idle gaps over five minutes left "
