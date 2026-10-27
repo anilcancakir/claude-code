@@ -2,7 +2,7 @@
 name: execute
 description: "Run an approved ac plan to completion, wave by wave, with cost-tiered workers, per-wave verification and a final review. Loaded by /ac/execute; the request carries a plan slug or path plus flags."
 ---
-<!-- ported-from: plugins/ac/skills/execute/SKILL.md sha256:50ca98ab4533e609832df84f6b73ee21c67542bf0df07eaba8e1bbb5cfd73f44 -->
+<!-- ported-from: plugins/ac/skills/execute/SKILL.md sha256:4bd88d05cf2d429c94329d5ac856abd45005888e2b42c9ecfd7560dd0637c49a -->
 
 # /ac/execute
 
@@ -891,7 +891,9 @@ verification `--skip-preflight` refers to. A clean tree exits silently, which is
 
 ### 4b. Report and summary
 
-Write `.ac/plans/<slug>/report.md` from the template at `references/report-template.md`, filling
+Write the report, `.ac/plans/<slug>/report.md` (under `LANE_MODE` `.ac/plans/<slug>/outcome.md`, the name the Claude
+Code side must use because its host refuses a subagent's `report*.md`, kept here for one archive layout), from the
+template at `references/report-template.md`, filling
 in the steps executed, modified files, verification outcomes, accumulated wisdom, notes, and commit hashes. Confirm
 it landed with `test -f ... && wc -l ...`; retry the write once if it did not, and render the report inline if the
 retry also fails, so the work is not lost in chat history.
@@ -899,4 +901,4 @@ retry also fails, so the work is not lost in chat history.
 Then render the closing summary inline from `references/execution-summary-template.md`. The
 summary is chat output; `report.md` is the file artifact.
 
-End the turn. Under `LANE_MODE` the last thing written is the `status: DONE` block, with `report.md` in `artifacts`.
+End the turn. Under `LANE_MODE` the last thing written is the `status: DONE` block, with `outcome.md` in `artifacts`.

@@ -2,7 +2,7 @@
 name: coordinate
 description: "Turn a large request into a reviewed roadmap of bundles and drive them through parallel ac/lane worktrees. Use when a request is too large for one plan and splits into bundles that can run in parallel worktrees; ends in one approved push. Request text: <request> [--lanes N] [--max-workers N]."
 ---
-<!-- ported-from: plugins/ac/skills/coordinate/SKILL.md sha256:c395c50737051ac5a1ce24d27c7a7ab6636fd52bf6bce5db3d9b4a431d5c1af5 -->
+<!-- ported-from: plugins/ac/skills/coordinate/SKILL.md sha256:f5273327fb2f7ab03779e8823dc5b8b5ccf2015e21d4099b8d3144b26cd400eb -->
 
 # /ac/coordinate
 
@@ -60,8 +60,9 @@ the owner picks a push option.
 **Questions.** Only you call `question`; lanes have no such tool. Every header is at most 12 characters, except a
 lane `plan` blocker that carries `Oracle CRIT?` or `Premise failed?`, which you ask under that header verbatim.
 Fixed headers: `Roadmap?` (the roadmap lock), `Lane block?` (any other lane BLOCKED block), `Conflict?` (a rebase
-the lane could not resolve), `Push?` (the final push). A bundle decision header is `<bundle-id> <lane header>` cut
-to 12 characters. Every question waits for the owner, so a question you ask is a turn you end on; nothing answers
+the lane could not resolve), `Relock?` and `Add bundle?` (the 6i contract changes), `Push?` (the final push). A bundle decision header is `<bundle-id> <lane header>` cut
+to 12 characters (`b4 Ürün sını`, never the bare `Ürün sınırı`): two lanes ask under the same headers, and the owner
+reads the header first. Every question waits for the owner, so a question you ask is a turn you end on; nothing answers
 one for the owner. A question open for 10 minutes while a lane parks behind it is withdrawn by the plugin (an `ac
 question timeout` note, then the lane messages): act on those messages first, then ask the same question again from
 `owner_queue`. Never answer a question ahead of the owner or infer the answer from the request, except in away mode.
@@ -122,10 +123,18 @@ worktree), the gate commands, `plan-check`, the digest, the archive copy and the
 </capabilities>
 
 <constraints>
-- The roadmap and `criteria.md` freeze at the `Roadmap?` lock. A contract written after seeing what got built has
-  no gate, only a mirror.
+- The roadmap and `criteria.md` freeze at the `Roadmap?` lock and change after it only through 6i, one owner answer
+  at a time. A contract written after seeing what got built has no gate, only a mirror.
 - Integrate by the procedure in `references/integration.md`, one bundle at a time, in dependency order. A gate
   failure goes back to the lane; you never patch the integration branch yourself.
+- Only `criteria.md` rows gate a merge. An LSP hint, a lint warning no gate runs, or a style preference is not a gate:
+  record it as an `events.jsonl` `note` line and name it in the Phase 8 report. You never send a lane a code edit to
+  make; a revise carries a quoted goal line before execution, and after DONE a lane hears only a rebase or a failed
+  gate.
+- A lane that reports it took a product, naming or data reading without asking has raised an owner question: ask it,
+  and never accept the reading on the owner's behalf, however reasonable it looks. A PLANNED lane gets the answer as
+  a revise with the owner's answer quoted; a DONE lane is merged as it is, and an answer that differs becomes a 6i
+  `Add bundle?`. In away mode it waits for the owner's return and goes to the Phase 8 report.
 - A verdict reporting gaps is a complete ending. Write it as returned.
 - An owner asking to pause ("duraklat", "pause", "dur biraz") takes 6h, which keeps every lane's work and resumes;
   an owner asking to stop for good or take back control outranks every rule here: take the Abort branch.
@@ -241,7 +250,9 @@ round never converges. A blocker still open after round 2 goes into the `Roadmap
 
 1. **Bundles.** Short ids (`b1`, `b2`, ...), each matching `a-z`, `0-9` and hyphens, since the id becomes part of a
    branch name and a worktree path. Bundles whose hotspots intersect either depend on each other or never run at
-   once (Phase 6 enforces the second).
+   once (Phase 6 enforces the second). A merge order the roadmap wants without a build dependency goes in
+   `merge_after`, not in prose: a note that says "b1, b2, b3" binds nothing once the context that wrote it is
+   compacted.
 2. **Baseline.** Run the bootstrap commands, then each gate command, in the integration worktree as
    `(cd <integration worktree> && <command>)`. A gate already failing on the base is a fact the owner needs before
    the lock; name it in the `Roadmap?` question.
@@ -292,7 +303,7 @@ integration and every pending bundle out of dispatch until the owner returns.
 
 Parse the lane's last `LANE STATUS` block out of the text inside the `<lane>` message. A message with
 `state="failed"` carries the lane session's error instead of a block: record it as FAILED with that error. Append
-the block to `events.jsonl`, then rewrite the bundle's entry in `state.json`: `status` from the block (`DECISIONS`
+every block, `WORKING` and rebase `DONE` included, to `events.jsonl` as a `lane_status` line, then rewrite the bundle's entry in `state.json`: `status` from the block (`DECISIONS`
 and `BLOCKED` also join `owner_queue`; `PAUSED` records `paused`, and when the marker is no longer `paused` the lane
 gets its `RESUME` at once), `head`, `plan_slug` (the bundle id). `worktree` and `branch` were recorded
 at dispatch from the `ac_lane_start` result, and the block's `plan` path confirms the worktree. A `DONE` whose
@@ -342,7 +353,8 @@ the second goes to the owner as `Lane block?` with `redispatch` (STOP and a fres
 
 ### 6d. Integrate
 
-For each `done` bundle whose `depends_on` are all `merged`, in roadmap order, one at a time: refresh the marker to
+For each `done` bundle whose `depends_on` are all `merged` and whose `merge_after` are all `merged` or `dropped`, in
+roadmap order, one at a time: refresh the marker to
 `phase: "integrate"` with a `note` naming the bundle, then follow `references/integration.md`.
 Back to `phase: "dispatch"` when it is merged.
 
@@ -403,6 +415,21 @@ a `paused_from`, parked `PAUSED` or not yet (a lane still waiting on its workers
 `PAUSED`), and set each back to its `paused_from`. A `PAUSED` that arrives once the run is no longer paused gets its
 `RESUME` at once in 6a. Then continue the lane loop from 6a: each lane picks up from its plan's
 recorded state and parks again with its next block.
+
+### 6i. Changing the contract mid-run
+
+The roadmap and `criteria.md` froze at the lock, and only the owner unfreezes them, one change at a time. In away
+mode make no change: a relock or a new bundle waits for the owner's return and is named in the Phase 8 report. The
+away review's fix bundle (Phase 7) is the one exception: it carries no new deliverable, so it gets no criterion row.
+
+- **Relock a criterion** (a faster equivalent command, a row the evidence proved wrong): ask the owner under
+  `Relock?` with the old and new row and the evidence; on approval edit the row, recompute the digest with the Phase 5
+  `python3` block, and append a `criteria_relocked` line naming the row and the owner's answer; the count of those
+  lines is the contract's revision.
+- **Add a bundle** (an owner answer, a review finding that needs a lane): ask the owner under `Add bundle?` with its
+  goal, scope, `depends_on` and `hotspots`; on approval append it to `roadmap.md` and `state.json` as `pending`, add
+  a `criteria.md` row for each deliverable it introduces (a relock, as above), note in `research.md` any surface the
+  research never mapped, and append a `bundle_added` line. A bundle with no criterion row has no gate.
 
 ## Phase 7: Gate
 

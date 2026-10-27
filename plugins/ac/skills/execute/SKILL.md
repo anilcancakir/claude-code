@@ -809,7 +809,9 @@ verification `--skip-preflight` refers to. A clean tree exits silently, which is
 
 ### 4b. Report and summary
 
-Write `.ac/plans/<slug>/report.md` from the template at `${CLAUDE_SKILL_DIR}/references/report-template.md`, filling
+Write the report, `.ac/plans/<slug>/report.md` (under `LANE_MODE` `.ac/plans/<slug>/outcome.md`: Claude Code
+refuses a subagent's write to any `report*`, `summary*`, `findings*` or `analysis*` Markdown file, which left four
+bundles of a real run with no report in their archive), from the template at `${CLAUDE_SKILL_DIR}/references/report-template.md`, filling
 in the steps executed, modified files, verification outcomes, accumulated wisdom, notes, and commit hashes. Confirm
 it landed with `test -f ... && wc -l ...`; retry the write once if it did not, and render the report inline if the
 retry also fails, so the work is not lost in chat history.
@@ -817,4 +819,4 @@ retry also fails, so the work is not lost in chat history.
 Then render the closing summary inline from `${CLAUDE_SKILL_DIR}/references/execution-summary-template.md`. The
 summary is chat output; `report.md` is the file artifact.
 
-End the turn. Under `LANE_MODE` the last thing written is the `status: DONE` block, with `report.md` in `artifacts`.
+End the turn. Under `LANE_MODE` the last thing written is the `status: DONE` block, with `outcome.md` in `artifacts`.

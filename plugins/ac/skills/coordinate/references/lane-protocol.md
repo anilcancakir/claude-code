@@ -20,7 +20,7 @@ Every turn of a lane ends with one status block as the last thing it writes. The
 | `steps` | `<checked>/<total>` | Checked and total step boxes in the lane's `plan.md`; `0/0` before a plan exists. |
 | `decisions` | list | DECISIONS only. One entry per owner question: `id`, `header`, `question`, `options`, `recommended`. |
 | `blocker` | map | BLOCKED only: `class`, `header` (the gate's own header, verbatim, for example `Oracle CRIT?` or `Premise failed?`), `question`, `options`, `recommended`. |
-| `artifacts` | list | Absolute paths to the report and evidence files the turn produced. |
+| `artifacts` | list | Absolute paths to the report (`outcome.md`, since a subagent cannot write `report*.md`) and evidence files the turn produced. |
 | `next` | string | One line: what the lane expects to happen next and which resume message it waits for. |
 
 ### Status values
@@ -138,7 +138,7 @@ steps: 4/4
 decisions: none
 blocker: none
 artifacts:
-  - /abs/repo/.claude/worktrees/agent-a1b2c3d4/.ac/plans/b2/report.md
+  - /abs/repo/.claude/worktrees/agent-a1b2c3d4/.ac/plans/b2/outcome.md
 next: waiting for REBASE or the coordinator's merge
 ```
 

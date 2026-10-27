@@ -1,10 +1,10 @@
 # Execution Report Template
 
-Markdown structure for `.ac/plans/<slug>/report.md`. Written at Phase 4b after all waves verify and the final code-review settles. This is the long-form artifact for the user; the inline execution summary (Phase 4b) is the short-form heartbeat.
+Markdown structure for `.ac/plans/<slug>/report.md` (`outcome.md` under `LANE_MODE`, the name a subagent may write). Written at Phase 4b after all waves verify and the final code-review settles. This is the long-form artifact for the user; the inline execution summary (Phase 4b) is the short-form heartbeat.
 
 ## When to read this
 
-Read in Phase 4b before calling `Write` on `.ac/plans/<slug>/report.md`. After Write, verify the file landed: `Bash test -f .ac/plans/<slug>/report.md && wc -l .ac/plans/<slug>/report.md`. If absent or zero-length, retry Write once; if still failing, render the report inline to the user.
+Read in Phase 4b before calling `Write` on the report path (`.ac/plans/<slug>/report.md`, or `outcome.md` under `LANE_MODE`). After Write, verify the file landed: `Bash test -f <report path> && wc -l <report path>`. If absent or zero-length, retry Write once; if still failing, render the report inline to the user.
 
 ## Template
 

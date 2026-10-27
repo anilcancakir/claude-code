@@ -132,6 +132,11 @@ How an entry is written and how a lane resumes. The status block itself is defin
   one token: drop `(Recommended)` and join the words with hyphens (`Revise-plan`); `recommended` is the label that
   carried the marker, and the consequence is the option's own description. The `Proceed?` entry carries the Stage 3a
   synthesis lines in its `question`, because the coordinator never sees a chat render.
+- **Stage 3a always runs.** The `Proceed?` pair returns even when Stage 3 found no other node: it is the owner's one
+  look at a bundle's scope before execution, and a lane that skipped it on a "nothing to ask" reading ran unseen. A
+  behaviour the roadmap card, the brief and the code do not settle (a product, naming or data rule) is a 3c node, never a choice
+  the lane takes and reports afterwards; "I took this reading without asking" in a PLANNED block is the failure this
+  rule exists for.
 - **Blocker class.** A `BLOCKED` block from this skill uses `class: plan` and carries the gate's header in `header`
   (`Oracle CRIT?` and `Premise failed?` verbatim), so the coordinator can ask it under that header.
 - **Batching.** A returning turn carries every node that is independent at that point, so the Stage 3a pair (`Proceed?`

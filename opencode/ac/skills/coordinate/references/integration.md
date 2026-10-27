@@ -1,4 +1,4 @@
-<!-- ported-from: plugins/ac/skills/coordinate/references/integration.md sha256:07747d220f33eac0700e958845ce252424221b3bfd7e598df52658d22168d8ba -->
+<!-- ported-from: plugins/ac/skills/coordinate/references/integration.md sha256:8f83abfacab1254ab649847a37164f672f2e85c30ceb38ec14d635e7f878f870 -->
 # Integration
 
 How `/ac/coordinate` moves one DONE bundle into the local `coord/<slug>` branch, and how it tears a lane down. Read
@@ -67,7 +67,12 @@ merge moves `<head>` and the next bundle has to be checked against the new one.
    diff -rq <lane wt>/.ac/plans/<id> .ac/coord/<slug>/bundles/<id>
    ```
 
-   The report lives inside the plan directory (`report.md`). Any path in the DONE block's `artifacts` outside that
+   The report lives inside the plan directory as `outcome.md`, the name the Claude Code side must use (its
+   host refuses a subagent's `report*.md`), kept here so both harnesses archive one layout. Decide by the file, not
+   by the block's `artifacts`: when `test -f <lane wt>/.ac/plans/<id>/outcome.md` fails, write the DONE block's own
+   text to `.ac/coord/<slug>/bundles/<id>/outcome.md` after the copy and compare with `diff -rq -x outcome.md`; when
+   it exists, the copy carries it and the plain `diff -rq` checks it. The archive is what a reader has after the run,
+   and deferred items and accepted limits that live only in the transcript are lost once the session ends. Any path in the DONE block's `artifacts` outside that
    directory is copied into `bundles/<id>/` as well and compared the same way. `diff -rq` printing nothing is the
    only evidence that sets `archived: true`; output from it means the copy is incomplete, so copy again and do not
    go on to step 8 until it prints nothing.

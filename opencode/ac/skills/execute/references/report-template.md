@@ -1,11 +1,11 @@
-<!-- ported-from: plugins/ac/skills/execute/references/report-template.md sha256:74289d0c4c633f7c51dda3131028158dd9c8ea45e543eae0e529067664dde2fd -->
+<!-- ported-from: plugins/ac/skills/execute/references/report-template.md sha256:199ca94782d8dc7a032e35162c9e758dc8a8d0394b12e35d0a32f02f3f85ebea -->
 # Execution Report Template
 
-Markdown structure for `.ac/plans/<slug>/report.md`. Written at Phase 4b after all waves verify and the final code-review settles. This is the long-form artifact for the user; the inline execution summary (Phase 4b) is the short-form heartbeat.
+Markdown structure for `.ac/plans/<slug>/report.md` (`outcome.md` under `LANE_MODE`, one archive layout with the Claude Code side). Written at Phase 4b after all waves verify and the final code-review settles. This is the long-form artifact for the user; the inline execution summary (Phase 4b) is the short-form heartbeat.
 
 ## When to read this
 
-Read in Phase 4b before calling `write` on `.ac/plans/<slug>/report.md`. After the write, verify the file landed: `shell: test -f .ac/plans/<slug>/report.md && wc -l .ac/plans/<slug>/report.md`. If absent or zero-length, retry the write once; if still failing, render the report inline to the user.
+Read in Phase 4b before calling `write` on the report path (`.ac/plans/<slug>/report.md`, or `outcome.md` under `LANE_MODE`). After the write, verify the file landed: `shell: test -f <report path> && wc -l <report path>`. If absent or zero-length, retry the write once; if still failing, render the report inline to the user.
 
 ## Template
 

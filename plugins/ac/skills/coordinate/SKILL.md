@@ -64,17 +64,18 @@ the owner picks a push option.
 **Questions.** Only you call `AskUserQuestion`; lanes have no such tool. Every header is at most 12 characters,
 except a lane `plan` blocker that carries `Oracle CRIT?` or `Premise failed?`, which you ask under that header
 verbatim so the hook continues it once per run, as under `ac:auto`. Fixed headers: `Roadmap?` (the roadmap lock),
-`Lane block?` (any other lane BLOCKED block), `Conflict?` (a rebase the lane could not resolve), `Push?` (the final
-push). A blocker question that timed out is recorded in `owner_asked` and not asked again until a user message
-arrives. A bundle decision header is `<bundle-id> <lane header>` cut to 12
-characters. When a question times out with the owner away, the plugin's question-timeout hook decides: it lets a
-non-blocker question (`Roadmap?`, roadmap interview questions, bundle decisions) continue with its Recommended
-option only for the session that owns `.ac/state/active-coordinate.json` while `.ac/coord/<slug>/` exists and holds
-no `verdict.md`; `Lane block?`, `Conflict?` and `Push?` always wait. Record a continued choice as
-`timed out, not user-approved` in an `events.jsonl` line and in `state.json` (`timed_out`, a list of
-`{bundle, question, choice}`). Never answer a question ahead of the owner or infer the answer from the request.
-Ask lane blockers and conflicts in their own call, apart from decisions: the hook makes a whole prompt wait when any
-header in it is a blocker, so a mixed call would hold the decisions too.
+`Lane block?` (any other lane BLOCKED block), `Conflict?` (a rebase the lane could not resolve), `Relock?` and `Add
+bundle?` (the 6g contract changes), `Push?` (the final push). A blocker question that timed out is recorded in
+`owner_asked` and not asked again until a user message arrives. A bundle decision header is `<bundle-id> <lane
+header>` cut to 12 characters (`b4 Ürün sını`, never the bare `Ürün sınırı`): two lanes ask under the same headers,
+and the owner reads the header first. When a question times out with the owner away, the plugin's question-timeout
+hook decides: it lets a non-blocker question (`Roadmap?`, roadmap interview questions, bundle decisions) continue
+with its Recommended option only for the session that owns `.ac/state/active-coordinate.json` while
+`.ac/coord/<slug>/` exists and holds no `verdict.md`; `Lane block?`, `Conflict?`, `Relock?`, `Add bundle?` and
+`Push?` always wait. Record a continued choice as `timed out, not user-approved` in an `events.jsonl` line and in
+`state.json` (`timed_out`, a list of `{bundle, question, choice}`). Never answer a question ahead of the owner or
+infer the answer from the request. Ask lane blockers and conflicts in their own call, apart from decisions: the hook
+makes a whole prompt wait when any header in it is a blocker, so a mixed call would hold the decisions too.
 
 **Slot budget.** A session runs at most 20 subagents at once, lanes and their children together; keep 2 spare and
 plan against 18. A lane's peak is 4 while it plans (itself plus at most 2 `ac:explore` and 1 `ac:librarian`, the
@@ -118,10 +119,18 @@ the archive copy and the `events.jsonl` appends.
 </capabilities>
 
 <constraints>
-- The roadmap and `criteria.md` freeze at the `Roadmap?` lock. A contract written after seeing what got built has
-  no gate, only a mirror.
+- The roadmap and `criteria.md` freeze at the `Roadmap?` lock and change after it only through 6g, one owner answer
+  at a time. A contract written after seeing what got built has no gate, only a mirror.
 - Integrate by the procedure in `${CLAUDE_SKILL_DIR}/references/integration.md`, one bundle at a time, in dependency
   order. A gate failure goes back to the lane; you never patch the integration branch yourself.
+- Only `criteria.md` rows gate a merge. An IDE or LSP hint, a lint warning no gate runs, or a style preference is not
+  a gate: record it as an `events.jsonl` `note` line and name it in the Phase 8 report. You never send a lane a code
+  edit to make; `REVISE` carries a quoted goal line before execution, and after DONE a lane hears only `REBASE` or a
+  failed gate.
+- A lane that reports it took a product, naming or data reading without asking has raised an owner question: ask it,
+  and never accept the reading on the owner's behalf, however reasonable it looks. A PLANNED lane gets the answer as
+  `REVISE` with the owner's answer quoted; a DONE lane is merged as it is, and an answer that differs becomes a 6g
+  `Add bundle?`.
 - A verdict reporting gaps is a complete ending. Write it as returned.
 - An owner asking to stop or take back control outranks every rule here: take the Abort branch.
 </constraints>
@@ -214,7 +223,9 @@ round never converges. A blocker still open after round 2 goes into the `Roadmap
 ## Phase 5: Bundles, contract and the roadmap lock
 
 1. **Bundles.** Short ids (`b1`, `b2`, ...). Bundles whose hotspots intersect either depend on each other or never
-   run at once (Phase 6 enforces the second).
+   run at once (Phase 6 enforces the second). A merge order the roadmap wants without a build dependency (b2 after
+   b1 because both edit one request class) goes in `merge_after`, not in prose: a note that says "b1, b2, b3" binds
+   nothing once the context that wrote it is compacted.
 2. **Baseline.** Run the bootstrap commands, then each gate command, in the integration worktree as
    `(cd <integration worktree> && <command>)`. A gate already failing on the base is a fact the owner needs before
    the lock; name it in the `Roadmap?` question.
@@ -247,7 +258,8 @@ integration and every pending bundle out of dispatch until the owner returns.
 
 ### 6a. Record
 
-Parse the lane's last `LANE STATUS` block. Append it to `events.jsonl`, then rewrite the bundle's entry in
+Parse the lane's last `LANE STATUS` block. Append every block, `WORKING` and rebase `DONE` included, to
+`events.jsonl` as a `lane_status` line, then rewrite the bundle's entry in
 `state.json`: `status` from the block (`DECISIONS` and `BLOCKED` also join `owner_queue`), `head`, `worktree`
 (`<repo>/.claude/worktrees/agent-<lane_agent_id>`, which the block's `plan` path confirms), `plan_slug` (the bundle
 id). A `DONE` whose `phase` is `rebase` moves only `base` and `head`: the bundle returns to the status it held when
@@ -299,7 +311,8 @@ the second goes to the owner as `Lane block?` with `redispatch` (STOP and a fres
 
 ### 6d. Integrate
 
-For each `done` bundle whose `depends_on` are all `merged`, in roadmap order, one at a time: refresh the marker to
+For each `done` bundle whose `depends_on` are all `merged` and whose `merge_after` are all `merged` or `dropped`, in
+roadmap order, one at a time: refresh the marker to
 `phase: "integrate"` with a `note` naming the bundle, then follow `${CLAUDE_SKILL_DIR}/references/integration.md`.
 Back to `phase: "dispatch"` when it is merged.
 
@@ -337,7 +350,20 @@ background. Record `lane_agent_id` from the result, `branch: lane/<slug>/<bundle
 `steps_total: null` (a re-dispatched lane plans afresh, so an earlier attempt's total no longer applies), and
 `attempts + 1` in `state.json` before anything else.
 
-### 6g. End the turn
+### 6g. Changing the contract mid-run
+
+The roadmap and `criteria.md` froze at the lock, and only the owner unfreezes them, one change at a time:
+
+- **Relock a criterion** (a faster equivalent command, a row the evidence proved wrong): ask the owner under
+  `Relock?` with the old and new row and the evidence; on approval edit the row, recompute the digest by the recipe in
+  `${CLAUDE_PLUGIN_ROOT}/skills/auto/SKILL.md` 1b, check it, and append a `criteria_relocked` line naming the row
+  and the owner's answer; the count of those lines is the contract's revision.
+- **Add a bundle** (an owner answer, a review finding that needs a lane): ask the owner under `Add bundle?` with its
+  goal, scope, `depends_on` and `hotspots`; on approval append it to `roadmap.md` and `state.json` as `pending`, add
+  a `criteria.md` row for each deliverable it introduces (a relock, as above), note in `research.md` any surface the
+  research never mapped, and append a `bundle_added` line. A bundle with no criterion row has no gate.
+
+### 6h. End the turn
 
 Every bundle closed: Phase 7. A question pending: the `AskUserQuestion` was the turn end. Otherwise a one-line wait
 status naming the lanes still live, after the status lines.

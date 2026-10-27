@@ -1,4 +1,4 @@
-<!-- ported-from: plugins/ac/skills/coordinate/references/state-schema.md sha256:292f36eee00e6240a696805889983deb5c41d33643e2427b48fe84551ac1aceb -->
+<!-- ported-from: plugins/ac/skills/coordinate/references/state-schema.md sha256:c4ae1ae83e4286ee9c1bcc1abc7d0ac7e779064c2fda4b0f5a212269cb3dc1b8 -->
 # Coordinate State Schema
 
 On-disk shapes behind `/ac/coordinate`: a state marker naming the live run, and a run directory holding the roadmap, the contract, the bundle table and the log. The layout mirrors `criteria-schema.md` in this directory (a criteria file plus a run directory). The lane side of the contract lives in `lane-protocol.md` beside it.
@@ -37,7 +37,7 @@ Removed on every terminal branch: a verdict written, an owner abort, or an error
 | `roadmap.md` | coordinator, once the `Roadmap?` answer approves it | The oracle-reviewed roadmap: bundles, dependencies, hotspots. |
 | `research.md` | coordinator, at the end of Phase 2 | The research digest every lane brief names: per surface the `file:line` anchors, conventions, gate and bootstrap commands, external facts with URLs. |
 | `criteria.md` | coordinator, before dispatch | The verifier's contract for the whole run, in the shape of `criteria-schema.md`. |
-| `events.jsonl` | coordinator, append-only | One JSON object per line for each lane message and status change, with its time under `t` from `date -u +%Y-%m-%dT%H:%M:%SZ` run in the appending command. Never rewritten or truncated. |
+| `events.jsonl` | coordinator, append-only | One JSON object per line for each lane message and status change (mid-run contract changes as `criteria_relocked` and `bundle_added`), with its time under `t` from `date -u +%Y-%m-%dT%H:%M:%SZ` run in the appending command. Never rewritten or truncated. |
 | `bundles/<id>/` | coordinator, once per bundle at archive | Copy of the bundle's plan directory and report, taken from the lane worktree before the worktree is removed. |
 | `verdict.md` | coordinator, once at the end | The verifier's returned body. Its presence marks the run as finished. |
 
@@ -56,6 +56,7 @@ Removed on every terminal branch: a verdict written, an owner abort, or an error
       "id": "b1",
       "title": "Token storage",
       "depends_on": [],
+      "merge_after": [],
       "hotspots": ["src/auth/session.ts"],
       "status": "pending",
       "lane_session_id": null,
@@ -89,6 +90,9 @@ Per bundle:
 - `id`: short stable key (`b1`), used in branch names, archive paths and question headers.
 - `title`: one-line name from the roadmap.
 - `depends_on`: ids of bundles that must be `merged` before this one is dispatched.
+- `merge_after`: ids of bundles that must be `merged` or `dropped` before this one is integrated, with no effect on
+  dispatch: the roadmap's merge order for bundles that touch one file without needing each other. Absent or empty
+  means no ordering.
 - `hotspots`: files or areas the bundle is expected to touch, used to keep overlapping bundles out of the same wave.
 - `status`: one of the values below.
 - `lane_session_id`: the `session_id` `ac_lane_start` returned; the address every `ac_lane_send` uses. `null` until dispatched.

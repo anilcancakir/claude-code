@@ -1,4 +1,4 @@
-<!-- ported-from: plugins/ac/skills/coordinate/references/lane-protocol.md sha256:745a5bb8a027c43d3819ad5e78b2540bf200ded5126e0dc20c77c075183c956e -->
+<!-- ported-from: plugins/ac/skills/coordinate/references/lane-protocol.md sha256:04cec60d8ec3877c19d3e422f74a4ae2ea514f075b7e93869c1b37e3b8cad71b -->
 # Lane Protocol
 
 The contract between the `/ac/coordinate` coordinator (the parent) and each `ac/lane` session (a root session in its own git worktree, driving one bundle). Both sides read this file as the single source for the status block, the resume messages, the bootstrap order and the prohibitions. Field names and tokens are literal: the coordinator parses them, so a lane never renames, reorders or adds one.
@@ -21,7 +21,7 @@ Every turn of a lane ends with one status block as the last thing it writes. The
 | `steps` | `<checked>/<total>` | Checked and total step boxes in the lane's `plan.md`; `0/0` before a plan exists. |
 | `decisions` | list | DECISIONS only. One entry per owner question: `id`, `header`, `question`, `options`, `recommended`. |
 | `blocker` | map | BLOCKED only: `class`, `header` (the gate's own header, verbatim, for example `Oracle CRIT?` or `Premise failed?`), `question`, `options`, `recommended`. |
-| `artifacts` | list | Absolute paths to the report and evidence files the turn produced. |
+| `artifacts` | list | Absolute paths to the report (`outcome.md`, since a subagent cannot write `report*.md`) and evidence files the turn produced. |
 | `next` | string | One line: what the lane expects to happen next and which resume message it waits for. |
 
 ### Status values
@@ -140,7 +140,7 @@ steps: 4/4
 decisions: none
 blocker: none
 artifacts:
-  - /abs/repo/.ac/worktrees/lane/ship-auth/b2/.ac/plans/b2/report.md
+  - /abs/repo/.ac/worktrees/lane/ship-auth/b2/.ac/plans/b2/outcome.md
 next: waiting for REBASE or the coordinator's merge
 ```
 
