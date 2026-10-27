@@ -49,6 +49,23 @@ function toolUse(name: string, input: Record<string, unknown> = {}): unknown {
 }
 
 describe("computeRunStats", () => {
+    test("takes the largest output count a message id reports, not the first streamed copy", () => {
+        // Each streamed copy of a record repeats the id, and only the last carries the final
+        // output_tokens. Keeping the first copy undercounted ac:explore output by about 14x
+        // (555 against 8,042 per run, measured 2026-10-12).
+        const lines = [
+            assistantLine("m1", { cacheRead: 1000, output: 3 }, [toolUse("Bash")]),
+            assistantLine("m1", { cacheRead: 1000, output: 480 }, [toolUse("Read")]),
+            assistantLine("m2", { cacheRead: 2000, output: 20 }, []),
+        ];
+
+        const stats = computeRunStats(lines);
+
+        expect(stats.turns).toBe(2);
+        expect(stats.outputTokens).toBe(500);
+        expect(stats.cacheReadTokens).toBe(3000);
+    });
+
     test("counts one turn per message id even when the record spans many lines", () => {
         // Claude Code writes one transcript line per streamed content block, repeating the same
         // message id and the same usage object on each. Summing without deduping multiplies every

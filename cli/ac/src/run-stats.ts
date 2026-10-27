@@ -38,10 +38,35 @@ export interface AgentRollup {
     readonly avgCacheReadTokens: number;
 }
 
-interface Usage {
+/** Token counts one API round trip reported. */
+export interface Usage {
+    readonly input: number;
     readonly cacheRead: number;
+    /** Cache writes at the five-minute TTL. */
+    readonly cacheWrite5m: number;
+    /** Cache writes at the one-hour TTL, priced higher than five-minute writes. */
+    readonly cacheWrite1h: number;
     readonly output: number;
 }
+
+/** One API round trip: a distinct assistant message id with its final usage. */
+export interface Turn {
+    readonly id: string;
+    readonly model: string;
+    /** ISO timestamp of the first transcript line carrying this id, or "" when absent. */
+    readonly timestamp: string;
+    /** The effort level the request ran at, or "" when the transcript predates the field. */
+    readonly effort: string;
+    readonly usage: Usage;
+}
+
+const ZERO_USAGE: Usage = {
+    cacheRead: 0,
+    cacheWrite1h: 0,
+    cacheWrite5m: 0,
+    input: 0,
+    output: 0,
+};
 
 // A compaction is a collapse, not a drift. Requiring the prior turn to be substantial keeps a small
 // run's ordinary fluctuation from reading as a compaction.
@@ -77,29 +102,15 @@ function bump(counts: Map<string, number>, key: string): void {
  * @returns The aggregated statistics for the run.
  */
 export function computeRunStats(lines: readonly string[]): RunStats {
-    // 1. Fold the transcript once, keeping usage keyed by id and tool blocks counted in full.
-    const usageById = new Map<string, Usage>();
-    const contextSeries: number[] = [];
+    // 1. Fold the transcript once: usage once per id, tool blocks counted in full.
+    const turns = readTurns(lines);
+    const contextSeries = turns.map((turn) => turn.usage.cacheRead);
     const toolCounts = new Map<string, number>();
     const agentCounts = new Map<string, number>();
 
     for (const line of lines) {
         const record = parseRecord(line);
-        if (record === undefined) {
-            continue;
-        }
-
-        const id = record.id;
-        if (id !== undefined && !usageById.has(id) && record.usage !== undefined) {
-            usageById.set(id, record.usage);
-            contextSeries.push(record.usage.cacheRead);
-        } else if (id !== undefined && !usageById.has(id)) {
-            // An assistant record with no usage block still cost a round trip, so it counts as a
-            // turn. Recording it with zeroes keeps the turn count honest without inventing tokens.
-            usageById.set(id, { cacheRead: 0, output: 0 });
-        }
-
-        for (const block of record.toolUses) {
+        for (const block of record?.toolUses ?? []) {
             bump(toolCounts, block.name);
             if (block.name === "Agent" && block.subagentType !== undefined) {
                 bump(agentCounts, block.subagentType);
@@ -111,7 +122,7 @@ export function computeRunStats(lines: readonly string[]): RunStats {
     let outputTokens = 0;
     let cacheReadTokens = 0;
     let peakContext = 0;
-    for (const usage of usageById.values()) {
+    for (const { usage } of turns) {
         outputTokens += usage.output;
         cacheReadTokens += usage.cacheRead;
         peakContext = Math.max(peakContext, usage.cacheRead);
@@ -135,23 +146,61 @@ export function computeRunStats(lines: readonly string[]): RunStats {
         }
     }
 
-    const turns = usageById.size;
     const toolCalls = toSortedCounts(toolCounts);
     return {
         agentSpawns: toSortedCounts(agentCounts),
-        avgContext: turns === 0 ? 0 : Math.round(cacheReadTokens / turns),
+        avgContext: turns.length === 0 ? 0 : Math.round(cacheReadTokens / turns.length),
         cacheReadTokens,
         compactions,
         outputTokens,
         peakContext,
         toolCalls,
         totalToolCalls: toolCalls.reduce((sum, entry) => sum + entry.count, 0),
-        turns,
+        turns: turns.length,
     };
 }
 
+/**
+ * Reads the distinct API round trips from raw transcript lines, in transcript order.
+ *
+ * Claude Code writes one line per streamed content block and repeats the message id and usage on
+ * each, so a round trip is one id. The copies differ in one field: only the last carries the final
+ * `output_tokens`, so the largest count wins. Input and cache fields are complete on every copy.
+ * An assistant record with no usage block still cost a round trip and counts with zeroes.
+ *
+ * @param lines Raw JSONL lines from a session or subagent transcript. Unparseable lines are skipped.
+ */
+export function readTurns(lines: readonly string[]): Turn[] {
+    const byId = new Map<string, Turn>();
+
+    for (const line of lines) {
+        const record = parseRecord(line);
+        if (record?.id === undefined) {
+            continue;
+        }
+
+        const seen = byId.get(record.id);
+        if (seen === undefined) {
+            byId.set(record.id, {
+                effort: record.effort,
+                id: record.id,
+                model: record.model,
+                timestamp: record.timestamp,
+                usage: record.usage ?? ZERO_USAGE,
+            });
+        } else if (record.usage !== undefined && record.usage.output > seen.usage.output) {
+            byId.set(record.id, { ...seen, usage: { ...seen.usage, output: record.usage.output } });
+        }
+    }
+
+    return [...byId.values()];
+}
+
 interface ParsedRecord {
+    readonly effort: string;
     readonly id: string | undefined;
+    readonly model: string;
+    readonly timestamp: string;
     readonly usage: Usage | undefined;
     readonly toolUses: readonly { name: string; subagentType: string | undefined }[];
 }
@@ -187,8 +236,14 @@ function parseRecord(line: string): ParsedRecord | undefined {
     const rawId = messageRecord["id"];
     const id = typeof rawId === "string" ? rawId : undefined;
 
+    const model = messageRecord["model"];
+    const timestamp = record["timestamp"];
+    const effort = record["effort"];
     return {
+        effort: typeof effort === "string" ? effort : "",
         id,
+        model: typeof model === "string" ? model : "",
+        timestamp: typeof timestamp === "string" ? timestamp : "",
         toolUses: readToolUses(messageRecord["content"]),
         usage: readUsage(messageRecord["usage"]),
     };
@@ -199,12 +254,23 @@ function readUsage(raw: unknown): Usage | undefined {
         return undefined;
     }
     const usage = raw as Record<string, unknown>;
-    const output = usage["output_tokens"];
-    const cacheRead = usage["cache_read_input_tokens"];
+    const split = usage["cache_creation"];
+    const splitRecord = typeof split === "object" && split !== null ? split as Record<string, unknown> : undefined;
+    const cacheWrite = count(usage["cache_creation_input_tokens"]);
+    const cacheWrite1h = count(splitRecord?.["ephemeral_1h_input_tokens"]);
+
+    // Older transcripts carry no TTL split; their writes were all five-minute ones.
     return {
-        cacheRead: typeof cacheRead === "number" ? cacheRead : 0,
-        output: typeof output === "number" ? output : 0,
+        cacheRead: count(usage["cache_read_input_tokens"]),
+        cacheWrite1h,
+        cacheWrite5m: splitRecord === undefined ? cacheWrite : count(splitRecord["ephemeral_5m_input_tokens"]),
+        input: count(usage["input_tokens"]),
+        output: count(usage["output_tokens"]),
     };
+}
+
+function count(value: unknown): number {
+    return typeof value === "number" ? value : 0;
 }
 
 function readToolUses(raw: unknown): { name: string; subagentType: string | undefined }[] {
