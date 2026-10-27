@@ -6,6 +6,7 @@ import { scaffoldPlan } from "./plan-scaffold.ts";
 import { formatCheckResult, runPlanCheck } from "./plan-check.ts";
 import { collectPlanStats, formatPlanStats } from "./plan-stats.ts";
 import { resolveTranscriptPath, runRunStats } from "./run-stats.ts";
+import { collectRunCost, formatRunCost } from "./run-cost.ts";
 import {
     addLease,
     defaultLeaseDeps,
@@ -138,6 +139,36 @@ program
     .action((session: string): void => {
         const path = resolveTranscriptPath(session, resolveProjectsRoot());
         process.stdout.write(runRunStats(path) + "\n");
+    });
+
+program
+    .command("cost")
+    .description(
+        "Price what ac runs cost across every session transcript: the main thread and each subagent "
+            + "type, with runs, turns, output and context per turn, minutes and dollars per run, and the "
+            + "share of cache writes that rebuilt a context after the five-minute TTL expired. Dollars are "
+            + "API list prices; on a subscription read them as shares of usage.",
+    )
+    .option("--days <n>", "Count the last N days.", "14")
+    .option("--since <date>", "Count from this UTC date (YYYY-MM-DD); overrides --days.")
+    .option("--project <substring>", "Only project directories whose name contains this.")
+    .option("--all-sessions", "Count sessions that spawned no ac agent too.")
+    .action((opts: { days: string; since?: string; project?: string; allSessions?: boolean }): void => {
+        const days = Number.parseInt(opts.days, 10);
+        if (opts.since === undefined && (!Number.isInteger(days) || days < 1)) {
+            throw new Error(`--days must be a positive integer, got ${opts.days}`);
+        }
+        const since = opts.since ?? new Date(Date.now() - days * 86_400_000).toISOString().slice(0, 10);
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(since)) {
+            throw new Error(`--since must be YYYY-MM-DD, got ${since}`);
+        }
+        const report = collectRunCost({
+            allSessions: opts.allSessions === true,
+            project: opts.project,
+            root: resolveProjectsRoot(),
+            since,
+        });
+        process.stdout.write(formatRunCost(report) + "\n");
     });
 
 program
