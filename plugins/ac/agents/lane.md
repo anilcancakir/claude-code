@@ -5,6 +5,8 @@ model: opus
 effort: high
 isolation: worktree
 autoCompactWindow: 400000
+experimental:
+  cacheTtl: 1h
 disallowedTools: NotebookEdit, EnterWorktree, ExitWorktree
 color: orange
 ---
