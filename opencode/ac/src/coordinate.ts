@@ -224,7 +224,10 @@ export async function cloneDependencies(repository: string, directory: string): 
             () => false,
         )
         if (!ignored) continue
-        await run("cp", ["-cR", source, target]).catch((error: unknown) =>
+        // `-c` is the APFS clone flag of macOS cp; GNU cp has none and takes `--reflink=auto` for the same
+        // copy-on-write.
+        const flags = process.platform === "darwin" ? ["-cR"] : ["-R", "--reflink=auto"]
+        await run("cp", [...flags, source, target]).catch((error: unknown) =>
             log("error", `ac coordinate: could not clone ${name} into ${directory}; the lane installs it`, error),
         )
     }
