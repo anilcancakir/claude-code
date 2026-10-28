@@ -2,7 +2,7 @@
 name: coordinate
 description: "Turn a large request into a reviewed roadmap of bundles and drive them through parallel ac/lane worktrees. Use when a request is too large for one plan and splits into bundles that can run in parallel worktrees; ends in one approved push. Request text: <request> [--lanes N] [--max-workers N]."
 ---
-<!-- ported-from: plugins/ac/skills/coordinate/SKILL.md sha256:f5273327fb2f7ab03779e8823dc5b8b5ccf2015e21d4099b8d3144b26cd400eb -->
+<!-- ported-from: plugins/ac/skills/coordinate/SKILL.md sha256:4b0dc4c73cd08efd83601d6bdeeac6ab082b52e827856a260f8818036a189baa -->
 
 # /ac/coordinate
 
@@ -59,7 +59,7 @@ the owner picks a push option.
 
 **Questions.** Only you call `question`; lanes have no such tool. Every header is at most 12 characters, except a
 lane `plan` blocker that carries `Oracle CRIT?` or `Premise failed?`, which you ask under that header verbatim.
-Fixed headers: `Roadmap?` (the roadmap lock), `Lane block?` (any other lane BLOCKED block), `Conflict?` (a rebase
+Fixed headers: `Roadmap?` and `TDD?` (the roadmap lock), `Lane block?` (any other lane BLOCKED block), `Conflict?` (a rebase
 the lane could not resolve), `Relock?` and `Add bundle?` (the 6i contract changes), `Push?` (the final push). A bundle decision header is `<bundle-id> <lane header>` cut
 to 12 characters (`b4 Ürün sını`, never the bare `Ürün sınırı`): two lanes ask under the same headers, and the owner
 reads the header first. Every question waits for the owner, so a question you ask is a turn you end on; nothing answers
@@ -211,7 +211,7 @@ starts a turn. Append one `events.jsonl` line per report with its few load-beari
 a compaction.
 
 Once every report is in, `write` `.ac/coord/<slug>/research.md`, its first line `research sha: <base_sha>`: per
-surface the request touches, the `file:line` anchors, the conventions, the gate and bootstrap commands, and each
+surface the request touches, the `file:line` anchors, the conventions, the gate and bootstrap commands (the test command among them, or a line saying the stack has none), and each
 external fact with its URL. Every lane's brief names this file, and its planner counts the angles it anchors as
 already researched, so lanes do not map the same surfaces again.
 
@@ -224,7 +224,7 @@ rather than guessing.
 Draft the roadmap: the outcome, the bundles (title, goal, scope, `depends_on`, `hotspots`), the dependency order,
 the bootstrap and gate commands. Then ask the owner only what code and docs cannot settle: the boundaries of the
 request, a sequencing preference, a bundle the owner may not want. At most two `question` rounds of up to 4
-questions each, headers of your choosing (at most 12 characters, none of the fixed four), each with a Recommended
+questions each, headers of your choosing (at most 12 characters, none of the fixed headers above), each with a Recommended
 option grounded in the research. Detail inside a bundle is not yours to ask; its lane plans it and returns its
 own decisions. Record each answer as an `events.jsonl` line.
 
@@ -267,15 +267,20 @@ round never converges. A blocker still open after round 2 goes into the `Roadmap
    avoidable judgment rows can never reach `passed`. Keep judgment for what no command can show. Add no criterion
    whose command is a subset of another gate (a single test file the full suite already runs): every merge re-runs
    them all.
-4. **Lock.** One `question`, header `Roadmap?`: the bundle table, the order, the criteria ids with their
-   statements, open oracle risks, the baseline. Options: `Approve (Recommended)`, `Revise`, `Abort`. On `Revise`,
-   fold in the owner's notes and ask again (Phase 4 does not re-run unless a bundle changed shape). `Abort` is the
-   Abort branch.
+4. **Lock.** One `question` call with two questions. Header `Roadmap?`: the bundle table, the order, the criteria
+   ids with their statements, open oracle risks, the baseline; options `Approve (Recommended)`, `Revise`, `Abort`.
+   Header `TDD?`: how every lane's workers write tests; options `TDD (Recommended)`, `Tests after`, `No tests`,
+   `Per bundle` (each lane asks its own). Asked once here because a lane asking it per bundle got the same answer
+   every time: 11 of 11 in two runs on 2026-10-28. When `research.md` names no test command, drop the
+   `TDD?` question and record `ask`, since each lane then asks `Tests?` with the setup choice its stack needs. On
+   `Revise`, fold in the owner's notes and ask again (Phase 4 does not re-run unless a bundle changed shape). `Abort`
+   is the Abort branch.
 5. **Freeze.** On `Approve`: `write` `roadmap.md`; `write` `criteria.md` with `criteria_sha256: "pending"`; compute
    the digest with the `python3` block below, which `ac/auto-verifier` recomputes with byte for byte, and patch the
    line with `edit`. A missing `python3` is an error ending, because a digest you improvise is one the verifier
-   cannot reproduce and it would refuse the run. Then rewrite `state.json` with every bundle `pending` and refresh
-   the marker to `phase: "dispatch"`.
+   cannot reproduce and it would refuse the run. Then rewrite `state.json` with every bundle `pending` and
+   `tdd_mode` from the `TDD?` answer (`tdd`, `tests-after`, `none`, or `ask` for `Per bundle`), and refresh the marker
+   to `phase: "dispatch"`.
 
    ```bash
    python3 - .ac/coord/<slug>/criteria.md <<'PY'
@@ -382,11 +387,12 @@ base sha: <integration_head>
 bootstrap commands: <commands, or none>
 max workers: <max_workers>
 hotspots: <paths>
-research: <absolute path of .ac/coord/<slug>/research.md>"
+research: <absolute path of .ac/coord/<slug>/research.md>
+tdd: <tdd_mode from state.json, or ask when it is absent>"
 })
 ```
 
-The brief is exactly those nine fields (the 7a QA lane adds a tenth, `mode: qa`); the lane reads the protocol itself. The goal carries requirements and test
+The brief is exactly those ten fields (the 7a QA lane's brief has its own shape, ending in `mode: qa`); the lane reads the protocol itself. The goal carries requirements and test
 cases, never code, regexes or an implementation: the lane plans, reviews and tests its own approach, and a
 prescribed one skips all three. The tool returns `{session_id, worktree, branch, max_lanes}`. Record
 `lane_session_id`, `worktree` and `branch` from it, `status: planning`, `steps_total: null` (a re-dispatched lane

@@ -63,7 +63,7 @@ the owner picks a push option.
 
 **Questions.** Only you call `AskUserQuestion`; lanes have no such tool. Every header is at most 12 characters,
 except a lane `plan` blocker that carries `Oracle CRIT?` or `Premise failed?`, which you ask under that header
-verbatim so the hook continues it once per run, as under `ac:auto`. Fixed headers: `Roadmap?` (the roadmap lock),
+verbatim so the hook continues it once per run, as under `ac:auto`. Fixed headers: `Roadmap?` and `TDD?` (the roadmap lock),
 `Lane block?` (any other lane BLOCKED block), `Conflict?` (a rebase the lane could not resolve), `Relock?` and `Add
 bundle?` (the 6g contract changes), `Push?` (the final push). A blocker question that timed out is recorded in
 `owner_asked` and not asked again until a user message arrives. A bundle decision header is `<bundle-id> <lane
@@ -185,7 +185,7 @@ lanes will plan in detail) and REQUEST. End the turn with a wait status; each co
 `events.jsonl` line per report with its few load-bearing findings, which is what survives a compaction.
 
 Once every report is in, `Write` `.ac/coord/<slug>/research.md`, its first line `research sha: <base_sha>`: per
-surface the request touches, the `file:line` anchors, the conventions, the gate and bootstrap commands, and each
+surface the request touches, the `file:line` anchors, the conventions, the gate and bootstrap commands (the test command among them, or a line saying the stack has none), and each
 external fact with its URL. Every lane's brief
 names this file, and its planner counts the angles it anchors as already researched, so lanes do not map the same
 surfaces again.
@@ -199,7 +199,7 @@ rather than guessing.
 Draft the roadmap: the outcome, the bundles (title, goal, scope, `depends_on`, `hotspots`), the dependency order,
 the bootstrap and gate commands. Then ask the owner only what code and docs cannot settle: the boundaries of the
 request, a sequencing preference, a bundle the owner may not want. At most two `AskUserQuestion` rounds of up to 4
-questions each, headers of your choosing (at most 12 characters, none of the fixed four), each with a Recommended
+questions each, headers of your choosing (at most 12 characters, none of the fixed headers above), each with a Recommended
 option grounded in the research. Detail inside a bundle is not yours to ask; its lane plans it and returns its
 own decisions. Record each answer as an `events.jsonl` line.
 
@@ -239,15 +239,19 @@ round never converges. A blocker still open after round 2 goes into the `Roadmap
    verifier returns `human_needed` for any judgment-tier result, so a contract of avoidable judgment rows can never
    reach `passed`. Keep judgment for what no command can show. Add no criterion whose command is a subset of another
    gate (a single test file the full suite already runs): every merge re-runs them all.
-4. **Lock.** One `AskUserQuestion`, header `Roadmap?`: the bundle table, the order, the criteria ids with their
-   statements, open oracle risks, the baseline. Options: `Approve (Recommended)`, `Revise`, `Abort`. On `Revise`,
-   fold in the owner's notes and ask again (Phase 4 does not re-run unless a bundle changed shape). `Abort` is the
-   Abort branch.
+4. **Lock.** One `AskUserQuestion` with two questions. Header `Roadmap?`: the bundle table, the order, the criteria
+   ids with their statements, open oracle risks, the baseline; options `Approve (Recommended)`, `Revise`, `Abort`.
+   Header `TDD?`: how every lane's workers write tests; options `TDD (Recommended)`, `Tests after`, `No tests`,
+   `Per bundle` (each lane asks its own). Asked once here because a lane asking it per bundle got the same answer
+   every time: 11 of 11 in two runs on 2026-10-28. When `research.md` names no test command, drop the
+   `TDD?` question and record `ask`, since each lane then asks `Tests?` with the setup choice its stack needs. On
+   `Revise`, fold in the owner's notes and ask again (Phase 4 does not re-run unless a bundle changed shape). `Abort`
+   is the Abort branch.
 5. **Freeze.** On `Approve`: `Write` `roadmap.md`; `Write` `criteria.md` with `criteria_sha256: "pending"`; compute
    the digest with the `python3` block under `### 1b` in `${CLAUDE_PLUGIN_ROOT}/skills/auto/SKILL.md`, copied as it
    stands because `ac:auto-verifier` recomputes with the identical bytes, and patch the line with `Edit`. A missing
-   `python3` is an error ending. Then rewrite `state.json` with every bundle `pending` and refresh the marker to
-   `phase: "dispatch"`.
+   `python3` is an error ending. Then rewrite `state.json` with every bundle `pending` and `tdd_mode` from the `TDD?`
+   answer (`tdd`, `tests-after`, `none`, or `ask` for `Per bundle`), and refresh the marker to `phase: "dispatch"`.
 
 ## Phase 6: Lane loop
 
@@ -339,11 +343,12 @@ base sha: <integration_head>
 bootstrap commands: <commands, or none>
 max workers: <max_workers>
 hotspots: <paths>
-research: <absolute path of .ac/coord/<slug>/research.md>"
+research: <absolute path of .ac/coord/<slug>/research.md>
+tdd: <tdd_mode from state.json, or ask when it is absent>"
 })
 ```
 
-Exactly those nine fields; the lane reads the protocol itself. The goal carries requirements and test cases, never
+Exactly those ten fields; the lane reads the protocol itself. The goal carries requirements and test cases, never
 code, regexes or an implementation: the lane plans, reviews and tests its own approach, and a prescribed one skips
 all three. In an interactive session every spawn runs in the
 background. Record `lane_agent_id` from the result, `branch: lane/<slug>/<bundle-id>`, `status: planning`,

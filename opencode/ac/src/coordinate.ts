@@ -438,7 +438,7 @@ export async function registerCoordinate(
                     coord_slug: { type: "string", description: "The coordinate run slug (lowercase kebab-case)." },
                     bundle: { type: "string", description: "The bundle id, e.g. b1." },
                     base_sha: { type: "string", description: "The integration head the lane branch starts at." },
-                    brief: { type: "string", description: "The lane brief from the coordinate skill: nine fields, plus `mode: qa` for the QA lane." },
+                    brief: { type: "string", description: "The lane brief from the coordinate skill: ten fields, or the QA lane's own shape ending in `mode: qa`." },
                 },
                 required: [
                     "coord_slug",

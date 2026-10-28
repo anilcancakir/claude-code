@@ -1,4 +1,4 @@
-<!-- ported-from: plugins/ac/skills/coordinate/references/state-schema.md sha256:c4ae1ae83e4286ee9c1bcc1abc7d0ac7e779064c2fda4b0f5a212269cb3dc1b8 -->
+<!-- ported-from: plugins/ac/skills/coordinate/references/state-schema.md sha256:fa9a37e513a5e3ddfa37cfab2f03c006dcf7a96b40fea824a91bedd4bf20ed20 -->
 # Coordinate State Schema
 
 On-disk shapes behind `/ac/coordinate`: a state marker naming the live run, and a run directory holding the roadmap, the contract, the bundle table and the log. The layout mirrors `criteria-schema.md` in this directory (a criteria file plus a run directory). The lane side of the contract lives in `lane-protocol.md` beside it.
@@ -51,6 +51,7 @@ Removed on every terminal branch: a verdict written, an owner abort, or an error
   "integration_head": "91be07d",
   "max_lanes": 2,
   "max_workers": 2,
+  "tdd_mode": "tdd",
   "bundles": [
     {
       "id": "b1",
@@ -82,6 +83,7 @@ Top level:
 - `integration_head`: the integration branch tip; moves on every merge. It is the `onto=` value of a `REBASE` message and the `base_sha` of a new lane's `ac_lane_start`.
 - `max_lanes`: the most bundles the coordinator keeps in `planning` or `executing` at once: `--lanes` (default 2), lowered to the installed preset's cap when `ac_lane_start` reports a smaller `max_lanes` (2 under the codefast preset, 3 under the claude preset, 1 under gpt-unlimited). The plugin does not enforce it; the coordinator does, from this file.
 - `max_workers`: parallel workers per lane, passed to the lane as `--max-parallel`. Default 2 (SKILL.md, Phase 0); the claude preset tolerates 3.
+- `tdd_mode`: the test mode the owner picked under `TDD?` at the `Roadmap?` lock, one of `tdd`, `tests-after`, `none`, or `ask` (each lane asks its own). Every lane brief carries it as `tdd:`. Absent on a run locked before the field existed, which reads as `ask`.
 - `bundles`: the bundle list, shape below.
 - `owner_queue`: bundle ids whose DECISIONS or BLOCKED block still waits on the owner, in arrival order. The coordinator drains it into one batched question round instead of one prompt per lane.
 
@@ -123,4 +125,4 @@ A closed status (`merged`, `dropped`) never changes again.
 
 ## `question` headers
 
-Every header the coordinator passes to `question` is at most 12 characters, matching the headers the lanes return. The fixed ones are `Roadmap?` (approve the roadmap), `Push?` (the one owner-approved push), `Lane block?` (a BLOCKED lane) and `Conflict?` (an integration merge conflict); a lane `plan` blocker that carries `Oracle CRIT?` or `Premise failed?` is asked under that header verbatim. A bundle decision header is the bundle id followed by the lane's `header`, cut to 12 characters.
+Every header the coordinator passes to `question` is at most 12 characters, matching the headers the lanes return. The fixed ones are `Roadmap?` (approve the roadmap), `TDD?` (the run's test mode, asked beside `Roadmap?`), `Push?` (the one owner-approved push), `Lane block?` (a BLOCKED lane), `Conflict?` (an integration merge conflict), and `Relock?` and `Add bundle?` (the SKILL.md 6i contract changes); a lane `plan` blocker that carries `Oracle CRIT?` or `Premise failed?` is asked under that header verbatim. A bundle decision header is the bundle id followed by the lane's `header`, cut to 12 characters.

@@ -1,11 +1,11 @@
-<!-- ported-from: plugins/ac/skills/plan/references/interview-procedure.md sha256:ebb6ee042346dcd7ca3f77783659766127ba037e5bb67c41a33787a57091f1af -->
+<!-- ported-from: plugins/ac/skills/plan/references/interview-procedure.md sha256:9dda16490f455702b3c619fe3c96cb1c28b89567b959722e40d5bc3c7a527777 -->
 # Stage 3 Interview Procedure
 
 Read at Stage 3 entry. The skill body carries the bounds that must hold all run; this file carries the walk-down itself, which is needed once per run.
 
 Every user question below is a `question` tool call: a `questions` array whose entries each carry `header`, `question`, `options` (`label` plus `description`) and, for zero-or-more picks, `multiple: true`. Free text is always available to the user, so no option stands in for "Other".
 
-Under `LANE_MODE` no `question` call below is made. Each one becomes a `pending_decisions[]` entry returned in a `DECISIONS` block, written as `<lane_mode>` in the skill body says; the 3a call becomes `Proceed?` and `TDD?` or `Tests?` as two entries of one block. `QA?` is not asked: the lane records `QA = false`, because `execute --lane` skips the QA pass and an answer would be discarded.
+Under `LANE_MODE` no `question` call below is made. Each one becomes a `pending_decisions[]` entry returned in a `DECISIONS` block, written as `<lane_mode>` in the skill body says; the 3a call becomes `Proceed?` and `TDD?` or `Tests?` as two entries of one block, or `Proceed?` alone when the lane brief's `tdd:` line already names a mode and test infrastructure exists (the `<lane_mode>` "Test mode from the brief" bullet). `QA?` is not asked: the lane records `QA = false`, because `execute --lane` skips the QA pass and an answer would be discarded.
 
 ### 3a. Build the decision tree and surface the synthesis
 

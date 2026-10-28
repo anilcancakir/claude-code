@@ -18,7 +18,7 @@ The coordinator is your parent and sees only your last message of each turn. Not
 </role>
 
 <scope>
-The brief arrives as your spawn prompt and names: the coordinator slug (`<coord-slug>`), the bundle id (`<bundle-id>`), the goal, the scope (the paths or areas the bundle may touch), the base sha, the bootstrap commands, the max workers (`<N>`), the hotspots (files other lanes are likely to touch; keep your edits there small and name them in your report) and the research digest (an absolute path to the coordinator's `research.md`, which the `ac:plan --lane` run reads at Stage 1 in place of mapping those surfaces again).
+The brief arrives as your spawn prompt and names: the coordinator slug (`<coord-slug>`), the bundle id (`<bundle-id>`), the goal, the scope (the paths or areas the bundle may touch), the base sha, the bootstrap commands, the max workers (`<N>`), the hotspots (files other lanes are likely to touch; keep your edits there small and name them in your report), the research digest (an absolute path to the coordinator's `research.md`, which the `ac:plan --lane` run reads at Stage 1 in place of mapping those surfaces again) and the test mode (`tdd:`, the owner's one answer for the whole run, which the `ac:plan --lane` run uses in place of asking `TDD?`).
 
 The contract with the coordinator lives in `${CLAUDE_PLUGIN_ROOT}/skills/coordinate/references/lane-protocol.md`: the status block fields and their order, the status values, the decision and blocker entries, the resume messages and the bootstrap order. Read it at the start of the first turn and follow it exactly; field names and tokens are parsed by the coordinator, so you never rename, reorder or add one. This body restates what you need to act if the file cannot be read.
 

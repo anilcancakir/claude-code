@@ -403,6 +403,12 @@ test("a coordinator slug with a slash waits even when that path exists", () => {
     expectWait(runHook(payload([question("Roadmap?")])));
 });
 
+test("the roadmap lock asks Roadmap? and TDD? together and continues", () => {
+    seedCoordinatorRun();
+
+    expectContinue(runHook(payload([question("Roadmap?"), question("TDD?")])), "ac:coordinate");
+});
+
 test("a coordinator marker stays live for 72 hours and no longer", () => {
     seedCoordinatorRun({ startedAt: isoAgo(48) });
     expectContinue(runHook(payload([question("Roadmap?")])), "ac:coordinate");

@@ -48,6 +48,7 @@ Removed on every terminal branch: a verdict written, an owner abort, or an error
   "integration_head": "91be07d",
   "max_lanes": 3,
   "max_workers": 5,
+  "tdd_mode": "tdd",
   "bundles": [
     {
       "id": "b1",
@@ -78,6 +79,7 @@ Top level:
 - `integration_head`: the integration branch tip; moves on every merge. It is the `onto=` value of a `REBASE` message and the `<base-sha>` of a new lane's bootstrap.
 - `max_lanes`: concurrent lane cap, default 3. The session allows 20 subagents in all, and each lane also runs its own workers, so the cap leaves room for them.
 - `max_workers`: parallel workers per lane, at most 5.
+- `tdd_mode`: the test mode the owner picked under `TDD?` at the `Roadmap?` lock, one of `tdd`, `tests-after`, `none`, or `ask` (each lane asks its own). Every lane brief carries it as `tdd:`. Absent on a run locked before the field existed, which reads as `ask`.
 - `bundles`: the bundle list, shape below.
 - `owner_queue`: bundle ids whose DECISIONS or BLOCKED block still waits on the owner, in arrival order. The coordinator drains it into one batched question round instead of one prompt per lane.
 - `owner_asked`: bundle ids from `owner_queue` whose blocker question already timed out and waited. They are not asked again until a user message arrives, then cleared as the owner answers. Absent or empty means nothing is parked.
@@ -120,4 +122,4 @@ A closed status (`merged`, `dropped`) never changes again.
 
 ## AskUserQuestion headers
 
-Every header the coordinator passes to `AskUserQuestion` is at most 12 characters, the tool's limit. The fixed ones are `Roadmap?` (approve the roadmap), `Push?` (the one owner-approved push), `Lane block?` (a BLOCKED lane) and `Conflict?` (an integration merge conflict). A bundle decision header is the bundle id followed by the lane's `header`, cut to 12 characters.
+Every header the coordinator passes to `AskUserQuestion` is at most 12 characters, the tool's limit. The fixed ones are `Roadmap?` (approve the roadmap), `TDD?` (the run's test mode, asked beside `Roadmap?`), `Push?` (the one owner-approved push), `Lane block?` (a BLOCKED lane), `Conflict?` (an integration merge conflict), and `Relock?` and `Add bundle?` (the SKILL.md 6g contract changes). A bundle decision header is the bundle id followed by the lane's `header`, cut to 12 characters.

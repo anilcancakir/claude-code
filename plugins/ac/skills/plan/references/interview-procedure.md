@@ -2,7 +2,7 @@
 
 Read at Stage 3 entry. The skill body carries the bounds that must hold all run; this file carries the walk-down itself, which is needed once per run.
 
-Under `LANE_MODE` no `AskUserQuestion` below is called. Each one becomes a `pending_decisions[]` entry returned in a `DECISIONS` block, written as `<lane_mode>` in the skill body says; the 3a call becomes `Proceed?` and `TDD?` or `Tests?` as two entries of one block. `QA?` is not asked: the lane records `QA = false`, because `ac:execute --lane` skips the QA pass and an answer would be discarded.
+Under `LANE_MODE` no `AskUserQuestion` below is called. Each one becomes a `pending_decisions[]` entry returned in a `DECISIONS` block, written as `<lane_mode>` in the skill body says; the 3a call becomes `Proceed?` and `TDD?` or `Tests?` as two entries of one block, or `Proceed?` alone when the lane brief's `tdd:` line already names a mode and test infrastructure exists (the `<lane_mode>` "Test mode from the brief" bullet). `QA?` is not asked: the lane records `QA = false`, because `ac:execute --lane` skips the QA pass and an answer would be discarded.
 
 ### 3a. Build the decision tree and surface the synthesis
 

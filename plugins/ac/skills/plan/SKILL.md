@@ -86,7 +86,7 @@ Auto mode automates system-process flow gates. It never auto-decides user-prefer
 | 0e Resume? | flow | auto-pick `Resume` | n/a, auto-picked | auto-pick `Resume` |
 | 0f Plan collision | flow | auto-pick `Append suffix`, deliberately NOT the first option; preservation beats silent destruction | n/a, auto-picked | returns `BLOCKED` |
 | 3a Proceed after synthesis | interview | surfaces | continues with `Proceed` | returns `DECISIONS` |
-| 3b.1 TDD node | interview | surfaces | continues with the Recommended option | returns `DECISIONS` |
+| 3b.1 TDD node | interview | surfaces | continues with the Recommended option | takes the brief's `tdd:` mode when it names one and test infrastructure exists; returns `DECISIONS` otherwise |
 | 3b.2 QA node | interview | surfaces | continues with the Recommended option | not asked: records `QA = false`, since `ac:execute --lane` skips the QA pass |
 | 3c Every decision node | interview | surfaces | continues with the Recommended option | returns `DECISIONS` |
 | 3d Stalled? | flow | auto-pick `Continue` | n/a, auto-picked | auto-pick `Continue` |
@@ -139,8 +139,14 @@ How an entry is written and how a lane resumes. The status block itself is defin
   rule exists for.
 - **Blocker class.** A `BLOCKED` block from this skill uses `class: plan` and carries the gate's header in `header`
   (`Oracle CRIT?` and `Premise failed?` verbatim), so the coordinator can ask it under that header.
+- **Test mode from the brief.** The owner answered `TDD?` once for the whole run at the roadmap lock, and the brief
+  carries it as `tdd:`. When it is `tdd`, `tests-after` or `none` and `TEST_INFRA_PRESENT = true`, set `TDD_MODE` to
+  it with the rationale `coordinator brief`, write it to the checkpoint as `tdd_mode` and to `LOG_PATH` now, as an
+  answered node would be, and return no `TDD?` entry: asking again per
+  bundle only repeats the owner's answer. A brief with `tdd: ask`, no `tdd:` line, or a stack with no test
+  infrastructure returns the `TDD?` or `Tests?` entry as before.
 - **Batching.** A returning turn carries every node that is independent at that point, so the Stage 3a pair (`Proceed?`
-  with `TDD?` or `Tests?`; `QA?` is never asked in a lane) goes together and later 3c nodes with no edge between them go together. Each round trip costs the coordinator a resume, so
+  with `TDD?` or `Tests?` unless the brief settled it; `QA?` is never asked in a lane) goes together and later 3c nodes with no edge between them go together. Each round trip costs the coordinator a resume, so
   one node per turn is the failure. A node that depends on another waits for the next round.
 - **Resume.** The lane is resumed with `ANSWERS` (one `<id>=<label>` per line) after a `DECISIONS` block and with
   `RESOLVE <label>` after a `BLOCKED` one. Look each id up in `pending_decisions[]`, lock the answer with the rationale

@@ -2,7 +2,7 @@
 name: plan
 description: "Plan a change interactively: research in parallel, ask the decisions only you can make, then write a tiered plan. Writes no code. Use before work that crosses modules, carries design decisions, or is a refactor, or from a .ac/tasks/*.yaml file; hands off to the execute skill. Request text: [--auto] [--lane] [--slug <s>] [--revise] <topic description | .ac/tasks/*.yaml>."
 ---
-<!-- ported-from: plugins/ac/skills/plan/SKILL.md sha256:19423eeea9e847ea57ba4fa08b412aa78b6d0d04fa21cf278b680420098e998a -->
+<!-- ported-from: plugins/ac/skills/plan/SKILL.md sha256:99d7b0cc9503fdb195bbc17bb92a21c1c0ba43b59491ac44142d2a8091f5e13b -->
 
 # /ac/plan
 
@@ -89,7 +89,7 @@ Auto mode automates system-process flow gates. It never auto-decides user-prefer
 | 0e Resume? | flow | auto-pick `Resume` | auto-pick `Resume` |
 | 0f Plan collision | flow | auto-pick `Append suffix`, deliberately NOT the first option; preservation beats silent destruction | returns `BLOCKED` |
 | 3a Proceed after synthesis | interview | surfaces | returns `DECISIONS` |
-| 3b.1 TDD node | interview | surfaces | returns `DECISIONS` |
+| 3b.1 TDD node | interview | surfaces | takes the brief's `tdd:` mode when it names one and test infrastructure exists; returns `DECISIONS` otherwise |
 | 3b.2 QA node | interview | surfaces | not asked: records `QA = false`, since `execute --lane` skips the QA pass |
 | 3c Every decision node | interview | surfaces | returns `DECISIONS` |
 | 3d Stalled? | flow | auto-pick `Continue` | auto-pick `Continue` |
@@ -136,8 +136,14 @@ How an entry is written and how a lane resumes. The status block itself is defin
   rule exists for.
 - **Blocker class.** A `BLOCKED` block from this skill uses `class: plan` and carries the gate's header in `header`
   (`Oracle CRIT?` and `Premise failed?` verbatim), so the coordinator can ask it under that header.
+- **Test mode from the brief.** The owner answered `TDD?` once for the whole run at the roadmap lock, and the brief
+  carries it as `tdd:`. When it is `tdd`, `tests-after` or `none` and `TEST_INFRA_PRESENT = true`, set `TDD_MODE` to
+  it with the rationale `coordinator brief`, write it to the checkpoint as `tdd_mode` and to `LOG_PATH` now, as an
+  answered node would be, and return no `TDD?` entry: asking again per
+  bundle only repeats the owner's answer. A brief with `tdd: ask`, no `tdd:` line, or a stack with no test
+  infrastructure returns the `TDD?` or `Tests?` entry as before.
 - **Batching.** A returning turn carries every node that is independent at that point, so the Stage 3a pair (`Proceed?`
-  with `TDD?` or `Tests?`; `QA?` is never asked in a lane) goes together and later 3c nodes with no edge between them go together. Each round trip costs the coordinator a resume, so
+  with `TDD?` or `Tests?` unless the brief settled it; `QA?` is never asked in a lane) goes together and later 3c nodes with no edge between them go together. Each round trip costs the coordinator a resume, so
   one node per turn is the failure. A node that depends on another waits for the next round.
 - **Resume.** The lane is resumed with `ANSWERS` (one `<id>=<label>` per line) after a `DECISIONS` block and with
   `RESOLVE <label>` after a `BLOCKED` one. Look each id up in `pending_decisions[]`, lock the answer with the rationale
