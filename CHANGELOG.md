@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.34.0] - 2026-10-28
+
 Cost and speed work from a measured audit: 20 days, 77 sessions, about $13.9k at API list prices, 54% of it the Opus main thread's resident context and most of the rest Opus subagents. Every change below is measurable with the new `ac cost` and the extended `ac plan-stats`. `ac cost` splits each agent type by the effort its runs used and `ac plan-stats` sums findings per reviewer, so a later effort change can be judged on both.
 
 ### Added
