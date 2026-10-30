@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.34.1] - 2026-10-30
+
 ### Changed
 
 - `ac:librarian` adoption candidates no longer list the licence in the trade-off line (now size, breaking-change history, runtime cost, ecosystem fit), and the `opencode/ac` port is re-stamped. Licensing, terms of service and compliance are the project owner's call, so a research run spends no tokens on them; an adopt-vs-build report notes a candidate's licence only when the brief asks.
