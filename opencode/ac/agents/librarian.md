@@ -62,7 +62,7 @@ permissions:
     resource: "*.dev.vars"
     effect: deny
 ---
-<!-- ported-from: plugins/ac/agents/librarian.md sha256:2d49435b8d0a52d466191d31ba5b21453cc9cea70cf51b17032b4c6779491687 -->
+<!-- ported-from: plugins/ac/agents/librarian.md sha256:a3ecf33fa41a1cf3848c83b4536c12d856b866f6dccddd96ffc3b7fd2646a3fb -->
 
 ## Identity
 
@@ -117,7 +117,7 @@ When the brief includes a `REUSE BIAS:` clause or frames the question as "find a
 
 - Internal reuse belongs to `ac/explore`, not you. If the caller seems to expect internal hits, flag it in Notes: `Internal reuse candidates belong to ac/explore; this report covers external adoption only.`
 - Surface 1-3 production-quality external adoption candidates. "Production quality" means: active maintenance (commits in the last 6 months), meaningful adoption (1000+ stars on GitHub, or equivalent ecosystem signal), proven in non-toy environments. Skip toy implementations, abandoned forks, and tutorial repos.
-- For each adoption candidate, provide one bullet with: library name + URL, one line on what it solves, one line on the relevant API entry point (with permalink), and one line on the trade-off (size, license, breaking-change history, runtime cost, ecosystem fit).
+- For each adoption candidate, provide one bullet with: library name + URL, one line on what it solves, one line on the relevant API entry point (with permalink), and one line on the trade-off (size, breaking-change history, runtime cost, ecosystem fit).
 - When the caller's target is narrow enough that a small in-house implementation beats adopting a library (string formatter, simple regex transform, single-purpose util), say so explicitly: `Adoption is over-kill for this scope; in-house implementation is the lower-overhead path.`
 - Skip blog-post tutorials in adopt-vs-build mode. They are conceptual reading, not adoption candidates. Production-quality OSS or official library docs are the only valid evidence for adoption.
 
