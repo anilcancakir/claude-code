@@ -1,6 +1,6 @@
 # ac-lsp
 
-Dart and Intelephense for Claude Code, each started through a small proxy that keeps the server in step with the disk. Intelephense also keeps a workspace exclude list that holds indexing finite in repositories with Claude Code worktrees or Flutter build output.
+No more stale diagnostics after an edit from Bash, git, a formatter or another Claude Code session. `ac-lsp` runs Dart and Intelephense for Claude Code, each started through a small proxy that keeps the server in step with the disk. Intelephense also keeps a workspace exclude list that holds indexing finite in repositories with Claude Code worktrees or Flutter build output.
 
 ## Why a proxy
 
@@ -14,7 +14,7 @@ Both end in the same place: diagnostics about code that no longer exists, and a 
 - Before it forwards each message from Claude Code, and whenever a watched directory changes, it compares every opened file with the disk and sends the server a full-text `didChange` when they differ.
 - For Intelephense (`--watch-root`), it watches the workspace root and reports changed `.php` files as `workspace/didChangeWatchedFiles`, skipping `.git`, `node_modules`, `vendor/composer`, `storage`, `build` and `.claude/worktrees`.
 
-Everything else passes through byte for byte. Claude Code still shows each diagnostic once and may deliver it a turn late; the `ac` plugin's PostToolUse hook covers that side by running `dart analyze` or `php -l` on every edited file.
+Everything else passes through byte for byte. Claude Code still shows each diagnostic once and may deliver it a turn late; the `ac` plugin's PostToolUse hook covers that side by running `dart analyze --fatal-infos` on an edited Dart file, and `php -l` plus the project's PHPStan (when `vendor/bin/phpstan` exists) on an edited PHP file.
 
 ## Why not the stock `php-lsp`
 
@@ -57,4 +57,6 @@ npm install -g intelephense
 - Claude Code roots the server at the session's working directory the first time a `.php` file is touched, and keeps that root for the session. Start worktree sessions with `claude --worktree <name>` so the worktree is the root.
 - After `EnterWorktree` in a session whose PHP server is already running, the server stays rooted at the main checkout, and the worktree's files fall under the `.claude/worktrees` exclude. Intelephense answers nothing for an excluded file, even an open one. Start a new session in the worktree for PHP work there. `/reload-plugins` is meant to restart language servers, but whether it re-roots them has not been verified.
 - A PHP source directory named `build/` is excluded as well (the match is case-sensitive, so `app/Build/` is not). Fork the plugin if a project keeps code there.
+- Intelephense's "declared but not used" hints are switched off (`diagnostics.unusedSymbols: false` in `.lsp.json`). By a raw count of transcripts since 1 October they were 3,062 of 35,968 Intelephense diagnostic lines Claude saw (8.5%, repeats included), nothing acts on them, and Pint already removes unused imports. Every other diagnostic stays on, so a real undefined method or type still shows.
+- A language server starts with the session. A session opened before `ac-lsp` was enabled keeps the stock server, without the proxy, so a class created from Bash shows as `Undefined type` until the session restarts. Restart it; `/reload-plugins` is documented to reload plugin language servers, but swapping the stock plugin for this one that way has not been verified.
 - The index cache lives in `~/.config/intelephense/workspace/` (or under `$XDG_CONFIG_HOME`), one hashed directory of roughly 20 MB per workspace root, so each worktree root adds one. Intelephense rebuilds a missing cache on the next start, so deleting the whole directory is safe.
