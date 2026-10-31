@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.37.0] - 2026-11-01
+
+### Changed
+
+- `ac:git-master` is folded into `ac:commit`, which is now the single git skill (18 skills, down from 19). `/ac:commit` used to load itself (8 KB) and then `ac:git-master` (14 KB) and gather the git state twice; it now loads one 7 KB body and gathers once. Rebase, squash, cherry-pick and history tracing (blame, bisect, pickaxe) moved to `skills/commit/references/{rebase,history}.md`, read only when the request asks for them. Across the transcripts on this machine `ac:git-master` was loaded 40 times against 175 loads of `ac:commit`, always in a session that also loaded `ac:commit`.
+- `ac:commit` no longer fixes up a pushed commit and then asks about a force push: a fixup targets only a commit that has not been pushed, and rewriting published history is rebase mode with its own request. The style-detection block is one line instead of a table.
+- `ac:github-cli` points to `ac:commit` for local commits, rebases and history, and `ac:commit` points back for GitHub issues and PRs.
+- Skill bodies are leaner by the `ac:skill-creator` rules, with no rule, gate, heading or phase number changed: rationale, measurement history and restated text were deleted, and two report templates moved to references. SKILL.md bytes across the 18 skills fall from 442 KB to 373 KB (15.7%), with `execute` 67.4 to 53.9 KB, `plan` 55.4 to 44.3 KB, `init-project` 68.8 to 55.2 KB, `install` 56.5 to 42.9 KB and `coordinate` 29.4 to 26.1 KB. The skill listing drops from 4,861 to 4,015 characters: `qa`, `auto`, `frontend-design`, `flow`, `product` and `commit` descriptions are shorter. The opencode ports follow.
+- `skills/install/references/final-report.md`, `skills/init-project/references/{final-output,provenance}.md`: the final report templates and the editor provenance list, read at the moment they are used.
+- `plan` cites the `qa` detection reference through `${CLAUDE_PLUGIN_ROOT}` instead of a `../` path out of its own directory.
+- The execute stop guard names the plan-spec branch as Phase 3c, where `execute` has it; it said 3d, which is Convergence.
+- The `mcp --client opencode` proxy test runs `search-history` against an empty `CLAUDE_CONFIG_DIR` instead of the developer's real `~/.claude/projects`. It took 15 s on an 11 GB history against a 30 s limit and timed out twice under load; it now takes 0.2 s.
+
+### Added
+
+- `ac:github-cli` covers GitHub Actions in `references/actions.md`: finding runs and job ids, debugging a failed run (`--log-failed`, per-job logs, debug rerun), waiting with `run watch --exit-status`, triggering a `workflow_dispatch` and recovering the run id, artifacts, caches, secrets and variables, and the `gh api` paths gh does not wrap. The Actions write sections moved there from `write-ops.md`, so nothing is stated twice.
+- `cli/ac/src/skills-shape.test.ts` pins the skill cost shape: a listing entry of at most 320 characters, every `${CLAUDE_SKILL_DIR}` pointer in a SKILL.md resolving, a Standing rules block closing inside the 20,000-byte compaction window, and no em-dash or en-dash in a skill body.
+
 ## [0.36.1] - 2026-10-31
 
 ### Changed
