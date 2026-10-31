@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.36.1] - 2026-10-31
+
 ### Changed
 
 - The shell-edit guard now also covers the main thread and `general-purpose` (they made 15% and 69% of their edits through the shell), recognises `gsed`, and ignores the words of a trailing `#` comment. The search rules still judge `ac` subagents only; a main-thread command that does not mention `sed`, `perl` or `python` exits before perl starts.
