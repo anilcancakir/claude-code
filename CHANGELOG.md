@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.35.0] - 2026-10-31
+
 ### Changed
 
 - `ac:auto` is an away mode over whatever is already running (a `/ac:coordinate` run, an execute or plan run, ad-hoc work, or a new task) instead of a separate run that refused inside other flows: of 13 real invocations, 10 had been declined or narrowed. It opens no second run or branch for running work, takes the Recommended option at every non-blocking decision and logs it to `.ac/away/<slug>/decisions.md`, stops only the blocked part, and ends at one `ac:auto-verifier` gate. The Bash guard now allows `git push`, `gh pr merge`, `gh pr create` and `gh release` only when the user's request named them (`allowed_outward` in the marker) and always denies force pushes, hard resets, `git clean` and recursive deletes. The plan and execute bodies stop surfacing gates while the away marker is live.
