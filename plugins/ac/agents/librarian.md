@@ -2,6 +2,7 @@
 name: librarian
 description: "Read-only research agent for anything outside this repository: library behaviour, API contracts, framework idioms, OSS code, official docs. Specify depth: quick, medium or thorough. Returns URL citations with snippets; code in this repository is ac:explore."
 model: sonnet
+effort: high
 disallowedTools: Edit, Write, NotebookEdit, Agent
 omitClaudeMd: true
 skills:

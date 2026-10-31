@@ -43,7 +43,8 @@ gh pr ready 42
 ```
 
 - `create`: `-t`, `-b`, `-F`, `-B/--base`, `-H/--head`, `-d/--draft`, `-f/--fill`, `--fill-first`, `--fill-verbose`, `-r/--reviewer` (people or `org/team`), `-a`, `-l`, `-m`, `-p`, `-T/--template file`, `--no-maintainer-edit`, `--dry-run` (may still push), `--attach`, `-e`, `-w`, `--recover`.
-- `review`: exactly one of `-a/--approve`, `-r/--request-changes`, `-c/--comment`; plus `-b/--body`, `-F/--body-file`.- `merge`: one of `-s/--squash`, `-m/--merge`, `-r/--rebase`; `--auto` (merge once requirements pass), `--disable-auto`, `-d/--delete-branch`, `--admin` (bypasses requirements, only on an explicit ask), `--match-head-commit SHA`, `-t/--subject`, `-b`, `-F`, `-A/--author-email`.
+- `review`: exactly one of `-a/--approve`, `-r/--request-changes`, `-c/--comment`; plus `-b/--body`, `-F/--body-file`.
+- `merge`: one of `-s/--squash`, `-m/--merge`, `-r/--rebase`; `--auto` (merge once requirements pass), `--disable-auto`, `-d/--delete-branch`, `--admin` (bypasses requirements, only on an explicit ask), `--match-head-commit SHA`, `-t/--subject`, `-b`, `-F`, `-A/--author-email`.
 - `edit`: `-t`, `-b`, `-F`, `-B/--base`, `-m`, `--remove-milestone`, `--add-label` and `--remove-label`, `--add-assignee` and `--remove-assignee`, `--add-reviewer` and `--remove-reviewer` (`@copilot` allowed), `--add-project` and `--remove-project`, `--attach`.
 - `comment`: same flags as `gh issue comment`. `close`: `-c/--comment`, `-d/--delete-branch`. `ready`: `--undo` converts back to draft. `update-branch`: `--rebase`. `checkout` (`co`): `-b`, `--detach`, `-f`, `--worktree path`, `--recurse-submodules`; it changes the local checkout, not GitHub.
 
