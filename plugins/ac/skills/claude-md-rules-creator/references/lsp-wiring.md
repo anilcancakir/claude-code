@@ -2,8 +2,8 @@
 
 How to detect which language server a target project needs, propose it, and prove it actually
 answers. A language server plugin is a directory holding `plugin.json` plus a `.lsp.json`; there is
-no settings-level config for the server itself, only `enabledPlugins` in `~/.claude/settings.json`
-deciding which plugins run.
+no settings-level config for the server itself, only `enabledPlugins` in a settings file
+deciding which plugins run: `.claude/settings.local.json` by default (each developer needs the server binary), `.claude/settings.json` when the team wants it shared, `~/.claude/settings.json` for every project. A project file is documented (large-codebases: add it to the `enabledPlugins` project setting); whether the shared file waits for the workspace trust dialog is unverified, which the `hover` probe below settles.
 
 ## Rule 1: read the manifests at runtime, never a baked table
 
@@ -60,7 +60,7 @@ file winning. Then drop from the candidate list:
 
 Without this step Rule 2 undoes a deliberate swap. `ac-php-lsp@ac` replaces
 `php-lsp@claude-plugins-official` for `.php`; Rule 2 alone would propose the official one again,
-write it as `true` at user scope, and leave `.php` to whichever of the two loads first.
+write it as `true`, and leave `.php` to whichever of the two loads first.
 
 ## Rule 2: prefer the official marketplace, fall back explicitly
 
@@ -78,7 +78,7 @@ time.
 ## Rule 3: refuse overlapping proposals
 
 When more than one enabled server declares the same extension, the first server registered handles
-files with that extension and the others never start (`plugins-reference.md:265`). Proposing two
+files with that extension and the others never start (plugins docs, "Extension conflicts": the first registered server handles the files, and `/plugin` Errors names the unused one). Proposing two
 plugins whose `extensionToLanguage` sets intersect silently disables one of them, and a later `hover`
 probe still passes because the survivor answers, hiding the failure.
 
@@ -99,7 +99,7 @@ not install the server binary; the plugin ships the wiring, and the binary is a 
 user performs. A verification that only checks the plugin is enabled will pass while the tool stays
 dead.
 
-1. **Plugin enabled.** Confirm the plugin appears under `enabledPlugins` in `~/.claude/settings.json`.
+1. **Plugin enabled.** Confirm the plugin appears under `enabledPlugins` in the target settings file.
 2. **Server answers.** Run one real `LSP` operation, `hover` or `documentSymbol`, against a real file
    of that language already in the project, and record which server replied. A successful call alone
    is not proof: with overlapping extensions the survivor of Rule 3's conflict answers even when the
@@ -108,7 +108,7 @@ dead.
 
 Only when both parts pass is the language server considered wired. Report the gap to the user by
 name when part 2 fails after part 1 passes: the plugin is enabled but the binary is missing, and the
-fix is installing that binary, not re-enabling the plugin.
+fix is installing that binary, not re-enabling the plugin. A session opened before the edit may also need `/reload-plugins` or a restart (unverified), and a run for another directory proves part 1 only.
 
 ## Two constraints worth stating to the user up front
 

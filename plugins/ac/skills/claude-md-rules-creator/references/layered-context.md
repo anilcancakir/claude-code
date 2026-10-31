@@ -102,7 +102,7 @@ What this means in practice:
 - A managed CLAUDE.md saying "never log PII" cannot be overridden by anything: it loads first, but the rule is unambiguous and the runtime forbids excluding managed files via `claudeMdExcludes`.
 - CC's built-in system prompt is the FIRST layer, and its rules are reinforced by the runtime's own behavior (e.g., the harness gates destructive actions regardless of what CLAUDE.md says). User CLAUDE.md cannot reliably override harness-level rules: the model is conditioned to treat them as authoritative.
 
-When in doubt, read the `Contents of` headers (or ask the user to run `/memory`) and read the full loaded stack. If two files in the list say different things on the same topic, the model is guessing.
+When in doubt, read the `Contents of` headers (or ask the user to run `/context` and read **Memory files**) and read the full loaded stack. If two files in the list say different things on the same topic, the model is guessing.
 
 ## The audit protocol: read the loaded files first, then write
 
@@ -118,7 +118,7 @@ Before writing or editing ANY CLAUDE.md or rule file:
 5. **Check the CC built-in system prompt list above** for overlap. If the rule is already a built-in default, do NOT add it.
 6. **Check for conflicts:** does the new rule contradict any existing layer? If yes, either drop one or explicitly note the override in the higher-priority file.
 7. **Now write the new content** in the layer that best matches its scope, following the file shape (`CLAUDE.md` / `CLAUDE.local.md` / `.claude/rules/<topic>.md`).
-8. **Check again after writing**: ask the user to run `/memory` (or check in a fresh session); the new file should be listed with no unexpected duplicates.
+8. **Check again after writing**: ask the user to run `/context` (or check in a fresh session); the new file should be listed with no unexpected duplicates.
 
 The audit step takes a minute. It saves hours of "why is Claude ignoring this rule?" debugging later.
 
@@ -228,7 +228,7 @@ When generating CLAUDE.md content, consider whether the user actually wants CLAU
 
 The single most useful debug step is to see what the model actually sees:
 
-1. The `Contents of <path>` headers name every loaded CLAUDE.md, CLAUDE.local.md, and rule file; the user's `/memory` dialog lists the same authoritatively.
+1. The `Contents of <path>` headers name every loaded CLAUDE.md, CLAUDE.local.md, and rule file; the user's `/context` **Memory files** list shows what loaded at launch (`/memory` lists and opens the files).
 2. Open each and Grep for the topic you are about to write about.
 3. If anyone else's file already covers it (or CC built-ins do), decide skip / edit / move BEFORE writing.
 

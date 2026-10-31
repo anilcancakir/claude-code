@@ -167,7 +167,7 @@ The rule files themselves are ~6,200 tokens total. They cost 93K because they si
 This is why the community benchmarks recommend:
 
 - **3 to 5 rule files maximum** (HumanLayer, Boris Cherny's team, ChrisWiles - all converge on this).
-- **Each rule file under 30 lines** (or as short as the topic allows).
+- **Each rule file inside the principle 1 rule budget** (or as short as the topic allows).
 - **Use `paths:` aggressively** so rules do not load on sessions that do not need them.
 - **For genuinely universal rules**, inline them in CLAUDE.md instead of `.claude/rules/<topic>.md` without `paths:` - same content, but in the cached message slot.
 
@@ -177,7 +177,7 @@ If a rule file grows past 30 lines, it is probably covering multiple topics. Spl
 
 Walk these in order.
 
-**1. Identify the universal core.** What does EVERY session need? Stack, build/test commands, off-limits paths, repo etiquette, architectural decisions. This stays in CLAUDE.md. Aim for 60 to 120 lines.
+**1. Identify the universal core.** What does EVERY session need? Stack, build/test commands, off-limits paths, repo etiquette, architectural decisions. This stays in CLAUDE.md. Aim for the principle 1 budget in SKILL.md.
 
 **2. Group remaining content by topic.** Common topics:
 
@@ -197,13 +197,13 @@ Walk these in order.
 - Is the rule relevant only when working on certain files? (Add `paths:` matching those files.)
 - If the answer is "always relevant but the file is large", split further. A 30-line rule is better than a 100-line one.
 
-**4. Write each rule file under 30 lines.** Drop the "would Claude make a mistake without this?" test on each line. Cut aggressively.
+**4. Keep each rule file inside the principle 1 rule budget.** Drop the "would Claude make a mistake without this?" test on each line. Cut aggressively.
 
 **5. Remove duplicates between CLAUDE.md and rule files.** Each rule lives in exactly one place. Duplication burns the attention budget.
 
 **6. Add the `paths:` frontmatter for path-scoped files.** Use the most specific glob that captures the intent.
 
-**7. Verify the load.** Ask the user to open `/memory`, which reloads the memory files, or check in a fresh session: every file should be listed (a path-scoped rule only after a matching file was read). The current session's `Contents of` headers still show the load from before you wrote. If a file is missing, the path is wrong; if it appears but the model is not following it, see the troubleshooting checklist in `loader-and-injection.md`.
+**7. Verify the load.** Ask the user to run `/context` and read its **Memory files** list (it names what loaded at launch; `/memory` lists and opens the files to edit), or check in a fresh session: every launch file should be listed (a path-scoped rule only after a matching file was touched). The current session's `Contents of` headers still show the load from before you wrote. If a file is missing, the path is wrong; if it appears but the model is not following it, see the troubleshooting checklist in `loader-and-injection.md`.
 
 Before/after sketch for a hypothetical 350-line CLAUDE.md:
 
@@ -253,11 +253,11 @@ the loader is recursive. Subdirectories under `.claude/rules/` are walked, and `
 └── security.md
 ```
 
-Each file's `paths:` is relative to the project root, NOT to the rule file's directory. So `frontend/react.md` with `paths: ['src/components/**']` correctly matches files in `<project>/src/components/`, not in `.claude/rules/frontend/src/components/`.
+Each file's `paths:` is relative to the folder that holds the rule's `.claude` directory (the primary working directory for a rule in `~/.claude/rules/`), NOT to the rule file's own directory; a rule's whole `paths` list shares one budget of 1,000 brace-expanded patterns. So `frontend/react.md` with `paths: ['src/components/**']` correctly matches files in `<project>/src/components/`, not in `.claude/rules/frontend/src/components/`.
 
 ## Symlink sharing
 
-`.claude/rules/` supports symlinks (`utils/claudemd.ts:719-727, 743-751`). Symlinks resolve normally; circular symlinks are detected via `resolvedPath` tracking.
+`.claude/rules/` supports symlinks (`utils/claudemd.ts:719-727, 743-751`). A symlink whose target is outside the working directory counts as an external import: it loads only after the external-imports approval, and then only rules without `paths:` load (memory docs, 2.1.284). Circular symlinks are detected via `resolvedPath` tracking.
 
 Use case: share a rule set across projects.
 
@@ -305,13 +305,12 @@ Do NOT use user-level rules for project-specific or team-specific content. That 
 | Boris Cherny team file | ~83 | Private repo; cited in Boris's posts |
 | Cloudflare templates | 230 | Enterprise monorepo; too long for most projects |
 | Anthropic's `/init` example | ~10 | Deliberately tiny: just code style + workflow |
-| Community sweet spot | 40 to 80 | The older benchmark, kept for the three files above |
 | Measured production median | 105 to 110 | Eight repositories read at a pinned commit SHA; six sit above 80 |
-| Target | 60 to 120 | Covers the measured median; 200 stays the hard cap |
+| Target | the principle 1 budget | Tighter than the measured median on purpose: 5.5 on the lean host prompt needs less steering, and the short files in the survey stay short by pointing at deeper documents |
 
-For rule files: 3 to 5 files total per project, each under 30 lines. This is conservative; many projects can do with 2 or even 0 rule files. If you find yourself at 6+ rule files or 50+ lines per file, audit which lines actually pass the "would Claude make a mistake without this?" test.
+For rule files: 3 to 5 files total per project, each inside the principle 1 rule budget. This is conservative; many projects can do with 2 or even 0 rule files. If you find yourself at 6+ rule files or 50+ lines per file, audit which lines actually pass the "would Claude make a mistake without this?" test.
 
-The hard cap is 40,000 characters per file (`MAX_MEMORY_CHARACTER_COUNT`). The loader warns past this but does not block.
+A rule that loads on demand (it has `paths:`) has a per-file limit of 40,000 characters on a 200K window and 150,000 on a 1M window with later models; past it Claude receives only the start of the file, with a note to read the rest (memory docs; applied to on-demand files since 2.1.309). A rule that loads at launch loads whole up to 4 MiB, and the startup warning for long files fires long before either limit.
 
 ## Common topics and templates
 

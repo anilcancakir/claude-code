@@ -90,15 +90,7 @@ Properties:
 - Project-root CLAUDE.md survives compaction (re-read from disk). Subdirectory CLAUDE.md does not (it lazy-loads via attachments).
 - Use for: stack, build/test commands, code conventions that differ from language defaults, off-limits paths, repo etiquette, architectural decisions, non-obvious gotchas.
 
-The canonical preface (written by `/init` and used by convention):
-
-```markdown
-# CLAUDE.md
-
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
-```
-
-This is a convention, not a runtime requirement. The `/init` command writes it, and it tells human readers what the file is at a glance.
+`/init` writes a two-line preface (`# CLAUDE.md` plus a sentence saying the file guides Claude Code). It is a convention, not a runtime requirement, and the model gains nothing from it, so the shortest file omits it.
 
 Subdirectory CLAUDE.md is loaded on demand when Claude reads a file in that subdirectory. Useful in monorepos: keep root CLAUDE.md lean, put `packages/web/CLAUDE.md` with frontend-specific rules, and they activate only when Claude works there.
 
@@ -121,7 +113,7 @@ The gotcha that bites everyone: `CLAUDE.local.md` is gitignored, so it only exis
 @~/.claude/<project-name>-instructions.md
 ```
 
-Put the actual content in `~/.claude/<project-name>-instructions.md`. Each worktree's `CLAUDE.local.md` is a one-line stub that imports it. Anthropic deprecated stand-alone `CLAUDE.local.md` in favor of this pattern for cross-worktree work.
+Put the actual content in `~/.claude/<project-name>-instructions.md`. Each worktree's `CLAUDE.local.md` is a one-line stub that imports it. The docs offer this home-directory import as the way to share personal instructions across worktrees; `CLAUDE.local.md` itself stays a current scope.
 
 ## Auto memory
 
@@ -138,11 +130,11 @@ Properties:
 - Machine-local. NOT shared via git. Each machine accumulates its own memory.
 - Distinct from CLAUDE.md: CLAUDE.md is for the TEAM; auto memory is for YOU. When you tell Claude "remember X" or "always do Y", it usually writes to auto memory unless you say "add to CLAUDE.md".
 
-Configure `autoMemoryDirectory` (policy / local / user settings, NOT project settings - to prevent a shared project from redirecting memory writes elsewhere).
+Configure `autoMemoryDirectory` (read from any settings scope: user, project, local, policy or `--settings`).
 
 ## AGENTS.md interop
 
-Claude Code does NOT read `AGENTS.md` natively. Two integration patterns:
+Claude Code reads `AGENTS.md` itself since 2.1.277, but only when no `CLAUDE.md`, `.claude/CLAUDE.md` or `CLAUDE.local.md` sits in the working directory or above it; with both present it loads the CLAUDE.md files only. 2.1.281 extended that to Bedrock, Vertex, Foundry, gateways and telemetry-disabled sessions. **Project instructions** in `/config` (`claude-md-or-agents-md` default, `claude-md-and-agents-md`, `claude-md`, `managed-only`) changes it; the value is stored under `pluginConfigs` > `cc-plugin-agents-md@builtin` in user, `--settings` or managed settings and is ignored in project and local files, so a team still wants the import. An `AGENTS.md` read through the setting fires no `InstructionsLoaded` hook and its `--add-dir` copy does not load. Two integration patterns:
 
 **Import (Windows-friendly)**:
 

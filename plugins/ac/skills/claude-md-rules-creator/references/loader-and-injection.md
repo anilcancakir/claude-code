@@ -43,7 +43,7 @@ For a session at `/repo/packages/web/`, the loader does:
 5. If `CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD=1`, also include the `--add-dir` directories (otherwise they are scanned for files but not for CLAUDE.md content).
 6. AutoMem `MEMORY.md` and TeamMem if enabled.
 
-Files closer to cwd appear LATER in the concatenation. The model weights later content more, so closer files take precedence on conflicts.
+Files closer to cwd appear LATER in the concatenation. Later content is read last, so a closer file tends to win a conflict, but the docs say neither side overrides the other and Claude may follow either: settle conflicts in the files, not by relying on order.
 
 Subdirectory CLAUDE.md (below cwd) is NOT loaded at session start. It loads lazily when Claude reads a file in that subdirectory. See "Path-scoped rules" below for the same mechanism applied to conditional rules.
 
@@ -58,7 +58,7 @@ Per directory, files load in this fixed order (each appended, no overrides at th
 3. `.claude/rules/*.md` (unconditional only - files without `paths:` or with `paths: ['**']` which is treated as unconditional)
 4. `CLAUDE.local.md`
 
-So `CLAUDE.local.md` is the last thing read in its directory: personal notes override team rules at the same level on any conflict.
+So `CLAUDE.local.md` is the last thing read in its directory: personal notes are read after team rules at the same level; they do not formally override them, so never contradict a team rule there.
 
 ## Two injection paths
 
@@ -120,8 +120,8 @@ Where `<description>` is one of:
 | Local | ` (user's private project instructions, not checked in)` |
 | User | ` (user's private global instructions for all projects)` |
 | AutoMem | ` (user's auto-memory, persists across conversations)` |
-| Managed | falls through to the User suffix (no explicit branch in source) |
-| TeamMem (feature flag) | ` (shared team memory, synced across the organization)` plus a `<team-memory-content>` wrapper |
+| Managed | ` (organization-managed policy instructions)` in the 2.1.314 binary (the pinned source clone predates it) |
+| TeamMem | no suffix string in the 2.1.314 binary |
 
 The model sees the full path and a one-line label of what the file represents. Path names matter: `CLAUDE.md` and `CLAUDE.local.md` produce different labels.
 
@@ -181,7 +181,7 @@ Community-reported math: 11 rule files (~6,200 tokens) loaded across a 30-tool-c
 
 Mitigations:
 - Keep rule file count low (3 to 5 typical).
-- Keep each rule file short (under 30 lines is a common community target; the loader hard-caps at 40,000 characters per file via `MAX_MEMORY_CHARACTER_COUNT`).
+- Keep each rule file short (budgets are in SKILL.md principle 1; a rule that loads on demand is cut to its first 40,000 characters on a 200K window).
 - Use `paths:` aggressively so a rule does not load on sessions that do not touch its files.
 - For rules that apply broadly, inline them in CLAUDE.md (cached, one-shot cost) instead of in `.claude/rules/<topic>.md` without `paths:` (which costs the same per-load but obscures the math).
 
@@ -248,7 +248,7 @@ For programmatic debugging, register an `InstructionsLoaded` hook in `settings.j
  "InstructionsLoaded": [
  {
  "hooks": [
- { "type": "command", "command": "echo \"$CLAUDE_HOOK_INPUT\" >> ~/instructions-loaded.log" }
+ { "type": "command", "command": "cat >> ~/instructions-loaded.log" }
  ]
  }
  ]
@@ -273,7 +273,7 @@ Diagnostic checklist by symptom. Apply in order.
 
 1. **Check the `Contents of <path>` headers** (or ask the user to run `/memory`). Is the file in the list? If not: wrong path, wrong scope, `claudeMdExcludes` filtering it, settings-source disabled (`--setting-sources`), or the runtime hard-off (`CLAUDE_CODE_DISABLE_CLAUDE_MDS`). The fastest check is also the most often skipped.
 2. **Is the rule specific?** "Use 2-space indentation in TypeScript" is verifiable; "format code properly" is not. The runtime delivers your content; the model still picks which vague rules to fall back on its priors for.
-3. **Is the file too long?** Anthropic's docs target under 200 lines per file, and adherence drops as the file grows past it. Target 60 to 120 lines: measured across eight production repositories read at a pinned commit SHA, the median is 105 to 110 and six of the eight sit above 80. The hard cap is 40,000 chars (`MAX_MEMORY_CHARACTER_COUNT`).
+3. **Is the file too long?** Anthropic's docs target under 200 lines per file, and adherence drops as the file grows past it. Target the budget in SKILL.md principle 1; humans measured across eight production repositories at a pinned commit SHA sit at a median of 105 to 110 lines, and the short ones point at deeper documents. Launch-loaded files load whole up to 4 MiB; only on-demand files (nested CLAUDE.md, path-scoped rules) have the 40,000-character per-file limit on a 200K window, and past it only their start loads. A startup warning flags a long file, and files that are each within the length but add up past a combined limit (2.1.281).
 4. **Are there conflicting rules?** Two CLAUDE.md files in the hierarchy disagreeing on the same point, or your CLAUDE.md disagreeing with a rule file. Scan the `Contents of` headers for overlap.
 5. **Did the session just compact?** Subdirectory CLAUDE.md and `paths:`-scoped rules do NOT survive compact. They reload on the next matching file touch. Project-root and unconditional content reload automatically.
 6. **Is the rule an aspiration?** "We aim for 90% coverage" is not a rule the model can apply. Reframe to a verifiable rule, or move enforcement to a hook.
@@ -286,7 +286,7 @@ For genuine system-prompt-level rules, use `--append-system-prompt` or `--system
 
 ## Quick mechanic summary
 
-- **Load order**: managed → user → project (root to cwd) → local. Later wins on conflict.
+- **Load order**: managed → user → project (root to cwd) → local. Later is read last; neither side overrides, so Claude may follow either.
 - **Two injection paths**: cached `<system-reminder>` user message at `messages[0]` for eager files; attachment stream alongside tool results for lazy / path-scoped files.
 - **Prefix**: `MEMORY_INSTRUCTION_PROMPT` already supplies "IMPORTANT:. you MUST".
 - **Survives compaction**: eager files (re-read from disk). Not lazy files until re-touched.

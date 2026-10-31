@@ -25,14 +25,10 @@ When your built-in knowledge disagrees with the file or a fresh source, the file
 Route by what you are about to produce. Each branch points at a reference for the depth.
 
 ```
-Writing a SKILL.md body (any Claude Code skill)?
+Writing a SKILL.md body or a slash workflow (/name [args])?
 ├── YES → use this skill for the prompt body, route the skill SHAPE
-│         (frontmatter, scope, invocation, bundling) through `ac:skill-creator`.
-└── NO  → continue
-        ↓
-Writing the body of a slash command (/name [args])?
-├── YES → use this skill for the prompt body, route the command SHAPE
-│         (arguments, allowed-tools, shell injection) through `ac:command-creator`.
+│         (frontmatter, scope, invocation, bundling, and for a typed workflow
+│         arguments and shell injection) through `ac:skill-creator`.
 └── NO  → continue
         ↓
 Writing a custom subagent definition (.claude/agents/<name>.md)?
@@ -165,7 +161,7 @@ What the host already says depends on the model's prompt shape; restate only wha
 - **LEAN shape (Opus 5.5, Opus 5, Fable, Mythos) already carries:** markdown rendering, permission denials as signal, hook output as user feedback, mid-conversation system turns as harness, `<pasted_content>` handling, dedicated tools over shell, parallel independent calls, `file_path:line_number`, matching the surrounding code's idiom, confirming hard-to-reverse actions, faithful outcome reports, acting without re-deriving settled facts. Do not restate these.
 - **LEAN does not carry** the CLASSIC-only rules: no comments unless the why is non-obvious, no speculative abstraction, no compatibility shims, no handling for impossible cases, no unasked planning files, the exploratory-question rule, UI verification, and the tool-use communication contract. A body that needs one on 5.5 states it in one line.
 - **Custom subagents get neither shape.** Their system prompt is the agent body plus environment notes, so every rule the agent follows lives in the body.
-- **Delegation on 5.5.** The host no longer suppresses Agent use on 5.5 and its Agent description encourages it; any prompt that holds the Agent tool says when not to spawn.
+- **Delegation on 5.5.** The host no longer suppresses Agent use on 5.5. Its 2.1.314 Agent description is cautionary ("When in doubt, don't spawn"), where the 2.1.280 text encouraged delegation; any prompt that holds the Agent tool still says when not to spawn.
 - **Official examples: match the host's register.** `${CLAUDE_SKILL_DIR}/references/claude-code-builtin-prompts.md` holds Claude Code's own prompt text verbatim, with a Patterns section: `#` headings over short plain sentences, the reason in the same sentence as the rule, named behaviors, the wanted exception stated with the rule, no caps. Write standing instructions that way, and check a body against it so it neither repeats nor silently contradicts the host. Section markers can be headings or XML tags (follow the target's family); data always sits inside XML tags.
 
 ## Sibling skills (route the surrounding shape)
@@ -175,10 +171,11 @@ This skill stays focused on the prompt itself. The shape around the prompt route
 | Producing | Route shape through | Use this skill for |
 |---|---|---|
 | A SKILL.md body | `ac:skill-creator` | The markdown body that loads when the skill triggers |
-| A slash command body (`/name [args]`) | `ac:command-creator` | The body the model executes when the command runs |
+| A slash workflow body (`/name [args]`) | `ac:skill-creator` (user-typed skills) | The body the model executes when the user types it |
 | A subagent definition (`.claude/agents/<name>.md`) | `ac:agent-creator` | The system prompt the subagent reads |
 | `CLAUDE.md` or `CLAUDE.local.md` | `ac:claude-md-rules-creator` | Project- or user-level standing instructions |
 | `.claude/rules/<topic>.md` | `ac:claude-md-rules-creator` | Topic- or path-scoped rule content |
+| `PROJECT.md` or `DESIGN.md` | `ac:project-md-writer`, `ac:design-md-writer` | The why-and-scope or architecture document agents read on demand |
 | Direct Agent tool call (no custom subagent type) | (none, just this skill) | The `prompt` field of the Agent call |
 
 When the user request implies any of the rows above, do both: invoke the matching creator for shape, then keep this skill loaded for the prompt body.
@@ -280,7 +277,7 @@ Before shipping a prompt:
 | File | Load when... |
 |---|---|
 | `${CLAUDE_SKILL_DIR}/references/architecture.md` | Designing message structure, XML tag names, long-context layout, example design. |
-| `${CLAUDE_SKILL_DIR}/references/claude-code-builtin-prompts.md` | Official examples, and the duplicate check for anything that runs inside Claude Code: verbatim 2.1.280 system prompt text per shape and model, bundle sections, CLAUDE.md wrapper, subagent defaults, Agent tool text, plus the patterns worth copying. |
+| `${CLAUDE_SKILL_DIR}/references/claude-code-builtin-prompts.md` | Official examples, and the duplicate check for anything that runs inside Claude Code: verbatim 2.1.314 system prompt text per shape and model, bundle sections, CLAUDE.md wrapper, subagent defaults, Agent tool text, plus the patterns worth copying. |
 | `${CLAUDE_SKILL_DIR}/references/opus-5-5-tuning.md` | Targeting `claude-opus-5-5`: effort calibration, thinking always on, forced tool use, thinking-block binding, unattended early stops, time signals, pasted content, what Claude Code 2.1.280 gives 5.5. |
 | `${CLAUDE_SKILL_DIR}/references/sonnet-5-5-tuning.md` | Targeting `claude-sonnet-5-5`: recalibrated effort, `between_tools`, early check-ins versus unrequested additions versus self-started review by effort level, search over training knowledge, JSON answers, what Claude Code 2.1.284 gives 5.5. |
 | `${CLAUDE_SKILL_DIR}/references/haiku-5-5-tuning.md` | Targeting `claude-haiku-5-5`: first Haiku with effort, adaptive-only thinking, early stopping in long agent prompts, the 30% tokenizer change, what Claude Code 2.1.296 gives it. |

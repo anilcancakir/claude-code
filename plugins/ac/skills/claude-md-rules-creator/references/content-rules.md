@@ -480,17 +480,9 @@ Two lines that change planning behavior:
 
 The "unresolved questions" pattern forces the model to surface what it does not know before proceeding. Tiny addition, big behavior shift.
 
-## The canonical project preface
+## The `/init` preface
 
-For team `./CLAUDE.md`, lead with the canonical preface that `/init` writes :
-
-```markdown
-# CLAUDE.md
-
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
-```
-
-This is a convention. Tells human readers what the file is at a glance. The runtime does not require it.
+`/init` writes a two-line preface (`# CLAUDE.md` and a sentence saying the file guides Claude Code). It is a convention that tells human readers what the file is; the runtime does not require it and the model gains nothing from it, so the shortest file omits it.
 
 ## What `/init` includes by default
 

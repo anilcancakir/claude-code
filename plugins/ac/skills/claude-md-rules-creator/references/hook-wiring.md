@@ -29,7 +29,7 @@ State these to the user rather than implying otherwise:
 
    Stay raw here: no `|| true`, no stderr redirection. Check the exit code and the side effect. Wrapping comes after the test passes, and for this hook the wrapping is a JSON report rather than suppression.
 
-5. **Emit a script, not a JSON one-liner.** Write `.claude/hooks/lint-changed.sh`, `chmod +x` it, and reference it in exec form with `"args": []`. A JSON-escaped one-liner is one bad backslash away from a malformed settings file, and what that costs depends on the session: interactively Claude Code shows a dialog offering to fix the file, while a `-p` or CI run shows no dialog and skips the broken file or the broken values silently. So the person who writes the hook sees a clear error and the teammate running it in CI sees nothing. A script is also reviewable in a diff.
+5. **Emit a script, not a JSON one-liner.** Write `.claude/hooks/lint-changed.sh`, `chmod +x` it, and reference it in exec form with `"args": []`. A JSON-escaped one-liner is one bad backslash away from a malformed settings file, and what that costs depends on the session: interactively Claude Code shows a dialog offering to fix the file, while a `-p` or CI run shows no dialog and skips the broken file or values (`claude doctor` lists what it dropped). So the person who writes the hook sees a clear error and the teammate running it in CI may see none. A script is also reviewable in a diff.
 
 6. **Validate syntax and schema in one shot**, then read the file back.
 
@@ -123,7 +123,7 @@ When the user wants both a formatter and a linter, write ONE script, `.claude/ho
 
 ## The registration
 
-Write to `.claude/settings.local.json`, not `.claude/settings.json`. The committed file executes on every teammate's machine and in every `-p` and CI session with no trust prompt. `settings.local.json` is gitignored only when Claude Code itself saves a setting to it, so add the `.gitignore` entry yourself.
+Write to `.claude/settings.local.json`, not `.claude/settings.json`. The committed file executes on every teammate's machine once they accept the workspace trust dialog, and in every `-p` and CI session without one. `settings.local.json` is gitignored only when Claude Code itself saves a setting to it, so add the `.gitignore` entry yourself.
 
 Merge with `jq` into a temporary file and `mv` it into place, after a timestamped backup. Never hand-write the whole file.
 
@@ -157,4 +157,4 @@ Exit 0 with your command printed means correct. Exit 2 means the file is missing
 
 Then prove the live wiring: use `Edit` to introduce a violation the linter actually reports (a missing semicolon, bad indentation), and confirm the failure comes back as context. Not trailing whitespace, which `Edit` strips before writing. Clean up the violation afterwards whether the proof passed or failed.
 
-If the proof fails while the pipe-test and `jq -e` both passed, the hook is written correctly and the settings watcher is not watching `.claude/`; it only watches directories that had a settings file when the session started. Opening `/hooks` once, or restarting, picks it up. Say which of the two states the user is in when handing off, and point at `/hooks` for later edits: the UI shows "Ran N hooks" only when a hook errors or is slow, so silent success is invisible by design.
+If the proof fails while the pipe-test and `jq -e` both passed, the hook is written correctly. Claude Code reloads settings files on change, including a project `.claude/` folder created in the same session (settings docs, "When edits take effect"), so check `claude doctor` for a rejected entry and `/hooks` for the registration before suspecting the wiring, and restart only if both look right. Say which state the user is in when handing off, and point at `/hooks` for later edits: the UI shows "Ran N hooks" only when a hook errors or is slow, so silent success is invisible by design.

@@ -52,13 +52,9 @@ What is NOT in this file:
 
 ## Example 2: Project-team `./CLAUDE.md` for a Next.js + Prisma app
 
-48 lines. Stack, structure, commands, verification, conventions, off-limits, repo etiquette. Under the 80-line target.
+44 lines. Stack, structure, commands, verification, conventions, off-limits, repo etiquette. Under the 80-line target.
 
 ```markdown
-# CLAUDE.md
-
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
-
 ## Stack
 
 Next.js 15 (App Router), React 19, TypeScript strict, Tailwind 4, Prisma + PostgreSQL, NextAuth.js 5, pnpm 9.
@@ -159,7 +155,7 @@ Why this works:
 - The plan-before-code rule for billing is a personal workflow guard.
 - Playwright MCP availability is environment context Claude cannot otherwise discover.
 
-Add `CLAUDE.local.md` to `.gitignore` before committing anything else. If the team is using `/init`, it adds the line automatically.
+Add `CLAUDE.local.md` to `.gitignore` before committing anything else. The new-flow `/init` adds the line; the default one does not.
 
 ## Example 4: Path-scoped rule `./.claude/rules/api.md`
 

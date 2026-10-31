@@ -69,7 +69,7 @@ Symptom: frontmatter-shaped block at the top of CLAUDE.md is treated as content,
 
 Why: only `.claude/rules/*.md` has frontmatter handling in the loader. CLAUDE.md and CLAUDE.local.md are plain markdown; anything that looks like YAML at the top becomes content.
 
-Fix: no frontmatter on CLAUDE.md / CLAUDE.local.md. Start with the canonical preface for project-team files.
+Fix: no frontmatter on CLAUDE.md / CLAUDE.local.md.
 
 ## Content failures
 
@@ -341,7 +341,7 @@ Symptom: context window fills up faster than expected. Long sessions truncate or
 
 Why: each loaded `.claude/rules/*.md` file (especially conditional ones with `paths:`) sits in conversation context after loading. Community-reported math: 11 rule files (~6,200 tokens) consumed ~93K tokens across a 30-tool-call session.
 
-Fix: consolidate to 3-5 rule files. Each under 30 lines. Use `paths:` aggressively so rules do not load on sessions that do not need them.
+Fix: consolidate to 3-5 rule files, each inside the principle 1 rule budget. Use `paths:` aggressively so rules do not load on sessions that do not need them.
 
 **Rule files too long.**
 
@@ -355,7 +355,7 @@ Fix: split. If a topic feels like 100 lines, it is probably two topics. Identify
 
 Symptom: 230+ line CLAUDE.md. Adherence drops uniformly. The model ignores rules you care about.
 
-Why: Anthropic's docs target under 200 lines per file. Measured across eight production repositories read at a pinned commit SHA, the median is 105 to 110 lines and six of the eight sit above 80, so the target is 60 to 120 and 230 is well past it.
+Why: Anthropic's docs target under 200 lines per file. Measured across eight production repositories read at a pinned commit SHA, the median is 105 to 110 lines and six of the eight sit above 80, so the budget in SKILL.md principle 1 applies, and 230 is well past it.
 
 Fix: run the cut/move pass. Move topic-specific content to `.claude/rules/<topic>.md`. Move long reference content to `@imports`. Move multi-step procedures to skills. Remove anything that fails the "would Claude make a mistake without this?" test.
 
@@ -409,8 +409,8 @@ Before shipping a CLAUDE.md or rule file, walk this:
 - [ ] No org-wide compliance content in project CLAUDE.md (use managed policy).
 
 **Length:**
-- [ ] CLAUDE.md under 200 lines (target 60 to 120).
-- [ ] Each rule file under 30 lines.
+- [ ] CLAUDE.md inside the principle 1 budget.
+- [ ] Each rule file inside the principle 1 rule budget.
 - [ ] Total rule-file count 3-5 max.
 
 **Content:**
@@ -434,9 +434,8 @@ Before shipping a CLAUDE.md or rule file, walk this:
 - [ ] Import graph depth no greater than 2.
 
 **Loading verification:**
-- [ ] The user confirmed the file in `/memory` with the expected scope, or it appears under a `Contents of` header in a fresh session.
+- [ ] The user confirmed the file in `/context` (Memory files) with the expected scope, or it appears under a `Contents of` header in a fresh session.
 - [ ] For path-scoped rules: read a matching file in a test session; verify the rule appears in the message stream after the read.
-- [ ] For canonical preface: project-team `./CLAUDE.md` starts with `# CLAUDE.md\n\nThis file provides guidance to Claude Code.`.
 
 **Behavior:**
 - [ ] Project-team file does NOT contain personal preferences.

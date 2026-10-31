@@ -31,7 +31,7 @@ Use `paths:` (NOT `globs:`). Only `paths:` is recognized; other keys are silentl
 
 ## [Optional subsection]
 
-- [Sub-topic rules. Keep the whole file under 30 lines.]
+- [Sub-topic rules. Keep the whole file inside the principle 1 rule budget.]
 
 <!--
 Authoring checklist:
@@ -39,7 +39,7 @@ Authoring checklist:
 - [ ] Each rule is specific enough to verify.
 - [ ] No aspirations ("we aim for X").
 - [ ] No prohibitions without alternatives ("don't X" -> "don't X; do Y instead").
-- [ ] File under 30 lines total.
+- [ ] File inside the principle 1 rule budget.
 - [ ] One topic. If you find yourself adding subsections that aren't about this topic, split into a second file.
 - [ ] Glob pattern actually matches the files where the rule should apply. Test mentally with a representative file path.
 - [ ] No file-by-file tours, no standard-language conventions, no secrets.
