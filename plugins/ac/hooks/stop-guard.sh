@@ -260,7 +260,7 @@ Context pressure is not a stopping condition. Auto-compaction summarizes older t
 
 If the user asked you to stop, pause, or take back control, that is a legitimate halt and outranks this guard: delete .ac/state/active-execution.json and stop. Do not argue with the user or keep working through their request to stop.
 
-The internal halts each have a branch in the execute skill: Phase 2i wave dependency failed, Phase 2j 3-strike, Phase 3d plan-spec issue, a wave checkpoint commit failure. Every one of them surfaces an AskUserQuestion and deletes the marker before the run stops. Take that branch if one genuinely applies; the marker's absence is what lets this turn end.
+The internal halts each have a branch in the execute skill: Phase 2i wave dependency failed, Phase 2j 3-strike, Phase 3c plan-spec issue, a wave checkpoint commit failure. Every one of them surfaces an AskUserQuestion and deletes the marker before the run stops. Take that branch if one genuinely applies; the marker's absence is what lets this turn end.
 
 Otherwise: continue the wave loop from the next unchecked step."
 
