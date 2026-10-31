@@ -431,6 +431,77 @@ test("an auto marker owned by another session does not hide an owned coordinator
     expectContinue(runHook(payload([question("Roadmap?")])), "ac:coordinate");
 });
 
+// An away marker over a coordinator run: ac:auto owns the away mode, the coordinator owns the run
+// directory, and both markers belong to this session.
+function seedAwayOverCoordinator(overrides: { startedAt?: string; decisions?: string } = {}): void {
+    const startedAt = overrides.startedAt ?? isoAgo(0);
+    seedCoordinatorRun({ startedAt });
+    writeFileSync(
+        join(project, ".ac", "state", "active-auto.json"),
+        JSON.stringify({
+            session_id: SESSION,
+            slug: SLUG,
+            started_at: startedAt,
+            phase: "executing",
+            source: "coordinate",
+            source_ref: SLUG,
+            allowed_outward: ["push"],
+            decisions: overrides.decisions ?? `.ac/away/${SLUG}/decisions.md`,
+        }),
+    );
+}
+
+test("an away run continues on a non-blocker and names its decisions file", () => {
+    seedAutoRun();
+
+    const text = additionalContext(runHook(payload()).stdout);
+
+    expect(text).toContain(`.ac/away/${SLUG}/decisions.md`);
+    expect(text).toContain("time | source | question | chosen option | why | not user-approved");
+    expect(text).not.toContain("Risks Accepted");
+});
+
+test("an away run over a coordinator run continues with the away text, not the coordinator one", () => {
+    seedAwayOverCoordinator();
+
+    const result = runHook(payload([question("Roadmap?")]));
+
+    expectContinue(result);
+    expect(additionalContext(result.stdout)).toContain(`.ac/away/${SLUG}/decisions.md`);
+    expect(additionalContext(result.stdout)).not.toContain("events.jsonl");
+});
+
+test("an away run over a coordinator run still waits on the coordinator blockers", () => {
+    seedAwayOverCoordinator();
+
+    for (const header of ["Push?", "Lane block?", "Conflict?", "Relock?", "Add bundle?"]) {
+        expectWait(runHook(payload([question(header)])));
+    }
+});
+
+test("an away run over a coordinator run lives in the coordinator directory for 72 hours", () => {
+    seedAwayOverCoordinator({ startedAt: isoAgo(48) });
+    expect(existsSync(join(project, ".ac", "auto", SLUG))).toBe(false);
+    expectContinue(runHook(payload()));
+
+    writeFileSync(join(project, ".ac", "coord", SLUG, "verdict.md"), "# Verdict\n");
+    expectWait(runHook(payload()));
+});
+
+test("an away run over a coordinator run waits once 72 hours have passed", () => {
+    seedAwayOverCoordinator({ startedAt: isoAgo(73) });
+
+    expectWait(runHook(payload()));
+});
+
+test("a decisions path that is not a plain path falls back to the slug's decisions file", () => {
+    seedAwayOverCoordinator({ decisions: 'x" y' });
+
+    const text = additionalContext(runHook(payload()).stdout);
+
+    expect(text).toContain(`.ac/away/${SLUG}/decisions.md`);
+});
+
 test("SHAPE=block prints a decision block carrying the wait reason", () => {
     const result = runHook(payload(), { AC_QUESTION_TIMEOUT_SHAPE: "block" });
 

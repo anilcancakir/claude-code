@@ -76,13 +76,12 @@ the digest and read as a rewritten contract.
   - `expected_exit_code`: required when `verification: command`. The exit code that counts as a pass; the gate treats any other code as a fail, not a crash.
   - A `judgment`-tier criterion carries no `command` and no `expected_exit_code`. The gate reads the artifact or the transcript and states pass or fail with a one-line reason; it never invents a command for a criterion that named none.
   - `anchor`: present only on a criterion copied from a plan file (`adopted_from: execute` or `plan`), as `"<plan path>:<line>"`. It names where the verbatim text came from, so a reader can confirm the criterion predates the work. The gate lists anchors and does not evaluate them.
-- `adopted_from`: present only when `/ac:auto` adopted work already under way in the session (its Phase A) rather than starting from a request. Absent on a fresh run. One of:
-  - `plan-interview`: an `ac:plan` interview was in progress; criteria come from the checkpoint's topic and locked decisions, which precede the work.
+- `adopted_from`: present only when `/ac:auto` carried a run already going in the session rather than starting from a request. Absent on a new run (source `new`), and never written for a coordinator source, whose criteria are the coordinator's own `.ac/coord/<slug>/criteria.md`. One of:
   - `execute`: an `ac:execute` run was in progress; criteria are every Definition of Done item and every `Done when` command of its plan, copied verbatim with an `anchor` each.
-  - `plan`: a written plan nobody had executed; criteria copied from it the same way.
+  - `plan`: an `ac:plan` run was in progress (an interview, a review, or a written plan nobody had executed); criteria copied from its plan the same way, once the plan file exists and before its first wave.
   - `adhoc`: no plan existed; criteria come from the session's own account of the conversation goal. The gate caps this run at `human_needed`, because the session that already did part of the work also wrote down what done means, so a machine pass over those criteria proves only that the work matches its author's description of it.
 
-  Like every frontmatter line it sits inside the digest span, so an adopted run cannot later be relabelled as a fresh one, or `adhoc` as anything else, without the gate seeing a mismatch.
+  Like every frontmatter line it sits inside the digest span, so a carried run cannot later be relabelled as a new one, or `adhoc` as anything else, without the gate seeing a mismatch.
 
   ```yaml
   adopted_from: "execute"
@@ -94,8 +93,8 @@ the digest and read as a rewritten contract.
       expected_exit_code: 0
       anchor: ".ac/plans/reset-flow/plan.md:88"
   ```
-- `turn_budget`: an integer turn count. When the run's turn counter reaches this number without reaching a verdict, the run stops and asks the user how to proceed (extend the budget, accept partial progress, abort) rather than continuing silently past the number the user agreed to at the start.
-- `failure_budget`: a fraction between 0 and 1, applied to total step count across the run (not to `criteria` count). When the proportion of failed steps exceeds this fraction, the run hard-stops before reaching the gate, on the reasoning that a run already failing this often will not self-correct by continuing; a `0.2` value tolerates one failing step in five before it stops.
+- `turn_budget`: an integer turn count, 40 unless the user stated another. When the run's turn counter reaches it without a verdict, the run starts no new work, records the budget under `## Blocked` in the decisions file, and goes to the gate rather than continuing silently past the number the user agreed to; the user is away, so it does not ask.
+- `failure_budget`: a fraction between 0 and 1, 0.2 unless the user stated another, applied to total step count across the run (not to `criteria` count). When the proportion of failed steps exceeds it, the run starts no new step and goes to the gate, on the reasoning that a run already failing this often will not self-correct by continuing; a `0.2` value tolerates one failing step in five.
 - `criteria_sha256`: the sha256 hex digest of the frontmatter, taken over every line between the two `---` delimiters EXCEPT the `criteria_sha256` line itself, joined with newlines and hashed as UTF-8. Dropping that one line is what resolves the circularity of digesting a block that contains its own digest; it is ordinary checksum-line practice, the same trick a checksum embedded in the file it describes has always used.
 
   The digest deliberately covers the frontmatter and not the prose body. The criteria are the thing worth protecting, and they live in the frontmatter: a digest taken over the body after the delimiter would detect an edit to the notes while leaving every `command`, `expected_exit_code` and `prohibition` free to change unnoticed, which is the exact inversion this field exists to prevent. The body is unprotected on purpose, because prose drifting has no consequence the gate acts on.
@@ -118,36 +117,67 @@ Path: `.ac/state/active-auto.json`. Written once at the start of an `/ac:auto` r
 
 ```json
 {
-  "slug": "<auto-run slug>",
+  "slug": "<away-run slug>",
   "session_id": "<the session id the skill body gives you>",
   "started_at": "<output of date -u +%Y-%m-%dT%H:%M:%SZ>",
   "turns_used": 0,
-  "phase": "planning",
-  "note": "<one-line resume hint>"
+  "phase": "executing",
+  "source": "coordinate",
+  "source_ref": "<coordinator or plan slug>",
+  "allowed_outward": ["push"],
+  "decisions": ".ac/away/<slug>/decisions.md",
+  "note": "away: no questions; plan questions lock through 3d Force-finalize. <one-line resume hint>"
 }
 ```
 
+The marker routinely coexists with `.ac/state/active-coordinate.json` or `.ac/state/active-execution.json` owned by the same session: that is the away mode carrying the run, not a conflict. A marker owned by another session is that session's run and refuses a new one.
+
 ### Field reference
 
-- `slug`: the auto-run slug, matching the `<slug>` segment of `.ac/auto/<slug>/criteria.md`. Names which run holds the scope lock and which criteria file a hook or a resumed session should read.
+- `slug`: the away-run slug, matching the `<slug>` segment of `.ac/auto/<slug>/` and `.ac/away/<slug>/`. Under a coordinator source it equals the coordinator slug and no `.ac/auto/<slug>/` exists.
+- `source`: which run the away mode carries, one of `coordinate`, `execute`, `plan`, `adhoc`, `new`. With `coordinate`, every hook reads the run directory as `.ac/coord/<source_ref>/` and its verdict as the away run's verdict, and applies the coordinator's 72 hour age bound instead of 24.
+- `source_ref`: the coordinator slug or the plan slug the source names; absent for `adhoc` and `new`. Hooks refuse a value outside `[A-Za-z0-9._-]`.
+- `allowed_outward`: the outward actions the user's words allowed, a subset of `push`, `merge`, `pr`, `release`, `deploy`; an empty list allows none. The skill adds what a named action needs (`merge` adds `push`, and `pr` where the repository merges through pull requests; a push-triggered `deploy` adds `push`), and a negated mention grants nothing. The Bash guard allows `git push` under `push`, `pr` or `merge`, `gh pr create` under `pr` or `merge`, `gh pr merge` under `merge`, and `gh release create|delete|edit|upload` under `release`, and denies a force push or a remote delete whatever the list says.
+- `decisions`: the path of the decisions file, below.
 - `session_id`: the current session id, written once and matched by any guard that scopes its blocking behaviour to the session that started this run, the same role `session_id` plays in `active-execution.json`.
 - `started_at`: written once here and never refreshed. See the invariant above.
-- `turns_used`: an integer counter, incremented as the run progresses. Compared against `criteria.md`'s `turn_budget` to decide when to stop and ask.
-- `phase`: the run's current stage in the plan/execute/gate chain (for example `planning`, `executing`, `gating`). Plain string, not an enum in this document; the skill body that drives the state machine owns the exact value set.
+- `turns_used`: an integer counter, incremented as the run progresses. Compared against `criteria.md`'s `turn_budget` to decide when to stop new work and go to the gate.
+- `phase`: the run's current stage (`planning`, `executing`, `gating`). Plain string, not an enum in this document; the skill body owns the exact value set.
 - `note`: a one-line resume hint in plain prose, refreshed as the run progresses, read back after a compaction or a restart, matching the role `note` plays in `active-execution.json`.
 
 ### Lifecycle
 
-Written once at run start with `slug`, `session_id`, `started_at` fixed for the run's lifetime. `turns_used`, `phase`, and `note` refresh as the run progresses. Removed on every terminal branch: a verdict from the gate, a hard stop from `failure_budget`, a turn-budget stop the user resolves as abort, or an error that aborts the run before the gate. The marker must never survive a halt with a stale state, for the same reason the execute-side marker must not: a guard reading its presence as "this run is unfinished" would block turn ends past the point the run actually ended.
+Written once at run start with `slug`, `session_id`, `started_at`, `source`, `source_ref` and `decisions` fixed for the run's lifetime. `turns_used`, `phase` and `note` refresh as the run progresses, and `allowed_outward` grows only when the user names another action. Removed on every terminal branch: a verdict from the gate followed by the close, a user's stop, or an error that aborts the run before the gate. The marker must never survive a halt with a stale state, for the same reason the execute-side marker must not: a guard reading its presence as "this run is unfinished" would block turn ends past the point the run actually ended.
+
+## The decisions file
+
+Path: `.ac/away/<slug>/decisions.md`, named by the marker's `decisions`. Written at run start with two sections and
+appended to while the user is away; outside every digest, because it records what happened rather than what done means.
+
+```markdown
+# Away run <slug>
+
+Source: <source> <source_ref>. Allowed outward: <values, or none>.
+
+## Decisions
+2026-10-31T14:02Z | plan | Scope? | Narrow (Recommended) | the research found one caller | not user-approved
+
+## Blocked
+2026-10-31T15:40Z | coordinate | git push to origin | push not in allowed_outward
+```
+
+A `## Decisions` line is a question a flow would have asked, answered with its Recommended option. A `## Blocked`
+line is a true blocker or a denied outward action, deferred to the user. The closing report lists every line of both.
 
 ## The rest of the run directory
 
 `.ac/auto/<slug>/` holds three files, not one. The other two are named here because a hook already keys on
-them and a reader of this document would otherwise not know they exist.
+them and a reader of this document would otherwise not know they exist. A coordinator source has no such
+directory: its `.ac/coord/<slug>/` holds the criteria, the verdict and this guard's counter.
 
-- `criteria.md`: the contract above, written before any work starts, except on an adopted run (`adopted_from`),
-  where it is written when the run takes the work over: copied verbatim from a plan for `execute` and `plan`, and
-  capped at `human_needed` by the gate for `adhoc`.
+- `criteria.md`: the contract above, written before any work starts, except on a carried run (`adopted_from`),
+  where it is written when the away mode takes the work over: copied verbatim from a plan for `execute` and `plan`,
+  and capped at `human_needed` by the gate for `adhoc`.
 - `verdict.md`: written once, at the end, by the `/ac:auto` skill from the body its read-only gate returns. Its
   presence is the entire predicate of the verdict check in `plugins/ac/hooks/stop-guard-auto.sh`, which blocks a
   turn from ending while the marker exists and this file does not, and never opens it. Contents are the gate's

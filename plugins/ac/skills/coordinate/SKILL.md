@@ -59,7 +59,9 @@ The one lock you release is Claude Code's own resume lock on a finished, archive
 (`references/integration.md` step 8).
 
 **Never push without a `Push?` answer.** Merges into `coord/<slug>` stay local. The one publish is Phase 8, after
-the owner picks a push option.
+the owner picks a push option. The exception is an `ac:auto` away run over this one (this session owns
+`.ac/state/active-auto.json`): the owner is gone, so no question is asked at all, `Push?` included, and Phase 8
+applies that run's outward rule instead.
 
 **Questions.** Only you call `AskUserQuestion`; lanes have no such tool. Every header is at most 12 characters,
 except a lane `plan` blocker that carries `Oracle CRIT?` or `Premise failed?`, which you ask under that header
@@ -397,7 +399,10 @@ never `passed`.
 When `integration_head` equals `base_sha` nothing landed: skip the question. Otherwise one `AskUserQuestion`,
 header `Push?`, naming the verdict status and the gaps: `Push` (`git push -u origin coord/<slug>`), `Push + PR`
 (the push, then `gh pr create --head coord/<slug>` with a body free of em and en dashes), `Keep local`. Recommend
-`Push` on `passed` and `Keep local` otherwise. This question always waits.
+`Push` on `passed` and `Keep local` otherwise. This question always waits, except under an `ac:auto` away run this
+session owns, where it is not asked: unless the verdict is `gaps_found`, apply `Push + PR` when the away marker's
+`allowed_outward` names `pr` or `merge` (each needs the push), `Push` when it names only `push`; otherwise
+`Keep local`, with the push recorded as deferred under `## Blocked` in the away run's decisions file.
 
 Then close: `git worktree remove <integration worktree>` (plain; a refusal leaves it and the report names it),
 `rm -f .ac/state/active-coordinate.json`, and report in at most 8 lines: slug, integration branch and head, the

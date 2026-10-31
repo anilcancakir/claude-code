@@ -15,6 +15,10 @@
 # the marker's slug, session_id, started_at and phase plus the existence of verdict.md, and reads
 # state.json only to NAME the open bundles in the reason, never to decide.
 #
+# Under an ac:auto away run over this coordinator run (an active-auto.json this session owns, with
+# `source: coordinate`), this guard owns every stop while its own marker lives and stop-guard-auto.sh
+# stays silent; its gating text then says to apply the away run's outward rule instead of Push?.
+#
 # A lane parked on its own workers stays a running `subagent` task in the Stop payload, so
 # lib/wake-count.jq in strict mode counts it and the coordinator may end its turn to wait. The age
 # bound is 72 hours rather than the auto guard's 24 because a coordinator run spans several
@@ -194,7 +198,14 @@ case "$phase" in
         next_action="Merge each done bundle into the integration branch, archive it, then remove its worktree. Rebase or ask with Conflict? on a merge conflict."
         ;;
     gating)
-        next_action="Run the verifier against criteria.md and write its body to .ac/coord/$slug/verdict.md, then ask the owner with Push?."
+        # Under an ac:auto away run this session owns, the owner is gone and Push? is never asked.
+        away_marker="$project_dir/.ac/state/active-auto.json"
+        if [ -f "$away_marker" ] \
+            && [ "$(jq -r '.session_id // empty' "$away_marker" 2>/dev/null)" = "$hook_session" ]; then
+            next_action="Run the verifier against criteria.md and write its body to .ac/coord/$slug/verdict.md. Do not ask Push?: this is an ac:auto away run, so apply its outward rule. Push (Push + PR when allowed_outward also names pr) only when the away marker's allowed_outward names push and the verdict is not gaps_found; otherwise Keep local and record the push as deferred under ## Blocked in the away decisions file."
+        else
+            next_action="Run the verifier against criteria.md and write its body to .ac/coord/$slug/verdict.md, then ask the owner with Push?."
+        fi
         ;;
     *)
         next_action="Read .ac/coord/$slug/state.json and continue from the first bundle that is not merged or dropped."

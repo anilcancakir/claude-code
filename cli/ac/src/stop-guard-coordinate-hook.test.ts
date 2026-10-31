@@ -264,6 +264,26 @@ test("the gating phase names the verdict as the next action", () => {
     const output = expectBlock(runGuard());
 
     expect(output.reason).toContain(`.ac/coord/${SLUG}/verdict.md`);
+    expect(output.reason).toContain("ask the owner with Push?");
+});
+
+test("under an away run this session owns, the gating text applies the outward rule instead of Push?", () => {
+    seedRun({ phase: "gating" }, BUNDLES.slice(2));
+    const away = { slug: SLUG, session_id: SESSION, started_at: isoAgo(1), source: "coordinate", source_ref: SLUG };
+    writeFileSync(join(project, ".ac", "state", "active-auto.json"), JSON.stringify(away));
+
+    const reason = expectBlock(runGuard()).reason;
+
+    expect(reason).toContain("Do not ask Push?");
+    expect(reason).toContain("allowed_outward names push");
+});
+
+test("an away marker owned by another session leaves the Push? text alone", () => {
+    seedRun({ phase: "gating" }, BUNDLES.slice(2));
+    const away = { slug: SLUG, session_id: "sess-other", started_at: isoAgo(1), source: "coordinate", source_ref: SLUG };
+    writeFileSync(join(project, ".ac", "state", "active-auto.json"), JSON.stringify(away));
+
+    expect(expectBlock(runGuard()).reason).toContain("ask the owner with Push?");
 });
 
 describe("status lines", () => {

@@ -15,6 +15,10 @@
 #               auto-continue). Oracle CRIT? and Premise failed? continue once per run each, then
 #               wait. A coordinator marker lives 72 h instead of 24 h because a roadmap run spans
 #               days, and its continue text points at .ac/coord/<slug>/ since there is no plan.
+#               An ac:auto marker is the away mode over whatever run is going: its continue text
+#               points at the marker's decisions file, and with `source: coordinate` it lives in
+#               .ac/coord/<source_ref>/ for 72 h like the run it carries. Both markers owned by this
+#               session is the normal away-over-coordinate case; the auto one decides.
 # The wait branch arms the question-wait latch (lib/question-wait.sh) so the four Stop guards let
 # the turn end; an answered question retires an old latch.
 #
@@ -37,8 +41,7 @@ wait_text="$wait_text on your own judgment is not authorised. End the turn with 
 wait_text="$wait_text and any selection already made. The user's reply will arrive as the next message."
 continue_text_auto="AskUserQuestion timed out with the user away. This session owns the active ac:auto run and the"
 continue_text_auto="$continue_text_auto question is not a blocker, so the run continues: take the selection already made, or"
-continue_text_auto="$continue_text_auto otherwise the option marked Recommended, and record the choice as"
-continue_text_auto="$continue_text_auto 'timed out, not user-approved' in the plan's Risks Accepted section and in the run report."
+continue_text_auto="$continue_text_auto otherwise the option marked Recommended, apply it, and append one line to"
 continue_text_coord="AskUserQuestion timed out with the user away. This session owns the active ac:coordinate run and the"
 continue_text_coord="$continue_text_coord question is not a push, lane block or conflict relay, so the run continues: take the"
 continue_text_coord="$continue_text_coord selection already made, or otherwise the option marked Recommended, and record the choice as"
@@ -132,6 +135,8 @@ confirmed_run() {
         break
     done
     [ -n "$run_kind" ] || return 1
+    slug="$(jq -r '.slug // empty' "$marker" 2>/dev/null)"
+    run_slug="$slug"
     if [ "$run_kind" = "coordinate" ]; then
         run_root="coord"
         max_age=259200
@@ -139,7 +144,16 @@ confirmed_run() {
     else
         run_root="auto"
         max_age=86400
-        continue_text="$continue_text_auto"
+        # An away run carrying a coordinator run lives in that run's directory and lasts as long.
+        if [ "$(jq -r '.source // empty' "$marker" 2>/dev/null)" = "coordinate" ]; then
+            run_root="coord"
+            run_slug="$(jq -r '.source_ref // empty' "$marker" 2>/dev/null)"
+            max_age=259200
+        fi
+        decisions="$(jq -r '.decisions // empty' "$marker" 2>/dev/null)"
+        case "$decisions" in '' | *[!A-Za-z0-9._/-]*) decisions=".ac/away/$slug/decisions.md" ;; esac
+        continue_text="$continue_text_auto $decisions as: time | source | question | chosen option | why |"
+        continue_text="$continue_text not user-approved."
     fi
 
     now_epoch="$(date -u +%s 2>/dev/null)" || return 1
@@ -153,12 +167,12 @@ confirmed_run() {
     # A model-written local time with a trailing Z reads as up to 14h in the future (UTC+14).
     { [ "$age" -ge -50400 ] && [ "$age" -le "$max_age" ]; } || return 1
 
-    # The slug names a directory, so it is checked before any path is built from it.
-    slug="$(jq -r '.slug // empty' "$marker" 2>/dev/null)"
-    [ -n "$slug" ] || return 1
-    case "$slug" in *[!A-Za-z0-9._-]*) return 1 ;; esac
-    [ -d "$project_dir/.ac/$run_root/$slug" ] || return 1
-    [ ! -e "$project_dir/.ac/$run_root/$slug/verdict.md" ] || return 1
+    # Both slugs name directories (and the auto one sits in the continue text), so they are checked
+    # before any path or text is built from them.
+    [ -n "$slug" ] && [ -n "$run_slug" ] || return 1
+    case "$slug$run_slug" in *[!A-Za-z0-9._-]*) return 1 ;; esac
+    [ -d "$project_dir/.ac/$run_root/$run_slug" ] || return 1
+    [ ! -e "$project_dir/.ac/$run_root/$run_slug/verdict.md" ] || return 1
 
     # An execute marker owned by this session makes every question an execute BLOCKER. One that
     # cannot be read is doubt, so it waits too.

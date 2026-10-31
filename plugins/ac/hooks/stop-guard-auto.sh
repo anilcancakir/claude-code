@@ -1,8 +1,10 @@
 #!/bin/sh
 # Stop guard for /ac:auto runs. Sequencing only.
 #
-# Blocks a turn-ending attempt only while an /ac:auto run this session owns has no verdict on
-# disk yet, and tells the orchestrator that invoking the gate is the one action still owed.
+# Blocks a turn-ending attempt while an /ac:auto run this session owns has no verdict on disk yet,
+# and tells the orchestrator what is owed. Once the verdict exists and the marker still does, it
+# blocks one more time (phase `closing`, budget 1) for the close: the named outward actions, the
+# marker's deletion and the report, which nothing else enforces.
 # Every other condition fails OPEN (exit 0, no output): no marker, a marker owned by another
 # session, a marker past its age bound, background work in flight that will wake the session, a
 # missing run directory, a verdict already written, a latched or unwritable counter, and any
@@ -21,9 +23,22 @@
 # work at exactly the point where the real work has run out, which is the failure this design
 # exists to avoid. An unmet criterion is a verdict outcome, not a reason to block: a verdict
 # reporting a criterion unmet is a complete and legitimate ending for the run. So this hook
-# reads exactly four marker fields (slug, session_id, started_at, phase) plus the existence of
-# one file, and never opens the criteria file at all. The fourth only scopes the block budget. Nothing below is allowed to grow into a
-# satisfaction test.
+# reads six marker fields (slug, session_id, started_at, phase, source, source_ref) plus the
+# existence of one file, and never opens the criteria file at all. Phase only scopes the block
+# budget and the wording; source and source_ref only locate the run. Nothing below is allowed to
+# grow into a satisfaction test.
+#
+# One owner per phase. An ac:auto marker is the away mode over whatever run is going, so it often
+# coexists with another run marker this session owns, and two guards demanding different things at
+# once leaves the model picking between them:
+#   - source coordinate: while this session's active-coordinate.json exists, stop-guard-coordinate.sh
+#     owns every stop (its phases, status lines and gate), and this guard exits 0. The coordinator's
+#     .ac/coord/<source_ref>/verdict.md is the away run's verdict, and the 72 h coordinator age bound
+#     applies. Once that marker is gone with no verdict, the run closed early and this guard owns the
+#     stop, asking for the gate.
+#   - any other source: stop-guard.sh owns the stop while a plan runs, and this guard's planning and
+#     executing wording defers to it; from `gating` on, this guard owns it, and its predicate is
+#     .ac/auto/<slug>/verdict.md.
 #
 # Why a hook and not a skill rule: after compaction Claude Code re-attaches the most recent
 # invocation of each skill and keeps only the first 5,000 tokens of each, so the auto body's
@@ -97,6 +112,30 @@ marker_session="$(jq -r '.session_id // empty' "$marker" 2>/dev/null)"
 [ -n "$marker_session" ] || exit 0
 [ "$hook_session" = "$marker_session" ] || exit 0
 
+# 2a. The source run decides the run directory, the age bound and who owns the stop. An away run over a
+#     coordinator run keeps no directory of its own: the coordinator's verdict is its verdict, and
+#     while this session's coordinator marker lives, stop-guard-coordinate.sh owns every stop.
+slug="$(jq -r '.slug // empty' "$marker" 2>/dev/null)"
+[ -n "$slug" ] || exit 0
+run_dir="$project_dir/.ac/auto/$slug"
+max_age=86400
+source_ref=""
+source="$(jq -r '.source // empty' "$marker" 2>/dev/null)"
+if [ "$source" = "coordinate" ]; then
+    source_ref="$(jq -r '.source_ref // empty' "$marker" 2>/dev/null)"
+    [ -n "$source_ref" ] || exit 0
+    case "$source_ref" in *[!A-Za-z0-9._-]*) exit 0 ;; esac
+    coord_marker="$project_dir/.ac/state/active-coordinate.json"
+    if [ -f "$coord_marker" ] \
+        && [ "$(jq -r '.session_id // empty' "$coord_marker" 2>/dev/null)" = "$hook_session" ]; then
+        exit 0
+    fi
+    run_dir="$project_dir/.ac/coord/$source_ref"
+    max_age=259200
+fi
+verdict_rel="${run_dir#"$project_dir"/}/verdict.md"
+counter_rel="${run_dir#"$project_dir"/}/stop-guard-auto.json"
+
 # 3. Age bound as a second floor: a run this session started but abandoned long ago should not
 #    keep blocking. A parse failure means we cannot confirm freshness, so allow.
 now_epoch="$(date -u +%s 2>/dev/null)" || exit 0
@@ -112,7 +151,7 @@ started_epoch="$(date -u -d "$started_at" +%s 2>/dev/null)" \
 age=$((now_epoch - started_epoch))
 # A model-written local time with a trailing Z reads as up to 14h in the future (UTC+14 is the
 # widest offset); accept that skew rather than going inert for the run.
-{ [ "$age" -ge -50400 ] && [ "$age" -le 86400 ]; } || exit 0
+{ [ "$age" -ge -50400 ] && [ "$age" -le "$max_age" ]; } || exit 0
 
 # 3a. A question that timed out armed the latch (lib/question-wait.sh): the turn ends to wait for the
 #     answer, which is correct, so allow. The latch is read, never consumed, because the other two
@@ -130,12 +169,8 @@ wake_count="$(printf '%s' "$input" | jq -r --arg mode strict -f "$(dirname "$0")
 case "$wake_count" in '' | *[!0-9]*) exit 0 ;; esac
 [ "$wake_count" -eq 0 ] || exit 0
 
-# 4. Resolve the run directory the marker names. A missing directory is a malformed run: there
-#    is nowhere for a verdict to land and nowhere to keep the counter, so we cannot judge.
-slug="$(jq -r '.slug // empty' "$marker" 2>/dev/null)"
-[ -n "$slug" ] || exit 0
-
-run_dir="$project_dir/.ac/auto/$slug"
+# 4. A missing run directory is a malformed run: there is nowhere for a verdict to land and nowhere
+#    to keep the counter, so we cannot judge.
 [ -d "$run_dir" ] || exit 0
 
 # The run's own phase, used below to scope the block budget. A marker written by an older
@@ -144,11 +179,16 @@ run_dir="$project_dir/.ac/auto/$slug"
 phase="$(jq -r '.phase // empty' "$marker" 2>/dev/null)"
 [ -n "$phase" ] || phase="unknown"
 
-# 5. The whole predicate. A verdict file exists, so the gate has run and the run has an ending,
-#    whatever that ending says. Its contents are none of this hook's business: a verdict that
-#    reports something unmet ends the run exactly as a clean one does.
+# 5. The predicate. A verdict file means the gate has run and the run has an ending, whatever that
+#    ending says: its contents are none of this hook's business. What is still owed then is Phase 4
+#    (the named outward actions, the close, the report), and a marker still on disk keeps arming the
+#    Bash and question guards, so the guard asks for it once, as its own `closing` phase with a
+#    budget of 1, and then lets the turn end.
 verdict="$run_dir/verdict.md"
-[ -f "$verdict" ] && exit 0
+if [ -f "$verdict" ]; then
+    phase="closing"
+    max_blocks=1
+fi
 
 # 6. Counter state, in a file so it survives compaction. It lives beside the run rather than in
 #    .ac/state/ so a deleted run directory takes its budget with it. Keyed on the marker's
@@ -190,8 +230,8 @@ write_counter() {
 #    worse outcome than a bad verdict but a better one than a session that cannot end.
 if [ "$blocks" -ge "$max_blocks" ]; then
     write_counter "$blocks" true
-    latch_note="ac auto stop-guard: block budget ($max_blocks) spent for $slug; allowing the turn to end."
-    latch_note="$latch_note No verdict was written to .ac/auto/$slug/verdict.md."
+    latch_note="ac auto stop-guard: block budget ($max_blocks) spent for $slug in phase $phase; allowing the turn to end."
+    [ "$phase" = "closing" ] || latch_note="$latch_note No verdict was written to $verdict_rel."
     latch_note="$latch_note Re-invoke /ac:auto to resume: it reads this marker, sees this session owns it, and"
     latch_note="$latch_note picks the run up at its recorded phase. To close the run instead, delete the marker."
     printf '%s\n' "$latch_note" >&2
@@ -212,26 +252,66 @@ write_counter "$blocks" false || exit 0
 # Both reasons reach the model together (measured). A fixed "hand off to the gate now" here would
 # contradict it during planning and execution, and obeying this one would gate a half-finished
 # run, whose verdict then releases this guard for good.
-case "$phase" in
+# The stage picks the wording. A coordinator source reaching here has lost its marker with no
+# verdict: with frozen criteria the gate is owed, without them the coordinator aborted before its
+# roadmap lock and the away run ends too. An execute source whose execute marker is gone has ended.
+stage="$phase"
+if [ "$phase" != "closing" ]; then
+    if [ -n "$source_ref" ]; then
+        stage="coordinate-aborted"
+        [ -f "$run_dir/criteria.md" ] && stage="coordinate-closed"
+    elif [ "$source" = "execute" ] && [ ! -e "$project_dir/.ac/state/active-execution.json" ]; then
+        stage="source-ended"
+    fi
+fi
+case "$stage" in
+    closing)
+        next_action="The verdict exists, so what is left is the close: run the named outward actions its status allows,
+delete .ac/state/active-auto.json and the counter $counter_rel, and report (ac:auto Phase 4).
+The marker still arms the away guards, so do not end the turn with it on disk."
+        ;;
+    coordinate-closed)
+        next_action="The coordinator run this away run carries has closed without a verdict. Set the marker's phase
+to gating, run the read-only gate against ${run_dir#"$project_dir"/}/criteria.md now and write its body
+to $verdict_rel, then close the away run. A verdict reporting something unmet is a complete ending."
+        ;;
+    coordinate-aborted)
+        next_action="The coordinator run this away run carries ended before its roadmap lock, so there are no frozen
+criteria to gate against. Delete .ac/state/active-auto.json and report what happened and what is
+recorded under ## Blocked in the decisions file."
+        ;;
+    source-ended)
+        next_action="The execute run this away run carries has ended (its marker is gone). Set the marker's phase to
+gating and hand off to the read-only gate now; it writes $verdict_rel."
+        ;;
     planning | executing)
         next_action="The run is still working, so this is a note rather than an instruction: no verdict exists yet
 and one will be owed at the end. Continue the run. If another guard blocked this same turn, follow
-its reason; it knows what the current stage needs and this one does not."
+its reason; it knows what the current stage needs and this one does not. Once the source has
+ended (its own marker gone, or the ad-hoc work finished), set the marker's phase to gating and run
+the gate."
         ;;
     *)
-        next_action="Hand off to the read-only gate now. It reviews the run and writes .ac/auto/$slug/verdict.md.
+        next_action="Hand off to the read-only gate now. It reviews the run and writes $verdict_rel.
 A verdict reporting something unmet is a complete and correct ending: report it, do not go back
 and try to make it pass. Running out of achievable work is a result for the gate to record, not
 a reason to invent more work."
         ;;
 esac
 
-reason="An /ac:auto run for '$slug' has not been judged yet, so this turn must not end.
-
-State from disk: the marker .ac/state/active-auto.json exists and .ac/auto/$slug/verdict.md does not.
+if [ "$stage" = "closing" ]; then
+    state_line="State from disk: the marker .ac/state/active-auto.json and $verdict_rel both exist, so the
+run is judged but not closed. This guard asks once; the next stop is allowed."
+else
+    state_line="State from disk: the marker .ac/state/active-auto.json exists and $verdict_rel does not.
 That is the entire test this guard runs. It does not read what the run was asked to achieve and
 it does not measure how much of it you managed, so nothing you do to the work itself will clear
-it. The one action that clears it is the gate writing the verdict.
+it. The one action that clears it is the gate writing the verdict."
+fi
+
+reason="An /ac:auto away run for '$slug' is not finished, so this turn must not end.
+
+$state_line
 
 $next_action
 
@@ -248,6 +328,6 @@ through their request to stop."
 
 jq -cn \
     --arg r "$reason" \
-    --arg m "ac auto stop-guard: blocked stop $blocks/$max_blocks | $slug has no verdict yet" \
+    --arg m "ac auto stop-guard: blocked stop $blocks/$max_blocks | $slug phase $phase" \
     '{decision: "block", reason: $r, systemMessage: $m}'
 exit 0
