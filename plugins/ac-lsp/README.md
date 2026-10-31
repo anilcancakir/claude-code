@@ -1,6 +1,20 @@
-# ac-php-lsp
+# ac-lsp
 
-Intelephense for Claude Code, with a workspace exclude list that keeps indexing finite in repositories that hold Claude Code worktrees or Flutter build output.
+Dart and Intelephense for Claude Code, each started through a small proxy that keeps the server in step with the disk. Intelephense also keeps a workspace exclude list that holds indexing finite in repositories with Claude Code worktrees or Flutter build output.
+
+## Why a proxy
+
+Claude Code tells a language server only about the changes its own Edit and Write tools make. It never sends `workspace/didChangeWatchedFiles`, and it sends `didClose` only for the least-recently-used file once more than 50 are open, so a change that comes from Bash, git, a formatter or another Claude Code session on the same repository never reaches the server. The two servers fail in different ways:
+
+- **Dart** watches the disk itself, but once a file has been opened it trusts the opened copy and ignores the disk for that file for the rest of the session.
+- **Intelephense** does not watch the disk at all; it waits for the client to report file changes.
+
+Both end in the same place: diagnostics about code that no longer exists, and a model that learns to dismiss them. The proxy sits between Claude Code and the server and fills the gap:
+
+- Before it forwards each message from Claude Code, and whenever a watched directory changes, it compares every opened file with the disk and sends the server a full-text `didChange` when they differ.
+- For Intelephense (`--watch-root`), it watches the workspace root and reports changed `.php` files as `workspace/didChangeWatchedFiles`, skipping `.git`, `node_modules`, `vendor/composer`, `storage`, `build` and `.claude/worktrees`.
+
+Everything else passes through byte for byte. Claude Code still shows each diagnostic once and may deliver it a turn late; the `ac` plugin's PostToolUse hook covers that side by running `dart analyze` or `php -l` on every edited file.
 
 ## Why not the stock `php-lsp`
 
@@ -11,13 +25,16 @@ The official `php-lsp` plugin starts Intelephense with no settings, so it indexe
 
 ## Install
 
-Disable the stock plugin first. When two plugins claim `.php`, Claude Code routes `.php` to whichever loads first and never starts the other one for it.
+Disable any other plugin that claims `.php` or `.dart` first. When two plugins claim an extension, Claude Code routes it to whichever loads first and never starts the other one for it.
 
 ```
 /plugin marketplace add anilcancakir/claude-code
 /plugin disable php-lsp@claude-plugins-official
-/plugin install ac-php-lsp@ac
+/plugin disable dart@claude-code-lsps
+/plugin install ac-lsp@ac
 ```
+
+The proxy runs on `node` (22.13 or later, the same floor as the `ac` plugin).
 
 A project that enables `php-lsp@claude-plugins-official` in its own `.claude/settings.json` turns it back on there. Override it in that project's `.claude/settings.local.json`:
 
@@ -29,7 +46,7 @@ A project that enables `php-lsp@claude-plugins-official` in its own `.claude/set
 }
 ```
 
-Intelephense itself comes from npm:
+Intelephense comes from npm, and Dart from the Dart or Flutter SDK on your `PATH`:
 
 ```
 npm install -g intelephense

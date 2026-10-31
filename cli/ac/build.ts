@@ -9,6 +9,10 @@ const OUT_FILE: string = join(OUT_DIR, "ac.js");
 const OUT_MANIFEST: string = join(OUT_DIR, "package.json");
 const ENTRY: string = join(SCRIPT_DIR, "src", "index.ts");
 const SHEBANG: string = "#!/usr/bin/env node\n";
+const PROXY_OUT_DIR: string = join(REPO_ROOT, "plugins", "ac-lsp", "bin");
+const PROXY_OUT_FILE: string = join(PROXY_OUT_DIR, "lsp-proxy.js");
+const PROXY_OUT_MANIFEST: string = join(PROXY_OUT_DIR, "package.json");
+const PROXY_ENTRY: string = join(SCRIPT_DIR, "src", "lsp-proxy-main.ts");
 
 /**
  * Emitted beside the bundle so Node reads `ac.js` as ESM on every version.
@@ -63,3 +67,43 @@ await writeFile(OUT_MANIFEST, OUT_MANIFEST_BODY);
 
 console.log(`Built ${OUT_FILE}`);
 console.log(`Wrote ${OUT_MANIFEST}`);
+
+// The ac-lsp plugin ships its own copy of the LSP proxy: a plugin cannot reach into another plugin's
+// directory at runtime, and the proxy needs nothing the ac bundle carries.
+await rm(PROXY_OUT_DIR, {
+    recursive: true,
+    force: true,
+});
+
+await mkdir(PROXY_OUT_DIR, {
+    recursive: true,
+});
+
+const proxyResult = await Bun.build({
+    entrypoints: [
+        PROXY_ENTRY,
+    ],
+    outdir: PROXY_OUT_DIR,
+    naming: {
+        entry: "lsp-proxy.js",
+    },
+    target: "node",
+    format: "esm",
+    minify: false,
+});
+
+if (!proxyResult.success) {
+    for (const log of proxyResult.logs) {
+        console.error(log);
+    }
+    process.exit(1);
+}
+
+const proxyBundled: string = await readFile(PROXY_OUT_FILE, "utf8");
+
+await writeFile(PROXY_OUT_FILE, `${SHEBANG}${proxyBundled}`);
+await chmod(PROXY_OUT_FILE, 0o755);
+await writeFile(PROXY_OUT_MANIFEST, OUT_MANIFEST_BODY);
+
+console.log(`Built ${PROXY_OUT_FILE}`);
+console.log(`Wrote ${PROXY_OUT_MANIFEST}`);
