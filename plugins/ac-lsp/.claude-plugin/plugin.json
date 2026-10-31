@@ -1,8 +1,8 @@
 {
     "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
     "name": "ac-lsp",
-    "version": "0.2.0",
-    "description": "Dart and Intelephense for Claude Code through a proxy that keeps each server in step with the disk, so edits from Bash, git, formatters and other sessions do not leave stale diagnostics.",
+    "version": "0.2.1",
+    "description": "Stops stale diagnostics in Claude Code: Dart and Intelephense behind a proxy that keeps each language server in step with the disk, so edits from Bash, git, formatters and other sessions are seen.",
     "author": {
         "name": "Anilcan Cakir",
         "email": "anilcan.cakir@gmail.com"
@@ -13,6 +13,8 @@
     "keywords": [
         "claude-code",
         "lsp",
+        "language-server",
+        "diagnostics",
         "dart",
         "flutter",
         "php",

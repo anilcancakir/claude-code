@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.36.0] - 2026-10-31
+
+### Added
+
+- `plugins/ac/docs/hooks.md`: every hook with its event, matcher, when it fires, what it does, whether it can block and how to switch it off, plus which hooks start a `claude -p` process. It replaces a 700-word README paragraph whose counts and per-event split had gone stale.
+- A guard against shell edits. `pretooluse-subagent-bash-guard.sh` denies, once per command and only for the four `ac:plan-worker-*` agents, a small replacement written as a `python3` script with `.replace(`, `sed -i` or `perl -pi` on one file, with a hint to use Edit; an identical retry, a rewrite across many files and any shape it cannot classify pass. `AC_BASH_EDIT_GUARD=0` turns it off. Measured over 7.6k transcripts since 1 October: the senior and junior-high workers made one shell edit for every two Edit calls, and a shell edit skips the user-visible diff, Claude Code's stale-write check and every hook matched on `Edit|Write|MultiEdit`. The four worker bodies carry the same rule in one sentence.
+- A size ceiling for auto-memory topic notes: after a write that grows a note past 40 lines or 3 KB, `posttooluse-memory-index-budget.sh` blocks with a condense instruction (`AC_MEMORY_NOTE_MAX_LINES`, `AC_MEMORY_NOTE_MAX_BYTES`). Across 65 projects 1,463 notes held 4.5 MB; about 90 ran past 80 lines and the largest was 75 KB, which costs about 19k tokens each time a session opens it.
+- opencode port, caught up and extended. The `opencode-ac` provenance job is green again: the `github-cli` skill, `execute/references/verification.md` and the 0.35.0 and 0.35.1 changes of the plan, execute, commit and coordinate skills, the criteria schema, the librarian and the worker agents are ported. New on opencode: the `flow`, `auto`, `product`, `frontend-design`, `design-md-writer` and `project-md-writer` skills, the `ac/design-director` agent, and the `/ac/flow`, `/ac/auto` and `/ac/product` commands. The core prompt now sizes a request S, M or L and sends M and L through `flow`. `src/away.ts` gives an `/ac/auto` run its marker at `.ac/state/active-auto.json`: a shell guard that allows only the outward git and gh verbs the request named and always denies the irreversible ones, a question denial, and a stop nudge that sequences the run to its gate; every guard fails open. `opencode/ac/README.md` covers install, presets and the provenance stamp.
+
+### Changed
+
+- `ac:librarian` runs at effort `high` instead of inheriting the session. Since 30 October 27 of its 40 runs inherited `xhigh` and cost $0.98 a run against $0.26 for the 13 that inherited `high`; Sonnet 5.5 starts its own review rounds at `xhigh`, which a read-only researcher bounded by a search budget does not need.
+- The README, `plugins/ac/README.md`, the marketplace and plugin descriptions, tags and keywords lead with the outcome instead of the mechanism, and correct what had drifted: 19 skills and no commands, 13 agents, 21 hooks (8 gated to an `ac` run or subagent, 13 registered for every session), and the MCP server's five tools that go through the kodizm service. `CONTRIBUTING.md` names the Node 22.13 floor and the opencode checks; `cli/ac/README.md` describes the real command surface.
+- The working rules' memory bullet now says when to save: only what a later session would get wrong without it, about the user or the project and never one run's log or status, under 40 lines. Since 1 October, by a count of distinct Write and Edit calls on `memory/*.md`, main threads made 1,251 writes, `general-purpose` subagents 33 and `ac` agents none, across 415 notes; about a sixth of the notes are dated audits or status.
+- opencode diagnostics run `dart analyze --fatal-infos` and the project's PHPStan beside `php -l` and `pint --test`, and stop starting new files once one call has spent its time budget.
+- `ac-lsp`: Intelephense's "declared but not used" hints are off, which was 3,062 of the 35,968 Intelephense diagnostic lines Claude saw since 1 October (8.5%, repeats included). Every other diagnostic stays on.
+
+### Fixed
+
+- The issue template config no longer lists contact links that pointed nowhere. The working rules' progress list is never a new file, and the `ac:auto` example in that sentence is gone.
+- `ac:github-cli` `references/write-ops.md` ran two bullets together.
+- The README claimed a verifier "cannot change what it is judging", that `/ac:plan` warns off a one-line fix, and that the MCP server is fully local.
+
 ## [0.35.1] - 2026-10-31
 
 ### Fixed

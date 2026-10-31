@@ -1,7 +1,7 @@
 {
     "$schema": "https://json.schemastore.org/claude-code-marketplace.json",
     "name": "ac",
-    "description": "Home of the ac plugin, a plan-then-execute workflow for Claude Code with model-tiered steps and four-layer verification, and of ac-lsp, Dart and Intelephense kept in step with the disk.",
+    "description": "Home of ac, a research, build and review workflow for Claude Code with model routing and an away mode, and of ac-lsp, Dart and Intelephense kept in step with the disk.",
     "owner": {
         "name": "Anilcan Cakir",
         "email": "anilcan.cakir@gmail.com"
@@ -10,8 +10,8 @@
         {
             "name": "ac",
             "source": "./plugins/ac",
-            "description": "Plans before it edits, routes each step to haiku, sonnet or opus by cost, verifies four ways per wave, and can finish a run unattended behind a read-only gate. Ships tiered subagents, a QA pass, authoring skills, local MCP tools, and gated fail-open hooks.",
-            "version": "0.35.1",
+            "description": "Describe a change and ac builds it: parallel research, slices routed to haiku, sonnet or opus by cost, an independent review, and an unattended mode that ends at a read-only gate. Adds a planner, a roadmap coordinator, a QA pass, authoring skills and gated, fail-open hooks.",
+            "version": "0.36.0",
             "author": {
                 "name": "Anilcan Cakir",
                 "email": "anilcan.cakir@gmail.com"
@@ -20,18 +20,25 @@
             "license": "MIT",
             "category": "development",
             "tags": [
+                "workflow",
                 "planning",
-                "code-review",
-                "subagents",
-                "spec-driven"
-            ],
-            "keywords": [
-                "claude-code",
-                "plan-then-execute",
-                "spec-driven",
                 "subagents",
                 "multi-agent",
                 "code-review",
+                "qa",
+                "model-routing"
+            ],
+            "keywords": [
+                "claude-code",
+                "subagents",
+                "multi-agent",
+                "plan-then-execute",
+                "spec-driven",
+                "code-review",
+                "qa",
+                "model-routing",
+                "away-mode",
+                "worktree",
                 "hooks",
                 "mcp"
             ]
@@ -39,8 +46,8 @@
         {
             "name": "ac-lsp",
             "source": "./plugins/ac-lsp",
-            "description": "Dart and Intelephense for Claude Code through a proxy that keeps each server in step with the disk, so edits from Bash, git, formatters and other sessions do not leave stale diagnostics.",
-            "version": "0.2.0",
+            "description": "Stops stale diagnostics in Claude Code: Dart and Intelephense behind a proxy that keeps each language server in step with the disk, so edits from Bash, git, formatters and other sessions are seen.",
+            "version": "0.2.1",
             "author": {
                 "name": "Anilcan Cakir",
                 "email": "anilcan.cakir@gmail.com"
@@ -51,11 +58,15 @@
             "tags": [
                 "lsp",
                 "dart",
-                "php"
+                "php",
+                "flutter",
+                "diagnostics"
             ],
             "keywords": [
                 "claude-code",
                 "lsp",
+                "language-server",
+                "diagnostics",
                 "dart",
                 "flutter",
                 "php",

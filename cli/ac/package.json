@@ -1,7 +1,7 @@
 {
     "name": "@anilcancakir/ac-cli",
-    "version": "0.35.1",
-    "description": "Companion CLI runtime for the ac Claude Code plugin. Hosts MCP servers, proxies kodizm, runs other AI CLIs.",
+    "version": "0.36.0",
+    "description": "Companion CLI runtime for the ac Claude Code plugin. Serves the ac MCP tools, checks plans, prices runs and searches the local history archive.",
     "private": true,
     "type": "module",
     "scripts": {
