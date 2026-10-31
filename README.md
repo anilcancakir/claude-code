@@ -79,7 +79,7 @@ Plan-then-execute is a crowded category. Three things here are not common:
 
 | | Count | |
 |---|---:|---|
-| Skills | 19 | `ac:flow`, `ac:plan`, `ac:execute`, `ac:auto`, `ac:coordinate`, `ac:qa`, `ac:product`, `ac:frontend-design`, `ac:commit`, `ac:install`, `ac:init-project`, plus eight authoring and reference skills |
+| Skills | 18 | `ac:flow`, `ac:plan`, `ac:execute`, `ac:auto`, `ac:coordinate`, `ac:qa`, `ac:product`, `ac:frontend-design`, `ac:commit`, `ac:install`, `ac:init-project`, plus seven authoring and reference skills |
 | Agents | 13 | four advisory, four tiered workers, two reviewers, one verifier, one QA tester, one coordinator lane |
 | Hooks | 21 | seven `PreToolUse`, four `PostToolUse`, four `Stop`, three `SessionStart`, one each of `SubagentStop`, `SessionEnd` and `UserPromptSubmit` |
 | Output styles | 1 | `ac:concise`, opt-in and never forced |
@@ -107,7 +107,7 @@ The same workflow runs on [opencode](https://opencode.ai): eight commands, thirt
 | `ac:frontend-design` | Builds web, iOS-feel, Material-feel and Flutter UI from a committed direction and a token plan, with `ac:design-director` deciding the look, an optional Google Stitch branch, and a `DESIGN.md` contract. |
 | `/ac:install` | Writes your global `CLAUDE.md`, generates the `my-coding` and `my-language` skills, merges `settings.json` parity, and offers the opt-in `ac:concise` output style. `--upgrade` re-applies it after a plugin update and asks only what is new. |
 | `/ac:init-project` | Investigates a project with parallel agents, or audits an existing setup (every `CLAUDE.md`, rule and the auto-memory, line by line), shows one proposal, and on approval writes `CLAUDE.md` (importing an `AGENTS.md`), `CLAUDE.local.md`, path-scoped `.claude/rules/*.md`, secret-file deny and routine-command allow rules, and a lint or format hook and a language server, after one `ac:oracle` review of the drafts. `--propose-only` writes everything under `.ac/init/proposed/` and changes nothing else. |
-| `/ac:commit` | Atomic commits with style detected from recent history, multi-file splitting and test pairing. |
+| `/ac:commit` | Atomic commits with style detected from recent history, multi-file splitting and test pairing; also rebase, squash and history tracing on request. |
 
 | Agent | Model | Role |
 |-------|-------|------|
@@ -125,7 +125,7 @@ The same workflow runs on [opencode](https://opencode.ai): eight commands, thirt
 | `ac:qa-tester` | sonnet | Runs the QA cases from a brief and writes a report with evidence. Never edits application code; writes only inside its run directory. |
 | `ac:lane` | sonnet | One roadmap bundle of a `/ac:coordinate` run, in its own git worktree: plans it with `ac:plan --lane`, executes it with `ac:execute --lane`, reports to the coordinator. Spawned only by `/ac:coordinate`. |
 
-Eight further skills write and audit the files Claude reads: `ac:skill-creator`, `ac:agent-creator`, `ac:claude-md-rules-creator`, `ac:project-md-writer`, `ac:design-md-writer`, `ac:prompt-writer`, plus `ac:git-master` for history work and `ac:github-cli`, which the librarian loads for GitHub research. The plan chain calls them when the work is itself a skill, an agent, a `CLAUDE.md` file, or a PROJECT.md or DESIGN.md.
+Seven further skills write and audit the files Claude reads: `ac:skill-creator`, `ac:agent-creator`, `ac:claude-md-rules-creator`, `ac:project-md-writer`, `ac:design-md-writer`, `ac:prompt-writer`, plus `ac:github-cli`, which the librarian loads for GitHub research. The plan chain calls them when the work is itself a skill, an agent, a `CLAUDE.md` file, or a PROJECT.md or DESIGN.md.
 
 ## Also in this marketplace
 

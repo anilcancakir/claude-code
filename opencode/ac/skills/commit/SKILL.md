@@ -1,71 +1,99 @@
 ---
 name: commit
-description: "Split the working-tree changes into atomic commits, preflight and push them. Mention --skip-preflight or --no-push in the request to skip a step."
+description: "Split the working-tree changes into atomic commits, preflight and push them; also rebase, squash and trace history. Add --no-push to the request when the user only asked to commit. Use when committing, rebasing, squashing, cherry-picking or tracing history; GitHub issues and PRs are ac/github-cli."
 ---
-<!-- ported-from: plugins/ac/skills/commit/SKILL.md sha256:1998bcc7147b10c20f1e27a1cdf6034c7a712a1fe899c8b933cbd23d447fb058 -->
+<!-- ported-from: plugins/ac/skills/commit/SKILL.md sha256:ff95ff15947b87d3b074a15f4977d3afdc283ffcb1181ffbba16be58276ccfb8 -->
 
 # commit
 
-Commit the current working-tree changes as atomic commits using the `git-master` skill.
+Commit the working tree as atomic commits in the repo's own style, then push. Rebase, squash and history tracing live in two references that load only when the request asks for them.
 
 The request text is the input; this skill takes no other arguments.
 
-## Phase 0: Parse the request
+## Phase 0: Parse the request and pick the mode
 
-1. Scan the request text for `--skip-preflight` and set `SKIP_PREFLIGHT = true | false`.
-2. Scan the request text for `--no-push` and set `NO_PUSH = true | false`. Also set `NO_PUSH = true` when `.ac/state/active-auto.json` exists with `harness: "opencode"` and a `session_id` equal to the `root_session_id` the `ac_session` tool returns: that is an `ac/auto` away run, which publishes only from its own close, after its verification gate, and only what the user named. A push from here would land before the gate has judged the work.
-3. Treat any other tokens as a free-form note; ignore them for now (the commit-style detection in Phase 2 produces the actual message).
+1. `--skip-preflight` in the request text sets `SKIP_PREFLIGHT`.
+2. `--no-push` in the request text sets `NO_PUSH`. Also set `NO_PUSH` when `.ac/state/active-auto.json` exists with `harness: "opencode"` and a `session_id` equal to the `root_session_id` the `ac_session` tool returns: that is an `ac/auto` away run, which publishes only from its own close, after its verification gate, and only what the user named. A push from here would land before the gate has judged the work. `NO_PUSH` holds in every mode.
+3. Mode, from the request:
+   - **COMMIT** (the default): Phases 1 to 5 below.
+   - **REBASE** (rebase, squash, autosquash, reorder, split a commit, cherry-pick, update the branch): read `references/rebase.md` and follow it instead of Phases 1 to 5.
+   - **HISTORY** (when was X added, who changed this, blame, bisect, history of a file): read `references/history.md` and follow it instead of Phases 1 to 5.
+4. Other tokens are a free-form note. When they name files or one unit of work, plan only those.
 
 ## Phase 1: Context
 
-Capture the current git state up front so the rest of the skill works from real data, not assumptions. Run these with the `shell` tool, in parallel where possible:
+Run these with the `shell` tool, in parallel; together they are the whole git picture, so do not gather it again.
 
-- Current branch: `git branch --show-current`
-- Working-tree status: `git status --short`
-- Staged diff stat: `git diff --staged --stat`
-- Unstaged diff stat: `git diff --stat`
-- Recent commits (30 for style detection): `git log -30 --pretty=format:"%h %s"`
-- Upstream tracking: `git rev-parse --abbrev-ref @{upstream} 2>/dev/null || echo "NO_UPSTREAM"`
-- Merge base with main/master: `git merge-base HEAD main 2>/dev/null || git merge-base HEAD master 2>/dev/null || echo "NO_BASE"`
-- Local-only commits ahead of base: `git log --oneline $(git merge-base HEAD main 2>/dev/null || git merge-base HEAD master 2>/dev/null)..HEAD 2>/dev/null || echo "NO_BASE"`
+- Branch: `git branch --show-current`
+- Status: `git status --short`
+- Staged stat: `git diff --staged --stat`
+- Unstaged stat: `git diff --stat`
+- Last 30 commits: `git log -30 --pretty=format:"%h %s"`
+- Upstream: `git rev-parse --abbrev-ref @{upstream} 2>/dev/null || echo "NO_UPSTREAM"`
+- Unpushed commits: `git log --oneline @{upstream}..HEAD 2>/dev/null || git log --oneline $(git merge-base HEAD main 2>/dev/null || git merge-base HEAD master 2>/dev/null)..HEAD 2>/dev/null || echo "NO_BASE"`
 
-If the working tree is clean (status output empty), stop with the message `Nothing to commit. Working tree clean.` and skip every remaining phase.
+A clean status means stop with `Nothing to commit. Working tree clean.` and skip every remaining phase.
 
 ## Phase 2: Preflight (skip if `SKIP_PREFLIGHT`)
 
-**Goal**: Catch obvious breakage before writing history.
+Catch breakage before writing history. The execute skill's Phase 4 sets the flag because its Phase 2d checked each wave's touched files and ran the project-wide typecheck, and its Phase 3a ran the build, the full suite and the linter; another pass here would be the same commands on the same tree.
 
-Skip this phase when `SKIP_PREFLIGHT = true`. The execute skill's Phase 4 sets this flag because its Phase 2d checked each wave's touched files and ran the project-wide typecheck, and its Phase 3a ran the build, the full suite and the linter across the whole project; another pass here would be the same commands on the same tree.
+1. Find the typecheck, test and lint commands in `CLAUDE.md` and `CLAUDE.local.md` (sections named `commands`, `scripts` or "Build / Test / Lint"), else the `package.json` `scripts` block. Use the project's own commands, not generic guesses.
+2. Run typecheck, then tests, then lint, each through the `shell` tool.
+3. On a failure: stop, print which step failed and the first ~30 lines of its output, stage nothing, commit nothing. The user fixes it and asks again.
+4. No commands found: print `Preflight: no commands found in CLAUDE.md or package.json; skipping.` and continue.
 
-When `SKIP_PREFLIGHT = false`:
+## Phase 3: Style and plan (blocking output)
 
-1. Read `CLAUDE.md` and `CLAUDE.local.md` if present to find typecheck, test, and lint commands (sections labelled `commands`, `scripts`, or under a "Build / Test / Lint" header). Fall back to the `package.json` `scripts` block when those files do not name the commands.
-2. Run typecheck, then tests, then linter in that order. Each one through the `shell` tool. Use the project's actual commands, not generic guesses.
-3. **Pass**: continue to Phase 3.
-4. **Fail**: stop. Print which preflight step failed and the first ~30 lines of the failure output. Do not commit. The user fixes the issue and asks for the commit again.
+**Style.** Classify the 30 subjects from Phase 1:
 
-If no preflight commands are discoverable, log `Preflight: no commands found in CLAUDE.md or package.json; skipping.` and continue. Do not block on missing config.
+| Style | Pattern | Example |
+|---|---|---|
+| `SEMANTIC` | `^(feat\|fix\|chore\|refactor\|docs\|test\|ci\|style\|perf\|build)(\(.+\))?:` | `feat: add login` |
+| `PLAIN` | description with no prefix, more than 3 words | `Add login page to the web app` |
+| `SENTENCE` | full past-tense sentence | `Implemented the new login flow` |
+| `SHORT` | 1 to 3 words | `format` |
 
-## Phase 3: Delegate to `git-master` (COMMIT MODE)
+Count each subject once, then take the first that holds, in this order: `SEMANTIC` 15 or more of 30, `SENTENCE` 15 or more, `PLAIN` 15 or more, `SHORT` 10 or more, else `PLAIN`. Print one line before planning: `Style: SEMANTIC (22 of 30), e.g. "feat(auth): add token refresh"`.
 
-**Goal**: Produce atomic commits in the repo's detected style.
+**Atomic units.** One commit per unit that can be reviewed and reverted alone: a function with its test, a migration with the model change that needs it. File count is a hint, not the rule: a rename across callers is one unit in many files, and two files can be two units. Different directories, component types (model, service, view) or concerns (UI, logic, config, test) usually mean separate units; keep files together only when splitting would leave a commit that does not build or cannot be reverted alone. A commit holding two units is a planning bug; split it. Apply this to every change set, not only the first.
 
-1. Load the `git-master` skill with the `skill` tool (id `git-master`). Its body carries the full COMMIT MODE workflow (Phase 0 parallel context, Phase 1 style detection with blocking output, Phase 2 branch safety, Phase 3 atomic-unit planning with blocking output, Phase 4 strategy and execution, Phase 5 verification).
-2. Honor every blocking output the skill prints: the STYLE DETECTION block and the COMMIT PLAN block both have to render in the chat before any `git commit` runs.
-3. Honor the skill's split discipline. Apply the atomic-unit rule to every change set, not only the first: one commit per unit that can be reviewed and reverted alone, with file count as a hint and not the rule. A commit holding two units is a planning bug; resplit before executing.
-4. Keep test files paired with their implementation in the same commit. The skill enumerates the test-path patterns.
-5. Stay on the current branch. Never rebase or rewrite published history without a separate explicit user request.
-6. Commit with the git identity exactly as `git config` has it: no `-c user.name`, `-c user.email` or `--author` override, and no `Co-Authored-By` or `Signed-off-by` trailer naming the operator.
+Tests go in the same commit as their implementation (`test_*.py` and `*_test.py` with `*.py`, `*.test.ts` and `*.spec.ts` with `*.ts`, `__tests__/*.ts` with `*.ts`, `tests/*.py` with `src/*.py`).
 
-The skill returns control after every planned commit has been created (verified via `git log --oneline <merge-base>..HEAD`).
+**Plan.** Print it before any `git commit`:
 
-## Phase 4: Push (skip if `NO_PUSH` or no upstream)
+```
+COMMIT PLAN: N files, K commits
+1. <message in the detected style>
+   - path/a.py
+   - path/a_test.py    together because: implementation and its test
+2. <message>
+   - path/b.py
+```
 
-**Goal**: Publish the new commits.
+Order by dependency, lowest first: utilities and types, models, services, endpoints, configuration. Check before executing: each commit is one unit, every multi-file commit has its "together because" line, every message matches the style, tests are paired. Replan on any miss.
 
-Skip this phase when `NO_PUSH = true` or the Phase 1 upstream check printed `NO_UPSTREAM`.
+## Phase 4: Commit
 
-1. **Branch guard**: if the current branch is `main` or `master`, print a warning and ask before pushing.
+Stay on the current branch, with the git identity exactly as `git config` has it: no `-c user.name`, `-c user.email` or `--author`, and no `Co-Authored-By` or `Signed-off-by` trailer naming the operator.
+
+Per commit, in plan order:
+
+```bash
+git add <files>
+git diff --staged --stat
+git commit -m "<message>"
+```
+
+A change that completes a commit not yet pushed (its hash is in the "Unpushed commits" list, and the branch is not `main` or `master`) may be `git commit --fixup=<hash>` instead; after all fixups run one `GIT_SEQUENCE_EDITOR=: git rebase -i --autosquash <base>`, where `<base>` is the upstream, or the merge base with `main`/`master` when there is none. A pushed commit is never a fixup target: rewriting published history is REBASE mode and needs its own request.
+
+Then verify with `git status --short` and `git log --oneline <base>..HEAD`.
+
+## Phase 5: Push and report
+
+Skip the push when `NO_PUSH` is set or Phase 1 printed `NO_UPSTREAM`.
+
+1. On `main` or `master`, ask first:
    ```
    question({
      questions: [{
@@ -78,15 +106,10 @@ Skip this phase when `NO_PUSH = true` or the Phase 1 upstream check printed `NO_
      }]
    })
    ```
-   On "Skip push", jump to Phase 5 with a note that the push was skipped.
-2. **Push strategy** (from the skill's Phase 5):
-   - New commits only, no rewritten history: `git push`.
-   - Fixup commits applied or rebase happened: the push rewrites published history, which a commit request did not ask for. Ask first with the `question` tool (header `Force push?`, options `Push with --force-with-lease` / `Skip push`), the same way the branch guard asks; on `Skip push`, jump to Phase 5 with a note. Plain `--force` is never used.
-3. Capture the push output (success line + remote ref). On failure, print the error and stop; the user resolves and asks again.
+2. `git push`. Plain `--force` is never used here.
+3. A rejected push (non-fast-forward) stops the run: print `git log <upstream>..HEAD` and `git log HEAD..<upstream>` and let the user decide.
 
-## Phase 5: Report
-
-Render one block at the end so the user sees the outcome at a glance:
+Then one report block:
 
 ```
 ## Commit Complete
@@ -95,25 +118,8 @@ Branch: <name> [<upstream> | local-only]
 Style: <SEMANTIC | PLAIN | SENTENCE | SHORT>
 Commits created: <N>
   <hash> <message>
-  <hash> <message>
 Push: <pushed to <remote>/<branch> | skipped (no upstream) | skipped (--no-push) | skipped (user declined)>
 Preflight: <PASS | SKIPPED | NOT CONFIGURED>
 ```
 
-When this skill was started from the execute skill's Phase 4, the report block is the handoff signal that the execution pipeline is done.
-
-## Error Handling
-
-- **Nothing to commit**: Phase 1 detected a clean tree. Print the clean-tree line and exit; do not run preflight, the skill, or push.
-- **Preflight failure**: print the failing step and first ~30 lines of output. Do not stage anything, do not load the skill, do not push. The user fixes and asks again.
-- **Skill split refused**: the skill prints a `COMMIT PLAN` that leaves two atomic units in one commit. Tell the user the split is too coarse, name the units that were merged, and re-run the planning step (the skill's own validation should catch this; this is a backstop).
-- **Merge conflicts mid-rebase**: the skill is in COMMIT MODE, not REBASE MODE; conflicts here mean a fixup or `--autosquash` raced with concurrent edits. Stop, print `git status`, surface the conflict to the user, and abort the operation (`git rebase --abort` if a rebase is in progress).
-- **Push rejected (non-fast-forward)**: the remote has commits the local branch does not. Stop. Do not force-push without an explicit user request. Print the remote's view (`git log <upstream>..HEAD` and `git log HEAD..<upstream>`) and let the user decide.
-- **Force-push needed on protected branch**: refuse and ask. Force-pushing `main`/`master` requires an explicit user "yes" via the `question` tool; plain `--force` stays off the table regardless.
-
-## Reminders
-
-- The `git-master` skill drives the actual commit planning and message writing. Phase 3 of this skill is the entry point; do not duplicate its style-detection or splitting logic here.
-- Apply the split rule to every change set, not only the first. One commit holding two atomic units is a planning bug.
-- Use `--force-with-lease` when rewriting history. Plain `--force` is not used by this skill.
-- The execute skill always starts this skill with `--skip-preflight` because its per-wave 4-layer check and the Phase 3 review already covered the same ground.
+When the execute skill's Phase 4 started this skill, the report block is the handoff signal that the execution pipeline is done. A conflict during an autosquash means the tree changed under it: print `git status`, run `git rebase --abort` and surface it.
