@@ -50,8 +50,8 @@ Plan-then-execute is a crowded category. Three things here are not common:
 
 ## While you are away
 
-- **Hand off mid-session.** Say you are leaving and run `/ac:auto`: it adopts the work already under way (a plan interview, a running execute, a written plan, or an ad-hoc task) instead of starting over, and ends on a verdict from the read-only verifier. It never pushes.
-- **Questions that time out.** The opt-in AFK timer (`/ac:install`, W.afk) lets an unanswered question time out after three minutes. The plugin answers it with a wait by default; only plan-side questions inside an `/ac:auto` run continue on their Recommended option, recorded as not user-approved. Execute BLOCKERs always wait for you.
+- **Hand off mid-session.** Say you are leaving and run `/ac:auto`: it carries the work already under way (a `/ac:coordinate` run, a plan interview or review, a running execute, a written plan, or an ad-hoc task) to its end instead of starting over or declining, asks you nothing while you are gone, logs every choice it made for you in `.ac/away/<slug>/decisions.md`, and ends on a verdict from the read-only verifier. It pushes, merges, opens a PR, releases or deploys only when your words named that action.
+- **Questions that time out.** The opt-in AFK timer (`/ac:install`, W.afk) lets an unanswered question time out after three minutes. The plugin answers it with a wait by default; inside an `/ac:auto` or `/ac:coordinate` run a question that is not a blocker continues on its Recommended option, recorded as not user-approved. Blockers wait for you. Under `/ac:auto` no question is asked in the first place.
 - **Session titles that follow the work.** Claude Code titles a session once, from its first prompt. The opt-in title hook (`AC_SESSION_TITLE=1`) renames it from its recent context on the first prompt and every tenth after it, with your own naming prompt or a format such as tracker keys, and never over a title you set with `/rename`.
 
 ## When not to use it
@@ -81,7 +81,8 @@ Plan-then-execute is a crowded category. Three things here are not common:
 |---------|--------------|
 | `/ac:plan` | Parallel research, an intent interview, a reuse and efficiency audit, then a tier-assigned plan at `.ac/plans/<slug>/plan.md`. Skill. |
 | `/ac:execute` | Runs an approved plan wave by wave with four-layer verification and a checkpoint commit per wave, closing with one code review and, when the plan asks for one, a QA pass after it. Skill. |
-| `/ac:auto` | Freezes completion criteria under a hash, chains plan into execute, then gates the result with a read-only verifier. Never pushes. Skill. |
+| `/ac:auto` | Away mode: carries the run already going (a coordinate run, a plan, an execute run, ad-hoc work) to its end without asking you anything, or starts a new one from the request, against completion criteria frozen under a hash, then gates the result with a read-only verifier. Pushes, merges or deploys only what you named. Skill. |
+| `/ac:product` | Product-manager pass for one idea: feasibility research with agents, a full interview, then `docs/prd/<slug>.md`, `docs/ROADMAP.md` and one `.ac/tasks/` file per bundle for `/ac:plan` and `/ac:coordinate`. Writes documents only; you start it and you pick what runs next. Skill. |
 | `/ac:coordinate` | Coordinator for a request too large for one plan: researches it, settles a roadmap with you, has `ac:oracle` review it, then runs each bundle through an `ac:lane` subagent in its own git worktree into a local `coord/<slug>` branch. Ends with an `ac:auto-verifier` verdict and one push you approve. Skill. |
 | `/ac:qa` | QA-engineer pass over a session's or a plan's work with the project's own test tool (playwright-cli as the fallback): functional, responsive, design and security checks, critical and high findings fixed with one bounded retest, learnings kept in `.ac/qa/learnings.md`. Skill. |
 | `/ac:install` | Writes your global `CLAUDE.md`, generates the `my-coding` and `my-language` skills, merges `settings.json` parity, and offers the opt-in `ac:concise` output style. `--upgrade` re-applies it after a plugin update and asks only what is new. |
@@ -93,6 +94,7 @@ Plan-then-execute is a crowded category. Three things here are not common:
 | `ac:explore` | haiku | Codebase research with `file:line` citations, at a `quick`, `medium` or `thorough` depth. |
 | `ac:librarian` | sonnet | External docs and OSS research with URL and permalink citations. |
 | `ac:oracle` | opus | Read-only reviewer: checks a plan, diff, report or config change against its sources, with a short advice mode. Never edits. |
+| `ac:design-director` | opus | Read-only design director: three visual directions, a committed token plan, or a screenshot critique. Returns decisions, never code. Called by `ac:frontend-design`. |
 | `ac:plan-worker-quick` | haiku | Mechanical single-file steps: config edits, renames, scaffolds. |
 | `ac:plan-worker-junior` | sonnet | Standard steps: one to three files, business logic, framework idiom. |
 | `ac:plan-worker-junior-high` | sonnet | Junior's model and effort, for steps the planner marks borderline on coupling or context depth. |
@@ -103,19 +105,21 @@ Plan-then-execute is a crowded category. Three things here are not common:
 | `ac:qa-tester` | sonnet | Runs the QA cases from a brief and writes a report with evidence. Never edits application code; writes only inside its run directory. |
 | `ac:lane` | sonnet | One roadmap bundle of a `/ac:coordinate` run, in its own git worktree: plans it with `ac:plan --lane`, executes it with `ac:execute --lane`, reports to the coordinator. Spawned only by `/ac:coordinate`. |
 
-The six authoring skills (`ac:skill-creator`, `ac:command-creator`, `ac:agent-creator`, `ac:claude-md-rules-creator`, `ac:prompt-writer`, `ac:git-master`) are what the plan chain calls when the work is itself a skill, command, agent or `CLAUDE.md` file.
+Two skills carry the default flow. `ac:flow` runs a medium or large request on the main thread: parallel research, an interview for open decisions, building in slices through the plan-worker tiers, and an oracle review, without writing a plan. `ac:frontend-design` builds web, iOS-feel, Material-feel and Flutter UI from a committed direction and a token plan, with `ac:design-director` deciding the look, an optional Google Stitch branch, and a `DESIGN.md` contract.
+
+The seven authoring skills (`ac:skill-creator`, `ac:agent-creator`, `ac:claude-md-rules-creator`, `ac:project-md-writer`, `ac:design-md-writer`, `ac:prompt-writer`, `ac:git-master`) are what the plan chain calls when the work is itself a skill, agent, `CLAUDE.md` file, or a PROJECT.md or DESIGN.md.
 
 ## Also in this marketplace
 
-`ac-php-lsp` runs Intelephense with `build/` and `.claude/worktrees/` excluded, so indexing finishes in Flutter monorepos and in checkouts that hold Claude Code worktrees. Disable the stock `php-lsp` first, then `/plugin install ac-php-lsp@ac`; [`plugins/ac-php-lsp/README.md`](plugins/ac-php-lsp/README.md) has the measurements and the per-project override.
+`ac-lsp` runs Dart and Intelephense through a small proxy that keeps each server in step with the disk. Claude Code tells a language server only about its own Edit and Write changes, so without it an edit from Bash, git, a formatter or another session leaves the server analysing old content. Intelephense also skips `build/` and `.claude/worktrees/`, so indexing finishes in Flutter monorepos. Disable the stock `php-lsp` and `dart` plugins first, then `/plugin install ac-lsp@ac`; [`plugins/ac-lsp/README.md`](plugins/ac-lsp/README.md) has the details and the per-project override.
 
 ## Repository layout
 
 ```
-plugins/ac/          The plugin: commands, skills, agents, hooks, output styles, references.
+plugins/ac/          The plugin: skills, agents, hooks, output styles, references.
 plugins/ac/docs/     Human-facing guides, such as the iTerm2 terminal setup.
 plugins/ac/cli/      Bundled MCP runtime (ac.js), built from cli/ac/.
-plugins/ac-php-lsp/  Intelephense plugin tuned for worktrees and Flutter builds.
+plugins/ac-lsp/      Dart and Intelephense behind a disk-sync proxy (bin/ built from cli/ac/).
 cli/ac/              CLI source, TypeScript on Bun.
 .claude-plugin/      Marketplace manifest.
 ```
