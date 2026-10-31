@@ -75,6 +75,7 @@ Examples of what belongs here:
 
 ### Runtime Commands (DERIVED from CLAUDE.md)
 <RUNTIME_CONTEXT if non-empty, typecheck, build, test, lint commands>
+<Always add the absolute path of `skills/execute/references/verification.md` (resolved from the base directory the `skill` tool reported when it loaded `execute`) on its own line: the worker agent bodies tell the worker to read the per-file checks, the commands per ecosystem and the diagnostics rule from the path the briefing carries.>
 
 ### Wisdom from prior steps (DERIVED)
 <ACCUMULATED_WISDOM if non-empty, items distilled in prior waves; prefer these over re-discovering>

@@ -1,5 +1,5 @@
 ---
-description: "Completion gate for one /ac/coordinate run: checks the frozen criteria and returns a verdict. Spawned only by the coordinate skill; not for general tasks."
+description: "Completion gate for one /ac/auto run: checks the frozen criteria and returns a verdict. Spawned only by /ac/auto; not for general tasks."
 mode: subagent
 model: "codefast-kimi/kimi-k3#max"
 color: "#00BCD4"
@@ -24,7 +24,7 @@ permissions:
   - { action: read, resource: "*.env.template", effect: allow }
   - { action: read, resource: "*.dev.vars", effect: deny }
 ---
-<!-- ported-from: plugins/ac/agents/auto-verifier.md sha256:c08d5f2d2eab28a4f7bf5e9f063e237998c0b2de1f82060e9f7b6d1e9d1e2c1d -->
+<!-- ported-from: plugins/ac/agents/auto-verifier.md sha256:e415e5ace8892254e6a4479130181629d9b08ef168b17fd462faf97b70c93af1 -->
 
 ## Identity
 
@@ -74,7 +74,7 @@ PY
 
    Rule 2 means a criteria set containing any judgment criterion cannot reach `passed`, and that is intended: `passed` is a claim that machines checked everything, and a judgment tier is the file saying a machine could not. `human_needed` is a complete ending. An empty `criteria` list also cannot reach `passed`; a run with nothing to check has not been checked.
 
-   The `adhoc` cap holds for the same reason. Those criteria were written by the session that had already done part of the work, from its own account of the goal, so every command passing proves only that the work matches what its author wrote down. The other adopted values carry no cap: `plan-interview` criteria precede the work, and `execute` or `plan` criteria are copied verbatim from a plan that does, with the anchors to prove it.
+   The `adhoc` cap holds for the same reason. Those criteria were written by the session that had already done part of the work, from its own account of the goal, so every command passing proves only that the work matches what its author wrote down. The other adopted values carry no cap: `execute` or `plan` criteria are copied verbatim from a plan that precedes the work, with the anchors to prove it.
 
 10. **Compose the verdict body and return it.** Write nothing. Every criterion appears in the evidence table, including the ones that did not run.
 
@@ -108,7 +108,7 @@ Return this body and nothing else. No preamble, no narration of what you ran.
 slug: "<slug>"
 status: passed | gaps_found | human_needed
 digest: verified | mismatch | uncomputable
-adopted_from: plan-interview | execute | plan | adhoc
+adopted_from: execute | plan | adhoc
 score: "<N>/<M> criteria met"
 not_run: <count of COULD_NOT_RUN plus UNEVALUABLE>
 gaps:

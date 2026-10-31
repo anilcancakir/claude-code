@@ -2,7 +2,7 @@
 name: commit
 description: "Split the working-tree changes into atomic commits, preflight and push them. Mention --skip-preflight or --no-push in the request to skip a step."
 ---
-<!-- ported-from: plugins/ac/commands/commit.md sha256:4680441615fd18d35bf290b877cdcc0c3b8e9d63207b0b23c517eb609fba61e7 -->
+<!-- ported-from: plugins/ac/skills/commit/SKILL.md sha256:1998bcc7147b10c20f1e27a1cdf6034c7a712a1fe899c8b933cbd23d447fb058 -->
 
 # commit
 
@@ -13,7 +13,7 @@ The request text is the input; this skill takes no other arguments.
 ## Phase 0: Parse the request
 
 1. Scan the request text for `--skip-preflight` and set `SKIP_PREFLIGHT = true | false`.
-2. Scan the request text for `--no-push` and set `NO_PUSH = true | false`.
+2. Scan the request text for `--no-push` and set `NO_PUSH = true | false`. Also set `NO_PUSH = true` when `.ac/state/active-auto.json` exists with `harness: "opencode"` and a `session_id` equal to the `root_session_id` the `ac_session` tool returns: that is an `ac/auto` away run, which publishes only from its own close, after its verification gate, and only what the user named. A push from here would land before the gate has judged the work.
 3. Treat any other tokens as a free-form note; ignore them for now (the commit-style detection in Phase 2 produces the actual message).
 
 ## Phase 1: Context
@@ -35,7 +35,7 @@ If the working tree is clean (status output empty), stop with the message `Nothi
 
 **Goal**: Catch obvious breakage before writing history.
 
-Skip this phase when `SKIP_PREFLIGHT = true`. The execute skill's Phase 4 sets this flag because its per-wave checks already ran typecheck, build, the full suite and the linter at every wave barrier, and its Phase 3a ran them again across the whole project; a third pass here would be the same commands on the same tree.
+Skip this phase when `SKIP_PREFLIGHT = true`. The execute skill's Phase 4 sets this flag because its Phase 2d checked each wave's touched files and ran the project-wide typecheck, and its Phase 3a ran the build, the full suite and the linter across the whole project; another pass here would be the same commands on the same tree.
 
 When `SKIP_PREFLIGHT = false`:
 

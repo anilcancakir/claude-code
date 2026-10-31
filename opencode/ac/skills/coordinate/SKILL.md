@@ -2,7 +2,7 @@
 name: coordinate
 description: "Turn a large request into a reviewed roadmap of bundles and drive them through parallel ac/lane worktrees. Use when a request is too large for one plan and splits into bundles that can run in parallel worktrees; ends in one approved push. Request text: <request> [--lanes N] [--max-workers N]."
 ---
-<!-- ported-from: plugins/ac/skills/coordinate/SKILL.md sha256:4b0dc4c73cd08efd83601d6bdeeac6ab082b52e827856a260f8818036a189baa -->
+<!-- ported-from: plugins/ac/skills/coordinate/SKILL.md sha256:01be03b5fd88f9ae8beb8bf4977e316134a134d98283a246f3b3b6ca2e756c3c -->
 
 # /ac/coordinate
 
@@ -55,7 +55,9 @@ archived, and forcing it is how plan directories were lost in earlier multi-sess
 the report.
 
 **Never push without a `Push?` answer.** Merges into `coord/<slug>` stay local. The one publish is Phase 8, after
-the owner picks a push option.
+the owner picks a push option. The exception is an `ac/auto` away run over this one (this session owns
+`.ac/state/active-auto.json`): the owner is gone, so no question is asked at all, `Push?` included, and Phase 8
+applies that run's outward rule instead.
 
 **Questions.** Only you call `question`; lanes have no such tool. Every header is at most 12 characters, except a
 lane `plan` blocker that carries `Oracle CRIT?` or `Premise failed?`, which you ask under that header verbatim.
@@ -511,7 +513,10 @@ open after the second goes to the Phase 8 report as an open finding, and so do a
 When `integration_head` equals `base_sha` nothing landed: skip the question. Otherwise one `question`,
 header `Push?`, naming the verdict status and the gaps: `Push` (`git push -u origin coord/<slug>`), `Push + PR`
 (the push, then `gh pr create --head coord/<slug>` with a body free of em and en dashes), `Keep local`. Recommend
-`Push` on `passed` and `Keep local` otherwise. This question always waits.
+`Push` on `passed` and `Keep local` otherwise. This question always waits, except under an `ac/auto` away run this
+session owns, where it is not asked: unless the verdict is `gaps_found`, apply `Push + PR` when the away marker's
+`allowed_outward` names `pr` or `merge` (each needs the push), `Push` when it names only `push`; otherwise
+`Keep local`, with the push recorded as deferred under `## Blocked` in the away run's decisions file.
 
 Then close: `git worktree remove <integration worktree>` (plain; a refusal leaves it and the report names it),
 `rm -f .ac/state/active-coordinate.json`, and report in at most 8 lines: slug, integration branch and head, the

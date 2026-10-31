@@ -2,7 +2,7 @@
 name: execute
 description: "Run an approved ac plan to completion, wave by wave, with cost-tiered workers, per-wave verification and a final review. Loaded by /ac/execute; the request carries a plan slug or path plus flags."
 ---
-<!-- ported-from: plugins/ac/skills/execute/SKILL.md sha256:ce399fbe6f21d7c0e75e89b128a4b57ed1597ffcdfc3491292aeaceb5dee6511 -->
+<!-- ported-from: plugins/ac/skills/execute/SKILL.md sha256:4bd97d482ae947ef01989201d9851ac33ef2a46b3bccd103557a2cf02954bddb -->
 
 # /ac/execute
 
@@ -14,7 +14,7 @@ Plan: the request this skill was loaded with. `/ac/execute` passes the user's ar
 
 These hold for the whole run, including after a compaction. Everything below this block is procedure; these are the bounds. They sit here because a compaction drops the loaded skill body: opencode keeps a summary plus the recent turns, and while you own a live marker the ac plugin re-injects a fixed copy of these bounds into every request and posts a note telling you to load this skill again (`../../src/run-guards.ts`). Until you do, a rule further down is gone from context on exactly the long runs that need it.
 
-**Turn termination.** Your turn ends on exactly one of: a `question` tool call, the Phase 4b execution summary, a named BLOCKER from `<auto_mode>`, or a one-line wait status while background subagents you spawned still run (each completion notification starts your next turn; never wait with a `sleep` or polling loop). Nothing else ends it. Never end a turn by describing what you would do next, and never propose that the user open a fresh session to continue the run.
+**Turn termination.** Your turn ends on exactly one of: a `question` tool call, the Phase 4b execution summary, a named BLOCKER from `<auto_mode>`, or a one-line wait status while background subagents or shells you started still run (each completion notification starts your next turn; never wait with a `sleep` or polling loop). Nothing else ends it. Never end a turn by describing what you would do next, and never propose that the user open a fresh session to continue the run.
 
 Under `LANE_MODE` (set by `--lane`: this run is an `ac/lane` session, which has no `question` tool and whose coordinator sees only its last message of each turn) the legal turn end is the lane status block defined in `../coordinate/references/lane-protocol.md`, and every turn ends with one. `status: WORKING` replaces the one-line wait status while workers run, `status: BLOCKED` replaces `question` at every BLOCKER (see `<auto_mode>`), `status: DONE` ends Phase 4b, and `status: FAILED` ends a halt that has no option to offer (plan not found, a truncated plan, a count mismatch). A lane never calls `question`, never pushes and never loads the `qa` skill. A `PAUSE` message can arrive mid-turn: from then on spawn no new worker and launch no new step, let the workers already running report, run Layer A to D on the steps they finished (commit the wave only when all of it verified), leave the rest unchecked, delete nothing, set `"paused": true` in the marker so a compaction meanwhile does not restart the steps, and end with `status: PAUSED`; `RESUME` removes that field and continues from the plan's unchecked steps.
 
@@ -104,12 +104,14 @@ code-review.
 | Wave checkpoint commit failed | BLOCKER | surfaces |
 | Verification failed on a step a later wave needs | BLOCKER | surfaces |
 
+When `.ac/state/active-auto.json` owned by this session (its `session_id` is this session's `root_session_id`) appears mid-run (`ac/auto` adopted the run), keep running in context with `AUTO_MODE` true and do not load yourself again. While that marker is live the BLOCKER rows above do not surface either: record the block under `## Blocked` in the marker's decisions file, skip the blocked step and the steps that depend on it, and keep every independent wave going. The final commit's `--no-push` keys on that file (Phase 4a); `ac/auto` pushes after its gate when the user named the push.
+
 `LANE_MODE` implies `AUTO_MODE`, so the 2a flow gate resolves as above. Under `LANE_MODE` no gate calls `question`: every BLOCKER row, plus each other site below that names one (the 1g and 2c plan-spec branch, the third briefing gap at 2e, 3c, and the 2f surface-first patch, all class `3c`), ends the turn with a `status: BLOCKED` block. Its `blocker` carries the class from `lane-protocol.md` (`2i`, `2j`, `3c` or `commit`), the question, the options the `question` call would have offered as single-token labels, and the recommended label. The marker stays, because the run resumes rather than ends. A `RESOLVE <label>` message continues as if the user had chosen that label, including that option's own marker handling: an option that stops the run deletes the marker and ends with `status: FAILED`.
 
 Flow gates resolve to the `(Recommended)` option and emit one heartbeat line. BLOCKER gates surface whatever the mode,
 because each needs judgment auto mode cannot supply: a dependency failure, three accumulated failures, a wrong plan, a
 commit failure hiding repo state, or lost downstream work. Before surfacing one, emit a line naming which class fired.
-A BLOCKER waits for the user's answer and never picks an option on its own. `AUTO_MODE` stays set through a BLOCKER
+Outside an away run, a BLOCKER waits for the user's answer and never picks an option on its own. `AUTO_MODE` stays set through a BLOCKER
 unless the user picks an option that stops the run.
 
 Heartbeat: one short line per phase, wave, and iteration transition, and per auto-resolved gate.
@@ -199,6 +201,9 @@ time with a `Z` reads as the future), `current_wave`, `wave_files`, `note`. Sche
 
 Lifecycle: written here, refreshed at 2c and 2f, deleted at 4a and on every branch that ends the run early. A halt
 that leaves it behind gets a stop-guard continuation, up to its caps, telling you to resume a run you meant to end.
+
+`.ac/state/active-auto.json` may coexist beside it. That marker belongs to `ac/auto`, not to this skill: never
+delete it, and read it only at Phase 4a, where it counts only when it names this session.
 
 ### 1f. TDD mode
 
@@ -389,7 +394,8 @@ made becomes a false "claim with no hunk" finding. Staging does not commit; 2g s
 Measured on one 24-step run, per-step verification spent 261 shell calls and 69 whole-file reads across
 389 turns, with the same test suite running scoped per step, again at the barrier, and a third time in
 Phase 3. So the barrier checks once what the whole wave touched, the workers check only their own files,
-and the full suite runs once, at Phase 3.
+and the full suite runs once, in the background, beside the Phase 3 reviewer. The shared table of who runs
+what, the per-ecosystem commands and the diagnostics rule are in `references/verification.md`.
 
 **This barrier is mandatory and cannot be skipped.** It is the only place a failure surfaces, because
 verification has no per-step checks.
@@ -411,11 +417,20 @@ sub-project's own `typecheck` script, or the language equivalent. A typecheck ru
 files cannot resolve the sub-project's deps, so what it reports for them is boundary noise. With no sub-project
 boundary, the project's typecheck from `RUNTIME_CONTEXT` is authoritative.
 
-1. Run the appropriate typecheck (sub-project local OR project-wide per the authority rule above), and read the
-   `<diagnostics file="...">` blocks the ac plugin appended to the edit results you and the workers saw (workers
-   quote theirs under Verification). Those blocks carry per-file checkers only (for example `php -l` and
-   `vendor/bin/pint --test` on `.php`, `dart analyze` on `.dart`); a TypeScript typecheck never runs per edit, so
-   the wave typecheck is its only run.
+1. Run the project-wide static analysis once for the wave (PHPStan, `tsc --noEmit` or `tsc -b`, `flutter analyze`;
+   sub-project local per the authority rule above), and read the `<diagnostics file="...">` blocks the ac plugin
+   appended to the edit results you and the workers saw (workers quote theirs under Verification). Those blocks
+   carry per-file checkers only (for example `php -l`, the project's PHPStan when `vendor/bin/phpstan` exists, and
+   `vendor/bin/pint --test` on `.php`, `dart analyze --fatal-infos` on `.dart`); a TypeScript typecheck never runs per edit, so the wave typecheck is its only run. It is the one
+   project-wide check a wave keeps, because a per-file analyzer cannot see a caller that a changed signature broke.
+   When the project has no project-wide analyzer (a Laravel app without PHPStan, plain JavaScript), add to item 3
+   the tests of the callers of every public symbol the wave modified (grep the definition name and every import
+   path, then read each hit), or run the full suite for this wave.
+
+   A `<diagnostics>` block is a hint, not a result: the plugin never hears about changes made by `shell`, git or a
+   formatter, and without `vendor/bin/phpstan` an absent block means syntax and style are clean, not that types and
+   symbols are. Before you act on one or call it stale, run the file's CLI analyzer
+   (`references/verification.md`, "Diagnostics are a hint").
 
    Classify every diagnostic before acting on it:
    - **Transient**: a `Cannot find module` for a dependency an install-bearing step of this wave adds, or a forward
@@ -434,8 +449,9 @@ boundary, the project's typecheck from `RUNTIME_CONTEXT` is authoritative.
    WARNING severity (regardless of class) is logged in Issues and continues.
 2. Run the project's build command (from `RUNTIME_CONTEXT` or `CLAUDE.md`). Exit code 0 required. For sub-project layouts: use the sub-project's `package.json` scripts (`bun run build` / `npm run build` / etc.) inside the sub-project dir.
 3. Run the format check and the linter on the wave's touched files, and the tests related to them (the tests the
-   workers wrote or edited, plus the tests that cover the changed source), once, for the wave, in parallel. Do not
-   run the full suite or a repo-wide lint here; Phase 3 runs them once. Verify once; do not re-run a check that
+   workers wrote or edited, plus the tests that cover the changed source), once, for the wave, in parallel. The
+   commands per ecosystem are in `references/verification.md`. Do not run the full suite or a repo-wide lint here;
+   Phase 3 runs them once. Verify once; do not re-run a check that
    already passed to build confidence. All selected tests must pass. A failure in a test the wave did not touch
    counts as pre-existing only after you saw it fail without the wave's change, or the project records it as known;
    name it under Issues either way. For sub-project layouts use the sub-project's command inside the sub-project dir.
@@ -642,7 +658,7 @@ wave on one failure unless 2i says a later wave depends on it.
 ### 2f. Remediation and wisdom
 
 Runs after 2e, once every step has a terminal status (verified, failed, or `pending-remediation`). The
-mutation check and the full suite both moved into 2d, which is the barrier now; what remains here is
+mutation check and the wave's scoped checks both moved into 2d, which is the barrier now; what remains here is
 what the orchestrator has to fix or record itself.
 
 1. **Remediate what the orchestrator owns**: `[CONTRADICTION]` reports, cross-file findings deferred from
@@ -726,9 +742,14 @@ Goal: gate the deliver with one independent code-review pass. It runs on the act
 
 ### 3a. Final automated pass
 
-Run typecheck, build, test, and lint across the whole project. All must pass before the reviewer spawns; fix a
-failure here and re-run before spawning. This is the only full-suite run of the execution: the wave barriers
-checked only what each wave touched.
+Run the build in the foreground; the reviewer reads code that must at least build. Then start the full test suite
+and the repo-wide lint with `background: true` on the `shell` call, in the same response that spawns the reviewer in
+3b (a project script whose name does not say test or lint, such as `make ci` or `composer qa`, goes under `timeout
+3600` so the stop guard counts it as work that will finish), so the two run side by side instead of the reviewer
+waiting minutes on the suite. This is the only full-suite run of the execution: the wave barriers checked only what
+each wave touched. Both must be green before Phase 4: when the background run notifies you, a failure there is a
+finding like the reviewer's and goes through 3c. When the reviewer finishes first, end the turn with a one-line
+status; the suite's notification starts the next one.
 
 Then open this run's section of the review log, once:
 
@@ -802,8 +823,8 @@ You are the filter, and you are a better one than the reviewer because you have 
 history and the wisdom file:
 
 - **CRITICAL**: fix it before Phase 4, with `edit` at each cited `file:line`, smallest correct fix, the
-  reviewer's `Fix:` line as guidance. Then re-run the per-file checks and related tests on what you changed,
-  and the full suite again only when the fix touched code other modules call.
+  reviewer's `Fix:` line as guidance. Then re-run the per-file checks and related tests on what you changed
+  (`references/verification.md`), and the full suite again only when the fix touched code other modules call.
 - **IMPORTANT**: fix when the fix is small and local; otherwise record it in `report.md` and add it to
   the plan's `## Deferred Ideas`.
 - **MINOR, or anything under confidence 50**: `report.md` notes. Do not touch the code for these.
@@ -852,8 +873,8 @@ evidence reaches the tester as `Existing evidence`, and the tester skips those s
    file is missing, append the printed block plus `result.txt missing`, and still apply the rule below. Append its
    `fixed files` to `MODIFIED_FILES` (nothing for `none`). The skill has already triaged and fixed by the 3c rules and
    run its one retest, so do not re-triage or re-run it here. When `fixed files` is not `none`, re-run 3a
-   (whole-project typecheck, build, test and lint) before 4a: those edits landed after the review and after 3a, and
-   4a commits with `--skip-preflight` on the strength of 3a having covered them.
+   (build, full suite and lint, in the foreground, since nothing else runs beside it) before 4a: those edits landed
+   after the review and after 3a, and 4a commits with `--skip-preflight` on the strength of 3a having covered them.
 4. Continue to 4a in the turn the block prints. Under `--plan` the block is a hand-back to this skill, not a turn end;
    ending the turn on it would meet the live marker's stop guard.
 
@@ -878,13 +899,13 @@ Goal: commit the work, generate the dev report, render the execution summary.
 commit would snapshot it as this plan's deliverable. Skip it, say so in one line, and record it in the report under
 `## Commits` with the path and the count. The plan's `Git context:` field is a hint; git state is authoritative.
 
-Otherwise load the `commit` skill and run it on the request `--skip-preflight`, plus `--no-push` when `LANE_MODE` is true (nobody is present to approve an outward-facing action, so a lane's final commit stays local; only the coordinator publishes):
+Otherwise load the `commit` skill and run it on the request `--skip-preflight`, plus `--no-push` when `LANE_MODE` is true or `.ac/state/active-auto.json` names this session (its `harness` is `opencode` and its `session_id` is this session's `root_session_id`; a marker without `harness` was written by Claude Code and is not this run's): an unattended run has nobody present to approve an outward-facing action, so the final commit stays local and the `commit` skill's branch guard, which only asks before pushing on `main` or `master`, never gets the chance to run. A lane checks `LANE_MODE` on its own because `.ac/` is gitignored, so its worktree never holds `active-auto.json`; only the coordinator publishes.
 
 ```
-skill({ id: "commit" })    // then continue with the request: --skip-preflight (plus --no-push under LANE_MODE)
+skill({ id: "commit" })    // then continue with the request: --skip-preflight (plus --no-push under LANE_MODE or an away marker)
 ```
 
-Outside a lane this is the final commit and it pushes as the `commit` skill does. Phase 2d and Phase 3 already covered the
+Without either, this is the final commit and it pushes as the `commit` skill does. Phase 2d and Phase 3 already covered the
 verification `--skip-preflight` refers to. A clean tree exits silently, which is fine.
 
 ### 4b. Report and summary

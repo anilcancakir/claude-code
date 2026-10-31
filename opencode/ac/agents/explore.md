@@ -65,7 +65,7 @@ permissions:
     resource: "*.dev.vars"
     effect: deny
 ---
-<!-- ported-from: plugins/ac/agents/explore.md sha256:7ffd86df319e01b21e6e45b05be4afee13a1ecbbf8c5bd30659a36b07e239901 -->
+<!-- ported-from: plugins/ac/agents/explore.md sha256:c75e70df46ca4e4f7dd838ae0a87354dd750e9204e567c5da3e587b36737dde7 -->
 
 ## Identity
 

@@ -24,13 +24,18 @@ const MIN_BLOCK_CHARS = 200
 const DEFAULT_TIMEOUT_MS = 20_000
 const TRUNCATED = "\n...[truncated]"
 
-/** Typecheck for ts/tsx/js stays in the execute wave verification: per-edit it would cost a whole project run. */
-const DEFAULT_CHECKERS: Readonly<Record<string, readonly Checker[]>> = {
+/**
+ * Typecheck for ts/tsx/js stays in the execute wave verification: per-edit it would cost a whole project run.
+ * --fatal-infos because most flutter_lints rules are info level and dart exits 0 on infos without it. phpstan is
+ * project-relative so a global install, which would judge by the wrong config, is never used.
+ */
+export const DEFAULT_CHECKERS: Readonly<Record<string, readonly Checker[]>> = {
     ".php": [
         { bin: "php", args: ["-l"] },
+        { bin: "vendor/bin/phpstan", args: ["analyse", "--no-progress", "--error-format=raw"] },
         { bin: "vendor/bin/pint", args: ["--test"] },
     ],
-    ".dart": [{ bin: "dart", args: ["analyze"] }],
+    ".dart": [{ bin: "dart", args: ["analyze", "--fatal-infos"] }],
 }
 
 export async function registerDiagnostics(
@@ -81,6 +86,8 @@ async function diagnose(
 ): Promise<string | undefined> {
     const blocks: string[] = []
     let remaining = MAX_BLOCK_CHARS
+    let skipped = 0
+    const started = performance.now()
 
     for (const path of paths) {
         if (remaining < MIN_BLOCK_CHARS) break
@@ -88,12 +95,22 @@ async function diagnose(
         const file = locate(path, root)
         if (file === undefined) continue
 
+        const runnable = (checkers[extname(file.real).toLowerCase()] ?? []).flatMap((checker) => {
+            const bin = resolveBin(checker.bin, root)
+            return bin === undefined ? [] : [{ bin, checker }]
+        })
+        if (runnable.length === 0) continue
+
+        // The per-checker timeout bounds one file; this bounds the whole call, so a patch over many files cannot
+        // stack one timeout per file onto a single tool result. A file already running is never cut short.
+        if (performance.now() - started >= timeoutMs) {
+            skipped++
+            continue
+        }
+
         // Checkers of one file are independent, so they run together; map order keeps the output deterministic.
         const results = await Promise.all(
-            (checkers[extname(file.real).toLowerCase()] ?? []).map((checker) => {
-                const bin = resolveBin(checker.bin, root)
-                return bin === undefined ? undefined : run(bin, checker, file.real, root, timeoutMs)
-            }),
+            runnable.map(({ bin, checker }) => run(bin, checker, file.real, root, timeoutMs)),
         )
         const failures = results.flatMap((failure) =>
             failure === undefined ? [] : [failure.replaceAll(file.real, file.relative)],
@@ -103,6 +120,13 @@ async function diagnose(
         const block = renderBlock(file.relative, failures.join("\n"), remaining)
         blocks.push(block)
         remaining -= block.length + 1
+    }
+
+    if (skipped > 0) {
+        const budget = `${Math.round(timeoutMs / 1000)}s`
+        blocks.push(
+            `[diagnostics: skipped ${skipped} file(s), the time budget of ${budget} was spent; run the analyzers on them yourself]`,
+        )
     }
 
     return blocks.length === 0 ? undefined : blocks.join("\n")
@@ -152,7 +176,9 @@ async function run(
             new Response(proc.stderr).text(),
             proc.exited,
         ])
-        if (timedOut) return `[${label}] timed out after ${Math.round(timeoutMs / 1000)}s`
+        if (timedOut) {
+            return `[${label}] timed out after ${Math.round(timeoutMs / 1000)}s; run it yourself before trusting or dismissing a result on this file`
+        }
         if (code === 0) return undefined
 
         // php -l prints the error on both streams where display_errors is on, and only "Errors parsing <file>" on

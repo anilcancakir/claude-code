@@ -1,8 +1,8 @@
 ---
 name: plan
-description: "Plan a change interactively: research in parallel, ask the decisions only you can make, then write a tiered plan. Writes no code. Use before work that crosses modules, carries design decisions, or is a refactor, or from a .ac/tasks/*.yaml file; hands off to the execute skill. Request text: [--auto] [--lane] [--slug <s>] [--revise] <topic description | .ac/tasks/*.yaml>."
+description: "Plan a change interactively: research in parallel, ask the decisions only you can make, then write a tiered plan. Writes no code. Use only when the user asks for a written plan or runs /ac/plan, or from a .ac/tasks/*.yaml file; hands off to the execute skill. Request text: [--auto] [--lane] [--slug <s>] [--revise] <topic description | .ac/tasks/*.yaml>."
 ---
-<!-- ported-from: plugins/ac/skills/plan/SKILL.md sha256:6064ab5279497d593f81723da47a402809ff7c9a4140b5adc649575cc08d0a3e -->
+<!-- ported-from: plugins/ac/skills/plan/SKILL.md sha256:d7e72a392eb6852f036c938c4cd7dfebc6f7e76584e4754124b3d03b3422fe5e -->
 
 # /ac/plan
 
@@ -102,8 +102,14 @@ Auto mode automates system-process flow gates. It never auto-decides user-prefer
 Flow gates resolve to the `(Recommended)` option and emit one heartbeat line, `Auto mode: <header> -> <option>`.
 Interview gates surface whatever the mode, because they are preference content rather than process flow; the Stage 3
 recommendations are grounded in Stage 1 research and Stage 2 deep read, and the user picks among them. BLOCKER gates
-surface whatever the mode, because they need judgment auto mode cannot supply. Nothing moves a surfaced gate on
-without the user: the turn ends on the `question` call and the run waits for the answer.
+surface whatever the mode, because they need judgment auto mode cannot supply. The only thing that moves a surfaced
+gate on without the user is an away marker: when this session owns `.ac/state/active-auto.json` (`harness: "opencode"` and a `session_id` equal to the `root_session_id` from `ac_session`; the user left and
+`ac/auto` carries this run), ask nothing. Take the `(Recommended)` option for every remaining node, record each in
+`## Risks Accepted` as `away, not user-approved` and in the marker's decisions file, and keep going; a BLOCKER gate
+records the block there and stops only the part it blocks, with one exception: `Oracle CRIT?` takes `Revise plan`
+at most once per run, and a second one in the same run is recorded under `## Risks Accepted` and blocks like any other
+BLOCKER. Every other session, plain `--auto` included, surfaces the
+gate: the turn ends on the `question` call and the run waits for the answer.
 
 The anti-runaway guards are the loop bounds, not this table: Stage 3d fires after three non-progress
 interview turns, and the chained execute run bounds its own side. Heartbeat is one short line
@@ -387,7 +393,7 @@ routing rule with its worked examples, the TDD and QA nodes, and the walk-down w
 
 Four bounds hold whatever that file says, because they govern the whole stage rather than one node:
 
-- **Every interview gate is asked.** Nothing continues one without the user's answer, whatever the mode. Under `LANE_MODE` a gate is returned to the coordinator, which asks the owner, and the lane waits for the answer.
+- **Every interview gate is asked.** Nothing continues one without the user's answer, whatever the mode, except in the session that owns the away marker (see `<auto_mode>`). Under `LANE_MODE` a gate is returned to the coordinator, which asks the owner, and the lane waits for the answer.
 - **The routing rule gates every question.** Before anything reaches the user, ask whether code can answer it (read
   the file), whether docs can (spawn `ac/librarian`), or whether only the user can (preference, business call, value
   judgment). Only the third class becomes a `question` call.
@@ -443,7 +449,9 @@ Wait for the oracle the way 1e waits, by ending the turn until its notification 
 Any CRITICAL finding is a BLOCKER: surface it before Stage 4 even under auto mode, via `question` (header
 `Oracle CRIT?`, options `Revise plan (Recommended)` back to Stage 3 at the affected decision / `Accept as Risk`,
 which locks the concern into `## Risks Accepted` / `Abandon`, which writes `abandoned.md` and exits). It is asked
-under auto mode as well, and the run waits for the answer.
+under auto mode as well, and the run waits for the answer, except in the session that owns the away marker, which
+takes `Revise plan` at most once per run; a second `Oracle CRIT?` in the same run is recorded under
+`## Risks Accepted` and blocks as the `<auto_mode>` BLOCKER rule says.
 
 **A REFUTED premise is its own branch, and it outranks the finding severities.** The oracle returns a `**Premises**`
 block classifying the claims your brief rested on. A premise it marks REFUTED, with a quote from the source that

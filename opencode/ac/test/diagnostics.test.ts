@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test"
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs"
+import { chmodSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { registerDiagnostics } from "../src/diagnostics.ts"
+import { DEFAULT_CHECKERS, registerDiagnostics } from "../src/diagnostics.ts"
 import type { DiagnosticsOptions } from "../src/diagnostics.ts"
 import { createFakeCtx } from "./fake-ctx.ts"
 import type { FakeCtx } from "./fake-ctx.ts"
@@ -126,6 +126,41 @@ describe("php checker", () => {
         const text = await complete(fake, "patch", { patchText }, { content: "Success" })
 
         expect(text).toContain('<diagnostics file="new-home.php">')
+    })
+})
+
+describe("default checkers", () => {
+    /** An executable that echoes its arguments and exits 1, standing in for a real analyzer. */
+    function stub(path: string, name: string): string {
+        const full = write(path, `#!/bin/sh\necho "stub ${name}: $@"\nexit 1\n`)
+        chmodSync(full, 0o755)
+        return full
+    }
+
+    test("a project phpstan runs with the hook's arguments", async () => {
+        const fake = await setup()
+        stub("vendor/bin/phpstan", "phpstan")
+        write("a.php", CLEAN_PHP)
+
+        const text = await complete(fake, "edit", { path: "a.php" }, { content: "ok" })
+
+        expect(text).toContain("[phpstan analyse --no-progress --error-format=raw]")
+        expect(text).toContain("stub phpstan: analyse --no-progress --error-format=raw")
+    })
+
+    phpTest("php -l reports before phpstan", async () => {
+        const fake = await setup()
+        stub("vendor/bin/phpstan", "phpstan")
+        write("a.php", BROKEN_PHP)
+
+        const text = await complete(fake, "edit", { path: "a.php" }, { content: "ok" })
+
+        expect(text.indexOf("[php -l]")).toBeGreaterThan(-1)
+        expect(text.indexOf("[php -l]")).toBeLessThan(text.indexOf("[phpstan"))
+    })
+
+    test("dart analyze runs with --fatal-infos", () => {
+        expect(DEFAULT_CHECKERS[".dart"]).toEqual([{ bin: "dart", args: ["analyze", "--fatal-infos"] }])
     })
 })
 
@@ -294,6 +329,47 @@ describe("result rewriting", () => {
         const text = await complete(fake, "edit", { path: "a.txt" }, { content: "ok" })
 
         expect(text).toContain("timed out")
+    })
+
+    test("a timed-out checker tells the model to run it itself", async () => {
+        const fake = await setup({
+            timeoutMs: 300,
+            checkers: { ".txt": [{ bin: process.execPath, args: ["-e", "setTimeout(() => {}, 30000)"] }] },
+        })
+        write("a.txt", "x")
+
+        const text = await complete(fake, "edit", { path: "a.txt" }, { content: "ok" })
+
+        expect(text).toContain("timed out after 0s; run it yourself before trusting or dismissing a result on this file")
+    })
+
+    test("a patch whose first file spends the time budget skips the later files and says how many", async () => {
+        const fake = await setup({
+            timeoutMs: 300,
+            checkers: { ".txt": [{ bin: process.execPath, args: ["-e", "setTimeout(() => {}, 30000)"] }] },
+        })
+        write("a.txt", "x")
+        write("b.txt", "x")
+        write("c.txt", "x")
+        const patchText = [
+            "*** Begin Patch",
+            "*** Add File: a.txt",
+            "+x",
+            "*** Add File: b.txt",
+            "+x",
+            "*** Add File: c.txt",
+            "+x",
+            "*** End Patch",
+        ].join("\n")
+
+        const started = performance.now()
+        const text = await complete(fake, "patch", { patchText }, { content: "Success" })
+
+        expect(performance.now() - started).toBeLessThan(1500)
+        expect(text).toContain('<diagnostics file="a.txt">')
+        expect(text).not.toContain('<diagnostics file="b.txt">')
+        expect(text).not.toContain('<diagnostics file="c.txt">')
+        expect(text).toEndWith("[diagnostics: skipped 2 file(s), the time budget of 0s was spent; run the analyzers on them yourself]")
     })
 
     test("only completed edit, write and patch calls are inspected", async () => {
