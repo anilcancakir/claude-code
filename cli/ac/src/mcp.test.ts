@@ -6,6 +6,8 @@ import { test, expect } from "bun:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { LOCAL_WEB_FETCH_TOOL_DEFINITION } from "./local-fetch.ts";
 import {
@@ -270,11 +272,17 @@ test("mcp proxy serves web-fetch and search-history without a bearer token", asy
 }, 30_000);
 
 test("mcp proxy --client opencode serves search-history with opencode-worded instructions", async () => {
-    const env = Object.fromEntries(
-        Object.entries(process.env)
-            .filter((e): e is [string, string] => e[1] !== undefined)
-            .filter(([k]) => k !== "KODIZM_MCP_TOKEN"),
-    );
+    // search-history ingests the history root before it answers; an empty CLAUDE_CONFIG_DIR keeps the
+    // call off the developer's real ~/.claude/projects, whose size would otherwise set the test's runtime.
+    const configDir = mkdtempSync(path.join(tmpdir(), "ac-mcp-history-"));
+    const env = {
+        ...Object.fromEntries(
+            Object.entries(process.env)
+                .filter((e): e is [string, string] => e[1] !== undefined)
+                .filter(([k]) => k !== "KODIZM_MCP_TOKEN"),
+        ),
+        CLAUDE_CONFIG_DIR: configDir,
+    };
 
     const transport = new StdioClientTransport(
         {
@@ -303,6 +311,7 @@ test("mcp proxy --client opencode serves search-history with opencode-worded ins
         expect(JSON.stringify(result.content)).not.toContain("Unknown tool");
     } finally {
         await client.close();
+        rmSync(configDir, { recursive: true, force: true });
     }
 }, 30_000);
 
