@@ -21,7 +21,8 @@ input="$(cat 2>/dev/null)" || exit 0
 # A payload that does not parse as JSON is uncertainty, so allow.
 printf '%s' "$input" | jq -e . >/dev/null 2>&1 || exit 0
 
-# Confirmed a plan-mode tool invocation (the matcher scopes us here). Steer to
-# /ac:plan and block.
-printf '%s\n' "Native plan mode blocked. Use /ac:plan (interview-driven, writes to .ac/plans/)." >&2
+# Confirmed a plan-mode tool invocation (the matcher scopes us here). Steer to the
+# working rules' sizing and block: ac:flow for M and L work, /ac:plan only when the
+# user asked for a written plan.
+printf '%s\n' "Native plan mode blocked. Size the request as the working rules say and run the ac:flow skill for M or L work; /ac:plan (writes to .ac/plans/) only when the user asks for a written plan." >&2
 exit 2

@@ -1,6 +1,6 @@
 ---
 description: "Plan a change interactively: research in parallel, ask the decisions only you can make, then write a tiered plan. Writes no code."
-when_to_use: "Use before work that crosses modules, carries design decisions, or is a refactor, or from a .ac/tasks/*.yaml file; hands off to /ac:execute."
+when_to_use: "Use only when the user asks for a written plan or runs /ac:plan, or from a .ac/tasks/*.yaml file; hands off to /ac:execute."
 argument-hint: "[--auto] [--lane] [--slug <s>] [--revise] <topic description | .ac/tasks/*.yaml>"
 effort: high
 ---
@@ -100,13 +100,12 @@ Flow gates resolve to the `(Recommended)` option and emit one heartbeat line, `A
 Interview gates surface whatever the mode, because they are preference content rather than process flow; the Stage 3
 recommendations are grounded in Stage 1 research and Stage 2 deep read, and the user picks among them. BLOCKER gates
 surface whatever the mode, because they need judgment auto mode cannot supply. The only thing that moves a surfaced
-gate on without the user is the AFK timeout column, and only in the session that owns the `ac:auto` marker
-(`.ac/state/active-auto.json`): the plugin's PostToolUse hook decides which session may continue, and every other
-session, plain `--auto` included, waits by ending the turn naming the open question. A continued gate takes the answers
-already given plus the `(Recommended)` option for the rest, and is recorded in `## Risks Accepted` as
-`timed out, not user-approved`. One case asks nothing: when this session owns that marker and its `note` records
-that no timer runs (ac:auto adopted the run with `AC_AFK_TIMER` unset), a question would wait for a user who has
-left, so Stage 3 locks every remaining node through 3d Force-finalize, recorded as `no timer, not user-approved`.
+gate on without the user is an away marker: when this session owns `.ac/state/active-auto.json` (the user left and
+`ac:auto` carries this run), ask nothing. Take the `(Recommended)` option for every remaining node, record each in
+`## Risks Accepted` as `away, not user-approved` and in the marker's decisions file, and keep going; a BLOCKER gate
+records the block there and stops only the part it blocks. Every other session, plain `--auto` included, surfaces the
+gate; when a question times out there, the PostToolUse hook tells it to wait by ending the turn naming the open
+question.
 
 The anti-runaway guards are the loop bounds, not this table: Stage 3d fires after three non-progress
 interview turns, and the chained `/ac:execute` bounds its own side. Heartbeat is one short line
