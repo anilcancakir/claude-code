@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- The memory-file gate and budget hooks decided that a session had run `/ac:init-project` or `/ac:install` by finding the command text anywhere in the transcript, so a session that had only read the hook source (or any file quoting the command) counted as an init run and the budget hook stayed silent. They now match only a typed slash command, the user line whose content opens with the command marker.
+
 ## [0.35.0] - 2026-10-31
 
 ### Changed

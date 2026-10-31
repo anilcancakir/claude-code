@@ -100,8 +100,15 @@ skill_read() {
         | grep -q -F -e "/skills/$1/SKILL.md\""
 }
 
+# A slash command is a user line whose content opens with the command marker; the same text quoted in a
+# tool result or a file the session read sits inside other content, with escaped quotes, and does not count.
+# A transcript of any size holds a few hundred such lines, so one fixed-string scan collects them and the
+# anchored pattern then runs over those lines only.
+typed_commands="$(grep -F '"role":"user","content":"<command-' "$transcript" 2>/dev/null)"
+
 command_run() {
-    grep -q -F "<command-name>/$1" "$transcript" 2>/dev/null
+    printf '%s\n' "$typed_commands" \
+        | grep -q -E "\"role\":\"user\",\"content\":\"<command-(message>|name>/)$1</command-"
 }
 
 skill_called "$skill" && exit 0

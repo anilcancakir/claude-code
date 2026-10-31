@@ -58,7 +58,9 @@ grew="$(printf '%s' "$input" | jq -r '
 [ "$grew" = "false" ] && exit 0
 
 transcript="$(printf '%s' "$input" | jq -r '.transcript_path // empty' 2>/dev/null)"
-if [ -n "$transcript" ] && [ -r "$transcript" ] && grep -q -F '<command-name>/ac:init-project' "$transcript" 2>/dev/null; then
+if [ -n "$transcript" ] && [ -r "$transcript" ] \
+    && grep -F '"role":"user","content":"<command-' "$transcript" 2>/dev/null \
+        | grep -q -E '"role":"user","content":"<command-(message>|name>/)ac:init-project</command-'; then
     exit 0
 fi
 

@@ -239,8 +239,34 @@ test("init-project drafts and sessions are left to the init proposal", () => {
 
     const file = create("CLAUDE.md", rows(130));
     const transcript = join(root, "session.jsonl");
-    writeFileSync(transcript, '{"type":"user","message":{"content":"<command-name>/ac:init-project</command-name>"}}\n');
+    writeFileSync(
+        transcript,
+        '{"type":"user","message":{"role":"user","content":"<command-message>ac:init-project</command-message>\\n<command-name>/ac:init-project</command-name>"}}\n',
+    );
     const withInit = JSON.stringify({ ...JSON.parse(payload(file)), transcript_path: transcript });
 
     expect(runHook(withInit)).toEqual(SILENT);
+});
+
+test("an init-project marker quoted in a tool result does not silence the budget", () => {
+    const file = create("CLAUDE.md", rows(130));
+    const transcript = join(root, "quoted.jsonl");
+    writeFileSync(
+        transcript,
+        JSON.stringify({
+            type: "user",
+            message: {
+                role: "user",
+                content: [
+                    {
+                        type: "tool_result",
+                        content: '{"role":"user","content":"<command-name>/ac:init-project</command-name>"}',
+                    },
+                ],
+            },
+        }) + "\n",
+    );
+    const quoted = JSON.stringify({ ...JSON.parse(payload(file)), transcript_path: transcript });
+
+    expect(blockReason(runHook(quoted).stdout)).toContain("130/120 lines");
 });
