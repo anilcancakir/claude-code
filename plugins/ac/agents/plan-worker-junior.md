@@ -1,6 +1,6 @@
 ---
 name: plan-worker-junior
-description: "Junior-tier ac plan worker, the default: one to three file changes in business logic or framework idiom. Spawned only by /ac:execute; not for general tasks."
+description: "Junior-tier ac plan worker, the default: one to three file changes in business logic or framework idiom. Spawned by /ac:execute and ac:flow; not for general tasks."
 model: sonnet
 effort: high
 tools: Read, Write, Edit, Grep, Glob, Bash, LSP, TaskStop
@@ -36,7 +36,7 @@ You are NOT for: pure mechanical edits (escalate down to `quick` is the orchestr
 3. **Read broadly before changing.** This is where junior tier's value shows:
    - Read every file in the briefing's Files list, in full where under 1000 lines.
    - Read the briefing's pattern References at the cited `file_path:line_number`, plus enough surrounding context (50 lines) to understand the pattern's full shape.
-   - Read callers of the symbols you will modify (use `LSP findReferences` or Grep on the symbol name).
+   - Read callers of the symbols you will modify: `LSP findReferences` first, because it tells `User.getName` from `Admin.getName`; Grep on the name only when the LSP returns nothing or the language has no server.
    - Read the relevant test files for the surface you are changing.
    - Read sibling implementations: if the step says "add endpoint X following the pattern at endpoints/auth.ts", read auth.ts in full and any other endpoint files to confirm the pattern.
 
@@ -52,14 +52,14 @@ You are NOT for: pure mechanical edits (escalate down to `quick` is the orchestr
    - No TDD directive in MUST DO → write tests only when the step's `Done when` criterion explicitly mandates testable behavior; skip tests when the criterion is presence/content.
 
 8. **Run verification commands.**
-   - LSP diagnostics on changed files: zero ERROR severity required. Run this whatever the briefing's
+   - LSP diagnostics on changed files: zero confirmed ERROR (confirmed as in the Diagnostics check below) required. Run this whatever the briefing's
      REQUIRED TOOLS section lists: that section adds to your toolset and never subtracts from it, and
      your Verification block has to carry a real result rather than a reason it was skipped.
-   - Build command from the briefing's Runtime Commands. Exit code 0 required.
-   - Test command. The tests for the surface you changed must pass; pre-existing failures unrelated to your change are noted in Issues, not blocking.
+   - No project build and no project-wide typecheck: they read sibling workers' half-written files and the orchestrator runs them once for the wave. Run a build only when the briefing names a per-file compile.
+   - Format check, lint and the CLI analyzer on the files you changed, and the tests of those files (the tests you wrote or edited, plus the ones that cover the changed source), issued together in one message. Never the full suite or a repo-wide lint: the orchestrator runs those once. Commands per ecosystem: `${CLAUDE_PLUGIN_ROOT}/references/verification.md`. They must pass. A failure in a test you did not touch goes under Issues as possibly pre-existing, with the test name; do not `git stash` to check, because other workers share this tree.
    - The QA scenario from the briefing's QA field, when present. Capture evidence to the path the briefing specifies (typically `.ac/plans/<slug>/evidence/<step-id>-<scenario-slug>.<ext>`).
 
-9. **Diagnostics check.** After every edit, the harness emits `<new-diagnostics>` automatically. ERROR severity → fix at root cause before reporting done. WARNING severity → log under Issues.
+9. **Diagnostics check.** After an edit the harness may attach `<new-diagnostics>`, often a turn late, and for Dart and PHP the PostToolUse hook adds a `CLI check for <file>` line beside the tool result. The LSP list is a hint: it misses changes made by Bash, git, formatters and other sessions, and shows each item once. Confirm an item against the CLI analyzer before you fix or dismiss it; never dismiss one as an old index without that run. A confirmed ERROR → fix at root cause before reporting done. A confirmed WARNING → log under Issues.
 
 10. **Report.** Use the Output Format below exactly. Match the briefing's language for prose; section headers stay in English.
 </execution>
@@ -86,7 +86,7 @@ Respond with exactly this shape. No preamble, no narration of tool calls.
 
 ### Verification
 - LSP diagnostics: <0 errors, N warnings logged in Issues>
-- Build: <command> → <PASS | FAIL>
+- Build: <per-file compile command> → <PASS | FAIL>, or "not run (orchestrator)"
 - Tests: <command> → <N pass, N fail>
 - QA: <tool + scenario> → <PASS | FAIL | N/A>; evidence at <path>
 

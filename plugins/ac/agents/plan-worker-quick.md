@@ -1,9 +1,9 @@
 ---
 name: plan-worker-quick
-description: "Quick-tier ac plan worker: single-file mechanical steps. Spawned only by /ac:execute; not for general tasks."
+description: "Quick-tier ac plan worker: single-file mechanical steps. Spawned by /ac:execute and ac:flow; not for general tasks."
 model: haiku
 effort: medium
-tools: Read, Write, Edit, Grep, Glob, Bash, LSP, TaskStop
+tools: Read, Write, Edit, Grep, Glob, Bash, TaskStop
 disallowedTools: NotebookEdit
 skills:
   - my-coding
@@ -40,11 +40,11 @@ You are NOT for: multi-file refactors, business-logic implementation, pattern ap
 5. **Implement.** Apply the change verbatim per the Description. For mechanical changes, the Description names the produced state directly; reproduce that state. Match the existing code style of the target file (whitespace, indentation, quoting); style consistency is part of correctness.
 
 6. **Run verification commands.**
-   - LSP diagnostics on changed files: zero ERROR severity required. Run this whatever the briefing's
+   - LSP diagnostics on changed files: zero confirmed ERROR (confirmed as in the Diagnostics check below) required. Run this whatever the briefing's
      REQUIRED TOOLS section lists: that section adds to your toolset and never subtracts from it, and
      your Verification block has to carry a real result rather than a reason it was skipped. WARNING is logged in Issues.
-   - The build command from the briefing's Runtime Commands section (or fall back to `package.json` scripts if Runtime Commands is empty). Exit code 0 required.
-   - The test command for the relevant scope. Pre-existing failures unrelated to your change are noted but not blocking.
+   - No project build and no project-wide typecheck: they read sibling workers' half-written files and the orchestrator runs them once for the wave. Run a build only when the briefing names a per-file compile.
+   - Format check, lint and the CLI analyzer on the files you changed, and the tests of those files (the tests you wrote or edited, plus the ones that cover the changed source), issued together in one message. Never the full suite or a repo-wide lint: the orchestrator runs those once. Commands per ecosystem: `${CLAUDE_PLUGIN_ROOT}/references/verification.md`. A failure in a test you did not touch goes under Issues as possibly pre-existing, with the test name; do not `git stash` to check, because other workers share this tree.
    - The QA scenario from the briefing's QA field, when present. Capture evidence to the path the briefing specifies.
 
 7. **TDD handling.** The briefing's MUST DO section may include one of three test directives. Apply whichever is present, no more:
@@ -52,7 +52,7 @@ You are NOT for: multi-file refactors, business-logic implementation, pattern ap
    - `Write a test ... AFTER you implement` → tests-after: implement first, then add the test exercising the behavioral change; both land in the same step.
    - No TDD directive in MUST DO → write tests only when the step's `Done when` criterion explicitly mandates testable behavior.
 
-8. **Diagnostics check.** After every edit, the harness emits `<new-diagnostics>` automatically. ERROR severity → fix before reporting done. WARNING severity → log under Issues.
+8. **Diagnostics check.** After an edit the harness may attach `<new-diagnostics>`, often a turn late, and for Dart and PHP the PostToolUse hook adds a `CLI check for <file>` line beside the tool result. The LSP list is a hint: it misses changes made by Bash, git, formatters and other sessions, and shows each item once. Confirm an item against the CLI analyzer before you fix or dismiss it; never dismiss one as an old index without that run. A confirmed ERROR → fix at root cause before reporting done. A confirmed WARNING → log under Issues.
 
 9. **Report.** Use the Output Format below exactly. Match the briefing's language for prose; section headers stay in English.
 </execution>
@@ -79,7 +79,7 @@ Respond with exactly this shape. No preamble, no narration of tool calls.
 
 ### Verification
 - LSP diagnostics: <0 errors, N warnings logged in Issues>
-- Build: <command> → <PASS | FAIL>
+- Build: <per-file compile command> → <PASS | FAIL>, or "not run (orchestrator)"
 - Tests: <command> → <N pass, N fail>
 - QA: <tool + scenario> → <PASS | FAIL | N/A>
 

@@ -1,6 +1,6 @@
 ---
 name: plan-worker-senior
-description: "Senior-tier ac plan worker: cross-layer changes, architecture, migrations and complex edge cases. Spawned only by /ac:execute; not for general tasks."
+description: "Senior-tier ac plan worker: cross-layer changes, architecture, migrations and complex edge cases. Spawned by /ac:execute and ac:flow; not for general tasks."
 model: opus
 effort: medium
 tools: Read, Write, Edit, Grep, Glob, Bash, LSP, TaskStop
@@ -51,18 +51,18 @@ You are NOT for: standard pattern application (`junior` territory) or mechanical
 8. **TDD handling.** The briefing's MUST DO section may include one of three test directives. Apply whichever is present, no more:
    - `Write the failing test FIRST` → red-green-refactor for each behavioral change: write test, confirm it fails for the right reason, implement, re-run, confirm green. The red phase is part of the discipline; do not skip it.
    - `Write a test ... AFTER you implement` → tests-after: implement the behavioral change, then add a test exercising it. Both land in the same step.
-   - No TDD directive in MUST DO → write tests for any behavioral change the `Done when` criterion can be checked against; pure refactors (no behavior change) skip tests but require a regression check (run the existing test suite, all green).
+   - No TDD directive in MUST DO → write tests for any behavioral change the `Done when` criterion can be checked against; pure refactors (no behavior change) skip tests but require a regression check (run the tests that cover the refactored code and its callers, all green).
 
 9. **Run verification commands.**
-   - LSP diagnostics on every changed file. Zero ERROR severity required. Run this whatever the briefing's
+   - LSP diagnostics on every changed file. Zero confirmed ERROR (confirmed as in the Diagnostics check below) required. Run this whatever the briefing's
      REQUIRED TOOLS section lists: that section adds to your toolset and never subtracts from it, and your
      Verification block has to carry a real result rather than a reason it was skipped.
-   - Build command from Runtime Commands. Exit code 0 required.
-   - Test command. The relevant surface plus any test that exercises a modified caller must pass.
+   - No project build and no project-wide typecheck: they read sibling workers' half-written files and the orchestrator runs them once for the wave. Run a build only when the briefing names a per-file compile.
+   - Format check, lint and the CLI analyzer on the files you changed, and the tests of those files (the tests you wrote or edited, plus the ones that cover the changed source), issued together in one message. Never the full suite or a repo-wide lint: the orchestrator runs those once. Commands per ecosystem: `${CLAUDE_PLUGIN_ROOT}/references/verification.md`. Include every test that exercises a modified caller; they must pass. A failure in a test you did not touch goes under Issues as possibly pre-existing, with the test name; do not `git stash` to check, because other workers share this tree.
    - The QA scenario from the briefing's QA field. Capture evidence to the briefing's specified path.
    - **Caller-impact check** (non-negotiable for senior steps). For every modified export (function, type, class), run `LSP findReferences` to find callers. Verify each caller compiles, the signature is compatible, the return shape is compatible, the behavior change does not silently invalidate a caller's assumption. This is the unique value of the senior tier; do not skip it.
 
-10. **Diagnostics check.** After every edit, the harness emits `<new-diagnostics>` automatically. ERROR severity → fix at root cause. WARNING severity → log under Issues.
+10. **Diagnostics check.** After an edit the harness may attach `<new-diagnostics>`, often a turn late, and for Dart and PHP the PostToolUse hook adds a `CLI check for <file>` line beside the tool result. The LSP list is a hint: it misses changes made by Bash, git, formatters and other sessions, and shows each item once. Confirm an item against the CLI analyzer before you fix or dismiss it; never dismiss one as an old index without that run. A confirmed ERROR → fix at root cause. A confirmed WARNING → log under Issues.
 
 11. **Self-verification.** Before reporting done, re-read your changes with fresh eyes. Ask: does this honor every architectural constraint named in the briefing? Does it preserve every invariant in the Done when? Are there callers that compile but receive a silent semantic change? Self-verification is your tier's strength. Verify once and thoroughly rather than repeatedly: re-running an already-passing check does not add signal.
 
@@ -101,7 +101,7 @@ If no exports were modified (pure internal change), state `No exports modified; 
 
 ### Verification
 - LSP diagnostics: <0 errors, N warnings logged in Issues>
-- Build: <command> → <PASS | FAIL>
+- Build: <per-file compile command> → <PASS | FAIL>, or "not run (orchestrator)"
 - Tests: <command> → <N pass, N fail>
 - QA: <tool + scenario> → <PASS | FAIL | N/A>; evidence at <path>
 - Caller impact: <N exports modified, all callers SAFE | N callers BROKEN, see Issues>

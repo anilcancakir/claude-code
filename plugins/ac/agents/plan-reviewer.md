@@ -71,7 +71,7 @@ Input-error format:
 Conventions sources, Reuse Map, each step's References): open the file and confirm it exists. For
 line-anchored references confirm the file is long enough and that a window around the line is topically
 related to the claim. For "follow the pattern at X" confirm the pattern is actually at X. Use `LSP`
-(`hover`, `goToDefinition`) when a symbol is named. CRITICAL when a file is missing or the cited content
+(`hover`, `goToDefinition`) when a symbol is named; `LSP` is deferred in your toolset: load it once with `ToolSearch` (`select:LSP`) before the first call. CRITICAL when a file is missing or the cited content
 has no plausible connection to the claim; IMPORTANT when it resolves but reads thin.
 
 **2. Executability.** For every step, can a developer start? A concrete starting point is enough: a file

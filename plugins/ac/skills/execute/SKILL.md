@@ -64,8 +64,8 @@ the only way its cost stays visible.
 - Auto-continue between verified steps and waves. Never ask "should I continue".
 - Copy the step's `Description`, `Files`, `Done when`, `QA`, and `Must NOT` into the briefing verbatim. Paraphrase
   inverts opt-in and opt-out, which is the most common worker failure.
-- The wave is the unit of every orchestrator action: one diff, one typecheck, one build, one test run, one linter
-  pass, one commit per wave. The two exceptions are per-step and stay per-step: the Layer C QA scenario, which is
+- The wave is the unit of every orchestrator action: one diff, one typecheck, one build, one test and lint run
+  scoped to the wave's touched files, one commit per wave. The full suite runs once, at Phase 3. The two exceptions are per-step and stay per-step: the Layer C QA scenario, which is
   the only evidence anything ran, and the Layer D checkbox, which the `Stop` guard reads as the progress signal.
 - All four verification layers run on every wave, and none of them is optional. Layer B means reading the wave
   diff hunk by hunk and matching every hunk to a worker's claim, not sampling.
@@ -96,7 +96,7 @@ here. Auto mode resolves flow gates; it never skips verification, the wave-after
 | Wave checkpoint commit failed | BLOCKER | surfaces | waits; re-surfaces when the user returns, never picks an option |
 | Verification failed on a step a later wave needs | BLOCKER | surfaces | waits; re-surfaces when the user returns, never picks an option |
 
-When `.ac/state/active-auto.json` owned by this session appears mid-run (ac:auto adopted the run), keep running in context with `AUTO_MODE` true and do not re-invoke yourself. The final commit's `--no-push` already keys on that file (Phase 4a).
+When `.ac/state/active-auto.json` owned by this session appears mid-run (ac:auto adopted the run), keep running in context with `AUTO_MODE` true and do not re-invoke yourself. While that marker is live the BLOCKER rows above do not surface either: record the block under `## Blocked` in the marker's decisions file, skip the blocked step and the steps that depend on it, and keep every independent wave going. The final commit's `--no-push` keys on that file (Phase 4a); `ac:auto` pushes after its gate when the user named the push.
 
 `LANE_MODE` implies `AUTO_MODE`, so the 2a flow gate resolves as above. Under `LANE_MODE` no gate calls `AskUserQuestion`: every BLOCKER row, plus each other site below that names one (the 1g and 2c plan-spec branch, the third briefing gap at 2e, 3c, and the 2f surface-first patch, all class `3c`), ends the turn with a `status: BLOCKED` block. Its `blocker` carries the class from `lane-protocol.md` (`2i`, `2j`, `3c` or `commit`), the question, the options the `AskUserQuestion` would have offered as single-token labels, and the recommended label. The marker stays, because the run resumes rather than ends. A `RESOLVE <label>` message continues as if the user had chosen that label, including that option's own marker handling: an option that stops the run deletes the marker and ends with `status: FAILED`.
 
@@ -360,8 +360,10 @@ made becomes a false "claim with no hunk" finding. Staging does not commit; 2g s
 
 Measured on one 24-step run, per-step verification spent 261 Bash calls and 69 whole-file reads across
 389 turns, with the same test suite running scoped per step, again at the barrier, and a third time in
-Phase 3. The wave suite is a strict superset of any scoped run, so a scoped run buys nothing the wave
-suite does not.
+Phase 3. So the barrier checks once what the whole wave touched, the workers check only their own files,
+and the full suite runs once, in the background, beside the Phase 3 reviewer. The shared table of who runs
+what, the per-ecosystem commands and the diagnostics rule are in
+`${CLAUDE_PLUGIN_ROOT}/references/verification.md`.
 
 **This barrier is mandatory and cannot be skipped.** It is the only place a failure surfaces, because
 verification has no per-step checks.
@@ -382,9 +384,16 @@ and not the orchestrator's cwd), that sub-project's local typecheck wins: `cd <s
 sub-project deps, so its diagnostics on those files are Class 5 boundary noise. With no sub-project boundary, the
 orchestrator's LSP is authoritative.
 
-1. Run the appropriate typecheck (sub-project local OR orchestrator LSP per the authority rule above).
+1. Run the project-wide static analysis once for the wave (PHPStan, `tsc --noEmit` or `tsc -b`, `flutter analyze`;
+   sub-project local per the authority rule above). It is the one project-wide check a wave keeps, because a
+   per-file analyzer cannot see a caller that a changed signature broke. When the project has no project-wide
+   analyzer (a Laravel app without PHPStan, plain JavaScript), add to item 3 the tests of the callers of every public
+   symbol the wave modified (`LSP findReferences` on each), or run the full suite for this wave.
 
-   Classify every diagnostic into one of six noise classes before acting on it. The classes, with what each one
+   An LSP diagnostic is a hint, not a result: the client never hears about changes made by Bash, git, a formatter
+   or another session, and it shows each diagnostic once. Before you act on one or call it stale, read the
+   `CLI check for <file>` line the PostToolUse hook left beside the edit, or run the file's CLI analyzer
+   (`verification.md`, "Diagnostics are a hint"). Then classify every diagnostic into one of six noise classes before acting on it. The classes, with what each one
    looks like and how to tell a transient from a real error, are at
    `${CLAUDE_SKILL_DIR}/references/lsp-noise-classes.md`. Classes 1 and 3 are transient and get re-run at the wave
    barrier; classes 2, 5, and 6 are persistent false positives that never block; class 4 is a real error and routes
@@ -392,15 +401,17 @@ orchestrator's LSP is authoritative.
 
    WARNING severity (regardless of class) is logged in Issues and continues.
 2. Run the project's build command (from `RUNTIME_CONTEXT` or `CLAUDE.md`). Exit code 0 required. For sub-project layouts: use the sub-project's `package.json` scripts (`bun run build` / `npm run build` / etc.) inside the sub-project dir.
-3. Run the full test suite and the repo-wide linter, once, for the wave. There is no scoped per-step run: the wave
-   suite covers every file the wave touched and more, so a scoped run before it is a check you are about to repeat.
-   Verify once; do not re-run a check that already passed to build confidence. All tests must pass; pre-existing
-   failures unrelated to the wave are noted, not blocking. For sub-project layouts use the sub-project's command
-   (`bun test` / `npm test`) inside the sub-project dir.
+3. Run the format check and the linter on the wave's touched files, and the tests related to them (the tests the
+   workers wrote or edited, plus the tests that cover the changed source), once, for the wave, in parallel. The
+   commands per ecosystem are in `verification.md`. Do not run the full suite or a repo-wide lint here; Phase 3
+   runs them once. Verify once; do not re-run a check that already passed to build confidence. All selected tests
+   must pass. A failure in a test the wave did not touch counts as pre-existing only after you saw it fail without
+   the wave's change, or the project records it as known; name it under Issues either way. For sub-project layouts
+   use the sub-project's command inside the sub-project dir.
 
    Filter what the run admits into context, because a passing suite's output is noise you pay for on every later
    turn: pipe through `tail -20`, or the runner's own quiet or summary flag. On failure, admit the failing cases and
-   nothing else. A failure the wave suite catches that no single step explains is a cross-step interaction, which
+   nothing else. A failure the wave's checks catch that no single step explains is a cross-step interaction, which
    routes to remediation below rather than to one step's retry.
 
 **Layer B: Manual Code Review (read the wave diff, do not skip)**
@@ -562,7 +573,7 @@ wave on one failure unless 2i says a later wave depends on it.
 ### 2f. Remediation and wisdom
 
 Runs after 2e, once every step has a terminal status (verified, failed, or `pending-remediation`). The
-mutation check and the full suite both moved into 2d, which is the barrier now; what remains here is
+mutation check and the wave's scoped checks both moved into 2d, which is the barrier now; what remains here is
 what the orchestrator has to fix or record itself.
 
 1. **Remediate what the orchestrator owns**: `[CONTRADICTION]` reports, cross-file findings deferred from
@@ -646,13 +657,13 @@ Goal: gate the deliver with one independent code-review pass. It runs on the act
 
 ### 3a. Final automated pass
 
-Run build, test, and lint across the whole project. All must pass before the reviewer spawns; fix a failure here and
-re-run before spawning.
-
-Skip this pass when the last wave's Layer A already ran the same commands and nothing has been edited since.
-That is the ordinary case at the end of a clean run, and re-running a suite that passed minutes ago to build
-confidence is exactly what Layer A's own rule forbids. Run it when any remediation, retry or plan-spec fix
-landed after that wave's barrier, which is when the tree genuinely differs from what was verified.
+Run the build in the foreground; the reviewer reads code that must at least build. Then start the full test suite
+and the repo-wide lint with `run_in_background: true` in the same message that spawns the reviewer in 3b (a
+project script whose name does not say test or lint, such as `make ci` or `composer qa`, goes under `timeout 3600`
+so the Stop guard counts it as work that will finish), so the
+two run side by side instead of the reviewer waiting minutes on the suite. Both must be green before Phase 4: when
+the background run notifies you, a failure there is a finding like the reviewer's and goes through 3c. When the
+reviewer finishes first, end the turn with a one-line status; the suite's notification starts the next one.
 
 Then open this run's section of the review log, once:
 
@@ -726,7 +737,8 @@ You are the filter, and you are a better one than the reviewer because you have 
 history and the wisdom file:
 
 - **CRITICAL**: fix it before Phase 4, with `Edit` at each cited `file:line`, smallest correct fix, the
-  reviewer's `Fix:` line as guidance. Then re-run 3a scoped to what you changed.
+  reviewer's `Fix:` line as guidance. Then re-run the per-file checks and related tests on what you changed
+  (`verification.md`), and the full suite again only when the fix touched code other modules call.
 - **IMPORTANT**: fix when the fix is small and local; otherwise record it in `report.md` and add it to
   the plan's `## Deferred Ideas`.
 - **MINOR, or anything under confidence 50**: `report.md` notes. Do not touch the code for these.
@@ -774,7 +786,7 @@ evidence reaches the tester as `Existing evidence`, and the tester skips those s
    file is missing, append the printed block plus `result.txt missing`, and still apply the rule below. Append its
    `fixed files` to `MODIFIED_FILES` (nothing for `none`). The skill has already triaged and fixed by the 3c rules and
    run its one retest, so do not re-triage or re-run it here. When `fixed files` is not `none`, re-run 3a
-   (whole-project build, test and lint) before 4a: those edits landed after the review and after 3a, and 4a commits
+   (build, full suite and lint, in the foreground, since nothing else runs beside it) before 4a: those edits landed after the review and after 3a, and 4a commits
    with `--skip-preflight` on the strength of 3a having covered them.
 4. Continue to 4a in the turn the block prints. Under `--plan` the block is a hand-back to this skill, not a turn end;
    ending the turn on it would meet the live marker's `Stop` guard.

@@ -60,7 +60,7 @@ Examples of what belongs here:
   Conflicts BETWEEN steps are not yours to detect: you do not read the plan, so `ac:plan-reviewer`
   catches them before execution and the orchestrator resolves whatever survives at the wave barrier.
 - **Report within-spec pragmatic deviations**: when your implementation deviates from the plan's EXACT prescription but stays within scope (added a defense-in-depth layer the plan did not specify; narrowed a config field; adjusted a snippet shape; introduced a small helper interface to fix a type-system gap), record each deviation in a `### Deviations` section of your Output using the structured 4-field format (Plan prescription / What I did / Why / Touches Must NOT). Within-spec adaptations driven by TDD red phase, framework-completeness gaps, type-system gaps, or library API quirks are encouraged, the orchestrator's Layer B reads this section to triage adaptation-vs-scope-drift transparently. **Crucial distinction**: if the deviation touches YOUR `Must NOT` or a plan-wide guardrail, that is a `[CONTRADICTION]` instead, use the previous bullet's tag and STOP. The Deviations section is for WITHIN-SPEC good-judgment adaptations only. When the implementation matches the plan EXACTLY (no deviation), omit the Deviations section entirely.
-- After implementing, run the verification commands and report results in the Output Format.
+- After implementing, verify only what you touched: format check, lint and the CLI analyzer on your Files, and the tests of those files, in parallel. Never the full suite or a repo-wide lint; the orchestrator runs those. Treat an LSP diagnostic as a hint and confirm it with the CLI analyzer before you fix or dismiss it (`verification.md`; your agent body carries its path). Report the results in the Output Format.
 
 ## 5. MUST NOT DO
 
@@ -126,5 +126,5 @@ The TDD directive is inserted based on the plan's `## Codebase Conventions` → 
 2. Read the target files named in `Files to Modify`.
 3. Apply wisdom from Section 6.
 4. Implement per the briefing's references and contract fields.
-5. Run verification commands (Layer A: LSP + build + test).
+5. Run the touched-file checks and related tests (`verification.md`; your agent body carries its path).
 6. Report in the Output Format the agent body specifies.

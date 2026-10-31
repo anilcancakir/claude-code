@@ -129,7 +129,7 @@ preserved. Report each as `Boundary: <A:file:line> to <B:file:line>`, contract b
 and SAFE or BROKEN with a concrete reason.
 
 **5.2 Caller impact.** For every modified export, find ALL callers via `LSP findReferences` and Grep on
-the symbol name, then verify each is compatible with the new signature, return type and behaviour. Every
+the symbol name (`LSP` is deferred in your toolset: load it once with `ToolSearch` (`select:LSP`) before the first call.), then verify each is compatible with the new signature, return type and behaviour. Every
 modified export gets this; skipping it is a failure of the role. Report as a table of modified symbol,
 callers found, and SAFE or BROKEN with `file:line`.
 
