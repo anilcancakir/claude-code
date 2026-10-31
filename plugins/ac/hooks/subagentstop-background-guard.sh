@@ -23,7 +23,7 @@
 # is somebody else's, and TaskStop checks no owner, so claiming it would stop the orchestrator's
 # dev server.
 #
-# Scope and bounds. It acts on ac agents only (`ac:<name>`, or one of the twelve bare names for an
+# Scope and bounds. It acts on ac agents only (`ac:<name>`, or one of the thirteen bare names for an
 # agent installed unprefixed), never on the main thread, and blocks at most once per agent_id:
 # the `stop_hook_active` flag and a marker under TMPDIR both enforce that, so a subagent that
 # ignores the instruction is let through on its next stop instead of looping. Every other
