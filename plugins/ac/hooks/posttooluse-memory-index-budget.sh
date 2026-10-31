@@ -16,6 +16,16 @@
 #   AC_MEMORY_INDEX_MAX_LINES       80
 #   AC_MEMORY_INDEX_MAX_BYTES       10240
 #   AC_MEMORY_INDEX_MAX_LINE_BYTES  150
+#   AC_MEMORY_NOTE_MAX_LINES        40
+#   AC_MEMORY_NOTE_MAX_BYTES        3072
+#
+# The same hook also bounds topic notes, <config dir>/projects/<project>/memory/<name>.md for any
+# name but MEMORY.md and the _index-<theme>.md sub-indexes (those are the overflow the MEMORY.md block asks for, so a
+# pointer list is not condensed to one fact). A note is read in full
+# whenever a session opens it, and a long one is usually a log, an audit or a runbook that belongs in
+# the repository. Past the two NOTE limits the block reason tells Claude to condense it to one
+# durable fact. Only a write that grew the file counts: an Edit or MultiEdit whose new text is not
+# longer than the old one passes, so an already-long note can be trimmed or repaired.
 
 set -u
 
@@ -30,6 +40,8 @@ limit() {
 max_lines="$(limit "${AC_MEMORY_INDEX_MAX_LINES:-}" 80)"
 max_bytes="$(limit "${AC_MEMORY_INDEX_MAX_BYTES:-}" 10240)"
 max_line_bytes="$(limit "${AC_MEMORY_INDEX_MAX_LINE_BYTES:-}" 150)"
+note_max_lines="$(limit "${AC_MEMORY_NOTE_MAX_LINES:-}" 40)"
+note_max_bytes="$(limit "${AC_MEMORY_NOTE_MAX_BYTES:-}" 3072)"
 
 # 0. Read the payload. jq is the only parser; without it, or without a payload, allow.
 input="$(cat 2>/dev/null)" || exit 0
@@ -38,13 +50,57 @@ command -v jq >/dev/null 2>&1 || exit 0
 
 file="$(printf '%s' "$input" | jq -r '.tool_input.file_path // empty' 2>/dev/null)" || exit 0
 
-# 1. Only the auto-memory index matters; every other write, a repository's own memory/MEMORY.md
-#    included, passes untouched.
+# 1. Only the auto-memory index and its topic notes matter; every other write, a repository's own
+#    memory/MEMORY.md included, passes untouched. A note sits directly in the memory directory, so a
+#    deeper path is not one.
 case "$file" in
     */projects/*/memory/MEMORY.md) ;;
+    */projects/*/memory/_index-*.md) exit 0 ;;
+    */projects/*/memory/*.md)
+        case "${file%/*}" in
+            */projects/*/memory) ;;
+            *) exit 0 ;;
+        esac
+        note=1
+        ;;
     *) exit 0 ;;
 esac
+# The project directory is one segment under projects/, so a repository that happens to live under a
+# projects/ directory (projects/app/docs/memory/guide.md) is not an auto-memory directory.
+proj="${file%/memory/*}"
+case "${proj##*/projects/}" in */*) exit 0 ;; esac
 [ -f "$file" ] || exit 0
+
+# 1b. A topic note: block only a write that grew it, so an already-long note can be trimmed or
+#     repaired without being blocked on every touch. An Edit or MultiEdit that removed at least as
+#     much as it added did not grow the file; a Write always counts.
+if [ "${note:-}" = 1 ]; then
+    grew="$(printf '%s' "$input" | jq -r '
+        if .tool_name == "Edit" then ((.tool_input.new_string // "") | length) > ((.tool_input.old_string // "") | length)
+        elif .tool_name == "MultiEdit" then ([.tool_input.edits[]? | (.new_string // "" | length) - (.old_string // "" | length)] | add // 0) > 0
+        else true end' 2>/dev/null)" || grew=true
+    [ "$grew" = "false" ] && exit 0
+
+    lines="$(awk 'END { print NR }' "$file" 2>/dev/null)" || exit 0
+    bytes="$(wc -c < "$file" | tr -d ' ')" || exit 0
+
+    over=""
+    [ "$note_max_lines" -gt 0 ] && [ "$lines" -gt "$note_max_lines" ] && over=1
+    [ "$note_max_bytes" -gt 0 ] && [ "$bytes" -gt "$note_max_bytes" ] && over=1
+    [ -n "$over" ] || exit 0
+
+    reason="${file##*/} is over the memory note budget (${lines}/${note_max_lines} lines,"
+    reason="${reason} ${bytes}/${note_max_bytes} bytes): ${file}."
+    reason="${reason} Condense it now, before continuing. A memory note records one durable fact that a later"
+    reason="${reason} session would get wrong without it: what was decided or found, why (the cause), and when"
+    reason="${reason} it applies; cut it to that. Move a log, an audit, a runbook or reference material into a"
+    reason="${reason} document in the repository and leave the note pointing at it. If an existing note already"
+    reason="${reason} covers the topic, fold this one into it instead of adding another. The MEMORY.md line for"
+    reason="${reason} the note stays one short hook. Never delete a note whose facts you have not carried over."
+
+    jq -n --arg reason "$reason" '{decision: "block", reason: $reason}' 2>/dev/null
+    exit 0
+fi
 
 # 2. Measure the file as the CLI will load it. LC_ALL=C makes awk count bytes, and the limit is
 #    stated to Claude in bytes too: a Turkish letter is two, so a line that looks short enough

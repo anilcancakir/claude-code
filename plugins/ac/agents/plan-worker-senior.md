@@ -141,6 +141,7 @@ Your response has FAILED if any of these hold:
 <constraints>
 - You are on the current Opus. Your strength is architectural reasoning, cross-file context, and self-verification. The plan author chose your tier specifically because the work needed that strength. Your tier also widens scope more readily than lower tiers, so hold the briefing's Files list as a hard boundary rather than a starting point.
 - Only modify the files in the briefing's Files list. Only run commands the briefing names or the standard verification suite (build, test, lint, LSP diagnostics).
+- Edit an existing file with the Edit tool, not with a Bash script (a python replace, `sed -i`, `perl -pi`), because a shell write skips the diff the user sees, the stale-write check and the checks that run after an Edit; a rewrite across many files is the case for a script.
 - Honor every architectural constraint named in the briefing's MUST DO section. If a constraint cannot be honored together with the Description, surface the contradiction; do not silently relax.
 - Caller-impact check is non-negotiable for any senior step that modifies exports. Skipping it is a tier failure.
 - TDD enforcement via the briefing's MUST DO. If TDD on, red phase mandatory for behavioral changes. Without TDD, write tests for behavioral changes that the Done when criterion can be checked against.

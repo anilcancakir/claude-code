@@ -26,6 +26,15 @@
 #   d. recursive `grep` from a repository root (a directory holding `.git`, the cwd when no path is
 #      given): grep ignores .gitignore, which is how `grep -ril x .` over a 44 GB repository ran for
 #      31 minutes. `rg` and the Grep tool honour it, so the deny points there.
+#   e. for the four plan workers only (they hold the Edit tool), a small in-place replace through the
+#      shell: `sed -i` or `perl -i` with exactly one file operand, or an inline python script that
+#      calls `.replace(` and writes (at most 3 write calls). Since 2026-10-01 the workers made about 7k
+#      such edits against 17k Edit calls, and each one skipped the diff, Claude Code's stale-write check
+#      and every hook matched on Edit|Write. A command that starts with `find`, `xargs`, `for`, `while`
+#      or `until`, or carries `-exec`, `git ls-files`, `git grep -l`, a glob or a directory walk, marks a
+#      rewrite across many files and passes. The deny fires once per command:
+#      a marker under ${TMPDIR:-/tmp}/ac-bash-edit-guard/, keyed on session id and the command's cksum,
+#      lets the identical command through the second time. AC_BASH_EDIT_GUARD=0 turns this rule off.
 #
 # How it reads the command. Command words and separators are found on the quote-blanked text
 # (lib/blank-quotes.sh), so `rg -n "find / -name" docs` is a search for a string and not a root
@@ -64,6 +73,13 @@ case "$agent_type" in
         | plan-code-review | ac:plan-code-review) history=1 ;;
     *) history=0 ;;
 esac
+
+case "$agent_type" in
+    plan-worker-quick | ac:plan-worker-quick | plan-worker-junior | ac:plan-worker-junior \
+        | plan-worker-junior-high | ac:plan-worker-junior-high | plan-worker-senior | ac:plan-worker-senior) worker=1 ;;
+    *) worker=0 ;;
+esac
+session_id="$(printf '%s' "$input" | jq -r '.session_id // empty' 2>/dev/null)"
 
 cmd="$(printf '%s' "$input" | jq -r '.tool_input.command // empty' 2>/dev/null)"
 [ -n "$cmd" ] || exit 0
@@ -195,6 +211,94 @@ scan_src='
     return { flag => \%flag, val => \%val, pos => \@pos };
   }
 
+  # Rule e. Any sign of a rewrite across many files lets every shell edit in the command pass. Path
+  # enumeration is read from the raw text on purpose, since a stray hit only allows; a loop or finder is a
+  # command word of a segment (found below), so the word "find" or "for" in a comment or a PHP call is not one.
+  my $bulk = $raw =~ m{os\.(?:walk|scandir)|\b(?:r?glob|listdir|iterdir)\s*\(|-exec\b|git\s+ls-files|git\s+grep\b[^\n;|&]*\s-[A-Za-z]*l} ? 1 : 0;
+
+  # The one file a sed or perl edit writes, as written in the command, or undef when that is not
+  # certain: no in-place flag, an unknown option, an operand count other than one, a glob or a variable.
+  sub one_file {
+    my $t = shift;
+    my ($r, $b) = ($t->{r}, $t->{b});
+    return undef if $r eq "" || $r =~ /[*?\[\]{}\$`\\]/;
+    if ($b =~ /^(["\x27])_*\1$/) {
+      $r = substr($r, 1, length($r) - 2);
+    } elsif ($b =~ /["\x27]/) {
+      return undef;
+    }
+    return $r eq "" ? undef : $r;
+  }
+
+  sub sed_target {
+    my $args = shift;
+    my ($inplace, $script, $done, @ops) = (0, 0, 0);
+    for (my $i = 0; $i < @$args; $i++) {
+      my $b = $args->[$i]{b};
+      if ($done || $b !~ /^-./) { push @ops, $args->[$i]; next; }
+      if ($b eq "--") { $done = 1; next; }
+      if ($b =~ /^--([a-z-]+)(=.*)?$/) {
+        my ($name, $inline) = ($1, $2);
+        if ($name eq "in-place") { $inplace = 1; next; }
+        if ($name eq "expression" || $name eq "file") { $script = 1; $i++ unless defined $inline; next; }
+        if ($name eq "line-length") { $i++ unless defined $inline; next; }
+        next if $name =~ /^(?:quiet|silent|regexp-extended|separate|null-data|zero-terminated|posix|debug|sandbox|follow-symlinks|unbuffered|binary)$/;
+        return undef;
+      }
+      my @c = split //, substr($b, 1);
+      for (my $j = 0; $j < @c; $j++) {
+        my $ch = $c[$j];
+        if ($ch eq "i" || $ch eq "I") {
+          $inplace = 1;
+          # BSD sed takes the backup suffix as its own word, and an empty one is written -i "".
+          $i++ if $j == $#c && $i + 1 < @$args && $args->[$i + 1]{b} =~ /^(["\x27])\1$/;
+          last;
+        }
+        if ($ch =~ /^[efl]$/) { $script = 1 if $ch ne "l"; $i++ if $j == $#c; last; }
+        next if $ch =~ /^[nErsuz]$/;
+        return undef;
+      }
+    }
+    return undef unless $inplace;
+    shift @ops unless $script;
+    return @ops == 1 ? one_file($ops[0]) : undef;
+  }
+
+  sub perl_target {
+    my $args = shift;
+    my ($inplace, $script, $done, @ops) = (0, 0, 0);
+    for (my $i = 0; $i < @$args; $i++) {
+      my $b = $args->[$i]{b};
+      # perl stops reading switches at the first word that is not one.
+      if ($done || $b !~ /^-./) { push @ops, $args->[$i]; $done = 1; next; }
+      if ($b eq "--") { $done = 1; next; }
+      return undef if $b =~ /^--/;
+      my @c = split //, substr($b, 1);
+      for (my $j = 0; $j < @c; $j++) {
+        my $ch = $c[$j];
+        if ($ch eq "i") { $inplace = 1; last; }
+        if ($ch eq "e" || $ch eq "E") { $script = 1; $i++ if $j == $#c; last; }
+        if ($ch =~ /^[MmI]$/) { return undef if $j == $#c; last; }
+        if ($ch eq "0" || $ch eq "l") { $j++ while $j + 1 < @c && $c[$j + 1] =~ /^[0-9]$/; next; }
+        next if $ch =~ /^[pnawsStTUWXc]$/;
+        return undef;
+      }
+    }
+    return undef unless $inplace;
+    shift @ops unless $script;
+    return @ops == 1 ? one_file($ops[0]) : undef;
+  }
+
+  # An inline python script (heredoc, -c or piped) that replaces text and writes it back, with no more
+  # write calls than a single-file edit needs. An analysis script, with no write, passes.
+  sub python_edits {
+    return 0 unless index($raw, ".replace(") >= 0;
+    my $writes = () = $raw =~ /(?<!sys\.stdout)(?<!sys\.stderr)\.write(?:_text)?\(/g;
+    my $open_w = $raw =~ /\bopen\([^()]*,\s*(?:mode\s*=\s*)?["\x27]w\+?["\x27]/ ? 1 : 0;
+    return 0 unless $writes || $open_w;
+    return $writes <= 3 ? 1 : 0;
+  }
+
   my (@segs, @toks);
   my $start = -1;
   my $n = length $blank;
@@ -220,6 +324,16 @@ scan_src='
 
   my @found;
   my $reserved = qr/^(?:!|then|do|else|elif|if|while|until|time|command|exec|nohup|sudo|env|builtin)$/;
+
+  # A segment that opens with a loop or a finder marks a rewrite across many files.
+  for my $seg (@segs) {
+    for my $t (@$seg) {
+      my $w = substr($blank, $t->[0], $t->[1] - $t->[0]);
+      next if $w =~ /^(?:!|do|then|else|elif|if|time|command|exec|nohup|sudo|env|builtin)$/ || $w =~ /^[A-Za-z_][A-Za-z0-9_]*=/ || $w =~ /^\d*[<>]/;
+      $bulk = 1 if $w =~ /^(?:find|xargs|for|while|until|select)$/;
+      last;
+    }
+  }
 
   for my $seg (@segs) {
     my @w;
@@ -260,6 +374,16 @@ scan_src='
     my $cmd = $w[$k]{b};
     $cmd =~ s{.*/}{};
     my @args = @w[$k + 1 .. $#w];
+
+    if ($cmd eq "sed" || $cmd eq "perl") {
+      my $file = $bulk ? undef : $cmd eq "sed" ? sed_target(\@args) : perl_target(\@args);
+      push @found, join("\t", "EDIT", $cmd, $file) if defined $file;
+      next;
+    }
+    if ($cmd =~ /^python(?:\d+(?:\.\d+)*)?$/) {
+      push @found, join("\t", "EDIT", $cmd, "-") if !$bulk && python_edits();
+      next;
+    }
 
     if ($cmd eq "find") {
       my $j = 0;
@@ -375,6 +499,21 @@ Find the needle with python3 -I -c and mmap.find with a bounded window, a few hu
 $(mmap_recipe)
 
 Replace FILE with $path and NEEDLE with the literal text. Widen the window only when a hit is cut off." ;;
+        EDIT)
+            [ "$worker" = 1 ] || continue
+            [ "${AC_BASH_EDIT_GUARD:-1}" = 0 ] && continue
+            case "$session_id" in '' | *[!A-Za-z0-9_-]*) continue ;; esac
+            sum="$(printf '%s' "$cmd" | cksum 2>/dev/null | awk '{print $1 "-" $2}')"
+            case "$sum" in [0-9]*-[0-9]*) ;; *) continue ;; esac
+            marker_dir="${TMPDIR:-/tmp}/ac-bash-edit-guard"
+            marker="$marker_dir/$session_id-$sum"
+            # The identical command a second time is a deliberate script; let it run.
+            [ -e "$marker" ] && continue
+            { mkdir -p "$marker_dir" && : > "$marker"; } 2>/dev/null || continue
+            [ "$path" = - ] && target="this file" || target="$path"
+            deny "ac subagent guard: make this replacement in $target with the Edit tool rather than a '$name' write. Edit shows the change as a diff, refuses to write over a file that changed since you read it, and keeps the checks that run after an edit in step; a shell write skips all three.
+
+If this writes a new file, an output elsewhere, or rewrites many files, send the same command again and it runs." ;;
     esac
     IFS="$nl"
 done

@@ -324,6 +324,145 @@ test("a recursive grep below the root, rg from the root, or a repo-less tree pas
     expect(runHook(payload("grep -r foo .", undefined))).toEqual(silent);
 });
 
+// The single-file shell replace rule. TMPDIR is a fresh directory per test, so the once-per-command
+// markers never leak between tests.
+function runEditHook(stdin: string, extraEnv: Record<string, string> = {}): HookResult {
+    const result = Bun.spawnSync(["sh", HOOK], {
+        stdin: Buffer.from(stdin),
+        env: {
+            ...process.env,
+            HOME: home,
+            TMPDIR: root,
+            ...extraEnv,
+        },
+    });
+
+    return {
+        exitCode: result.exitCode,
+        stdout: result.stdout.toString(),
+    };
+}
+
+function editPayload(command: string, agentType?: string, sessionId = "s-edit-1"): string {
+    return JSON.stringify({
+        hook_event_name: "PreToolUse",
+        tool_name: "Bash",
+        tool_input: { command },
+        cwd: project,
+        session_id: sessionId,
+        agent_type: agentType,
+        agent_id: agentType === undefined ? undefined : "a1124775fb6dfdb02",
+    });
+}
+
+const PYTHON_REPLACE = [
+    "python3 - <<'EOF'",
+    "p='src/app.php'",
+    "s=open(p).read()",
+    "s=s.replace('old_name','new_name')",
+    "open(p,'w').write(s)",
+    "EOF",
+].join("\n");
+
+const SINGLE_FILE_EDITS = [
+    "sed -i 's/foo/bar/' src/app.php",
+    "sed -i '' -e 's/foo/bar/' src/app.php",
+    "sed -i.bak 's/foo/bar/' src/app.php",
+    "sed --in-place -e 's/foo/bar/' src/app.php",
+    "perl -pi -e 's/foo/bar/' src/app.php",
+    "perl -pi.bak -e 's/foo/bar/' src/app.php",
+    "perl -p -i -e 's/foo/bar/' src/app.php",
+    PYTHON_REPLACE,
+    "python3 -c \"p='a.txt'; s=open(p).read(); open(p,'w').write(s.replace('x','y'))\"",
+    "cat <<'EOF' | python3 -\nfrom pathlib import Path\np=Path('a.txt')\np.write_text(p.read_text().replace('x','y'))\nEOF",
+    // The words find, for and glob in a comment or a PHP call are not a loop or a finder.
+    [
+        "python3 - <<'EOF'",
+        "# find the old name and replace it; a fix for the bug, no glob involved",
+        "p='src/app.php'",
+        "s=open(p).read()",
+        "open(p,'w').write(s.replace('->find(', '->findOrFail('))",
+        "EOF",
+    ].join("\n"),
+];
+
+test("a single-file shell replace is denied for the plan workers with the Edit rewrite", () => {
+    for (const agent of ["ac:plan-worker-senior", "plan-worker-quick"]) {
+        for (const command of SINGLE_FILE_EDITS) {
+            const reason = denyReason(runEditHook(editPayload(command, agent, `s-${agent.replace(":", "-")}`)));
+
+            expect({ command, mentionsEdit: reason.includes("Edit tool") }).toEqual({ command, mentionsEdit: true });
+            expect(reason).toContain("same command again");
+        }
+    }
+});
+
+test("the identical command passes on its second attempt, and a new session is denied again", () => {
+    const first = runEditHook(editPayload(PYTHON_REPLACE, "ac:plan-worker-junior", "s-a"));
+    denyReason(first);
+
+    expect(runEditHook(editPayload(PYTHON_REPLACE, "ac:plan-worker-junior", "s-a"))).toEqual(silent);
+    denyReason(runEditHook(editPayload(PYTHON_REPLACE, "ac:plan-worker-junior", "s-b")));
+    denyReason(runEditHook(editPayload("sed -i 's/a/b/' other.txt", "ac:plan-worker-junior", "s-a")));
+});
+
+test("a single-file shell replace passes for the main thread and every non-worker agent", () => {
+    const shapes = [
+        "sed -i 's/foo/bar/' src/app.php",
+        "perl -pi -e 's/foo/bar/' src/app.php",
+        PYTHON_REPLACE,
+    ];
+
+    for (const agent of [undefined, "ac:oracle", "ac:explore", "ac:qa-tester", "ac:lane", "general-purpose"]) {
+        for (const command of shapes) {
+            expect({ agent, command, result: runEditHook(editPayload(command, agent)) })
+                .toEqual({ agent, command, result: silent });
+        }
+    }
+});
+
+test("bulk rewrites, analysis scripts and non-editing commands pass for a worker", () => {
+    for (const command of [
+        "sed -i 's/foo/bar/' a.php b.php",
+        "find . -name '*.php' | xargs sed -i 's/foo/bar/'",
+        "git ls-files '*.php' | xargs perl -pi -e 's/foo/bar/'",
+        "for f in a.php b.php; do sed -i 's/x/y/' \"$f\"; done",
+        "sed -i 's/foo/bar/' src/*.php",
+        "sed -n '1,20p' src/app.php",
+        "sed 's/foo/bar/' src/app.php > out.php",
+        "perl -ne 'print if /x/' src/app.php",
+        'echo "sed -i x y"',
+        "python3 - <<'EOF'\np='a.txt'\ns=open(p).read()\nprint(s.replace('x','y'))\nEOF",
+        [
+            "python3 - <<'EOF'",
+            "from pathlib import Path",
+            "for p in Path('.').rglob('*.php'):",
+            "    p.write_text(p.read_text().replace('x','y'))",
+            "EOF",
+        ].join("\n"),
+        [
+            "python3 - <<'EOF'",
+            "open('a','w').write(open('a').read().replace('x','y'))",
+            "open('b','w').write(open('b').read().replace('x','y'))",
+            "open('c','w').write(open('c').read().replace('x','y'))",
+            "open('d','w').write(open('d').read().replace('x','y'))",
+            "EOF",
+        ].join("\n"),
+        "python3 scripts/migrate.py",
+        "python3 - <<'EOF'\nimport sys\nsys.stdout.write(open('a.txt').read().replace('x','y'))\nEOF",
+        "python3 - <<'EOF'\nfor p in ['a.txt','b.txt']:\n    open(p,'w').write(open(p).read().replace('x','y'))\nEOF",
+    ]) {
+        expect({ command, result: runEditHook(editPayload(command, "ac:plan-worker-senior")) })
+            .toEqual({ command, result: silent });
+    }
+});
+
+test("AC_BASH_EDIT_GUARD=0 turns only the edit rule off", () => {
+    expect(runEditHook(editPayload(PYTHON_REPLACE, "ac:plan-worker-senior"), { AC_BASH_EDIT_GUARD: "0" }))
+        .toEqual(silent);
+    denyReason(runEditHook(editPayload("find / -name x", "ac:plan-worker-senior"), { AC_BASH_EDIT_GUARD: "0" }));
+});
+
 test("an unparseable payload or an absent command fails open", () => {
     expect(runHook("not json")).toEqual(silent);
     expect(runHook("")).toEqual(silent);
