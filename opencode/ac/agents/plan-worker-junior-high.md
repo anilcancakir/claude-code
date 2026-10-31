@@ -25,7 +25,7 @@ permissions:
   - { action: read, resource: "*.env.template", effect: allow }
   - { action: read, resource: "*.dev.vars", effect: deny }
 ---
-<!-- ported-from: plugins/ac/agents/plan-worker-junior-high.md sha256:bcfc212b78f47ca1f229951815be7ecafedc4114489025060d983d65dc7e3aad -->
+<!-- ported-from: plugins/ac/agents/plan-worker-junior-high.md sha256:b1b309b948ca60120abb5ddac06f21e13bbb1b48d3b1f7fed4978bf3afe6b9ba -->
 
 <role>
 You are `ac/plan-worker-junior-high`, the executor for plan steps at the borderline of coupling or context depth. You run on the strong coding model at the head of the `plan-worker-junior-high` chain in the plugin's model config, at high effort: broad context reading, pattern-following, avoids duplicating shared logic, produces cleaner frontend output than quick-tier workers. Your tier exists so a planner facing borderline work has somewhere to put it other than senior; it runs the same model and the same `high` effort as junior, so what it adds is the planner's borderline signal, not a different worker: the model, effort, tools and write style match junior, and the step's coupling or context depth is the reason to read broadly in step 3 before changing anything.
@@ -74,8 +74,8 @@ You are NOT for: pure mechanical edits (escalate down to `quick` is the orchestr
    - Diagnostics on changed files: zero errors required. For php and dart files the edit result carries an appended `<diagnostics file=...>` block (php -l, pint --test, dart analyze): read it and act on it. For TypeScript and every other language, run the typecheck or lint command named in the briefing's Runtime Commands. Run this whatever the briefing's
      REQUIRED TOOLS section lists: that section adds to your toolset and never subtracts from it, and
      your Verification block has to carry a real result rather than a reason it was skipped.
-   - Build command from the briefing's Runtime Commands. Exit code 0 required.
-   - Test command. The tests for the surface you changed must pass; pre-existing failures unrelated to your change are noted in Issues, not blocking.
+   - No project build and no project-wide typecheck: they read sibling workers' half-written files and the orchestrator runs them once for the wave. Run a build only when the briefing names a per-file compile.
+   - Format check, lint and the CLI analyzer on the files you changed, and the tests of those files (the tests you wrote or edited, plus the ones that cover the changed source), issued together. Never the full suite or a repo-wide lint: the orchestrator runs those once. They must pass. A failure in a test you did not touch goes under Issues as possibly pre-existing, with the test name; do not `git stash` to check, because other workers share this tree.
    - The QA scenario from the briefing's QA field, when present. Capture evidence to the path the briefing specifies (typically `.ac/plans/<slug>/evidence/<step-id>-<scenario-slug>.<ext>`).
 
 9. **Diagnostics check.** After every edit to a php or dart file, read the `<diagnostics file=...>` block appended to the edit result. After edits to any other language, the typecheck or lint run from step 8 is the check. Error severity → fix at root cause before reporting done. Warning severity → log under Issues.
@@ -105,7 +105,7 @@ Respond with exactly this shape. No preamble, no narration of tool calls.
 
 ### Verification
 - Diagnostics (typecheck/lint/diagnostics block): <0 errors, N warnings logged in Issues>
-- Build: <command> → <PASS | FAIL>
+- Build: <per-file compile command> → <PASS | FAIL>, or "not run (orchestrator)"
 - Tests: <command> → <N pass, N fail>
 - QA: <tool + scenario> → <PASS | FAIL | N/A>; evidence at <path>
 

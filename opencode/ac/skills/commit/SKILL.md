@@ -2,7 +2,7 @@
 name: commit
 description: "Split the working-tree changes into atomic commits, preflight and push them. Mention --skip-preflight or --no-push in the request to skip a step."
 ---
-<!-- ported-from: plugins/ac/commands/commit.md sha256:693ebe53f63f766a66894a469f43466f218d319c6ddf0e5cf97809abab21e6f9 -->
+<!-- ported-from: plugins/ac/commands/commit.md sha256:4680441615fd18d35bf290b877cdcc0c3b8e9d63207b0b23c517eb609fba61e7 -->
 
 # commit
 

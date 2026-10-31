@@ -2,7 +2,7 @@
 name: execute
 description: "Run an approved ac plan to completion, wave by wave, with cost-tiered workers, per-wave verification and a final review. Loaded by /ac/execute; the request carries a plan slug or path plus flags."
 ---
-<!-- ported-from: plugins/ac/skills/execute/SKILL.md sha256:4bd88d05cf2d429c94329d5ac856abd45005888e2b42c9ecfd7560dd0637c49a -->
+<!-- ported-from: plugins/ac/skills/execute/SKILL.md sha256:ce399fbe6f21d7c0e75e89b128a4b57ed1597ffcdfc3491292aeaceb5dee6511 -->
 
 # /ac/execute
 
@@ -71,8 +71,8 @@ the only way its cost stays visible.
 - Auto-continue between verified steps and waves. Never ask "should I continue".
 - Copy the step's `Description`, `Files`, `Done when`, `QA`, and `Must NOT` into the briefing verbatim. Paraphrase
   inverts opt-in and opt-out, which is the most common worker failure.
-- The wave is the unit of every orchestrator action: one diff, one typecheck, one build, one test run, one linter
-  pass, one commit per wave. The two exceptions are per-step and stay per-step: the Layer C QA scenario, which is
+- The wave is the unit of every orchestrator action: one diff, one typecheck, one build, one test and lint run
+  scoped to the wave's touched files, one commit per wave. The full suite runs once, at Phase 3. The two exceptions are per-step and stay per-step: the Layer C QA scenario, which is
   the only evidence anything ran, and the Layer D checkbox, which the stop guard reads as the progress signal.
 - All four verification layers run on every wave, and none of them is optional. Layer B means reading the wave
   diff hunk by hunk and matching every hunk to a worker's claim, not sampling.
@@ -388,8 +388,8 @@ made becomes a false "claim with no hunk" finding. Staging does not commit; 2g s
 
 Measured on one 24-step run, per-step verification spent 261 shell calls and 69 whole-file reads across
 389 turns, with the same test suite running scoped per step, again at the barrier, and a third time in
-Phase 3. The wave suite is a strict superset of any scoped run, so a scoped run buys nothing the wave
-suite does not.
+Phase 3. So the barrier checks once what the whole wave touched, the workers check only their own files,
+and the full suite runs once, at Phase 3.
 
 **This barrier is mandatory and cannot be skipped.** It is the only place a failure surfaces, because
 verification has no per-step checks.
@@ -433,18 +433,19 @@ boundary, the project's typecheck from `RUNTIME_CONTEXT` is authoritative.
 
    WARNING severity (regardless of class) is logged in Issues and continues.
 2. Run the project's build command (from `RUNTIME_CONTEXT` or `CLAUDE.md`). Exit code 0 required. For sub-project layouts: use the sub-project's `package.json` scripts (`bun run build` / `npm run build` / etc.) inside the sub-project dir.
-3. Run the full test suite and the repo-wide linter, once, for the wave. There is no scoped per-step run: the wave
-   suite covers every file the wave touched and more, so a scoped run before it is a check you are about to repeat.
-   Verify once; do not re-run a check that already passed to build confidence. All tests must pass; pre-existing
-   failures unrelated to the wave are noted, not blocking. For sub-project layouts use the sub-project's command
-   (`bun test` / `npm test`) inside the sub-project dir.
+3. Run the format check and the linter on the wave's touched files, and the tests related to them (the tests the
+   workers wrote or edited, plus the tests that cover the changed source), once, for the wave, in parallel. Do not
+   run the full suite or a repo-wide lint here; Phase 3 runs them once. Verify once; do not re-run a check that
+   already passed to build confidence. All selected tests must pass. A failure in a test the wave did not touch
+   counts as pre-existing only after you saw it fail without the wave's change, or the project records it as known;
+   name it under Issues either way. For sub-project layouts use the sub-project's command inside the sub-project dir.
 
    Filter what the run admits into context, because a passing suite's output is noise you pay for on every later
    turn: pipe through `tail -20`, or the runner's own quiet or summary flag. A pipe hides the runner's exit code
    behind `tail`'s, and the agent shell is zsh, where `${PIPESTATUS[0]}` is empty, so run a judged command as
    `set -o pipefail; <command> 2>&1 | tail -20`, or as `<command> > "$TMPDIR/run.log" 2>&1; echo "exit=$?"; tail -20
    "$TMPDIR/run.log"`, and judge the exit code, never the last line of output. On failure, admit the failing cases and
-   nothing else. A failure the wave suite catches that no single step explains is a cross-step interaction, which
+   nothing else. A failure the wave's checks catch that no single step explains is a cross-step interaction, which
    routes to remediation below rather than to one step's retry.
 
 **Layer B: Manual Code Review (read the wave diff, do not skip)**
@@ -726,12 +727,8 @@ Goal: gate the deliver with one independent code-review pass. It runs on the act
 ### 3a. Final automated pass
 
 Run typecheck, build, test, and lint across the whole project. All must pass before the reviewer spawns; fix a
-failure here and re-run before spawning.
-
-Skip this pass when the last wave's Layer A already ran the same commands and nothing has been edited since.
-That is the ordinary case at the end of a clean run, and re-running a suite that passed minutes ago to build
-confidence is exactly what Layer A's own rule forbids. Run it when any remediation, retry or plan-spec fix
-landed after that wave's barrier, which is when the tree genuinely differs from what was verified.
+failure here and re-run before spawning. This is the only full-suite run of the execution: the wave barriers
+checked only what each wave touched.
 
 Then open this run's section of the review log, once:
 
@@ -805,7 +802,8 @@ You are the filter, and you are a better one than the reviewer because you have 
 history and the wisdom file:
 
 - **CRITICAL**: fix it before Phase 4, with `edit` at each cited `file:line`, smallest correct fix, the
-  reviewer's `Fix:` line as guidance. Then re-run 3a scoped to what you changed.
+  reviewer's `Fix:` line as guidance. Then re-run the per-file checks and related tests on what you changed,
+  and the full suite again only when the fix touched code other modules call.
 - **IMPORTANT**: fix when the fix is small and local; otherwise record it in `report.md` and add it to
   the plan's `## Deferred Ideas`.
 - **MINOR, or anything under confidence 50**: `report.md` notes. Do not touch the code for these.

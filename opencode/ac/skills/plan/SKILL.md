@@ -2,7 +2,7 @@
 name: plan
 description: "Plan a change interactively: research in parallel, ask the decisions only you can make, then write a tiered plan. Writes no code. Use before work that crosses modules, carries design decisions, or is a refactor, or from a .ac/tasks/*.yaml file; hands off to the execute skill. Request text: [--auto] [--lane] [--slug <s>] [--revise] <topic description | .ac/tasks/*.yaml>."
 ---
-<!-- ported-from: plugins/ac/skills/plan/SKILL.md sha256:99d7b0cc9503fdb195bbc17bb92a21c1c0ba43b59491ac44142d2a8091f5e13b -->
+<!-- ported-from: plugins/ac/skills/plan/SKILL.md sha256:6064ab5279497d593f81723da47a402809ff7c9a4140b5adc649575cc08d0a3e -->
 
 # /ac/plan
 

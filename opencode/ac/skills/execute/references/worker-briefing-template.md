@@ -1,4 +1,4 @@
-<!-- ported-from: plugins/ac/skills/execute/references/worker-briefing-template.md sha256:1049bbbae2e1bde9816dfb0f7aefad567bd17d228196611ab226cbf29c4ce98a -->
+<!-- ported-from: plugins/ac/skills/execute/references/worker-briefing-template.md sha256:8a3a88381a5f8c88a3ed20766b31a1b7ad941785feab117bc32d9375e52fa719 -->
 # Worker Briefing Template (hybrid 6-section)
 
 The briefing shape passed to every worker subagent (`ac/plan-worker-quick`, `-junior`, `-junior-high`, `-senior`) at Phase 2c. The briefing keeps the worker's CONTRACT fields VERBATIM from the plan (Description, Files, Done when, QA, Must NOT, paraphrasing these silently inverts opt-in/opt-out, the #1 worker failure mode). Auxiliary plan context (Pattern References, Codebase Conventions) is inlined into Section 6, because the worker does not open the plan. The briefing is longer for it, and the ~8k tokens a worker would spend re-reading the plan are not spent. Net savings scale with wave size and per-step References count.
@@ -61,7 +61,7 @@ Examples of what belongs here:
   Conflicts BETWEEN steps are not yours to detect: you do not read the plan, so `ac/plan-reviewer`
   catches them before execution and the orchestrator resolves whatever survives at the wave barrier.
 - **Report within-spec pragmatic deviations**: when your implementation deviates from the plan's EXACT prescription but stays within scope (added a defense-in-depth layer the plan did not specify; narrowed a config field; adjusted a snippet shape; introduced a small helper interface to fix a type-system gap), record each deviation in a `### Deviations` section of your Output using the structured 4-field format (Plan prescription / What I did / Why / Touches Must NOT). Within-spec adaptations driven by TDD red phase, framework-completeness gaps, type-system gaps, or library API quirks are encouraged, the orchestrator's Layer B reads this section to triage adaptation-vs-scope-drift transparently. **Crucial distinction**: if the deviation touches YOUR `Must NOT` or a plan-wide guardrail, that is a `[CONTRADICTION]` instead, use the previous bullet's tag and STOP. The Deviations section is for WITHIN-SPEC good-judgment adaptations only. When the implementation matches the plan EXACTLY (no deviation), omit the Deviations section entirely.
-- After implementing, run the verification commands and report results in the Output Format.
+- After implementing, verify only what you touched: format check, lint and the CLI analyzer on your Files, and the tests of those files, in parallel. Never the full suite or a repo-wide lint; the orchestrator runs those. Report the results in the Output Format.
 
 ## 5. MUST NOT DO
 

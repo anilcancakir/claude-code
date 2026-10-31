@@ -1,4 +1,4 @@
-<!-- ported-from: plugins/ac/references/global-claude-md-section-template.md sha256:34a3b1769c098418f0f4c71695b2bb7c58502ae69381305d9f6a466129950636 -->
+<!-- ported-from: plugins/ac/references/global-claude-md-section-template.md sha256:e1de40eba64d14a0a9c796842a2ecc44ae0887d3aa292ed6e59166df5e28229b -->
 <!--
 MAINTAINER NOTES. Template for ~/.config/opencode/AGENTS.md. The installer renders it whole (no fence
 markers), fills every angle-bracket token below from the operator's interview, and deletes this comment
