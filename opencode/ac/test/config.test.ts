@@ -10,6 +10,7 @@ const TIERS = [
     "main",
     "oracle",
     "plan-reviewer",
+    "design-director",
     "plan-code-review",
     "plan-worker-senior",
     "plan-worker-junior-high",
@@ -32,6 +33,7 @@ const CLAUDE_RUNG: Record<string, ModelRef> = {
     main: `${OPUS}#high`,
     oracle: `${OPUS}#high`,
     "plan-reviewer": `${OPUS}#medium`,
+    "design-director": `${OPUS}#medium`,
     "plan-code-review": `${OPUS}#high`,
     "plan-worker-senior": `${OPUS}#medium`,
     "plan-worker-junior-high": `${SONNET}#high`,
@@ -44,10 +46,11 @@ const CLAUDE_RUNG: Record<string, ModelRef> = {
     "auto-verifier": `${OPUS}#high`,
 }
 
-/** The review gates that lead with Opus and fall back to codefast. */
+/** The two review gates and the design director: read-only advisors that lead with Opus and fall back to codefast. */
 const REVIEW_GATES = [
     "oracle",
     "plan-reviewer",
+    "design-director",
 ]
 
 const PRESET_PATH = fileURLToPath(new URL("../config/presets/claude.jsonc", import.meta.url))
@@ -70,7 +73,7 @@ afterEach(() => {
 })
 
 describe("loadConfig defaults", () => {
-    test("the two review gates lead with Opus on the Claude API, then Kimi K3, a family other than GLM-5.3", () => {
+    test("the review gates and the design director lead with Opus on the Claude API, then Kimi K3", () => {
         const config = loadConfig({ env: {} })
 
         for (const tier of REVIEW_GATES) {
@@ -122,6 +125,7 @@ describe("loadConfig defaults", () => {
             main: "codefast-glm/glm-5.3#high",
             oracle: "anthropic/claude-opus-5-5#high",
             "plan-reviewer": "anthropic/claude-opus-5-5#medium",
+            "design-director": "anthropic/claude-opus-5-5#medium",
             "plan-code-review": "codefast-glm/glm-5.3#max",
             "plan-worker-senior": "codefast-glm/glm-5.3#max",
             "plan-worker-junior-high": "codefast-deepseek/deepseek-v4.1-flash-1017#high",

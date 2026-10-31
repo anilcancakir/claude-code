@@ -18,7 +18,7 @@ function invocation(text: string): Invocation {
 }
 
 describe("registerCommands", () => {
-    test("registers the five ac commands, each with a description", async () => {
+    test("registers the eight ac commands, each with a description", async () => {
         const { commands } = await registered()
 
         expect(commands.map((command) => command.name)).toEqual([
@@ -27,6 +27,9 @@ describe("registerCommands", () => {
             "ac/coordinate",
             "ac/commit",
             "ac/qa",
+            "ac/flow",
+            "ac/auto",
+            "ac/product",
         ])
         for (const command of commands) expect(command.description).toBeTruthy()
     })
@@ -45,7 +48,7 @@ describe("registerCommands", () => {
         })
     })
 
-    test.each(["execute", "commit", "qa"])("ac/%s attaches the skill of the same id", async (id) => {
+    test.each(["execute", "commit", "qa", "flow", "auto", "product"])("ac/%s attaches the skill of the same id", async (id) => {
         const { commands, calls } = await registered()
 
         await commands.find((command) => command.name === `ac/${id}`)?.execute(invocation("arg"))
@@ -58,7 +61,7 @@ describe("registerCommands", () => {
 
         for (const command of commands) await command.execute(invocation("arg"))
 
-        expect(calls.prompt).toHaveLength(5)
+        expect(calls.prompt).toHaveLength(8)
         for (const call of calls.prompt) expect(call).not.toHaveProperty("agent")
         for (const command of commands) expect(command).not.toHaveProperty("agent")
     })

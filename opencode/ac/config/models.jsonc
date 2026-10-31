@@ -40,6 +40,14 @@
             "codefast-deepseek/deepseek-v4.1-flash-1017#max",
             "codefast-glm/glm-5.3#max"
         ],
+        // Opus at medium decides the look, as in the Claude Code ac plugin; the codefast rungs after it are the
+        // plan-reviewer's, since the director is a read-only advisor whose output a cheaper model builds from.
+        "design-director": [
+            "anthropic/claude-opus-5-5#medium",
+            "codefast-kimi/kimi-k3#high",
+            "codefast-deepseek/deepseek-v4.1-flash-1017#max",
+            "codefast-glm/glm-5.3#max"
+        ],
         "plan-code-review": [
             "codefast-glm/glm-5.3#max",
             "codefast-kimi/kimi-k3#high",

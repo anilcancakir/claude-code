@@ -23,6 +23,11 @@
             "codefast-gpt-unlimited/gpt-6-astra#medium",
             "anthropic/claude-opus-5-5#medium"
         ],
+        "design-director": [
+            "codefast-gpt-unlimited/gpt-5.6-sol#high",
+            "codefast-gpt-unlimited/gpt-6-astra#medium",
+            "anthropic/claude-opus-5-5#medium"
+        ],
         "plan-code-review": [
             "codefast-gpt-unlimited/gpt-6-astra#high",
             "codefast-gpt-unlimited/gpt-5.6-sol#xhigh",

@@ -100,10 +100,13 @@ describe("plugin entry", () => {
         // A Code Mode tool is invisible to an agent that denies `execute`, as every ac agent does.
         for (const tool of fake.tools.values()) expect(tool.options?.codemode).toBe(false)
         expect(fake.commands.map((command) => command.name).sort()).toEqual([
+            "ac/auto",
             "ac/commit",
             "ac/coordinate",
             "ac/execute",
+            "ac/flow",
             "ac/plan",
+            "ac/product",
             "ac/qa",
         ])
     })

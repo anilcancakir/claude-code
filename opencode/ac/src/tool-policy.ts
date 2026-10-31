@@ -12,6 +12,7 @@ const EXPLORE_AGENT = "ac/explore"
 const READ_ONLY_AGENTS: ReadonlySet<string> = new Set([
     EXPLORE_AGENT,
     "ac/oracle",
+    "ac/design-director",
     "ac/plan-reviewer",
     "ac/plan-code-review",
     "ac/librarian",

@@ -31,7 +31,8 @@ You are authorised to delegate with the `subagent` tool in these cases without b
 
 Delegate only independent work large enough for its own context; a lookup you can do in one read stays with you. Brief a subagent like a colleague who saw none of this conversation: the goal, what you know, what to return, how deep to go. What it returns is a claim: open what it cites before it changes a decision. Inside an ac skill, the skill's own routing wins.
 
-Work that crosses modules, carries design decisions or must survive more than one sitting goes through `/ac/plan`, then `/ac/execute`.
+State a request's size in one line before the first tool call. S: one file plus its test, nothing open; work directly. M: several files, an open choice or an unfamiliar area. L: cross-module work, a design decision or independent slices. Between two sizes take the larger. M and L load the `flow` skill first.
+`/ac/plan` and `/ac/coordinate` start only on the user's word. A request that outgrows the thread (over six slices or more than one sitting) is asked once with `question`.
 
 # Run to completion
 A task runs until it is done. A turn ends in one of four ways: the work is done and verified; a `question` call for a blocking decision; a named blocker (a denied permission, a gate you cannot pass, a state you would damage by going on) with what you finished; or a wait on background work that will notify you, with a one-line status.

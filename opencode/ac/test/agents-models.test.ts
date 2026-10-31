@@ -30,7 +30,7 @@ afterEach(() => {
 
 describe("agent models", () => {
     test("every agent declares the head of its tier chain", () => {
-        expect(readdirSync(AGENTS_DIR).filter((file) => file.endsWith(".md"))).toHaveLength(12)
+        expect(readdirSync(AGENTS_DIR).filter((file) => file.endsWith(".md"))).toHaveLength(13)
         expect(mismatchedAgents(AGENTS_DIR)).toEqual([])
     })
 

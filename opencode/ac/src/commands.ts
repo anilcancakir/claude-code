@@ -1,7 +1,7 @@
 import type { Plugin } from "@opencode/plugin"
 import type { CommandDefinition } from "@opencode/plugin/promise/command"
 
-type Skill = "plan" | "execute" | "coordinate" | "commit" | "qa"
+type Skill = "plan" | "execute" | "coordinate" | "commit" | "qa" | "flow" | "auto" | "product"
 
 /** Descriptions are the frontmatter of the CC plugin, so both hosts list the same command text. */
 const COMMANDS: ReadonlyArray<{ skill: Skill; description: string }> = [
@@ -36,6 +36,24 @@ const COMMANDS: ReadonlyArray<{ skill: Skill; description: string }> = [
             "and the diff, run them against the live app with the project's own test tool " +
             "(playwright-cli as the fallback), fix critical and high findings, retest once, " +
             "and record learnings in .ac/qa/learnings.md.",
+    },
+    {
+        skill: "flow",
+        description:
+            "Run a medium or large request on the main thread: parallel research, interview, build in slices, " +
+            "oracle review.",
+    },
+    {
+        skill: "auto",
+        description:
+            "Away mode: carry whatever run is going (an /ac/coordinate run, an ac/plan or ac/execute run, ad-hoc work) " +
+            "to completion while the user is gone, or run a new request unattended, ending at one verification gate.",
+    },
+    {
+        skill: "product",
+        description:
+            "Turn a project or feature idea into a feasibility-checked PRD and a parallel-ready roadmap " +
+            "through research and a full interview.",
     },
 ]
 

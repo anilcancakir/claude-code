@@ -1,5 +1,6 @@
 import { Plugin } from "@opencode/plugin"
 import { registerAgentModels } from "./agent-models.ts"
+import { registerAwayGuards } from "./away.ts"
 import { registerCommands } from "./commands.ts"
 import { loadConfig } from "./config.ts"
 import { registerCoordinate } from "./coordinate.ts"
@@ -27,6 +28,7 @@ export default Plugin.define({
         // 2. Guards and policy hooks; the run guards own a subscription that must end with the plugin.
         const shells = await registerBackgroundShells(ctx)
         const stopRunGuards = await registerRunGuards(ctx, options.runGuards, shells)
+        const stopAwayGuards = await registerAwayGuards(ctx, { shells })
         await registerToolPolicy(ctx, options.toolPolicy)
 
         // 3. Model chains come from the bundled defaults, overridden by the `models` plugin option. One instance feeds
@@ -42,6 +44,7 @@ export default Plugin.define({
 
         return () => {
             stopRunGuards()
+            stopAwayGuards()
             shells.stop()
             stopAgentModels()
             fallback.stop()

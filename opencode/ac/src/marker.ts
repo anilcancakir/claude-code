@@ -40,10 +40,11 @@ const MAX_AGE_MS = 24 * 3_600_000
 // same tolerance stop-guard.sh accepts rather than going inert for the run.
 const MAX_FUTURE_SKEW_MS = 14 * 3_600_000
 
-// The slug becomes a path segment under .ac/plans/, and the marker is model-written, so it must not traverse.
-const SLUG = /^[A-Za-z0-9][A-Za-z0-9._-]*$/
+// The slug becomes a path segment under .ac/, and the marker is model-written, so it must not traverse.
+export const SLUG = /^[A-Za-z0-9][A-Za-z0-9._-]*$/
 
-function readJson(path: string): unknown {
+/** The parsed JSON at `path`, or undefined when the file is absent or not JSON; other read errors propagate. */
+export function readJson(path: string): unknown {
     const text = readIfPresent(path)
     if (text === undefined) return undefined
 
@@ -56,15 +57,16 @@ function readJson(path: string): unknown {
     }
 }
 
-function nonEmptyString(value: unknown): value is string {
+export function nonEmptyString(value: unknown): value is string {
     return typeof value === "string" && value.length > 0
 }
 
-function isFresh(startedAt: string, now: number): boolean {
+/** False for an unparseable time too: a marker whose age cannot be confirmed reads as stale. */
+export function isFresh(startedAt: string, now: number, maxAgeMs: number = MAX_AGE_MS): boolean {
     const started = Date.parse(startedAt)
     if (Number.isNaN(started)) return false
     const age = now - started
-    return age >= -MAX_FUTURE_SKEW_MS && age <= MAX_AGE_MS
+    return age >= -MAX_FUTURE_SKEW_MS && age <= maxAgeMs
 }
 
 /** The live opencode run's marker under `dir`, or undefined when there is none, it is malformed, or it is stale. */

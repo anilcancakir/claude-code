@@ -31,6 +31,11 @@
             "codefast-kimi/kimi-k3#high",
             "codefast-deepseek/deepseek-v4.1-flash-1017#max"
         ],
+        "design-director": [
+            "anthropic/claude-opus-5-5#medium",
+            "codefast-kimi/kimi-k3#high",
+            "codefast-deepseek/deepseek-v4.1-flash-1017#max"
+        ],
         "plan-code-review": [
             "anthropic/claude-opus-5-5#high",
             "codefast-glm/glm-5.3#max",
