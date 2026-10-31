@@ -187,10 +187,12 @@ export function toIsErrorResult(err: unknown): CallToolResult {
  * tool-search deferral. Kept under the 2KB truncation bound.
  */
 export const SERVER_INSTRUCTIONS =
-    "For library docs call resolve-library, then search-docs; for real usage of an API call "
-    + "web-code-search. web-fetch and web-search are fallbacks for the built-in WebFetch and "
-    + "WebSearch. For the user's own past work or conversations, call search-history instead of "
-    + "guessing.";
+    "For a library or framework question call resolve-library, then search-docs, before any web "
+    + "search; for real usage of an API call web-code-search. web-search is the fallback after the "
+    + "built-in WebSearch. web-fetch returns exact page text; otherwise it is the last fetch fallback, "
+    + "after the built-in WebFetch and any local fetch server. GitHub files, issues and pull requests "
+    + "go through gh when it is installed. For the user's own past work or conversations, call "
+    + "search-history instead of guessing.";
 
 /**
  * Which host the server speaks to. `opencode` has no built-in WebFetch/WebSearch to be a fallback

@@ -38201,7 +38201,7 @@ function toIsErrorResult(err) {
     content: [{ type: "text", text: `remote tool call failed: ${message}` }]
   };
 }
-var SERVER_INSTRUCTIONS = "For library docs call resolve-library, then search-docs; for real usage of an API call " + "web-code-search. web-fetch and web-search are fallbacks for the built-in WebFetch and " + "WebSearch. For the user's own past work or conversations, call search-history instead of " + "guessing.";
+var SERVER_INSTRUCTIONS = "For a library or framework question call resolve-library, then search-docs, before any web " + "search; for real usage of an API call web-code-search. web-search is the fallback after the " + "built-in WebSearch. web-fetch returns exact page text; otherwise it is the last fetch fallback, " + "after the built-in WebFetch and any local fetch server. GitHub files, issues and pull requests " + "go through gh when it is installed. For the user's own past work or conversations, call " + "search-history instead of guessing.";
 var MCP_CLIENTS = ["claude-code", "opencode"];
 var OPENCODE_SERVER_INSTRUCTIONS = "For library docs call resolve-library, then search-docs; for real usage of an API call " + "web-code-search; web-search and web-fetch are the web tools. For the user's own past work or " + "Claude Code conversations, call search-history instead of guessing.";
 var OPENCODE_TOOL_DESCRIPTIONS = {
@@ -40481,4 +40481,4 @@ function formatSyncReport(report) {
 }
 await program2.parseAsync(process.argv);
 
-//# debugId=82B538E54761F8BA64756E2164756E21
+//# debugId=073F8C30FDE27BF264756E2164756E21

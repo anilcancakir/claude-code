@@ -115,10 +115,12 @@ test("SERVER_INSTRUCTIONS is non-empty and under the 2KB truncation bound", () =
 
 // Frozen copy of the Claude Code instructions: the default client's output must stay byte-identical.
 const CLAUDE_CODE_INSTRUCTIONS_SNAPSHOT =
-    "For library docs call resolve-library, then search-docs; for real usage of an API call "
-    + "web-code-search. web-fetch and web-search are fallbacks for the built-in WebFetch and "
-    + "WebSearch. For the user's own past work or conversations, call search-history instead of "
-    + "guessing.";
+    "For a library or framework question call resolve-library, then search-docs, before any web "
+    + "search; for real usage of an API call web-code-search. web-search is the fallback after the "
+    + "built-in WebSearch. web-fetch returns exact page text; otherwise it is the last fetch fallback, "
+    + "after the built-in WebFetch and any local fetch server. GitHub files, issues and pull requests "
+    + "go through gh when it is installed. For the user's own past work or conversations, call "
+    + "search-history instead of guessing.";
 
 test("default SERVER_INSTRUCTIONS stays byte-identical for Claude Code", () => {
     expect(SERVER_INSTRUCTIONS).toBe(CLAUDE_CODE_INSTRUCTIONS_SNAPSHOT);
