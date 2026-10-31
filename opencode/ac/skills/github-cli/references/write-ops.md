@@ -1,4 +1,4 @@
-<!-- ported-from: plugins/ac/skills/github-cli/references/write-ops.md sha256:85f2014558a563c2cc82ecf7bf4c4f4a5d7de6def1137a3c8b106e8b92b9321a -->
+<!-- ported-from: plugins/ac/skills/github-cli/references/write-ops.md sha256:d48a342345efb0f4f7474f95f1ddf1442a9610ee864eff52b98861eb36267688 -->
 # gh write operations
 
 Every command here changes state on GitHub and is visible to other people, so each one needs the user's request in this conversation. Pass the title, body and flags explicitly: a prompt in a non-interactive shell hangs. Pass `-R OWNER/REPO` when the working directory is not the target repository. Use `--body-file` (or `-F -` for stdin) for anything longer than a line, so quoting cannot mangle it. Flags below were checked against `gh --help` on gh 2.102.0.
@@ -8,8 +8,7 @@ Every command here changes state on GitHub and is visible to other people, so ea
 - Issues
 - Pull requests
 - Releases
-- Workflows and runs
-- Secrets and variables
+- Workflows, runs, secrets and variables (pointer)
 - Labels
 - Repositories
 - gh api writes
@@ -62,33 +61,9 @@ gh release delete v1.0.0 --yes --cleanup-tag
 - `edit`: `-t`, `-n`, `-F`, `--draft[=false]`, `--prerelease`, `--latest`, `--tag`, `--target`, `--verify-tag`, `--discussion-category`.
 - `delete`: `-y/--yes`, `--cleanup-tag` (also deletes the tag).
 
-## Workflows and runs
+## Workflows, runs, secrets and variables
 
-```bash
-gh workflow run deploy.yml --ref release/v2 -f environment=production
-echo '{"env":"staging"}' | gh workflow run deploy.yml --json
-gh run rerun 12345 --failed
-gh run cancel 12345
-```
-
-- `workflow run`: `-r/--ref`, `-f/--raw-field key=value`, `-F/--field key=value` (honours `@file`), `--json` (inputs as JSON on stdin). The workflow needs a `workflow_dispatch` trigger.
-- `run rerun`: `--failed`, `-j/--job id`, `-d/--debug`. `run cancel`: `--force`.
-- Read-only companions: `gh run watch 12345 --exit-status --compact`, `gh run download 12345 --name coverage --dir ./out`, `gh workflow list`, `gh workflow view ci.yml --yaml`.
-
-## Secrets and variables
-
-```bash
-gh secret set API_KEY < secret.txt                     # stdin keeps the value out of shell history and the process list
-gh secret set ORG_KEY --org myorg --visibility selected --repos repo1,repo2
-gh secret delete API_KEY
-gh variable set APP_ENV --body production
-gh variable delete APP_ENV
-```
-
-- `secret set`: `-b/--body` (stdin when omitted), `-f/--env-file` (dotenv file), `-e/--env`, `-o/--org`, `-u/--user`, `-a/--app` (`actions`, `agents`, `codespaces`, `dependabot`), `-v/--visibility` (`all`, `private`, `selected`), `-r/--repos`, `--no-repos-selected`, `--no-store`. `secret delete` (alias `remove`): `-e`, `-o`, `-u`, `-a`. Secrets are write-only; `gh secret list` shows names, never values.
-- `variable set`: `-b/--body`, `-f/--env-file`, `-e`, `-o`, `-v`, `-r`. `variable delete`: `-e`, `-o`. Variables are readable with `gh variable list`.
-
-Never print a secret value into the conversation, a log or a command line the user did not provide.
+Not here: triggering, rerunning, cancelling and deleting runs, caches, secrets and variables are in `references/actions.md`, under the same rule that each needs the user's request in this conversation.
 
 ## Labels
 

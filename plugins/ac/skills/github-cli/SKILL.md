@@ -1,7 +1,7 @@
 ---
 name: github-cli
-description: "Read GitHub repositories, issues, PRs, releases and CI runs with the gh CLI instead of web fetches."
-when_to_use: "Use when researching a GitHub-hosted repository or changing its issues, PRs or releases; local git is ac:git-master."
+description: "Work with GitHub repositories, issues, PRs, releases and Actions runs through the gh CLI instead of web fetches."
+when_to_use: "Use when researching a GitHub repository or reading and changing its issues, PRs, releases and Actions runs; local commits and history are ac:commit."
 ---
 
 # GitHub CLI
@@ -88,9 +88,9 @@ Release notes are often thinner than the repository's own `CHANGELOG.md`; read t
 ```bash
 gh run list -R OWNER/REPO --workflow ci.yml --branch main --limit 5 --json databaseId,conclusion,headSha,url
 gh run view 12345 -R OWNER/REPO --log-failed                    # only failed steps
-gh run view 12345 -R OWNER/REPO --json jobs --jq '.jobs[] | select(.conclusion=="failure") | .name'
-gh workflow view ci.yml -R OWNER/REPO --yaml                    # the workflow file itself
 ```
+
+Everything else about Actions (job ids, waiting on a run, artifacts, caches, the workflow file, secrets and variables, triggering and rerunning) is in `${CLAUDE_SKILL_DIR}/references/actions.md`; read it when the task is more than a status check.
 
 ### Repository facts
 
@@ -126,7 +126,7 @@ JSON shaping with `--json` plus `--jq` works the same on every list and view com
 
 ## Writing to GitHub
 
-Creating, editing, closing, merging, commenting, releasing, triggering workflows and changing secrets, variables, labels or repository settings are outward actions visible to other people. Run one only when the user asked for that action in this conversation, and pass every title, body and flag explicitly because prompts hang a non-interactive shell. Flags and examples for each command are in `${CLAUDE_SKILL_DIR}/references/write-ops.md`; read it before the first write.
+Creating, editing, closing, merging, commenting, releasing, triggering workflows and changing secrets, variables, labels or repository settings are outward actions visible to other people. Run one only when the user asked for that action in this conversation, and pass every title, body and flag explicitly because prompts hang a non-interactive shell. Flags and examples for each command are in `${CLAUDE_SKILL_DIR}/references/write-ops.md`, and for workflows, runs, caches, secrets and variables in `${CLAUDE_SKILL_DIR}/references/actions.md`; read the one that applies before the first write.
 
 ## Common mistakes
 
