@@ -208,8 +208,11 @@ This block did reach subagents, and a subagent spawn writes its messages[0] as c
 cache read: measured 2026-10-16 on 2.1.301, about 23,000 to 34,000 tokens created against about
 9,200 read, so the block's roughly 2,200 tokens were paid fresh on every spawn. What stays here is
 what a subagent still needs (identity, the dash and language rules, the anti-patterns, the security
-line), plus the Delegation triggers: Opus 5's built-in Agent clause honours only "a CLAUDE.md file"
-asking for a subagent, and working-rules.md is not one.
+line), plus a one-line Delegation grant: the 2.1.314 binary still carries the model-gated clause "Do
+not use the Agent tool ... unless the user, a CLAUDE.md file, or a skill asks for it", and
+working-rules.md is not one. The routing itself (which agent for which work) moved to working-rules.md
+on 2026-10-31; the old four bullets duplicated it and the /ac:coordinate bullet contradicted the rule
+that coordinate starts only on the user's word.
 -->
 
 <!-- ac:delegation:start -->
@@ -249,10 +252,7 @@ When a task needs an author, owner, name, or email (`@author`, package manifest,
 
 ## Delegation
 
-- `ac:explore` when a search needs more than about three queries or spans several naming conventions. Internal code only.
-- `ac:librarian` for anything outside this repository: library behavior, framework idioms, an API contract.
-- `ac:oracle` before you report a change across more than one file, or one that is hard to reverse, as done, and before a research result changes a decision. Inside `/ac:execute` or `/ac:auto`, their own review gate is that review, and a subagent leaves the call to its parent.
-- `/ac:coordinate` when a request splits into several independent bundles that can run in parallel.
+- Spawn the subagents the ac working rules name for a kind of work (`ac:explore`, `ac:librarian`, `ac:oracle`, and the agents an ac skill names): that naming is my standing request. The routing itself lives in the working rules.
 
 ## My workflow
 
