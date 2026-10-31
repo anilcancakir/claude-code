@@ -1,8 +1,8 @@
 ---
 name: auto
-description: "Away mode: carry whatever run is going (a coordinate run, a plan or execute run, ad-hoc work) to completion while the user is gone, or run a new request unattended, ending at one verification gate. Use when the user runs /ac/auto, or says in any language that they are leaving and the work should go on until it is done (\"ben cikiyorum, bitirene kadar devam et\"). It never declines because another flow is active; it carries that flow. Not for open-ended audits. Request text: [request, and any outward action allowed while away: push, merge, pr, release, deploy]."
+description: "Away mode: carry the run in progress, or a new request, to completion unattended, ending at one verification gate. Use when the user runs /ac/auto or says in any language they are leaving and the work should go on until done, even while another flow is active; not for open-ended audits. Request text: [request, and any outward action allowed while away: push, merge, pr, release, deploy]."
 ---
-<!-- ported-from: plugins/ac/skills/auto/SKILL.md sha256:12ece5d69e982b059a4bf066a705eb77021cf11c0d8b984604b581a8ebfff35d -->
+<!-- ported-from: plugins/ac/skills/auto/SKILL.md sha256:9beb3203555f64bb3d85f9ecbcfca639c5d3f712def2a377797f2adfb670e529 -->
 
 # /ac/auto
 
@@ -16,16 +16,14 @@ out of that text.
 
 ## Standing rules
 
-These hold for the whole run, including after a compaction: a compaction can drop most of a long skill body from
-context, so every bound lives here and the procedure follows.
+These hold for the whole run, including after a compaction; the procedure follows them.
 
 **Carry, never decline.** Pick the source at 0b and continue it where it is. Another flow being active is the
 normal case, not a conflict: never refuse because of it, and for sources (a) to (d) never open a second run, a
 second marker or a new branch. Only a marker owned by another session refuses (0a).
 
 **No questions while away.** Do not call the `question` tool, and do not let a flow you carry call it either: the
-user is gone, and a question asked anyway was the most common complaint about earlier runs. The ac plugin denies the
-call while the marker lives. Where a flow would ask, take the option it marks Recommended (a flow gate's default),
+user is gone. The ac plugin denies the call while the marker lives. Where a flow would ask, take the option it marks Recommended (a flow gate's default),
 apply it, and add one line under `## Decisions` in the decisions file:
 `time | source | question | chosen option | why | not user-approved`. A plan skill interview still open locks its
 remaining nodes with their Recommended options, which the away marker triggers (1c).
@@ -42,7 +40,7 @@ after the gate: at Phase 4, or under a coordinator source at its Phase 8, which 
 other flow publishes while away: the `commit` skill skips its push under this marker. The ac plugin's shell guard
 enforces the git and gh verbs and always denies force pushes and remote deletes, `git reset --hard`, `git clean`
 outside a dry run, whole-tree checkouts and restores, `rm -rf`, `sed -i` and `perl -i`; a deploy command is
-project-specific, so only this rule keeps an unnamed one from running. A denied command is recorded under
+project-specific, so only this rule gates it. A denied command is recorded under
 `## Blocked` as deferred, never worked around.
 
 **Turn termination.** A turn ends on exactly one of: the Phase 4 closing report; a terminal branch that deleted
@@ -70,13 +68,7 @@ the marker.
 
 **Files.** Mutate files with `write` or `edit`, never through `shell` (`python3 -c`, a `cat >` heredoc, `sed -i`);
 the one exception is removing a file with `shell`: `rm -f <path>`. Per-turn prose is at most 3 lines plus the
-closing report: every sentence in the chat is re-read on every later turn.
-
-<role>
-You carry one unattended run to its end. You pick the source, freeze what done means from it, keep it moving under
-the rules above, hand the judgment to `ac/auto-verifier` once, and report. You do not judge your own run, you do
-not rewrite the criteria after the work, and you do not decide a true blocker for the user.
-</role>
+closing report.
 
 <scope>
 You write the marker `.ac/state/active-auto.json`, the decisions file `.ac/away/<slug>/decisions.md`, and for every
@@ -160,8 +152,8 @@ source:
 - **(e)**: the admission draft from 1a.
 
 Budgets per the Standing rule. Then compute the digest over the frontmatter minus its own line with `shell` and
-patch that one line with `edit`. Use this recipe as written, because `ac/auto-verifier` and the `coordinate` skill
-recompute with the identical bytes and the detail implementations disagree on is a trailing newline:
+patch that one line with `edit`. Use this recipe as written (`ac/auto-verifier` and the `coordinate` skill recompute
+with the identical bytes; implementations disagree on a trailing newline):
 
 ```bash
 python3 - .ac/auto/<slug>/criteria.md <<'PY'
@@ -174,8 +166,7 @@ print(hashlib.sha256('\n'.join(covered).encode('utf-8')).hexdigest())
 PY
 ```
 
-No `python3` is a gate you cannot pass: delete what you wrote and stop, since an improvised digest is one the gate
-cannot reproduce. From here the frontmatter is the contract and is never edited; prose below the delimiter is free.
+No `python3` is a gate you cannot pass: delete what you wrote and stop; never improvise a digest. From here the frontmatter is the contract and is never edited; prose below the delimiter is free.
 
 ### 1c. Marker and decisions file
 
@@ -205,15 +196,14 @@ Add each line at the end of its section with `edit`. Refresh `turns_used`, `phas
 ### 1d. Branch, source (e) only
 
 `shell`: `git switch -c auto/<slug>` (append `-2` when taken). Uncommitted changes follow the switch; do not stash
-or commit them. A failed switch is a terminal branch. Every other source stays on the branch it is on: its commits
-are already there, and a switch mid-run would split one run's history across two branches.
+or commit them. A failed switch is a terminal branch. Every other source stays on the branch it is on: a switch
+mid-run would split one run's history across two branches.
 
 One heartbeat line: the source, the slug, the budgets, `allowed_outward`.
 
 ## Phase 2: Carry the source
 
-The flow you carry keeps its own procedure; these rules ride on top of it, and where its body says to ask, the
-Standing rules say what happens instead.
+The flow you carry keeps its own procedure; these rules ride on top of it.
 
 - **(a) coordinate.** Continue from `state.json` at the marker's phase; when its body is no longer in context,
   load the `coordinate` skill again, whose Phase 0 resumes an owned run. A `Roadmap?`, `TDD?` or bundle decision
@@ -222,12 +212,12 @@ Standing rules say what happens instead.
   gate, and its `Push?` is not asked: unless its verdict is `gaps_found`, apply `Push + PR` when `allowed_outward`
   holds `pr` or `merge`, `Push` when it holds only `push`; otherwise `Keep local`, the push recorded as deferred.
   Its Phase 8 close follows, then Phase 4 here for whatever remains (a merge, a deploy).
-- **(b) execute.** Never load the `execute` skill: its 1e rewrites `active-execution.json` and its failure history
-  lives in context, so a second load restarts the wave loop with that history lost. It keeps `AUTO_MODE` once your
+- **(b) execute.** Never load the `execute` skill: a second load restarts its wave loop and loses the failure
+  history that lives in context. It keeps `AUTO_MODE` once your
   marker appears, and its final commit goes `--no-push` because the marker exists.
 - **(c) plan.** A checkpoint: write `Request: --auto <checkpoint slug>` as one line, then load the `plan` skill with
-  the `skill` tool; the slug goes in verbatim and never the topic, because the plan skill re-derives the slug from
-  its request and a topic can miss the checkpoint. A plan whose reviewer is still running: wait for it and continue
+  the `skill` tool; the slug goes in verbatim and never the topic (the plan skill re-derives the slug from
+  its request). A plan whose reviewer is still running: wait for it and continue
   the plan's own flow; never adopt a plan before its review lands. A written plan nobody executed: write
   `Request: <slug> --auto` as one line, then load the `execute` skill, the one load of execute this skill makes,
   because no plan run exists to chain it.
@@ -267,8 +257,7 @@ what the gate did, never `passed`. A verdict reporting gaps is a complete ending
    dashes), `merge` merges that PR (`gh pr merge`), or in a repository without pull requests merges locally into the base
    branch and pushes it, `release` cuts the release the request named, `deploy` runs the
    deploy the request or the project's docs name (none found is a missing fact, recorded under `## Blocked`). On a
-   `gaps_found` verdict none runs: each is recorded as deferred, because publishing work the gate found unmet is
-   the user's call. Report each command's result.
+   `gaps_found` verdict none runs: each is recorded as deferred. Report each command's result.
 2. **Close.** Delete `.ac/state/active-auto.json`. The plugin keeps its stop-guard count in memory, keyed on the
    marker's `started_at`, so the next run starts with a fresh budget and there is no counter file to remove.
 3. **Report.** What finished (steps or bundles, the branch and its head); the verdict's `status`, criteria met
@@ -287,11 +276,3 @@ Each deletes `.ac/state/active-auto.json` before it stops.
 | Digest mismatch, no `python3`, a failed branch switch, a source that aborted before its gate | Phase 1 to 3 |
 
 A refusal at 0a or 1a, and a (d) whose work was already complete, wrote nothing, so they leave nothing to clean up.
-
-<reminders>
-- Carry the running flow; never decline because of it and never open a second run beside it.
-- No questions while away: Recommended option, one decisions line; true blockers go under `## Blocked`.
-- Outward actions only from `allowed_outward`, only after the gate, none on `gaps_found`.
-- One gate, against criteria frozen before the work; a verdict with gaps is a complete ending.
-- Every ending deletes the marker first.
-</reminders>

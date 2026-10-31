@@ -1,7 +1,7 @@
 ---
 name: frontend-design
-description: "Build distinctive, animated, accessible web and mobile UI from a committed direction and a token plan; ac:design-director decides the look, you write the code."
-when_to_use: "Use when building or restyling pages, screens, components or Flutter widgets, or when a DESIGN.md or Stitch design is the input; not for backend or non-visual work."
+description: "Build distinctive, accessible web and mobile UI from a committed design direction and token plan."
+when_to_use: "Use when building or restyling pages, screens, components or Flutter widgets, or from a DESIGN.md or Stitch design; not for backend work."
 ---
 
 # ac:frontend-design

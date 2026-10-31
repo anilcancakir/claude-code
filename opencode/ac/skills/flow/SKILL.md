@@ -1,8 +1,8 @@
 ---
 name: flow
-description: "Run a medium or large request on the main thread: parallel research, interview, build in slices, oracle review. Use before building anything that touches several files, an unfamiliar area, an open behaviour choice or independent slices; not for a one-file change or when the user asked for /ac/plan."
+description: "Run a medium or large request on the main thread: parallel research, interview, build in slices, oracle review. Use before building anything that touches several files, an unfamiliar area or an open behaviour choice; not for a one-file change or an explicit /ac/plan."
 ---
-<!-- ported-from: plugins/ac/skills/flow/SKILL.md sha256:c1e7150f007b52e28bb7af00e7c4bdd6708d8c998f1916425e495e345c369ea6 -->
+<!-- ported-from: plugins/ac/skills/flow/SKILL.md sha256:4bd5d2b8001b9c573f6238f9fe5c12468c86327c99e9ffa5a68e7b0b980f4296 -->
 
 # flow
 

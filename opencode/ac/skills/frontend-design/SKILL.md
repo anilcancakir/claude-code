@@ -1,8 +1,8 @@
 ---
 name: frontend-design
-description: "Build distinctive, animated, accessible web and mobile UI from a committed direction and a token plan; ac/design-director decides the look, you write the code. Use when building or restyling pages, screens, components or Flutter widgets, or when a DESIGN.md or Stitch design is the input; not for backend or non-visual work."
+description: "Build distinctive, accessible web and mobile UI from a committed design direction and token plan. Use when building or restyling pages, screens, components or Flutter widgets, or from a DESIGN.md or Stitch design; not for backend work."
 ---
-<!-- ported-from: plugins/ac/skills/frontend-design/SKILL.md sha256:d417663076efc80d9594f7a6313bc79abe487c3a4bfc148dea99b8a3b451ab4a -->
+<!-- ported-from: plugins/ac/skills/frontend-design/SKILL.md sha256:9bb2a83513a3a517f786976e677bb3ab481fc36640d3e18443b18011310e072a -->
 
 # frontend-design
 

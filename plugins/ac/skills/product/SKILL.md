@@ -1,7 +1,7 @@
 ---
 name: product
-description: "Turn a project or feature idea into a feasibility-checked PRD and a parallel-ready roadmap through research and a full interview."
-when_to_use: "Use when the user runs /ac:product with an idea or a feature to specify before any planning; not for a change that is already specified."
+description: "Turn an idea into a feasibility-checked PRD and a parallel-ready roadmap through research and an interview."
+when_to_use: "Use when the user runs /ac:product with an idea to specify before any planning; not for a change that is already specified."
 argument-hint: "<idea or feature>"
 disable-model-invocation: true
 effort: high

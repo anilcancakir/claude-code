@@ -1,7 +1,7 @@
 ---
 name: flow
 description: "Run a medium or large request on the main thread: parallel research, interview, build in slices, oracle review."
-when_to_use: "Use before building anything that touches several files, an unfamiliar area, an open behaviour choice or independent slices; not for a one-file change or when the user asked for /ac:plan."
+when_to_use: "Use before building anything that touches several files, an unfamiliar area or an open behaviour choice; not for a one-file change or an explicit /ac:plan."
 ---
 
 # ac:flow

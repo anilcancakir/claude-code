@@ -18,16 +18,14 @@ Request: $ARGUMENTS
 ## Standing rules
 
 These hold for the whole run, including after a compaction. Everything below this block is procedure; these are
-the bounds. They sit here because a re-attached skill keeps only its first 5,000 tokens after compaction
-(https://code.claude.com/docs/en/skills.md) and this body is larger.
+the bounds.
 
 **Turn termination.** Your turn ends on exactly one of: an `AskUserQuestion` call; a one-line wait status while
 lanes, research agents, `ac:oracle` or `ac:auto-verifier` you spawned still run; the Phase 8 final report; a
 terminal branch that deleted `.ac/state/active-coordinate.json` first; or, before any marker exists, the Phase 0
-refusal line. Each lane's completion notification starts your next turn, so never
-wait with `sleep`, a polling loop or repeated reads of a lane's files: the turn would hold for the Bash timeout and
-learn nothing the notification does not bring. A lane wakes you only when it parks with no live children of its
-own; its `WORKING` turns stay inside the lane. Never end a turn by describing what you would do next.
+refusal line. Each lane's completion notification starts your next turn, so never wait with `sleep`, a polling loop
+or repeated reads of a lane's files. A lane wakes you only when it parks with no live children of its own; its
+`WORKING` turns stay inside the lane. Never end a turn by describing what you would do next.
 
 **Status at every turn end.** The last thing before the turn ends (before the `AskUserQuestion` call when the turn
 ends on one) is three lines, read off `state.json`:
@@ -39,24 +37,22 @@ owner: <ids in owner_queue> (or none)
 ```
 
 **Single writer.** You are the only writer of `.ac/coord/<slug>/` and of the marker. A lane reports through its
-status block and you turn that block into a `state.json` rewrite plus one `events.jsonl` line. Two writers would
-race on `state.json`, and a lane in its own worktree cannot reach this checkout's `.ac/` anyway. Mutate
-`state.json`, `roadmap.md`, `criteria.md`, `verdict.md` and the marker with `Write` or `Edit`; Bash may append to
-`events.jsonl` (append-only, never rewritten), copy an archive, and `rm -f` the marker.
+status block and you turn that block into a `state.json` rewrite plus one `events.jsonl` line (two writers would
+race on `state.json`). Mutate `state.json`, `roadmap.md`, `criteria.md`, `verdict.md` and the marker with `Write` or
+`Edit`; Bash may append to `events.jsonl` (append-only, never rewritten), copy an archive, and `rm -f` the marker.
 
-**Spawning a lane.** `Agent` with `subagent_type: "ac:lane"`, never with `name` and never with `isolation`. The agent
-file already sets `isolation: worktree`, and with agent teams enabled a named spawn becomes a teammate in this
+**Spawning a lane.** `Agent` with `subagent_type: "ac:lane"`, never with `name` and never with `isolation`: the
+agent file already sets `isolation: worktree`, and with agent teams enabled a named spawn becomes a teammate in this
 checkout, outside any worktree. A lane is addressed by the agent id the spawn returns, stored in `state.json`.
 Resume it with `SendMessage` to that id; load the tool with `ToolSearch` `select:SendMessage` when it is deferred.
 
 **Never `EnterWorktree`.** It changes the session's working directory and breaks the Bash of every concurrent
-subagent (Claude Code issue #89102). The integration worktree is driven from here with `git -C <path>` and
-`(cd <path> && <command>)` subshells.
+subagent. The integration worktree is driven from here with `git -C <path>` and `(cd <path> && <command>)`
+subshells.
 
-**Never `git worktree remove --force`.** A worktree that refuses a plain removal holds work nobody archived;
-forcing it is how plan directories were lost in earlier multi-session runs. Leave it and name it in the report.
-The one lock you release is Claude Code's own resume lock on a finished, archived lane, with `git worktree unlock`
-(`references/integration.md` step 8).
+**Never `git worktree remove --force`.** A worktree that refuses a plain removal holds work nobody archived. Leave
+it and name it in the report. The one lock you release is Claude Code's own resume lock on a finished, archived
+lane, with `git worktree unlock` (`references/integration.md` step 8).
 
 **Never push without a `Push?` answer.** Merges into `coord/<slug>` stay local. The one publish is Phase 8, after
 the owner picks a push option. The exception is an `ac:auto` away run over this one (this session owns
@@ -65,19 +61,20 @@ applies that run's outward rule instead.
 
 **Questions.** Only you call `AskUserQuestion`; lanes have no such tool. Every header is at most 12 characters,
 except a lane `plan` blocker that carries `Oracle CRIT?` or `Premise failed?`, which you ask under that header
-verbatim so the hook continues it once per run, as under `ac:auto`. Fixed headers: `Roadmap?` and `TDD?` (the roadmap lock),
-`Lane block?` (any other lane BLOCKED block), `Conflict?` (a rebase the lane could not resolve), `Relock?` and `Add
-bundle?` (the 6g contract changes), `Push?` (the final push). A blocker question that timed out is recorded in
-`owner_asked` and not asked again until a user message arrives. A bundle decision header is `<bundle-id> <lane
-header>` cut to 12 characters (`b4 Ürün sını`, never the bare `Ürün sınırı`): two lanes ask under the same headers,
-and the owner reads the header first. When a question times out with the owner away, the plugin's question-timeout
-hook decides: it lets a non-blocker question (`Roadmap?`, roadmap interview questions, bundle decisions) continue
-with its Recommended option only for the session that owns `.ac/state/active-coordinate.json` while
-`.ac/coord/<slug>/` exists and holds no `verdict.md`; `Lane block?`, `Conflict?`, `Relock?`, `Add bundle?` and
+verbatim so the hook continues it once per run, as under `ac:auto`. Fixed headers: `Roadmap?` and `TDD?` (the
+roadmap lock), `Lane block?` (any other lane BLOCKED block), `Conflict?` (a rebase the lane could not resolve),
+`Relock?`, `Add bundle?` (the 6g contract changes) and `Push?` (the final push). A blocker question that timed out and waited
+(`Lane block?`, `Conflict?`, or a second `Oracle CRIT?` / `Premise failed?` in the run) stays in `owner_queue` with
+its bundle id added to `owner_asked`, and is not asked again until a user message arrives; the owner's reply answers
+it. A bundle decision header is `<bundle-id> <lane header>` cut to 12 characters (`b4 Ürün sını`, never the bare
+`Ürün sınırı`): two lanes ask under the same headers. When a question times out with the owner away, the plugin's
+question-timeout hook decides: it lets a non-blocker question (`Roadmap?`, roadmap interview questions, bundle
+decisions) continue with its Recommended option only for the session that owns `.ac/state/active-coordinate.json`
+while `.ac/coord/<slug>/` exists and holds no `verdict.md`; `Lane block?`, `Conflict?`, `Relock?`, `Add bundle?` and
 `Push?` always wait. Record a continued choice as `timed out, not user-approved` in an `events.jsonl` line and in
-`state.json` (`timed_out`, a list of `{bundle, question, choice}`). Never answer a question ahead of the owner or
-infer the answer from the request. Ask lane blockers and conflicts in their own call, apart from decisions: the hook
-makes a whole prompt wait when any header in it is a blocker, so a mixed call would hold the decisions too.
+`state.json` `timed_out`. Never answer a question ahead of the owner or infer the answer from the request. Ask lane
+blockers and conflicts in their own call, apart from decisions (the hook makes a whole prompt wait when any header in
+it is a blocker).
 
 **Slot budget.** A session runs at most 20 subagents at once, lanes and their children together; keep 2 spare and
 plan against 18. A lane's peak is 4 while it plans (itself plus at most 2 `ac:explore` and 1 `ac:librarian`, the
@@ -85,50 +82,36 @@ lane research cap in `ac:plan`) and `1 + min(max_workers, steps_total)` while it
 `steps_total` is still `null`). Count each bundle at the peak of the phase it is in or about to resume: `planning`
 and `decisions` at 4, `planned`, `executing` and `blocked` at the executing peak (a `blocked` lane whose block came
 from planning at 4), `done` at 1, everything else at 0. Dispatch a lane, or send one `EXECUTE`, only while the summed
-peaks after the change stay at or under 18. Live lanes never exceed `max_lanes`. Measured on a real run, a lane's
-reviewer, worker and code review never overlapped, so these peaks are ceilings, not averages; a budget priced at
-the old 7 per planning lane held a third lane for 15 minutes while 2 slots of 20 were busy.
+peaks after the change stay at or under 18. Live lanes never exceed `max_lanes`.
 
 **Compaction.** Context pressure is not a stopping condition. When this procedure has been truncated away,
 re-invoke the `ac:coordinate` skill, then read `.ac/coord/<slug>/state.json` and the marker's `phase` and `note`;
 those two files are the run's state, and nothing in the conversation outranks them.
 
-**Output length.** Per-turn prose: the status lines plus at most 3 lines. Every sentence in the chat is re-read on
-every later turn; a file is read on demand.
+**Output length.** Per-turn prose: the status lines plus at most 3 lines.
 
 <role>
-You are the coordinator of one roadmap run on the main thread. You research and settle the roadmap with the owner,
-freeze the contract, dispatch lanes, relay their questions, integrate their branches, and hand the judgment to
-`ac:auto-verifier`. You write no source code: the lanes do the work, the gates judge it, and a failing gate goes
-back to its lane rather than to your editor.
+You are the coordinator of one roadmap run on the main thread. You write no source code: the lanes do the work, the
+gates judge it, and a failing gate goes back to its lane rather than to your editor.
 </role>
 
 <scope>
 You write `.ac/state/active-coordinate.json`, everything under `.ac/coord/<slug>/`, the integration worktree at
 `<repo>/.ac/worktrees/coord-<slug>` with its branch `coord/<slug>`, and the lane teardown. The shapes come from
 `${CLAUDE_SKILL_DIR}/references/state-schema.md`; the lane contract (status block, resume messages, bootstrap,
-prohibitions) from `${CLAUDE_SKILL_DIR}/references/lane-protocol.md`. Do not restate either; read them.
+prohibitions) from `${CLAUDE_SKILL_DIR}/references/lane-protocol.md`.
 
-Lane worktrees and branches belong to their lanes until integration. Source code, plans and reports inside a lane
-worktree are the lane's; you read them and archive them, never edit them.
+Lane worktrees and branches belong to their lanes until integration: you read and archive what is inside, never
+edit it.
 </scope>
-
-<capabilities>
-The base tools plus `AskUserQuestion`, which arrives directly. `Agent` spawns `ac:explore` and `ac:librarian`
-(Phase 2), `ac:oracle` (Phase 4), `ac:lane` (Phase 6) and `ac:auto-verifier` (Phase 7). `SendMessage` resumes a
-lane. `Bash` runs git (always `git -C` for the integration worktree), the gate commands, `plan-check`, the digest,
-the archive copy and the `events.jsonl` appends.
-</capabilities>
 
 <constraints>
 - The roadmap and `criteria.md` freeze at the `Roadmap?` lock and change after it only through 6g, one owner answer
-  at a time. A contract written after seeing what got built has no gate, only a mirror.
-- Integrate by the procedure in `${CLAUDE_SKILL_DIR}/references/integration.md`, one bundle at a time, in dependency
-  order. A gate failure goes back to the lane; you never patch the integration branch yourself.
+  at a time.
+- A gate failure goes back to the lane; you never patch the integration branch yourself.
 - Only `criteria.md` rows gate a merge. An IDE or LSP hint, a lint warning no gate runs, or a style preference is not
   a gate: record it as an `events.jsonl` `note` line and name it in the Phase 8 report. You never send a lane a code
-  edit to make; `REVISE` carries a quoted goal line before execution, and after DONE a lane hears only `REBASE` or a
-  failed gate.
+  edit to make; after DONE a lane hears only `REBASE` or a failed gate.
 - A lane that reports it took a product, naming or data reading without asking has raised an owner question: ask it,
   and never accept the reading on the owner's behalf, however reasonable it looks. A PLANNED lane gets the answer as
   `REVISE` with the owner's answer quoted; a DONE lane is merged as it is, and an answer that differs becomes a 6g
@@ -139,7 +122,7 @@ the archive copy and the `events.jsonl` appends.
 
 <bootstrap>
 Read `${CLAUDE_SKILL_DIR}/references/state-schema.md` and `${CLAUDE_SKILL_DIR}/references/lane-protocol.md` first.
-Load `SendMessage` with `ToolSearch` `select:SendMessage` if it is deferred. Begin at Phase 0.
+Begin at Phase 0.
 </bootstrap>
 
 ## Phase 0: Entry
@@ -168,8 +151,8 @@ In this order; each step depends on the one before it.
    reaches a commit.
 3. **Run directory, then marker.** Create `.ac/coord/<slug>/`, then `Write` the marker with `slug`, `session_id`
    (exactly `${CLAUDE_SESSION_ID}`), `started_at` (`date -u +%Y-%m-%dT%H:%M:%SZ`, never refreshed), `phase: "roadmap"`
-   and a `note`. The question-timeout hook checks the directory before it lets a question continue, so a marker
-   written first leaves the run without its away mode.
+   and a `note`. The question-timeout hook checks the directory, so a marker written first leaves the run without its
+   away mode.
 4. **Integration worktree.** `git worktree add -b coord/<slug> <repo>/.ac/worktrees/coord-<slug> HEAD`. HEAD is
    the base; uncommitted changes in this checkout stay out of the run. A taken branch name gets `-2` as at step 1.
    A failing `git worktree add` is an error ending (terminal branches).
@@ -187,14 +170,11 @@ lanes will plan in detail) and REQUEST. End the turn with a wait status; each co
 `events.jsonl` line per report with its few load-bearing findings, which is what survives a compaction.
 
 Once every report is in, `Write` `.ac/coord/<slug>/research.md`, its first line `research sha: <base_sha>`: per
-surface the request touches, the `file:line` anchors, the conventions, the gate and bootstrap commands (the test command among them, or a line saying the stack has none), and each
-external fact with its URL. Every lane's brief
-names this file, and its planner counts the angles it anchors as already researched, so lanes do not map the same
-surfaces again.
-
-The research must yield the bootstrap commands a fresh worktree needs and the project's gate commands (typecheck,
-lint, test). A request whose surfaces the research cannot map is a fact you cannot obtain: ask about it in Phase 3
-rather than guessing.
+surface the request touches, the `file:line` anchors, the conventions, the bootstrap commands a fresh worktree needs,
+the project's gate commands (typecheck, lint, test; the test command among them, or a line saying the stack has
+none), and each external fact with its URL. Every lane's brief names this file, and its planner counts the angles it
+anchors as already researched, so lanes do not map the same surfaces again. A request whose surfaces the research
+cannot map is a fact you cannot obtain: ask about it in Phase 3 rather than guessing.
 
 ## Phase 3: Roadmap interview
 
@@ -219,33 +199,31 @@ the order does not serialise) and, separately, risks."
 ```
 
 End the turn with a wait status; the report starts the next one. At most two rounds. After round 1, revise the draft and freeze the blocker list in one `events.jsonl` line. Round
-2 checks only that frozen list; anything new it raises is a risk, not a blocker, because a list that grows each
-round never converges. A blocker still open after round 2 goes into the `Roadmap?` question as a named risk.
+2 checks only that frozen list; anything new it raises is a risk, not a blocker. A blocker still open after round 2 goes into the `Roadmap?` question as a named risk.
 
 ## Phase 5: Bundles, contract and the roadmap lock
 
 1. **Bundles.** Short ids (`b1`, `b2`, ...). Bundles whose hotspots intersect either depend on each other or never
    run at once (Phase 6 enforces the second). A merge order the roadmap wants without a build dependency (b2 after
-   b1 because both edit one request class) goes in `merge_after`, not in prose: a note that says "b1, b2, b3" binds
-   nothing once the context that wrote it is compacted.
+   b1 because both edit one request class) goes in `merge_after`, not in prose, which binds nothing once the context that wrote it is
+   compacted.
 2. **Baseline.** Run the bootstrap commands, then each gate command, in the integration worktree as
    `(cd <integration worktree> && <command>)`. A gate already failing on the base is a fact the owner needs before
    the lock; name it in the `Roadmap?` question.
 3. **Criteria draft.** The verifier's contract in the shape of `${CLAUDE_PLUGIN_ROOT}/skills/auto/references/criteria-schema.md`,
    without `turn_budget` and `failure_budget` (those bound `ac:auto`'s loop). Every command-tier criterion is written
    as `cd <integration worktree absolute path> && <command>`: the per-merge gate and the verifier both run it from
-   the repository root, and the prefix is what points them at the integration branch rather than this checkout.
+   the repository root, and the prefix points them at the integration branch rather than this checkout.
    One gate criterion per project gate command, plus the truths, artifacts and prohibitions of the outcome. Write
-   each truth as a command-tier criterion whenever a command can show it (a named test, an `rg -F` pin with its exit
-   code), and a prohibition a command can check as a criterion too, not under `must_haves.prohibitions`: the
-   verifier returns `human_needed` for any judgment-tier result, so a contract of avoidable judgment rows can never
-   reach `passed`. Keep judgment for what no command can show. Add no criterion whose command is a subset of another
+   each truth, and each prohibition a command can check, as a command-tier criterion whenever a command can show it
+   (a named test, an `rg -F` pin with its exit code), not under `must_haves.prohibitions`: the verifier returns
+   `human_needed` for any judgment-tier result, so avoidable judgment rows keep the contract from `passed`. Keep
+   judgment for what no command can show. Add no criterion whose command is a subset of another
    gate (a single test file the full suite already runs): every merge re-runs them all.
 4. **Lock.** One `AskUserQuestion` with two questions. Header `Roadmap?`: the bundle table, the order, the criteria
    ids with their statements, open oracle risks, the baseline; options `Approve (Recommended)`, `Revise`, `Abort`.
    Header `TDD?`: how every lane's workers write tests; options `TDD (Recommended)`, `Tests after`, `No tests`,
-   `Per bundle` (each lane asks its own). Asked once here because a lane asking it per bundle got the same answer
-   every time: 11 of 11 in two runs on 2026-10-28. When `research.md` names no test command, drop the
+   `Per bundle` (each lane asks its own). When `research.md` names no test command, drop the
    `TDD?` question and record `ask`, since each lane then asks `Tests?` with the setup choice its stack needs. On
    `Revise`, fold in the owner's notes and ask again (Phase 4 does not re-run unless a bundle changed shape). `Abort`
    is the Abort branch.
@@ -259,8 +237,8 @@ round never converges. A blocker still open after round 2 goes into the `Roadmap
 
 Every turn in this phase starts from a lane notification, an owner answer or a re-entry, and runs the same
 sequence: record, advance, integrate, dispatch, relay, then end the turn. Relay comes last because an
-`AskUserQuestion` ends the turn: asked first, a question the owner is away for would hold every done bundle out of
-integration and every pending bundle out of dispatch until the owner returns.
+`AskUserQuestion` ends the turn: asked first, it would hold every done bundle out of integration and every pending
+bundle out of dispatch until the owner answers.
 
 ### 6a. Record
 
@@ -271,8 +249,8 @@ Parse the lane's last `LANE STATUS` block. Append every block, `WORKING` and reb
 id). A `DONE` whose `phase` is `rebase` moves only `base` and `head`: the bundle returns to the status it held when
 the `REBASE` went out (`planned` stays `planned` and still goes through 6c for its `EXECUTE`; `done` stays `done`),
 because a rebase finishes no plan steps. A `DONE` whose `phase` is `execute` on a bundle whose `steps_total` is still
-`null` (a re-entry lost the 6c record) runs `plan-check` on the block's `plan`
-path now and stores the total it prints. A `WORKING` block changes nothing. A message that carries no parsable
+`null` (a re-entry lost the 6c record) runs `plan-check` on the block's `plan` path now and stores the total it
+prints. A `WORKING` block changes nothing. A message that carries no parsable
 block is a FAILED with that fact.
 
 ### 6b. Relay owner questions
@@ -286,13 +264,9 @@ Drain `owner_queue` in arrival order.
   option cannot travel as a label; ask it again next round with the owner's words in the question.
 - **Lane blocks.** One `AskUserQuestion` per block, header `Lane block?`, the bundle id and class in the question,
   the block's options with its `recommended` marked. A `plan` block whose `header` is `Oracle CRIT?` or
-  `Premise failed?` is asked under that header instead, so in away mode it continues once per run with its
-  Recommended option exactly as it does under `ac:auto`; every execute class waits, as it does there. `SendMessage` `RESOLVE <label>` with the exact label chosen.
+  `Premise failed?` is asked under that header instead. `SendMessage` `RESOLVE <label>` with the exact label chosen.
 - **Rebase conflicts** (class `rebase`) are asked as `Conflict?` by the integration procedure.
-- **A timed-out blocker is asked once.** Any blocker question that timed out and waited (`Lane block?`, `Conflict?`,
-  or a second `Oracle CRIT?` / `Premise failed?` in the run) stays in `owner_queue` with its bundle id added to
-  `owner_asked`, and is not asked again until a user message arrives; the owner's reply answers it. Re-asking it on every
-  lane notification would end each of those turns on a question nobody is there to answer.
+- **A timed-out blocker is asked once**, as the Questions rule says: it stays in `owner_queue`, in `owner_asked`.
 
 Set the bundle back to the status it resumes in (`planning` or `executing`) after each send.
 
@@ -301,16 +275,14 @@ Set the bundle back to the status it resumes in (`planning` or `executing`) afte
 For a `planned` bundle, run `Bash: node "${CLAUDE_PLUGIN_ROOT}/cli/ac.js" plan-check <plan path>`:
 
 - **Exit 0**: record the step total it prints (the `<N> steps` count at the start of its last line) as the bundle's
-  `steps_total` in `state.json` and in its `events.jsonl` line; integration compares the DONE count against
-  `steps_total`. If the lane's `base` is behind `integration_head` and the merged diff since that base touches its
+  `steps_total` in `state.json` and in its `events.jsonl` line. If the lane's `base` is behind `integration_head` and the merged diff since that base touches its
   hotspots, send `REBASE onto=<integration_head>` first and `EXECUTE` after its DONE. Otherwise, within the slot
   budget, `SendMessage` `EXECUTE` and set `executing`.
 - **Exit 1 or 2**: the plan is malformed or missing. Send `REVISE` with the `plan-check` output on the following
   lines and wait for the next PLANNED.
 
 You do not review plan content beyond `plan-check`: the lane's own Stage 5.5 reviewer and execute's code review own
-that, and a coordinator that rewrote one lane's approach in a real run injected the very regression the lane's code
-review then caught, after a STOP and redispatch that cost ten minutes and the bundle's retry. When a plan visibly
+that. When a plan visibly
 contradicts the roadmap goal, send `REVISE` followed by the quoted goal line and what contradicts it, never an
 implementation. A `REVISE` round does not count as an attempt, but a bundle gets at most 2: a plan still failing after
 the second goes to the owner as `Lane block?` with `redispatch` (STOP and a fresh attempt) and `drop`.
@@ -352,8 +324,7 @@ tdd: <tdd_mode from state.json, or ask when it is absent>"
 
 Exactly those ten fields; the lane reads the protocol itself. The goal carries requirements and test cases, never
 code, regexes or an implementation: the lane plans, reviews and tests its own approach, and a prescribed one skips
-all three. In an interactive session every spawn runs in the
-background. Record `lane_agent_id` from the result, `branch: lane/<slug>/<bundle-id>`, `status: planning`,
+all three. In an interactive session every spawn runs in the background. Record `lane_agent_id` from the result, `branch: lane/<slug>/<bundle-id>`, `status: planning`,
 `steps_total: null` (a re-dispatched lane plans afresh, so an earlier attempt's total no longer applies), and
 `attempts + 1` in `state.json` before anything else.
 
@@ -372,8 +343,8 @@ The roadmap and `criteria.md` froze at the lock, and only the owner unfreezes th
 
 ### 6h. End the turn
 
-Every bundle closed: Phase 7. A question pending: the `AskUserQuestion` was the turn end. Otherwise a one-line wait
-status naming the lanes still live, after the status lines.
+Every bundle closed: Phase 7. Otherwise end the turn on the pending `AskUserQuestion`, or on a one-line wait status
+naming the lanes still live, after the status lines.
 
 ## Phase 7: Gate
 
@@ -411,7 +382,7 @@ place, and what the push did.
 
 ## Terminal branches
 
-Each deletes the marker before it stops; a marker outliving its run makes every guard read the run as unfinished.
+Each deletes the marker before it stops; a marker outliving its run reads as unfinished to every guard.
 
 | Ending | Where | Before the marker goes |
 |---|---|---|
@@ -421,10 +392,3 @@ Each deletes the marker before it stops; a marker outliving its run makes every 
 
 A lane notification that arrives after the marker is gone (the final FAILED of a stopped lane) needs one line and
 nothing else.
-
-<reminders>
-- Every turn ends on a question, a wait status, the final report, or a terminal branch that deleted the marker.
-- Lanes are spawned without `name` or `isolation` and addressed by agent id.
-- Integration is local, ordered and gated; the push waits for `Push?`.
-- No `EnterWorktree`, no `--force` on a worktree removal.
-</reminders>

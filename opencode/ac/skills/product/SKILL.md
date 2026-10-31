@@ -1,8 +1,8 @@
 ---
 name: product
-description: "Turn a project or feature idea into a feasibility-checked PRD and a parallel-ready roadmap through research and a full interview. Runs when the user types /ac/product with an idea or a feature to specify before any planning; not for a change that is already specified."
+description: "Turn an idea into a feasibility-checked PRD and a parallel-ready roadmap through research and an interview. Runs when the user types /ac/product with an idea to specify before any planning; not for a change that is already specified."
 ---
-<!-- ported-from: plugins/ac/skills/product/SKILL.md sha256:fcdef0d2d98eb42e64b30cf14e1dcb14889780d4c880351ba78964f9c16ca815 -->
+<!-- ported-from: plugins/ac/skills/product/SKILL.md sha256:0d94540d5ce264ffec3dd9b275bc9f67ae7c1bd75277334b5e4653ebf403e521 -->
 
 # /ac/product
 
