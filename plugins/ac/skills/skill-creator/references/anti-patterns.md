@@ -10,6 +10,7 @@ Common skill-writing mistakes, why they fail, and what to do instead. Read this 
 - Architecture failures
 - Plugin-distribution failures
 - Iteration failures
+- Symptom to fix
 - Quick audit checklist
 
 ## Frontmatter failures
@@ -313,6 +314,17 @@ Common skill-writing mistakes, why they fail, and what to do instead. Read this 
 - *Does not trigger*, name the situation more exactly in `when_to_use`; if the trigger must never be lost, name the skill in CLAUDE.md.
 - *Triggers but does not influence behavior*, strengthen the body (clearer goal, success criteria, lead with the rule).
 - *Triggers when it should not*, tighten the description (remove broad keywords, narrow the use case).
+
+## Symptom to fix
+
+| Symptom | Fix |
+|---------|-----|
+| Does not trigger | Name the situation more exactly in `when_to_use`; name the skill in CLAUDE.md if it must never be missed |
+| Triggers on unrelated work | Remove broad words from `description`; set `disable-model-invocation: true` if it is user-only |
+| Loads but changes nothing | Lead with the rule, state the goal and success criteria, give the why |
+| Stops influencing mid-session | Move standing rules into the first 5,000 tokens; re-invoke after compaction |
+| Repeats setup every run | Bundle a script |
+| Literal `$ARGUMENTS` or an unexpected command in the rendered prompt | See `user-typed-skills.md` on substitution and the injection escape |
 
 ## Quick audit checklist
 
