@@ -406,14 +406,37 @@ test("the identical command passes on its second attempt, and a new session is d
     denyReason(runEditHook(editPayload("sed -i 's/a/b/' other.txt", "ac:plan-worker-junior", "s-a")));
 });
 
-test("a single-file shell replace passes for the main thread and every non-worker agent", () => {
+test("a single-file shell replace is denied once for the main thread and general-purpose too", () => {
+    for (const agent of [undefined, "general-purpose"]) {
+        for (const command of ["sed -i 's/foo/bar/' src/app.php", "gsed -i 's/foo/bar/' src/app.php", PYTHON_REPLACE]) {
+            const session = `s-${agent ?? "main"}`;
+            const reason = denyReason(runEditHook(editPayload(command, agent, session)));
+
+            expect({ agent, command, mentionsEdit: reason.includes("Edit tool") }).toEqual({ agent, command, mentionsEdit: true });
+            expect(runEditHook(editPayload(command, agent, session))).toEqual(silent);
+        }
+    }
+});
+
+test("the main thread is judged for shell edits only, never for the search rules", () => {
+    for (const command of ["find / -name x", "grep -ril x .", "ls -la", "git status"]) {
+        expect({ command, result: runEditHook(editPayload(command, undefined, "s-main-search")) })
+            .toEqual({ command, result: silent });
+    }
+});
+
+test("words in a trailing comment are not operands", () => {
+    denyReason(runEditHook(editPayload("sed -i 's/a/b/' f.txt # TODO find callers for this", "ac:plan-worker-junior", "s-comment")));
+});
+
+test("a single-file shell replace passes for every agent that is not a worker or general-purpose", () => {
     const shapes = [
         "sed -i 's/foo/bar/' src/app.php",
         "perl -pi -e 's/foo/bar/' src/app.php",
         PYTHON_REPLACE,
     ];
 
-    for (const agent of [undefined, "ac:oracle", "ac:explore", "ac:qa-tester", "ac:lane", "general-purpose"]) {
+    for (const agent of ["ac:oracle", "ac:explore", "ac:qa-tester", "ac:lane"]) {
         for (const command of shapes) {
             expect({ agent, command, result: runEditHook(editPayload(command, agent)) })
                 .toEqual({ agent, command, result: silent });

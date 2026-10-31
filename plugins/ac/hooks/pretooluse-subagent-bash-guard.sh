@@ -26,7 +26,7 @@
 #   d. recursive `grep` from a repository root (a directory holding `.git`, the cwd when no path is
 #      given): grep ignores .gitignore, which is how `grep -ril x .` over a 44 GB repository ran for
 #      31 minutes. `rg` and the Grep tool honour it, so the deny points there.
-#   e. for the four plan workers only (they hold the Edit tool), a small in-place replace through the
+#   e. for the four plan workers, general-purpose and the main thread (they hold the Edit tool), a small in-place replace through the
 #      shell: `sed -i` or `perl -i` with exactly one file operand, or an inline python script that
 #      calls `.replace(` and writes (at most 3 write calls). Since 2026-10-01 the workers made about 7k
 #      such edits against 17k Edit calls, and each one skipped the diff, Claude Code's stale-write check
@@ -62,9 +62,17 @@ input="$(cat 2>/dev/null)" || exit 0
 command -v jq >/dev/null 2>&1 || exit 0
 printf '%s' "$input" | jq -e . >/dev/null 2>&1 || exit 0
 
-# 1. Scope. A main-thread call carries no agent_type, which is what leaves the orchestrator alone.
+# 1. Scope. The search rules (a to d) judge ac subagents only: a main-thread call carries no agent_type,
+#    which leaves the orchestrator alone. The shell-edit rule (e) also covers the main thread and
+#    general-purpose, the two callers that hold the Edit tool and made most of the shell edits.
 agent_type="$(printf '%s' "$input" | jq -r '.agent_type // empty' 2>/dev/null)"
-ac_agent_in_scope "$agent_type" || exit 0
+in_scope=0
+ac_agent_in_scope "$agent_type" && in_scope=1
+edit_scope=0
+case "$agent_type" in
+    '' | general-purpose) edit_scope=1 ;;
+esac
+[ "$in_scope" = 1 ] || [ "$edit_scope" = 1 ] || exit 0
 
 # Oracle, librarian, plan-reviewer and plan-code-review inherit the MCP search-history tool through a
 # denylist, while the other agents are allowlisted without it, so only these four are pointed at it.
@@ -79,10 +87,18 @@ case "$agent_type" in
         | plan-worker-junior-high | ac:plan-worker-junior-high | plan-worker-senior | ac:plan-worker-senior) worker=1 ;;
     *) worker=0 ;;
 esac
+[ "$worker" = 1 ] && edit_scope=1
 session_id="$(printf '%s' "$input" | jq -r '.session_id // empty' 2>/dev/null)"
 
 cmd="$(printf '%s' "$input" | jq -r '.tool_input.command // empty' 2>/dev/null)"
 [ -n "$cmd" ] || exit 0
+# A caller outside the ac agents is judged for shell edits only, so most commands end here, before perl starts.
+if [ "$in_scope" = 0 ]; then
+    case "$cmd" in
+        *sed* | *perl* | *python*) ;;
+        *) exit 0 ;;
+    esac
+fi
 cwd="$(printf '%s' "$input" | jq -r '.cwd // empty' 2>/dev/null)"
 
 # 2. Locate the offending operands. The perl below prints one `KIND<TAB>command<TAB>path` line per
@@ -319,6 +335,11 @@ scan_src='
       if ($c !~ /[ \t\r]/) { push @segs, [@toks]; @toks = (); }
       next;
     }
+    # A word that opens with # is a comment to the end of the line, so its words are not operands.
+    if ($c eq "#" && $start < 0) {
+      $i++ while $i + 1 < $n && substr($blank, $i + 1, 1) ne "\n";
+      next;
+    }
     $start = $i if $start < 0;
   }
 
@@ -375,8 +396,8 @@ scan_src='
     $cmd =~ s{.*/}{};
     my @args = @w[$k + 1 .. $#w];
 
-    if ($cmd eq "sed" || $cmd eq "perl") {
-      my $file = $bulk ? undef : $cmd eq "sed" ? sed_target(\@args) : perl_target(\@args);
+    if ($cmd =~ /^g?sed$/ || $cmd eq "perl") {
+      my $file = $bulk ? undef : $cmd =~ /^g?sed$/ ? sed_target(\@args) : perl_target(\@args);
       push @found, join("\t", "EDIT", $cmd, $file) if defined $file;
       next;
     }
@@ -465,6 +486,7 @@ IFS="$nl"
 for line in $findings; do
     IFS="$old_ifs"
     kind="${line%%"$tab"*}"
+    [ "$kind" = EDIT ] || [ "$in_scope" = 1 ] || continue
     rest="${line#*"$tab"}"
     name="${rest%%"$tab"*}"
     path="${rest#*"$tab"}"
@@ -500,7 +522,7 @@ $(mmap_recipe)
 
 Replace FILE with $path and NEEDLE with the literal text. Widen the window only when a hit is cut off." ;;
         EDIT)
-            [ "$worker" = 1 ] || continue
+            [ "$edit_scope" = 1 ] || continue
             [ "${AC_BASH_EDIT_GUARD:-1}" = 0 ] && continue
             case "$session_id" in '' | *[!A-Za-z0-9_-]*) continue ;; esac
             sum="$(printf '%s' "$cmd" | cksum 2>/dev/null | awk '{print $1 "-" $2}')"
