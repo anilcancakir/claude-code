@@ -34,7 +34,7 @@ The runtime walks five sources in this order. The first match wins for any given
 4. **Plugin**, `<plugin>/skills/<name>/SKILL.md`. Always namespaced as `plugin-name:skill-name`, so it cannot collide with the others.
 5. **Bundled**, built-in skills shipped with the CLI binary (`/skillify`, `/simplify`, `/verify`, `/debug`, etc.).
 
-Names that collide across managed/user/project resolve in that order. Plugin skills live in their own namespace. Between `.claude/commands/<name>.md` and `.claude/skills/<name>/SKILL.md`, the skill wins.
+Names that collide across managed/user/project resolve in that order. Plugin skills live in their own namespace. Between `.claude/commands/<name>.md` and `.claude/skills/<name>/SKILL.md`, the skill wins; commands are the older format, merged into skills in 2.1.3 (see `user-typed-skills.md`).
 
 The runtime deduplicates by resolved file path (via `realpath`), so symlinks pointing to the same file load once even if reachable through multiple sources.
 
@@ -201,7 +201,7 @@ User-scope skills (`~/.claude/skills/`), plugin skills, and bundled skills run u
 
 ## Hooks in skills
 
-Skill-scoped hooks fire while the skill is active. The events are the same as project hooks: `PreToolUse`, `PostToolUse`, `UserPromptSubmit`, `Notification`, `SessionStart`, etc.
+Skill hooks register when the skill is invoked and keep running for the rest of the session (`once: true` removes one after its first run). The events are the same as project hooks: `PreToolUse`, `PostToolUse`, `UserPromptSubmit`, `Notification`, `SessionStart`, etc.
 
 ```yaml
 hooks:
@@ -221,9 +221,9 @@ Two separate budgets:
 1. **Per-skill cap.** `description` + `when_to_use` are concatenated and truncated at **1,536 characters per skill** in the listing. Anything past that is invisible to the trigger decision. Configurable via the `skillListingMaxDescChars` setting.
 2. **Total listing budget.** Across all listed skills, the budget scales at **1% of the model's context window**. Configurable via `skillListingBudgetFraction` (e.g. `0.02` for 2%) or `SLASH_COMMAND_TOOL_CHAR_BUDGET` (fixed character count override).
 
-When the total listing overflows, Claude Code drops descriptions for the least-used skills first; the skills you actually use keep their full text. Run `/doctor` to see whether the budget is overflowing and which skills lost their descriptions. To free budget for other skills, demote low-priority entries via `skillOverrides` (see below); plugin skills are exempt from `skillOverrides`, so only the plugin author can shorten those.
+When the total listing overflows, Claude Code drops descriptions for the least-used skills first; the skills you actually use keep their full text. Every skill name stays listed either way. Run `/skill-doctor` to audit the installed skills. To free budget for other skills, demote low-priority entries via `skillOverrides` (see below); plugin skills are exempt from `skillOverrides`, so only the plugin author can shorten those.
 
-Observed 2026-09-04 on 2.1.260: a listing at 10,182 characters against a 10,000 budget was missing an entry outright at session start, not reduced to a name, and the entry returned once characters were freed. Do not plan on a name-only stub surviving. On 2.1.280 an entry that does not fit collapses to `- <name>`, least-used first, and bundled skills keep their text.
+After an edit, `/reload-skills` sends only the skills that changed (2.1.304).
 
 Keep `description` plus `when_to_use` near 200 characters; the per-skill cap is a ceiling, not a target.
 

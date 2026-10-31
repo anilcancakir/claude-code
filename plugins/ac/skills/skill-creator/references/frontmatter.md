@@ -13,21 +13,22 @@ Every field a Claude Code skill recognizes, what it does, when to set it, valid 
 - `disable-model-invocation`
 - `user-invocable`
 - `allowed-tools`
+- `disallowed-tools`
 - `model`
 - `effort`
 - `context`
 - `agent`
+- `background`
 - `hooks`
 - `paths`
 - `shell`
-- `version`
-- `license`
+- Agent Skills spec fields: `metadata`, `license`, `compatibility`
 - Composite examples
 - Parsing pitfalls
 
 ## Required vs optional
 
-Only `description` is recommended; nothing is strictly required. Every other field is opt-in, included only when the skill has a specific need that the default behavior does not cover.
+Only `description` is recommended; nothing is strictly required. Unknown fields are ignored, and the frontmatter is read only when `---` is the first line of the file. Every other field is opt-in, included only when the skill has a specific need that the default behavior does not cover.
 
 - Omit `name`: the directory name is used as the slash-command identifier.
 - Omit `description`: the loader falls back to the first paragraph of the body, which is almost always the wrong text for the trigger decision.
@@ -52,7 +53,7 @@ Display name and slash-command identifier. Hard validation rules from the Agent 
 - Maximum 64 characters
 - Lowercase letters, numbers, hyphens only
 - No XML tags
-- Reserved words forbidden: `anthropic`, `claude` (`claude-helper`, `anthropic-tools` will be rejected)
+- Reserved: the `anthropic-skills` namespace in Claude Code. The Claude API's skill upload also rejects names containing `anthropic` or `claude`, so avoid them in a skill meant for both.
 
 If you set `name`, match it to the directory name. The slash command resolves from the directory name; the `name` field is the display name. Diverging on purpose causes user confusion ("I see `name: bar` but `/bar` does not work").
 
@@ -74,9 +75,7 @@ Two separate budgets govern visibility:
 1. **Per-skill cap.** `description` + `when_to_use` combined is truncated at 1,536 characters in the listing. Configurable via the `skillListingMaxDescChars` setting.
 2. **Total listing budget.** Across all listed skills, the listing budget scales at 1% of the model's context window. Configurable via `skillListingBudgetFraction` (e.g. `0.02` for 2%) or `SLASH_COMMAND_TOOL_CHAR_BUDGET` (fixed character override).
 
-When the listing overflows, Claude Code drops descriptions for the least-used skills first; the skills you actually use keep their full text. Run `/doctor` to confirm whether the listing budget is overflowing. Front-load the use case so trailing keywords are not the ones lost.
-
-Observed 2026-09-04 on 2.1.260: a listing at 10,182 characters against a 10,000 budget was missing an entry outright at session start, not reduced to a name, and the entry returned once characters were freed. Do not plan on a name-only stub surviving. On 2.1.280 an entry that does not fit collapses to `- <name>` instead, least-used first, and bundled skills keep their text.
+Every skill name is always listed. When the descriptions overflow the budget, the least-invoked skills lose theirs first; the skills you actually use keep their full text. `/skill-doctor` audits the installed skills. Front-load the use case so trailing words are not the ones lost.
 
 **Three rules for the description text:**
 
@@ -107,7 +106,7 @@ argument-hint: "[pr-number] [target-branch]"
 
 ## `arguments`
 
-Named positional arguments enabling `$name` substitution in the body. Accepts a space-separated string or YAML list. Names map to positions in order.
+Named positional arguments enabling `$name` substitution in the body. Accepts a space-separated string or YAML list. Names map to positions in order; digit-only names are dropped, and the first 64 names of up to 64 characters are filled (2.1.301).
 
 ```yaml
 arguments: [pr_number, target_branch]
@@ -115,7 +114,7 @@ arguments: [pr_number, target_branch]
 arguments: pr_number target_branch
 ```
 
-In the body, `$pr_number` expands to the first argument, `$target_branch` to the second. `$0`, `$1`, and `$ARGUMENTS[0]`, `$ARGUMENTS[1]` work too.
+In the body, `$pr_number` expands to the first argument, `$target_branch` to the second. `$0`, `$1`, and `$ARGUMENTS[0]`, `$ARGUMENTS[1]` work too. Argument design for typed workflows: `${CLAUDE_SKILL_DIR}/references/user-typed-skills.md`.
 
 ## `disable-model-invocation`
 
@@ -147,7 +146,7 @@ The `user-invocable` field only controls menu visibility, not Skill-tool access.
 
 ## `allowed-tools`
 
-Tools pre-approved while the skill is active so the user is not prompted. Accepts space-separated string or YAML list. Use narrow `Tool(pattern:*)` rules, not bare tool names.
+Tools pre-approved for the turn that invokes the skill, so the user is not prompted. Accepts space-separated string or YAML list. Use narrow `Tool(pattern:*)` rules, not bare tool names.
 
 ```yaml
 allowed-tools: Bash(gh pr view:*) Bash(gh pr diff:*) Read Grep
@@ -159,13 +158,23 @@ allowed-tools:
   - Read
 ```
 
-This grants permission; it does not restrict. Every tool stays callable; tools not listed still go through the user's permission settings. To deny tools, use the permission system, not this field.
+This grants permission; it does not restrict. Every tool stays callable; tools not listed still go through the user's permission settings, and deny rules still win. To take tools away, use `disallowed-tools`.
 
 Pattern syntax mirrors `/permissions`:
 
 - `Read`, `Grep`, etc., bare tool names allow all calls.
 - `Bash(git status:*)`, the `:*` matches any arguments to that subcommand.
 - `Bash(git status)`, exact match, no arguments.
+
+## `disallowed-tools`
+
+Tools removed while the skill is active (2.1.152). The removal is cleared on the next user message. Same list syntax as `allowed-tools`.
+
+```yaml
+disallowed-tools: Write Edit NotebookEdit
+```
+
+Use for a review or audit skill that must not edit, or a workflow where one tool would derail the run. It is turn-scoped, not a lasting boundary; a lasting one belongs in permissions or a subagent's tool list.
 
 ## `model`
 
@@ -179,7 +188,7 @@ model: sonnet
 model: inherit
 ```
 
-Override applies for the rest of the current turn and is not saved. Session model resumes on the next user prompt. Useful for skills that need a heavier model than the session default (a deep refactor under a Haiku session) or a lighter one (boilerplate under an Opus session).
+Override applies for the rest of the current turn and is not saved. `inherit` keeps the session model. Session model resumes on the next user prompt. Useful for skills that need a heavier model than the session default (a deep refactor under a Haiku session) or a lighter one (boilerplate under an Opus session).
 
 ## `effort`
 
@@ -215,9 +224,18 @@ agent: ac:explore
 
 The agent type determines the model, tools, and permissions of the subagent.
 
+## `background`
+
+Fork skills only. Whether the forked run goes to the background; default `true` since 2.1.218. Set `false` when the invoking turn needs the result before it continues.
+
+```yaml
+context: fork
+background: false
+```
+
 ## `hooks`
 
-Hooks scoped to this skill's lifecycle. Same shape as project-level hooks settings, but only fire while the skill is active.
+Hooks the skill registers when it is invoked. Same shape as project-level hooks settings. They stay registered for the rest of the session, not just while the skill runs; `once: true` on a hook removes it after its first run.
 
 ```yaml
 hooks:
@@ -228,7 +246,7 @@ hooks:
           command: "${CLAUDE_SKILL_DIR}/scripts/audit_bash.sh"
 ```
 
-Use when the skill needs deterministic enforcement that prompt instructions cannot guarantee (logging, gating destructive commands, compliance checks).
+Use when the skill needs deterministic enforcement that prompt instructions cannot guarantee (logging, gating destructive commands, compliance checks). Limits per source per session: 1,024 hooks and 16,384 matcher characters (2.1.304).
 
 ## `paths`
 
@@ -248,7 +266,7 @@ Useful in monorepos with technology-specific skills. Path-conditional skills are
 
 ## `shell`
 
-Shell used for `` !`<command>` `` and ` ```! ` blocks in the body. Default `bash`.
+Shell used for `` !`<command>` `` and ` ```! ` blocks in the body: `bash` (default) or `powershell`.
 
 ```yaml
 shell: powershell
@@ -256,20 +274,15 @@ shell: powershell
 
 `powershell` is honored only on Windows when `CLAUDE_CODE_USE_POWERSHELL_TOOL=1` is set. Cross-platform skills should leave this default and write portable shell.
 
-## `version`
+## Agent Skills spec fields: `metadata`, `license`, `compatibility`
 
-Free-form version string. Documented in the parser but not consumed by triggering. Use for your own bookkeeping.
-
-```yaml
-version: "1.2.0"
-```
-
-## `license`
-
-Free-form license string, surfaced in some loaders.
+Fields from the Agent Skills open standard. Claude Code accepts them and acts on none; set them when the skill is also published for other agents. `compatibility` is capped at 500 characters.
 
 ```yaml
 license: Complete terms in LICENSE.txt
+compatibility: Requires git and gh on PATH.
+metadata:
+  author: example-org
 ```
 
 ## Composite examples
@@ -359,7 +372,8 @@ Plugin skills must reference bundled files via `${CLAUDE_SKILL_DIR}/...`. Repo-r
 ## Parsing pitfalls
 
 - **YAML strings with colons.** Wrap in quotes: `description: "Use when X: this triggers"`.
-- **YAML booleans.** Plain `true`/`false`. `yes`/`no`/`on`/`off` also parse but obscure intent.
+- **Booleans.** `true`/`false`; `yes`/`no`, `on`/`off` and `1`/`0` also parse but obscure intent.
+- **Frontmatter position.** The block is read only when `---` is line 1. A blank line or a comment above it turns the whole block into body text.
 - **List vs string.** `allowed-tools: Read Grep` and `allowed-tools: [Read, Grep]` both work. Pick one for consistency.
 - **Multiline strings.** Use `|` for literal newlines, `>` to fold:
   ```yaml

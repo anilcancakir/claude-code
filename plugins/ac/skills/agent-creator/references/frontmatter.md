@@ -9,7 +9,7 @@ Every field a Claude Code agent recognizes, what it does, when to set it, and va
 - Model and effort
 - Permission and isolation
 - Memory and skills
-- Lifecycle and presentation
+- Lifecycle and presentation (`color`, `initialPrompt`, `experimental.cacheTtl`, `requiredMcpServers`)
 - Composite examples
 - Plugin-agent restrictions
 - Parsing pitfalls
@@ -18,7 +18,7 @@ Every field a Claude Code agent recognizes, what it does, when to set it, and va
 
 ### `name`
 
-Unique identifier the orchestrator uses to delegate. Lowercase letters and hyphens. At most 256 characters since Claude Code 2.1.292; a longer name is rejected. Plugin agents auto-namespace as `<plugin>:<name>` (and the underlying filename can be shorter).
+Unique identifier the orchestrator uses to delegate. Lowercase letters and hyphens, no `:` (the colon is reserved for the plugin namespace). At most 256 characters since Claude Code 2.1.292; a longer name is rejected. Plugin agents auto-namespace as `<plugin>:<name>` (and the underlying filename can be shorter).
 
 ```yaml
 name: code-reviewer
@@ -56,13 +56,13 @@ tools:
   - Bash
 ```
 
-Special form for restricting Agent-tool spawning (only meaningful for agents that run as the main thread via `claude --agent <name>`):
+Special form for restricting Agent-tool spawning, for a main-thread agent (`claude --agent <name>`) and for any subagent that may nest:
 
 ```yaml
 tools: Agent(worker, researcher), Read, Bash
 ```
 
-`Agent(x, y)` is an allowlist of subagent types this agent can spawn. `Agent` without parens allows any. Omitting `Agent` blocks all spawning.
+`Agent(x, y)` is an allowlist of subagent types this agent can spawn. `Agent` without parens allows any. Omitting `Agent` blocks all spawning. A denylist-only agent inherits `Agent` and can spawn. Nesting reaches 3 levels by default (`CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH`), and at most 20 agents run concurrently.
 
 ### `disallowedTools`
 
@@ -84,6 +84,7 @@ Which model the agent runs on. Default: `inherit` (same as the parent session).
 model: sonnet           # alias
 model: opus
 model: haiku
+model: fable
 model: <full-model-id>  # pins a version; prefer an alias
 model: inherit
 ```
@@ -131,7 +132,7 @@ Non-plugin agents only. Controls how the agent handles permission prompts.
 
 Parent precedence: if the parent runs `bypassPermissions` or `acceptEdits`, that overrides the agent's setting. If the parent runs `auto`, the agent's mode is ignored entirely.
 
-Plugin agents IGNORE this field (with a warning log).
+Plugin agents ignore this field (with a warning log).
 
 ### `isolation`
 
@@ -163,7 +164,7 @@ Token count at which the agent compacts its own conversation when it runs as a s
 autoCompactWindow: 150000
 ```
 
-Integer. The accepted range is not documented for this field (the model-level setting is 100000 to 1000000, not verified for the agent field), and it is not yet in the sub-agents docs table; the description comes from the 2.1.296 binary schema and changelog. Use it for a long-running subagent that should compact before the main conversation's window fills. The example value is illustrative, not a recommendation.
+Integer from 100000 to 1000000. Use it for a long-running subagent that should compact before the main conversation's window fills. The example value is illustrative, not a recommendation.
 
 ### `background`
 
@@ -206,7 +207,7 @@ skills:
   - error-handling-patterns
 ```
 
-The full body of each listed skill is injected at startup. Subagents do NOT inherit skills from the parent; list every skill explicitly. Cannot preload skills with `disable-model-invocation: true`. A subagent preloads at most 32 skills from this list, each once (Claude Code 2.1.295).
+The full body of each listed skill is injected at startup. Subagents do not inherit skills from the parent; list every skill explicitly. Name a plugin skill as `<plugin>:<name>` (`ac:prompt-writer`). Cannot preload skills with `disable-model-invocation: true`. A subagent preloads at most 32 skills from this list, each once (Claude Code 2.1.295).
 
 ### `omitClaudeMd`
 
@@ -233,7 +234,7 @@ mcpServers:
   - github
 ```
 
-Inline servers connect at spawn and disconnect when the agent finishes. Plugin agents IGNORE this field.
+Inline servers connect at spawn and disconnect when the agent finishes. Plugin agents ignore this field.
 
 ### `hooks`
 
@@ -248,7 +249,7 @@ hooks:
           command: "./scripts/validate-readonly.sh"
 ```
 
-Same event schema as project hooks. Fire while the agent is active, clean up when it finishes. Plugin agents IGNORE this field.
+Same event schema as project hooks. Fire while the agent is active, clean up when it finishes. Plugin agents ignore this field.
 
 ## Lifecycle and presentation
 
@@ -270,7 +271,18 @@ Main-agent mode only. Auto-prepended to the first user turn when this agent runs
 initialPrompt: "Review the working tree and identify recent changes."
 ```
 
-Slash commands and skill invocations inside `initialPrompt` are processed normally. If the user also passes a prompt on launch, `initialPrompt` precedes it.
+Slash commands and skill invocations inside `initialPrompt` are processed normally. If the user also passes a prompt on launch, `initialPrompt` precedes it. Plugin agents ignore this field.
+
+### `experimental.cacheTtl`
+
+Prompt-cache lifetime for the agent's requests: `5m` (default) or `1h` (Claude Code 2.1.248). Read from plugin agents too.
+
+```yaml
+experimental:
+  cacheTtl: 1h
+```
+
+Use it for an agent that idles longer than five minutes between its own turns (a coordinator waiting on workers), where a five-minute cache would be rebuilt on every wake. A short-lived agent gains nothing and pays the higher one-hour write price.
 
 ### `requiredMcpServers`
 
@@ -369,15 +381,16 @@ color: red
 
 ## Plugin-agent restrictions
 
-Per `utils/plugins/loadPluginAgents.ts:161-168`, plugin agents silently ignore (with a warning log):
+Per `utils/plugins/loadPluginAgents.ts:161-168` and the plugins reference, plugin agents ignore (with a warning log):
 
 - `permissionMode`
 - `hooks`
 - `mcpServers`
+- `initialPrompt`
 
 The rationale: plugins are third-party marketplace code; per-agent escalation through a buried file would bypass the install-time trust boundary. Plugins can still ship hooks and MCP servers at the manifest level (the user approved those at install).
 
-If your agent needs `permissionMode`, `hooks`, or `mcpServers`, ship it as a user or project agent under `.claude/agents/` where the user wrote the frontmatter directly.
+If your agent needs `permissionMode`, `hooks`, `mcpServers` or `initialPrompt`, ship it as a user or project agent under `.claude/agents/` where the user wrote the frontmatter directly.
 
 Plugin agents DO get one substitution pass on their system prompt:
 
@@ -396,4 +409,4 @@ Plugin agents DO get one substitution pass on their system prompt:
 - **`maxTurns` must be a positive integer.** Non-integer or zero/negative values log a warning and the field is ignored.
 - **`name` collision.** Same-name agents across scopes resolve by priority (managed > CLI flag > project > user > plugin). Lower-priority duplicates are skipped silently. Plugin agents auto-namespace so they cannot collide directly.
 - **Unrecognized fields.** `claude --debug` names unrecognized frontmatter fields in custom agent files and adds a typo hint (Claude Code 2.1.296), so a misspelt `autoCompactWindow` or `omitClaudeMd` shows up there rather than failing silently.
-- **Plugin agents and forbidden fields.** Setting `permissionMode`, `hooks`, or `mcpServers` in a plugin agent does not error, just logs a warning and silently ignores. Check `claude --debug` logs if your plugin agent is missing expected behavior.
+- **Plugin agents and forbidden fields.** Setting `permissionMode`, `hooks`, `mcpServers` or `initialPrompt` in a plugin agent does not error, just logs a warning and silently ignores. Check `claude --debug` logs if your plugin agent is missing expected behavior.

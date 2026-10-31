@@ -79,6 +79,5 @@ when_to_use: ...
 # hooks:                                                      # skill-scoped deterministic enforcement
 #   PreToolUse: ...
 # shell: bash                                                 # default; powershell on Windows when CLAUDE_CODE_USE_POWERSHELL_TOOL=1
-# version: "0.1.0"                                            # free-form bookkeeping
 ---
 -->

@@ -1,4 +1,5 @@
 ---
+name: commit
 description: "Split the changes into atomic commits, preflight and push them. Pass --skip-preflight or --no-push to skip a step."
 argument-hint: "[--skip-preflight] [--no-push]"
 allowed-tools: Bash, Skill, Read
@@ -14,7 +15,10 @@ Request: $ARGUMENTS
 ## Phase 0: Parse arguments
 
 1. Scan `$ARGUMENTS` for `--skip-preflight` → `SKIP_PREFLIGHT = true | false`.
-2. Scan `$ARGUMENTS` for `--no-push` → `NO_PUSH = true | false`.
+2. Scan `$ARGUMENTS` for `--no-push` → `NO_PUSH = true | false`. Also set `NO_PUSH = true` when
+   `.ac/state/active-auto.json` exists and its `session_id` is this session's (`${CLAUDE_SESSION_ID}`): that is an
+   `ac:auto` away run, which publishes only from its own close, after its verification gate, and only what the user
+   named. A push from here would land before the gate has judged the work.
 3. Treat any other tokens as free-form note; ignore for now (the commit-style detection in Phase 2 produces the actual message).
 
 ## Phase 1: Context
@@ -36,7 +40,7 @@ If the working tree is clean (status output empty), stop with the message `Nothi
 
 **Goal**: Catch obvious breakage before writing history.
 
-Skip this phase when `SKIP_PREFLIGHT = true`. `/ac:execute` Phase 4 sets this flag because Phase 2d already ran typecheck, build, the full suite and the linter at every wave barrier, and Phase 3a ran them again across the whole project; a third pass here would be the same commands on the same tree.
+Skip this phase when `SKIP_PREFLIGHT = true`. `/ac:execute` Phase 4 sets this flag because Phase 2d checked each wave's touched files and ran the project-wide typecheck, and Phase 3a ran the build, the full suite and the linter across the whole project; another pass here would be the same commands on the same tree.
 
 When `SKIP_PREFLIGHT = false`:
 

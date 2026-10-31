@@ -1,465 +1,232 @@
 ---
 name: skill-creator
-description: "Create or audit a Claude Code skill: frontmatter, layout, scope, invocation, and bundled references or scripts."
-when_to_use: "Use when writing, editing or debugging a skill, or turning a procedure you keep retyping into one."
+description: "Create or audit a Claude Code skill or slash workflow: frontmatter, arguments, invocation, and bundled files."
+when_to_use: "Use when writing, editing or debugging a skill or a /command, or turning a procedure you keep retyping into one."
 disable-model-invocation: false
 ---
 
 # Skill Creator
 
-You are about to write or edit a skill another Claude will load. A skill is a directory with a `SKILL.md`. Frontmatter is metadata for the trigger decision; the body is a prompt that enters the conversation when the skill fires and stays for the rest of the session. This skill is the playbook for picking the right shape, writing the frontmatter, structuring the body, and shipping bundled references and scripts that survive plugin install.
+You are about to write or edit a skill another Claude will load. A skill is a directory with a `SKILL.md`: the frontmatter decides whether and how it loads, the body is a prompt that enters the conversation when it fires and stays for the rest of the session. User-typed slash workflows (`/deploy`, `/commit`) are skills too; custom commands were merged into skills, so this skill covers both. Checked against Claude Code 2.1.314 on 2026-10-31.
 
-Target is Opus 5.5 (`model: opus` on Claude Code 2.1.280). Same rules work for Sonnet 5.5 (`model: sonnet` on 2.1.284) at lower cost and for Haiku 5.5, which supports `effort` (default `medium`); only Haiku 4.5, the `haiku` target on Bedrock, Vertex, Foundry and Claude Platform on AWS, supports no effort parameter at all. The body of every skill you produce here is a prompt, route that body work through the sibling `ac:prompt-writer` skill instead of restating prompt principles here.
+The body of every skill you produce is a prompt: route that work through `ac:prompt-writer` instead of restating prompt principles here. This file owns the shape: scope, frontmatter, invocation, layout, bundling.
 
-## Two jobs, not one
+## Rules that hold for every skill
 
-Writing a skill splits cleanly into two tasks, and conflating them is the most common authoring mistake.
-
-1. **Skill shape.** Frontmatter, file layout, scope, invocation control, bundling. This file teaches that.
-2. **Body content.** The markdown the model reads when the skill triggers. This is a prompt. Route through `ac:prompt-writer` (architecture, snippets, anti-patterns, Opus 5 tuning).
-
-The shape decisions front-load most of the leverage. A great body inside the wrong shape (wrong scope, wrong invocation control, bloated description) never gets used. A modest body inside the right shape gets used every day.
+1. **Concise is the contract.** The body shares the context window with everything else. Add only what Claude would not know without you, and test each paragraph against "does this justify its tokens?"
+2. **The listing decides.** The model picks a skill from `description` plus `when_to_use` alone. Imperative verb and object, one "Use when" sentence, about 200 characters combined, no mechanics.
+3. **Minimal frontmatter.** `description` and `when_to_use` cover most skills. Add any other field only when you can name the condition that needs it.
+4. **Rules first, depth in references.** After compaction only the first 5,000 tokens of an invoked skill are kept, so standing rules go at the top and detail moves to one-level-deep `references/` files, each anchored with "read this when X".
+5. **Standing instructions.** The body is read once and stays. Write rules that hold for the session, not "for this turn".
+6. **Scope in both directions.** Say where a rule spans and what the skill does not touch; current models widen scope on their own.
+7. **Plain wording.** No "CRITICAL" or "you MUST"; state the rule once with its reason.
+8. **Portable paths.** Bundled files are referenced through the skill-directory token, never a repo-relative path.
 
 ## Decision flow
 
-Route by the user's request. Each branch lands on the right reference for the depth.
-
 ```
-Is a skill the right tool at all?
-├── Single fact that never changes → CLAUDE.md, route through `ac:claude-md-rules-creator`. Not a skill.
-├── Truly one-off task → just do it. Not a skill.
-├── Determinism that the body cannot guarantee → hook, not skill. Route through `update-config`.
-├── Cross-cutting persona, isolated context → custom agent, route through `ac:agent-creator`.
-└── Recurring playbook, procedure, or knowledge → SKILL is the right tool, continue.
+Is a skill the right tool?
+├── A fact that never changes → CLAUDE.md or a rule, via `ac:claude-md-rules-creator`.
+├── A why-and-scope or architecture document → `ac:project-md-writer` or `ac:design-md-writer`.
+├── Must happen deterministically → a hook, via `update-config`.
+├── Needs its own context, tools or model → a subagent, via `ac:agent-creator`.
+├── A one-off task → just do it.
+└── A recurring procedure, playbook or body of knowledge → a skill. Continue.
 
-Is it user-driven `/name [args]` with arguments, often `disable-model-invocation: true`?
-├── YES → use this skill for shape, then specialize through `ac:command-creator`
-│         (argument design, shell injection, built-in command patterns).
-└── NO  → continue with this skill alone.
+Does the user type it as `/name [args]`, does it take arguments, gather live state, or have side effects?
+├── YES → this file for shape, plus `${CLAUDE_SKILL_DIR}/references/user-typed-skills.md`
+│         (arguments, shell injection, phases, approval gates, commands as the older format).
+└── NO  → this file alone.
 
-Is this an audit or fix of an existing skill?
-├── YES → `${CLAUDE_SKILL_DIR}/references/anti-patterns.md` first, then
-│         `${CLAUDE_SKILL_DIR}/references/claude-code-mechanics.md` if behavior is unclear.
+Auditing or fixing an existing skill?
+├── YES → `${CLAUDE_SKILL_DIR}/references/anti-patterns.md`, then `claude-code-mechanics.md` if behaviour is unclear.
 └── NO  → walk the Workflow below.
 ```
 
-When the path runs through `ac:command-creator`, `ac:agent-creator`, or `ac:claude-md-rules-creator`, do both: invoke the matching creator for shape, keep this skill loaded for the parts that are still skill-shaped.
-
-## Core principles
-
-Eight rules that change outcomes the most. Detail in the references.
-
-1. **Concise is the contract.** The body shares the context window with the system prompt, every other invoked skill, the conversation, and the user's actual request. Default to "Claude is already smart", only add what it would not know without you. Challenge each paragraph against "does this justify its tokens?"
-
-2. **Match freedom to fragility.** Three settings: high freedom (text instructions, multiple valid paths, code review, exploration), medium freedom (parameterized scripts with a preferred pattern, report generation), low freedom (specific commands, fixed sequences, migrations, deploys). Over-constraining open fields wastes tokens; under-constraining narrow bridges breaks production.
-
-3. **The description is the selection mechanism.** When the model has 100+ skills available, it picks based on `description` alone. Open with the imperative verb and the object ("Create a git commit"), give one "Use when" sentence, and close with the boundary that says when not to load it. The boundary is the part authors skip, and it is what keeps a skill from firing on every neighbouring request.
-
-4. **Progressive disclosure is the structural superpower.** Metadata always loaded, body on trigger, `references/` and `scripts/` only when the body points at them. Use this: keep the body lean, push detail into one-level-deep references, anchor each with "read this when X". Two-level-deep references suffer because the model often previews intermediate files with `head -100`.
-
-5. **Standing instructions, not turn-scoped phrasing.** The body enters the conversation as a single message and stays for the rest of the session. Claude does not re-read SKILL.md. "Always use the bundled script" lasts; "for this turn, use the bundled script" rots by turn three.
-
-6. **State scope explicitly, in both directions.** Write "apply to every step, not just the first" when a rule must hold throughout. Also name the upper bound: Opus 5 can widen a task's scope on its own and re-verify finished work, so a body that declares what the skill does NOT touch holds its shape better than one that only declares what it does.
-
-7. **No aggressive caps.** "CRITICAL", "you MUST", "ALWAYS" in modern Claude produce weird compliance behaviors and overtriggering. Plain instructions work; if a rule needs weight, explain the why.
-
-8. **The colleague test.** Re-read the body as if you had never seen the conversation. If a fresh reader would be confused, the model will be too.
+When the path runs through a sibling creator, invoke it for its shape and keep this skill loaded for what is still skill-shaped.
 
 ## Where skills live
 
-| Scope | Path | Reach | Default for |
-|-------|------|-------|-------------|
-| Managed | enterprise managed dir | All users in the org. Highest precedence. | Org-wide policy and compliance |
-| User | `~/.claude/skills/<name>/SKILL.md` | All projects on this machine. | Cross-repo personal workflows |
-| Project | `.claude/skills/<name>/SKILL.md` (walks up from cwd) | This repo only. Commit to share. | Repo-specific workflows |
-| Plugin | `<plugin>/skills/<name>/SKILL.md` | Wherever the plugin is installed. Auto-namespaced as `plugin:skill`. | Distributing to others |
+| Scope | Path | Reach |
+|-------|------|-------|
+| Managed | enterprise managed directory | Everyone in the org; highest precedence |
+| User | `~/.claude/skills/<name>/SKILL.md` | Every project on this machine |
+| Project | `.claude/skills/<name>/SKILL.md` (walks up from cwd) | This repo; commit to share |
+| Plugin | `<plugin>/skills/<name>/SKILL.md` | Wherever the plugin is installed, as `<plugin>:<name>` |
 
-Precedence is managed > user > project; plugin skills live in their own namespace and never collide. Plugin skills must reference bundled files via the skill-directory token, never via repo-relative paths, because the install destination is unknown at author time. The token resolves to the skill's subdirectory inside the plugin, not the plugin root. See [Anthropic docs](https://code.claude.com/docs/en/skills.md) for the full substitution table.
+Precedence is managed > user > project; plugin skills sit in their own namespace. A legacy `.claude/commands/<name>.md` still creates `/name`, and a skill of the same name wins over it. Prefer a skill for new work.
 
-## Frontmatter is minimal by default
+## Frontmatter
 
-The only fields a working skill needs are `name` and `description`. `when_to_use` is optional but usually worth adding. Everything else is opt-in: each optional field exists because some skills hit a specific condition that requires it. Add a field only when you can name the condition; otherwise leave it out and let the default behavior apply.
+> **Escape convention.** This SKILL.md is preprocessed on every invocation, so a token written with a plain dollar sign would be substituted and corrupt the docs. Tokens that are named rather than used appear with `&#36;` for the dollar sign (`&#36;ARGUMENTS`); in your own skill, write a plain `$`. Shell-injection examples appear as `\!`; write a plain `!` when you mean to run it.
 
-| Field | Required? | Default | Add when... |
-|-------|-----------|---------|-------------|
-| `name` | recommended (falls back to directory) | directory name | almost always; only omit when the directory name is already the right slug |
-| `description` | recommended | first paragraph of body (usually wrong) | always |
-| `when_to_use` | optional | empty | almost always: one "Use when..." sentence that states the situation |
-| `argument-hint` | optional | none | the skill takes positional arguments and you want autocomplete to hint at them |
-| `arguments` | optional | none | the skill takes input and you want named-positional substitutions (`$pr_number` instead of `$0`) |
-| `disable-model-invocation` | optional | `false` | the skill has irreversible side effects (`/deploy`, `/commit`, `/send-slack`); user must trigger explicitly |
-| `user-invocable` | optional | `true` | the skill is background reference knowledge that has no meaningful slash-menu invocation |
-| `allowed-tools` | optional | none (every tool call goes through normal permissions) | the body issues specific tool calls you want pre-approved to avoid prompting (narrow patterns only) |
-| `context` | optional | `inline` | the work is bounded, self-contained, and benefits from running in an isolated subagent context |
-| `agent` | optional (only meaningful with `context: fork`) | `general-purpose` | a different subagent type (`ac:explore`, a custom agent, or built-in `Explore`/`Plan` where `/ac:install` has not disabled them) fits the task better |
-| `paths` | optional | none (skill always discoverable) | the skill is relevant only to a subset of files; you want to keep the description out of unrelated sessions' budget |
-| `model` | optional | inherit session model | the skill needs a heavier or lighter model than the session default |
-| `effort` | optional | inherit session effort | the skill needs more or less reasoning budget than the session default |
-| `hooks` | optional | none | the skill needs deterministic enforcement that body instructions cannot guarantee (logging, gating destructive commands) |
-| `shell` | optional | `bash` | the skill runs PowerShell on Windows |
-| `version` | optional | none | you want your own bookkeeping |
+Every field is optional; unknown fields are ignored. Frontmatter is read only when `---` is line 1. Booleans accept `true`/`false`, `yes`/`no`, `on`/`off`, `1`/`0`.
 
-Anti-pattern: copying every optional field from a template into a new skill "just in case". Each unused field adds noise without behavior. A reference skill with conventions for your codebase usually needs just `name` + `description` + `when_to_use`. A simple task skill adds `argument-hint` + `arguments` and that is often enough. Reach further into the table only when the skill's specific behavior demands it.
+| Field | Default | Semantics, and when to set it |
+|-------|---------|-------------------------------|
+| `name` | directory name | Display name and slash name; lowercase, digits, hyphens, at most 64 characters; the `anthropic-skills` namespace is reserved. Optional when it equals the directory name |
+| `description` | first body paragraph | What it does; the trigger surface. Always set |
+| `when_to_use` | none | One "Use when" sentence, appended to `description` in the listing |
+| `argument-hint` | none | Autocomplete text after `/name`; never reaches the model |
+| `arguments` | none | Named positionals for `&#36;name` substitution; the first 64 names of up to 64 characters are filled (2.1.301) |
+| `disable-model-invocation` | `false` | `true`: only the user can run it, its description leaves the model's listing, and it cannot be preloaded into a subagent. For side effects |
+| `user-invocable` | `true` | `false`: hidden from the `/` menu, the model can still load it. For background knowledge |
+| `allowed-tools` | none | Pre-approves matching tool calls for the invoking turn only; never restricts. Narrow patterns |
+| `disallowed-tools` | none | Removes tools while the skill is active; cleared on the next message (2.1.152) |
+| `context` | inline | `fork` runs the body as a task in a subagent without the conversation history |
+| `agent` | `general-purpose` | Subagent type for `context: fork`; an unknown name falls back to `general-purpose` |
+| `background` | `true` (2.1.218) | Fork only: whether the forked run goes to the background |
+| `paths` | none | Globs (gitignore syntax); the skill is listed only once a matching file is touched |
+| `model` | session model | Model for the invoking turn; `inherit` allowed |
+| `effort` | session effort | `low`, `medium`, `high`, `xhigh`, `max`; holds for the rest of the turn |
+| `hooks` | none | Registered when the skill is invoked and kept for the rest of the session (`once: true` on a hook removes it after its first run); at most 1,024 hooks and 16,384 matcher characters per source per session (2.1.304) |
+| `shell` | `bash` | `bash` or `powershell`, for shell-injection blocks |
+| `metadata`, `license`, `compatibility` | none | Agent Skills spec fields; accepted, not acted on. `compatibility` is capped at 500 characters |
 
-> **Escape convention used in this documentation.** This SKILL.md is itself a skill body that the Claude Code loader preprocesses. Any literal full-arguments token, skill-directory token, or session-id token (a plain dollar sign followed by the placeholder name) written here would be substituted by the loader on every invocation, corrupting the documentation. To prevent that, the docs below render those tokens with the HTML entity `&#36;` standing in for the dollar sign: you read `&#36;ARGUMENTS`, the loader sees `&#36;ARGUMENTS` and skips substitution, the model interprets the entity as `$` and reads the intended token. In your own skill bodies, drop the entity and write a plain dollar sign.
+Substitutions in the body: `&#36;ARGUMENTS`, `&#36;N`, `&#36;ARGUMENTS[N]`, `&#36;name`, `&#36;{CLAUDE_SKILL_DIR}`, `&#36;{CLAUDE_SESSION_ID}`, `&#36;{CLAUDE_EFFORT}`, and in fork skills `&#36;{CLAUDE_PROJECT_DIR}` and `&#36;{CLAUDE_PLUGIN_DATA}`; plugin skills also get `&#36;{CLAUDE_PLUGIN_ROOT}`. Per-field detail, examples and parsing pitfalls: `${CLAUDE_SKILL_DIR}/references/frontmatter.md`.
 
-## Who invokes it
+Copying every field from a template "just in case" is the most common frontmatter mistake: each unused field is noise, and a stale one (a `paths:` that no longer matches, an `allowed-tools` that drifted from the body) hides bugs.
 
-The default works for most skills: both the user (via `/name`) and the model (via auto-load) can invoke. Override only when there is a specific reason.
+## Invocation and execution
 
-| Frontmatter | User can `/name` | Model auto-loads | Add when... |
-|-------------|------------------|------------------|-------------|
-| (defaults) | yes | yes | most skills, including all reference content and most workflow skills |
-| `disable-model-invocation: true` | yes | no | the skill has irreversible side effects (`/deploy`, `/commit`, `/send-slack`); you do not want the model deciding to fire it |
-| `user-invocable: false` | no | yes | the skill is background reference knowledge (a `legacy-billing-context` skill) where typing `/legacy-billing-context` is not a meaningful action |
-| both | no | no | rare: a hidden helper activated only via `paths:` or by another skill referencing it |
+| Frontmatter | User types `/name` | Model loads it | Use for |
+|-------------|--------------------|----------------|---------|
+| defaults | yes | yes | most skills |
+| `disable-model-invocation: true` | yes | no | irreversible side effects: deploy, commit, send |
+| `user-invocable: false` | no | yes | background knowledge nobody would type |
 
-## Inline or forked
+A `disable-model-invocation` skill is reachable only by a user typing it, so never write "run `/name`" for the model in a plan or another skill; write "ask the user to run it".
 
-Inline is the default and the right choice for most skills. Set `context: fork` only when the work is bounded, the body is an actionable task, and you do not need the user to steer mid-process.
+Inline is the default and fits most skills: the body sees the conversation and the user can steer. Set `context: fork` only when the body is a bounded, actionable task that needs no steering; reference content in a fork gives a subagent guidelines and no goal. A fork has no AskUserQuestion, so a skill with approval gates stays inline. Pick `agent:` for the fork (`ac:explore` for read-only investigation, or a custom agent); built-in `Explore` and `Plan` are disabled on an `/ac:install` setup.
 
-| Decision | Inline (default, most skills) | Forked (`context: fork`, opt-in) |
-|----------|-------------------------------|----------------------------------|
-| Conversation history | Available | Not available |
-| User can steer mid-process | Yes | No |
-| Body shape allowed | Reference content or task | Actionable task only |
-| Main context cleanup | No | Yes, work happens in an isolated context |
-| `agent:` field | Ignored (do not set) | Picks subagent type (`general-purpose`, `ac:explore`, or any `.claude/agents/<name>.md`; built-in `Explore` and `Plan` are disabled on an `/ac:install` setup); only set when forking |
+`allowed-tools` is friction reduction, not a boundary: list exactly the calls the body makes (`Bash(gh pr view:*)`, `Read Grep`), never bare `Bash`. To take tools away for the skill's turn, use `disallowed-tools`.
 
-Reference content in a forked skill produces a subagent with guidelines but no goal, returning nothing useful. If the body has no actionable task, leave the default inline.
+Leave `paths:` off unless the skill only matters for some files of a polyglot repo; it keeps the description out of sessions that never touch them.
 
-## Arguments
+## Listing and compaction
 
-Skip this section if the skill takes no input from the user. Most reference skills (conventions, style guides) and many task skills (audits that operate on session state) need no arguments at all.
+- Every skill name is always listed. Descriptions share a budget of 1% of the context window (`skillListingBudgetFraction`); on overflow the least-invoked lose their description first.
+- `description` plus `when_to_use` is capped at 1,536 characters per entry (`skillListingMaxDescChars`). Aim for about 200; the cap is not a target.
+- After compaction each invoked skill keeps its first 5,000 tokens, within a 25,000-token budget shared by all invoked skills.
+- `/reload-skills` sends only the skills that changed (2.1.304); `/skill-doctor` audits the installed skills.
 
-Set `arguments:` and `argument-hint:` only when the skill genuinely takes input (a PR number to cherry-pick, a topic to research, a path to extract from). The loader substitutes tokens at injection time, before the model sees the text. Per the escape convention above, the docs show tokens with `&#36;`; in your skill body, write a plain dollar sign.
-
-| Token | Resolves to |
-|-------|-------------|
-| `&#36;ARGUMENTS` | full argument string as the user typed it |
-| `&#36;ARGUMENTS[N]` or `&#36;N` | Nth positional, shell-quoted, 0-indexed |
-| `&#36;<name>` | named argument from the `arguments:` frontmatter list |
-| `&#36;{CLAUDE_SKILL_DIR}` | absolute path to this skill's directory |
-| `&#36;{CLAUDE_SESSION_ID}` | current session id |
-| `&#36;{CLAUDE_EFFORT}` | active effort level (`low`/`medium`/`high`/`xhigh`/`max`) |
-
-Full table with examples and parsing pitfalls: `${CLAUDE_SKILL_DIR}/references/frontmatter.md`.
-
-Set `argument-hint:` so autocomplete reflects the expected shape. If the body has no full-argument token and the user passed arguments, the loader appends `ARGUMENTS: <input>` automatically; treat that as a fallback, not a design.
-
-## Pre-approving tools
-
-Skip this section if the skill's tool calls already work without prompting in the user's normal permission flow. Most reference skills (no shell commands) and skills that only Read or Grep on already-permitted paths do not need `allowed-tools:` at all.
-
-Set `allowed-tools:` only when the body issues specific tool calls that would otherwise prompt the user repeatedly during the run (a workflow that fires `gh pr view`, `git add`, `git commit` in sequence). It is friction reduction, not a security boundary. The user's deny rules still apply.
-
-When you do set it, list narrow patterns matching the calls the body actually issues:
-
-- Good: `Bash(gh pr view:*)`, `Bash(git add:*) Bash(git commit:*)`, `Read Grep Glob`
-- Bad: `Bash` (whitelists every shell command, defeats the permission system), `*` (defeats the field entirely)
-
-Read the body, enumerate every tool call it actually makes, list exactly those.
-
-## Conditional activation
-
-Skip `paths:` for most skills. The default (no `paths:`) means the skill is discoverable from session start, which is what you want when the skill applies broadly.
-
-Set `paths:` only when the skill is genuinely relevant to a subset of files in a polyglot or monorepo setup (a `flutter-conventions` skill in a repo that also has a Rust backend; a `database-migrations` skill scoped to `db/migrations/**`). The glob list (gitignore syntax, comma string or YAML list) defers the skill from the description listing until the model touches a matching file, which keeps the description budget free for sessions that never need it.
+Detail on load order, overrides and budgets: `${CLAUDE_SKILL_DIR}/references/claude-code-mechanics.md`.
 
 ## Bundled files
 
 | Need | Put it in |
 |------|-----------|
-| Detailed reference docs the body points to | `references/<topic>.md` |
-| Scripts the body runs via Bash | `scripts/<name>.<ext>` |
-| Templates, fonts, icons used in output | `assets/<name>` |
+| Detail the body points to | `references/<topic>.md` |
+| Code the body runs | `scripts/<name>.<ext>` |
+| Templates and other output material | `assets/<name>` |
 
-Reference them explicitly from the body, anchored to a trigger (the block below uses HTML entity `&#36;` for `$` to avoid self-substitution; in your skill body, write the plain literal):
-
-```markdown
-For full schema details, read `&#36;{CLAUDE_SKILL_DIR}/references/api-schema.md`.
-Run `python &#36;{CLAUDE_SKILL_DIR}/scripts/build_chart.py "&#36;ARGUMENTS"` to render the chart.
-```
-
-Relative paths break when the skill is invoked from a different cwd. `&#36;{CLAUDE_SKILL_DIR}` is the only portable form. For plugin skills, it is the only form that survives install.
+Reference each from the body with the condition that loads it: "Read `&#36;{CLAUDE_SKILL_DIR}/references/api-schema.md` when the request touches the API." Relative paths break when the cwd differs, and for plugin skills the token is the only form that survives install. The token is the skill's own directory, not the plugin root. Reference files are read raw, so live syntax in them is safe; a reference over 100 lines opens with a `## Contents` list.
 
 ## Workflow
-
-Walk these in order. Each step assumes the previous resolved.
 
 ### 1. Capture intent
 
-If the conversation already shows a workflow the user wants captured (corrections, tool sequence, edits to the format), extract from history. Otherwise ask in tight rounds via AskUserQuestion, not all at once.
+Extract from the conversation when it already shows the procedure (corrections, tool sequence, format edits); otherwise ask in short AskUserQuestion rounds. Always ask what it does, what situation loads it, and the scope. Ask about forking, user-only invocation, arguments or pre-approved tools only when an answer implies the field.
 
-Always-needed questions:
+**Success criterion**: you can state the skill in one sentence and name each optional field it needs, with the reason.
 
-- What does the skill do, in one sentence?
-- What situation should load it (the request, the file type), in one sentence?
-- Project, user, or plugin scope?
+### 2. Sketch the directory
 
-Conditional questions (ask only when the answer to an always-needed question implies the skill needs the field):
-
-- Inline or forked? Ask only if the work sounds bounded and self-contained (a research task, an audit). Default is inline for everything else.
-- User-only vs both? Ask only if the skill has irreversible side effects (deploy, commit, send-message).
-- Arguments? Ask only if the user implied the skill takes input.
-- Pre-approved tools? Ask only if the skill chains specific tool calls in a way that would prompt the user repeatedly.
-
-Resolve high-level shape first, fill in detail second. Do not pre-ask about every optional field; pull each in only when the conversation surfaces a reason.
-
-### 2. Decide structure
-
-Sketch the directory before writing files. If the body will reference `references/foo.md` or run `scripts/bar.py`, plan that now so the body and the bundled files stay consistent.
+Plan `references/`, `scripts/` and `assets/` before writing, so the body and its files agree.
 
 ### 3. Write the frontmatter
 
-Start with the minimal set and add fields only when the answers from step 1 forced a specific need:
-
 ```yaml
 ---
-description: <Imperative verb + object, one sentence, 60-120 chars.>
-when_to_use: <One "Use when..." sentence, under 150 chars.>
+description: <Imperative verb + object, one sentence, 60 to 120 characters.>
+when_to_use: <One "Use when..." sentence, under 150 characters.>
 ---
 ```
 
-That is the whole frontmatter for most reference skills and many simple workflow skills. The directory name supplies `name` by default; do not set `name` unless you need a different display name from the directory.
+Then add only the fields step 1 justified. Write the trigger surface the way Claude Code's bundled skills do:
 
-Add other fields only when a specific condition holds (see the "Frontmatter is minimal by default" table earlier in this file for the condition per field):
+- Open with the verb and its object: "Create a git commit."
+- One "Use when" sentence naming the situation, not a list of phrasings.
+- At most one boundary clause, with a redirect.
+- No stages, file paths or agent names. Name a flag only when the model must pass it, because `argument-hint` never reaches the model.
+- A skill that does not fire gets a more exact situation, not more synonyms or caps; a trigger that must never be lost goes in CLAUDE.md.
 
-- `disable-model-invocation: true` for irreversible side effects.
-- `argument-hint:` and `arguments:` when the skill takes input.
-- `allowed-tools:` when the body chains tool calls that would prompt the user.
-- `context: fork` (+ `agent:`) when the body is a bounded actionable task.
-- `paths:` when the skill is path-conditional.
-- `model:` / `effort:` / `hooks:` only when the skill genuinely needs them.
-
-`description` + `when_to_use` is the trigger surface, the only thing the model sees before deciding to load the skill. The listing renders each entry as `- name: description - when_to_use`, truncated at 1,536 characters (`skillListingMaxDescChars`); see [Anthropic docs](https://code.claude.com/docs/en/skills.md).
-
-Write it the way Claude Code writes its own bundled skills (read off the 2.1.280 listing):
-
-- **Open with an imperative verb and its object, in one sentence of 60 to 120 characters.** "Create a git commit." "Run a prompt or slash command on a recurring interval."
-- **`when_to_use` is one sentence that starts "Use when", under 150 characters.** "Use before writing a memory file to choose the right `type:` frontmatter value and body structure."
-- **At most one boundary clause, with a redirect.** "Quality only; it does not hunt for bugs, use /code-review for that."
-- **No mechanics.** Leave out stages, tiers, hashes, file paths and internal agent names; the body carries how the skill works, the listing only decides whether to load it. The exception is a flag the model must pass, because `argument-hint` never reaches the model; the bundled code-review skill names `--comment` and `--fix` in its description.
-- **About 200 characters combined, 350 at most.** Every entry shares one listing budget of 1% of the context window, and on overflow the least-used entries collapse to their bare name.
-- **Plain case, no stacked synonyms.** A skill that does not fire is fixed by naming the situation more exactly, not by adding phrasings or "ALWAYS". A trigger that must never be lost belongs in CLAUDE.md, which is outside the listing budget.
-
-For naming, prefer gerund (`processing-pdfs`, `analyzing-spreadsheets`). Avoid reserved words (`anthropic`, `claude`) and vague names (`helper`, `utils`, `tools`). Full field reference: `${CLAUDE_SKILL_DIR}/references/frontmatter.md`.
+Prefer gerund or noun-phrase names (`processing-pdfs`); avoid vague ones (`helper`, `utils`).
 
 ### 4. Write the body
 
-The body is a prompt. Hand it off to the principles in the `ac:prompt-writer` skill:
+Invoke `ac:prompt-writer` for the prompt itself. Skill-specific conventions: a one-paragraph overview first; a Goal with Steps and a success criterion each for workflows, a Scope and rules for reference content; under 500 lines, with detail moved out to references rather than compressed into longer lines, because the 5,000-token compaction window is measured in tokens. User-typed workflows add argument design, shell-injected context, phases and approval gates: `${CLAUDE_SKILL_DIR}/references/user-typed-skills.md`.
 
-- Persona / role at the top if the skill has a clear lens.
-- Static rules and structure in stable order; the body is cached, dynamic content goes through the argument substitution tokens (see the Arguments section above).
-- XML tags as delimiters when the skill processes documents or distinct content blocks.
-- Numbered steps for multi-step workflows; sub-numbers (3a, 3b) for steps that run in parallel.
-- A success criterion on every step. The model should know when to stop.
-- End-of-prompt reminders for the top one or two constraints.
+The shell-injection preprocessor scans raw bytes and ignores markdown fences: a documentation example written as `` \!`gh pr view` `` with a plain bang runs on every invocation. Escape the bang when documenting; use a plain `!` only when you mean it.
 
-Skill-specific body conventions worth honoring:
+### 5. Bundle
 
-- Lead with a one-paragraph **Overview** so the model knows the shape before reading steps.
-- Keep SKILL.md under 500 lines (per [Anthropic guidance](https://code.claude.com/docs/en/skills.md)). Push detail into `references/` and anchor each from the body. Content moves out; it does not get compressed in place. Hitting the line count by writing longer lines satisfies the number and defeats the purpose, because the budget exists to keep the body inside the 5,000-token window a re-attached skill survives on, and that window is measured in tokens.
-- For workflows: name the **Goal** (what done looks like), then **Steps**, each with a **Success criterion**.
-- For reference content: name the **Scope** (what the rules apply to), then the rules.
-- Include "ultrathink" anywhere in the body if the skill should enable extended thinking on invoke.
-
-> **Footgun, shell-injection in the body.** Claude Code's preprocessor scans SKILL.md bytes for inline `` \!`<cmd>` `` and fenced ` ```\! ` blocks. Neither respects markdown fences. If you paste a literal `` \!`gh pr view` `` or a triple-backtick-plus-bang block as a documentation example (even inside a 4-backtick wrapper), Claude Code will execute it on every invocation. When DOCUMENTING shell-injection syntax, escape the bang as `\!`. The byte before `!` becomes `\`, which breaks the regex lookbehind (`(?<=^|\s)`) for the inline form and breaks the literal `\`\`\`!` start for the fenced form. When USING shell injection for real, plain `!` is correct, that is the live syntax.
-
-For body content beyond surface guidance, invoke `/ac:prompt-writer` and then load its bundled references (its body lists them with anchored conditions). The architecture and snippets references in that skill carry the depth; do not duplicate that material here.
-
-### 5. Bundle supporting files
-
-If a step in the body would otherwise produce 200 lines of detail, push the detail into `references/<topic>.md` and have the body say "Read `&#36;{CLAUDE_SKILL_DIR}/references/<topic>.md` when [condition]." Anchor every reference to a trigger; without that, the model loads none of them or all of them.
-
-If the body would otherwise tell the model to write the same script every invocation, write the script once into `scripts/` and orchestrate around it. Token savings compound across runs.
+A step that would add 200 lines of detail becomes a reference with an anchored pointer. A script the model would rewrite every run becomes a file in `scripts/`.
 
 ### 6. Verify
 
-Before shipping:
+1. Frontmatter parses: `---` on line 1, quoted strings where they contain colons, no invented fields.
+2. Every `&#36;{CLAUDE_SKILL_DIR}/...` path in the body exists.
+3. The trigger surface reads cleanly: it would load on a relevant request and stay out of a neighbouring one.
+4. The body holds up for a reader who has never seen the conversation.
+5. A fresh-session invocation behaves as intended; for a typed workflow, run `/name` with typical arguments.
 
-1. **Frontmatter parses.** `description` is a string, `allowed-tools` matches the parser's expected shape (space-separated string or YAML list), no nonsense fields.
-2. **Path references resolve.** Every `&#36;{CLAUDE_SKILL_DIR}/...` in the body points to a file that exists.
-3. **Triggering reads cleanly.** Read `description` + `when_to_use` aloud: would the model load this skill on a relevant request, and skip it on a neighbouring one? About 200 characters combined?
-4. **Body holds up cold.** Re-read as if you had never seen the conversation. Goal clear, steps actionable, success criteria present.
-5. **Invoke it.** Run `/skill-name` in a fresh session. The first run surfaces every assumption.
-
-Worked examples that pass all five gates: `${CLAUDE_SKILL_DIR}/references/examples.md`.
+Worked examples: `${CLAUDE_SKILL_DIR}/references/examples.md`.
 
 ### 7. Iterate
 
-If the skill misbehaves, route by symptom:
-
 | Symptom | Fix |
 |---------|-----|
-| Does not trigger when it should | Name the situation more exactly in `when_to_use`; if the trigger must never be lost, name the skill in CLAUDE.md |
-| Triggers on unrelated work | Tighten `description`: remove broad keywords; add `disable-model-invocation: true` if it is user-only |
-| Loads but does not change behavior | Strengthen the body: clearer goal, success criteria, lead with the rule; explain the why |
-| Wastes turns on tangential exploration | Cut. Anything not pulling its weight; trust the model on the obvious |
-| Repeats setup work every invocation | Bundle a script in `scripts/` and orchestrate around it |
-| Stops influencing behavior mid-session | After auto-compact, only the first 5,000 tokens of each invoked skill survive. Move standing instructions to the top of the body. Re-invoke if needed. |
+| Does not trigger | Name the situation more exactly in `when_to_use`; name the skill in CLAUDE.md if it must never be missed |
+| Triggers on unrelated work | Remove broad words from `description`; set `disable-model-invocation: true` if it is user-only |
+| Loads but changes nothing | Lead with the rule, state the goal and success criteria, give the why |
+| Stops influencing mid-session | Move standing rules into the first 5,000 tokens; re-invoke after compaction |
+| Repeats setup every run | Bundle a script |
+| Literal `&#36;ARGUMENTS` or an unexpected command in the rendered prompt | See `user-typed-skills.md` on substitution and the injection escape |
 
-Deeper symptom-to-fix mapping: `${CLAUDE_SKILL_DIR}/references/anti-patterns.md`.
+Deeper mapping: `${CLAUDE_SKILL_DIR}/references/anti-patterns.md`.
 
-## Sibling skills (route the surrounding shape)
+## Model notes
 
-This skill stays focused on the skill shape itself. The work around the skill routes through one of the following.
+A skill body runs on the session model, which for this plugin is usually Opus 5.5 or Sonnet 5.5. Both land on Claude Code's lean prompt, which lacks the classic code-style rules, so a skill that needs one states it. Set `effort:` only when the skill's work needs a different level from the session's; it holds for the rest of the turn, and Haiku 4.5 (the `haiku` target on Bedrock, Vertex, Foundry and Claude Platform on AWS) takes no effort value at all. Per-model tuning lives in `ac:prompt-writer`.
+
+## Sibling skills
 
 | Producing | Route shape through | Use this skill for |
 |---|---|---|
-| The prompt body inside any skill | `ac:prompt-writer` | The structural decisions around the body (this file) |
-| A slash command (`/name [args]` with arguments, often manual-only) | `ac:command-creator` | The skill-shape decisions; specialize through `ac:command-creator` for arg design and shell injection |
-| A subagent definition (`.claude/agents/<name>.md`) | `ac:agent-creator` | The decision of whether to write a skill at all (vs an agent) |
-| CLAUDE.md or `.claude/rules/<topic>.md` | `ac:claude-md-rules-creator` | The decision of whether to write a skill at all (vs a CLAUDE.md note) |
-| Hook configuration (`settings.json`, lifecycle events) | `update-config` | The decision of whether to write a skill at all (vs a deterministic hook) |
-
-When the user request implies any of the rows above, do both: invoke the matching creator for shape, then keep this skill loaded for what is still skill-shaped.
-
-## Opus 5.5 and Sonnet 5.5 tuning
-
-Default target is `claude-opus-5-5` (`model: opus` on Claude Code 2.1.280), documented by Anthropic as a delta over Opus 5, so the Opus 5 notes below still hold unless the next paragraph says otherwise. Sonnet 5.5 (`claude-sonnet-5-5`, `model: sonnet` on Claude Code 2.1.284) follows the same shape at lower cost, with its own deltas in `ac:prompt-writer`'s `references/sonnet-5-5-tuning.md`; Haiku 5.5 (`claude-haiku-5-5`, `model: haiku` on the Anthropic API since Claude Code 2.1.293) supports `effort`, while Haiku 4.5 (`claude-haiku-4-5-20251001`) supports no effort parameter at all. Full per-knob detail: `${CLAUDE_SKILL_DIR}/references/opus-5-tuning.md`; the 5.5 deltas and the verbatim built-in prompt text live in `ac:prompt-writer`.
-
-On 5.5: default effort is `medium`, effort labels do not port from Opus 5 (5.5 thinks more per label), and its best agentic-coding score in the system card is at `medium`, so set a skill's `effort:` only when its work needs a different level from the session's, and remember it also holds for the rest of the turn after the skill runs. A skill body lands on the lean prompt, which lacks the classic code-style and communication rules; state any the skill needs.
-
-On Sonnet 5.5 the same holds, with its own twists: Claude Code's default is `medium`, labels are recalibrated from Sonnet 5 rather than shifted by one, and it is the first Sonnet on the lean prompt. At `low` and `medium` it checks in before agentic work is done, and at every level it adds tests, docs and small files nobody asked for, so a skill that fixes its scope or expects to run to completion says so in the body.
-
-Quick deltas to keep in mind while authoring:
-
-- **Two 4.8 defaults inverted.** Verbosity is higher by default and effort will not shorten it, so a body that relied on self-calibration needs an explicit length target. Subagent spawning is higher by default, so a body carrying 4.8-era fan-out encouragement now overtriggers delegation.
-- **State scope in both directions.** Say where a rule spans, and also name the upper bound: Opus 5 can widen scope and re-verify finished work on its own.
-- **Tool use.** The 4.8 conservatism claim has no Opus 5 counterpart in the docs; treat it as undocumented. Describe when and how to reach for a tool explicitly either way, and avoid "CRITICAL: ALWAYS use this tool" wording.
-- **Effort overrides.** Opus 5 converts extra effort into better results more reliably than any earlier Opus, so `effort:` is a stronger lever than it was. Set it only for skills that need it (deep audits, multi-step migrations); most skills inherit fine. Never set it on a skill targeted at Haiku 4.5, which has no effort parameter; Haiku 5.5 accepts it.
-
-## Quick template
-
-For the full annotated blank template (with every optional field commented inline and explained), read `${CLAUDE_SKILL_DIR}/assets/SKILL.template.md`. That asset is read raw via the Read tool, so the literal tokens survive intact in it and can be copied directly.
-
-**Minimal form** (covers most skills, no optional fields):
-
-```markdown
----
-description: <Imperative verb + object, one sentence, 60-120 chars.>
-when_to_use: <One "Use when..." sentence, under 150 chars.>
----
-
-# <Skill Title>
-
-<One-paragraph Overview.>
-
-## Goal (workflow) or Scope (reference)
-<What "done" looks like, or what the rules apply to.>
-
-## Body
-<Steps with success criteria, or rules with scope.>
-```
-
-That is enough for a reference skill (style guide, conventions) and many simple workflow skills. Stop here unless step 1's intent capture identified a specific need for an optional field.
-
-**Expanded form** (only when needed; HTML entity `&#36;` for `$` to prevent self-substitution in this very SKILL.md; in your skill body, write a plain dollar sign):
-
-```markdown
----
-description: <as above>
-when_to_use: <as above>
-# Add only the fields that apply (see the "Frontmatter is minimal by default" table earlier):
-# argument-hint: "<[arg1] [arg2]>"
-# arguments: [arg1, arg2]
-# disable-model-invocation: true   # user-only; irreversible side effects
-# user-invocable: false             # model-only; background reference knowledge
-# allowed-tools: Bash(gh pr view:*) Read Grep   # narrow patterns; never bare Bash
-# context: fork                     # subagent execution; body must be an actionable task
-# agent: ac:explore                 # subagent type when forked (general-purpose | ac:explore | <custom>)
-# paths: ["lib/**/*.dart", "pubspec.yaml"]   # auto-activate only when matching files are touched
-# model: opus                       # override the active model for this skill's run
-# effort: high                      # override the active effort level
-# hooks: ...                        # skill-scoped hook enforcement
----
-
-# <Skill Title>
-
-<One-paragraph Overview: what the skill does, when it fires, what it leaves behind.>
-
-## Goal
-<What "done" looks like. Observable. For reference skills, replace with "Scope".>
-
-## Workflow
-<Optional inline checklist for skills with 5+ steps.>
-
-### 1. <Step name>
-<What to do. Be specific. Commands and file paths when low-freedom; principles when high-freedom.>
-
-**Success criterion**: <how the model knows this step is done>
-
-### 2. <Step name>
-<...>
-
-## Rules
-<Standing instructions that apply throughout. For reference skills, this is the body.>
-
-## When you need details
-- For <topic>, read `&#36;{CLAUDE_SKILL_DIR}/references/<file>.md`.
-
-## Bundled scripts
-- `&#36;{CLAUDE_SKILL_DIR}/scripts/<name>.<ext>`, <what it does, args, output location>
-```
-
-In your real skill body, drop the HTML entity and write a plain dollar sign. The `assets/SKILL.template.md` asset shows the literal form ready to copy.
+| The prompt body inside any skill | `ac:prompt-writer` | The structure around the body |
+| A subagent definition | `ac:agent-creator` | Whether to write a skill at all, or a `context: fork` skill instead |
+| CLAUDE.md or `.claude/rules/<topic>.md` | `ac:claude-md-rules-creator` | Whether the content is a procedure (skill) or a standing fact |
+| PROJECT.md or DESIGN.md | `ac:project-md-writer`, `ac:design-md-writer` | Whether a procedure belongs in a skill or a fact in a design document |
+| Hook configuration | `update-config` | Whether the behaviour needs determinism (hook) or judgment (skill) |
 
 ## Pre-flight checklist
 
-Before declaring the skill done:
-
-Always check:
-
-- [ ] Directory at the right scope (managed / user / project / plugin).
-- [ ] Directory name = skill slug (lowercase, hyphens, max 64 characters, no `claude` or `anthropic`).
-- [ ] Frontmatter has `description` and a one-sentence `when_to_use`; `name` set only if it differs from the directory.
-- [ ] `description` opens with an imperative verb; `when_to_use` is one "Use when" sentence; about 200 characters combined, 350 at most; no mechanics.
-- [ ] No optional fields set that the skill does not actually need (cargo-culting hurts).
-
-Check only the items that apply to your skill's specific needs:
-
-- [ ] (If `disable-model-invocation: true` is set) the skill has irreversible side effects that justify user-only invocation.
-- [ ] (If `user-invocable: false` is set) the skill is background context with no meaningful slash-menu use.
-- [ ] (If `context: fork` is set) the body is a bounded actionable task, not reference content.
-- [ ] (If `allowed-tools:` is set) it lists narrow patterns the body actually calls, never bare `Bash`.
-- [ ] (If `paths:` is set) the skill is genuinely path-conditional and the description budget benefits from deferred loading.
-- [ ] Body under 500 lines; detail in one-level-deep `references/` files with anchored "read this when X" pointers.
-- [ ] Reference files over 100 lines start with a `## Contents` table of contents so partial reads do not miss the scope.
-- [ ] Body uses the skill-directory token for every bundled-file reference (plugin-portable). In your skill body, write a plain dollar sign followed by `{CLAUDE_SKILL_DIR}`.
-- [ ] Every step has a success criterion; reference content has scope.
-- [ ] Body passes the `ac:prompt-writer` audit: no aggressive caps, no negative-only instructions, no "based on your findings" in forked skills, positive instructions, why explained when non-obvious.
-- [ ] Effort and model overrides match task complexity.
-- [ ] Test invocation in a fresh session passes.
+- [ ] Right scope; directory name is the slug.
+- [ ] `description` opens with a verb; `when_to_use` is one "Use when" sentence; about 200 characters combined; no mechanics.
+- [ ] Every optional field present has a named reason; none copied from a template.
+- [ ] (`disable-model-invocation: true`) the skill has side effects, and nothing tells the model to run it.
+- [ ] (`context: fork`) the body is a bounded actionable task with no approval gates.
+- [ ] (`allowed-tools`) narrow patterns matching the calls the body makes.
+- [ ] (`paths`) the skill is genuinely path-conditional.
+- [ ] (Typed workflow) the `user-typed-skills.md` pre-flight additions pass.
+- [ ] Body under 500 lines, standing rules in the first 5,000 tokens, bundled files referenced through the skill-directory token.
+- [ ] Body passes the `ac:prompt-writer` audit.
+- [ ] A fresh-session invocation passes.
 
 ## References
 
 | File | Load when... |
 |---|---|
-| `${CLAUDE_SKILL_DIR}/references/frontmatter.md` | Designing or auditing frontmatter: every field, valid values, examples, parsing pitfalls. |
-| `${CLAUDE_SKILL_DIR}/references/patterns.md` | Choosing between reference and task content, inline vs fork, when to bundle scripts, progressive disclosure, conditional activation, hooks. |
-| `${CLAUDE_SKILL_DIR}/references/claude-code-mechanics.md` | Understanding runtime lifecycle (load, invocation, auto-compact, char budget), substitutions, shell injection, location precedence. |
+| `${CLAUDE_SKILL_DIR}/references/frontmatter.md` | Designing or auditing frontmatter: every field, values, examples, parsing pitfalls. |
+| `${CLAUDE_SKILL_DIR}/references/user-typed-skills.md` | A `/name [args]` workflow: argument design, shell-injected context, phases, approval gates, side-effect invocation control, commands as the older format. |
+| `${CLAUDE_SKILL_DIR}/references/patterns.md` | Choosing reference vs task content, inline vs fork, scripts, progressive disclosure, conditional activation, hooks. |
+| `${CLAUDE_SKILL_DIR}/references/claude-code-mechanics.md` | Runtime lifecycle: discovery, listing budget, compaction, substitutions, permissions, precedence. |
 | `${CLAUDE_SKILL_DIR}/references/examples.md` | Copying from a worked example: reference, manual-action, forked, scripted, path-conditional, plugin-distributed. |
 | `${CLAUDE_SKILL_DIR}/references/anti-patterns.md` | Diagnosing a misbehaving skill or auditing one before shipping. |
-| `${CLAUDE_SKILL_DIR}/references/opus-5-tuning.md` | Tuning effort, verbosity, scope, subagent spawning, thinking, model overrides; the 4.8-to-5 inversions; Sonnet 5, Haiku 5.5 and Haiku 4.5 deltas. |
-| `${CLAUDE_SKILL_DIR}/assets/SKILL.template.md` | Starting a new skill from a blank annotated template. |
+| `${CLAUDE_SKILL_DIR}/references/opus-5-tuning.md` | Effort, verbosity and model overrides for a skill, per model. |
+| `${CLAUDE_SKILL_DIR}/assets/SKILL.template.md` | Starting from a blank annotated template. |
 
-For the prompt body itself, invoke `/ac:prompt-writer` and follow the references it lists from its own body:
+Sibling skills are reached by invocation (`/ac:prompt-writer`), not by path, because the install layout is unknown at author time.
 
-- The high-level shape and the 7-component message architecture.
-- Snippets for copy-paste building blocks (verbosity, parallel tool use, hallucination control, output format).
-- Anti-patterns for what not to do.
-- Opus 5 tuning for effort, thinking, verbosity, and scope deltas.
-
-Sibling-skill files cannot be read by path from here, since the install layout is unknown at author time. Invocation is the portable form.
-
-Canonical Anthropic documentation, served as raw markdown by appending `.md` to the URL:
-
-- Skills feature and frontmatter reference: `https://code.claude.com/docs/en/skills.md`
-- Subagents and `skills:` preload: `https://code.claude.com/docs/en/sub-agents.md`
-- Slash commands: `https://code.claude.com/docs/en/slash-commands.md`
-- Hooks: `https://code.claude.com/docs/en/hooks.md`
-- Plugins: `https://code.claude.com/docs/en/plugins.md`
-- Agent Skills open standard: `https://agentskills.io/specification`
-
-When canonical docs conflict with observed CLI behavior, trust the live binary.
+Canonical documentation (append `.md` for raw markdown): skills `https://code.claude.com/docs/en/skills.md`, subagents `https://code.claude.com/docs/en/sub-agents.md`, hooks `https://code.claude.com/docs/en/hooks.md`, plugins `https://code.claude.com/docs/en/plugins-reference.md`, Agent Skills standard `https://agentskills.io/specification`. When the docs and the live binary disagree, trust the binary.

@@ -20,18 +20,17 @@ The two-step form and the setup that follows are in the [repo root README](../..
 | Directory | Contents |
 |-----------|----------|
 | `agents/` | Subagent definitions, one `.md` file per agent |
-| `commands/` | Slash commands, one `.md` file per command |
-| `skills/` | Skills, each in its own `<name>/SKILL.md` folder |
+| `skills/` | Skills, each in its own `<name>/SKILL.md` folder; the slash commands `/ac:commit`, `/ac:init-project` and `/ac:install` are skills too |
 | `output-styles/` | Output styles, one `.md` file per style; selectable, never forced |
 | `hooks/` | Hook scripts plus the `hooks.json` registration that wires them, including the subagent Bash guard, the `SubagentStop` background guard and the session lease sweep |
 | `cli/` | Bundled MCP runtime (`ac.js`); do not hand-edit, regenerate with `bun run build` |
 | `references/` | Bundled style and CLAUDE.md templates consumed by `/ac:install` |
 | `evals/` | Agent eval cases and graders, run by `claude plugin eval` |
 
-`agents/`, `commands/`, `skills/` and `output-styles/` are auto-discovered by Claude Code;
+`agents/`, `skills/` and `output-styles/` are auto-discovered by Claude Code;
 override their paths in `.claude-plugin/plugin.json` only when the defaults do not fit. Hooks are
 declared in `hooks/hooks.json`. The last three are not components: `cli/` is loaded through
-`.mcp.json`, `references/` is data the commands read at `${CLAUDE_PLUGIN_ROOT}`, and `evals/` is
+`.mcp.json`, `references/` is data the skills read at `${CLAUDE_PLUGIN_ROOT}`, and `evals/` is
 read by `claude plugin eval`.
 
 One style ships, `ac:concise`. A plugin style is addressed as `<plugin>:<style name>`, so the

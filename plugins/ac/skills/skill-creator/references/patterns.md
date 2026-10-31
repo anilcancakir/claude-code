@@ -245,7 +245,7 @@ For skills the user invokes manually, narrower is better. For skills the model a
 
 ## Hooks scoped to a skill
 
-Frontmatter `hooks:` fires only while the skill is active. Same shape as project hooks (`PreToolUse`, `PostToolUse`, `UserPromptSubmit`, etc.), same handler types (command, agent, message).
+Frontmatter `hooks:` registers when the skill is invoked and stays for the rest of the session; use `once: true` for a hook that should run once. Same shape as project hooks (`PreToolUse`, `PostToolUse`, `UserPromptSubmit`, etc.), same handler types (command, agent, message).
 
 Use skill-scoped hooks for:
 
@@ -356,4 +356,4 @@ Sometimes the answer is not a skill.
 - **One-off task** to just do it.
 - **Very long always-on context** to CLAUDE.md if it must always be loaded, skill with `paths:` if conditional, refactor into the codebase if it is documentation rotting in chat.
 - **Determinism the body cannot guarantee** to a hook, not a skill, route through `update-config`.
-- **Cross-cutting agent persona** to a custom agent in `.claude/agents/`, possibly with the skill preloaded via the agent's `skills:` field. Route through `agent-creator`.
+- **Cross-cutting agent persona** to a custom agent in `.claude/agents/`, possibly with the skill preloaded via the agent's `skills:` field. Route through `ac:agent-creator`.

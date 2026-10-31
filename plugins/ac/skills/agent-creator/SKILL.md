@@ -6,283 +6,136 @@ when_to_use: "Use when writing, editing or debugging a subagent definition."
 
 # Agent Creator
 
-You are about to write or edit a Claude Code custom subagent another Claude will delegate to. An agent is a markdown file that becomes a named worker the orchestrator can spawn with the Agent tool: the parent fills in `subagent_type`, `prompt`, and optional `description`, `name`, `run_in_background`, `isolation`; Claude Code spawns a fresh isolated context, injects the agent's body as the system prompt, and runs the agent until completion. The agent returns its final message to the parent as the tool result.
+You are about to write or edit a Claude Code subagent another Claude will delegate to. An agent is a markdown file: the frontmatter sets its tools, model and runtime; the body becomes its whole system prompt. The parent calls the Agent tool with `subagent_type`, a `prompt` and optional `description`, `model`, `effort`, `run_in_background` or `isolation`; the agent runs in a fresh context and only its final message returns to the parent. Checked against Claude Code 2.1.314 on 2026-10-31.
 
-This skill is the playbook for designing tool restrictions, choosing model and effort, picking `permissionMode`, adding `memory`, preloading `skills`, structuring the system-prompt body, and routing the storage choice. Target is Opus 5.5. Same patterns work for Sonnet 5.5 at lower cost and for Haiku 5.5, which supports `effort` (default `medium`). Haiku 4.5 supports no effort parameter; it is the `haiku` target on Bedrock, Vertex, Foundry and Claude Platform on AWS.
+The body is a prompt: route its wording through `ac:prompt-writer` and its shape through the five-section pattern below. This file owns the agent-specific decisions.
 
-## Three jobs, not one
+## Rules that hold for every agent
 
-Writing a custom subagent splits into three tasks. Conflating them is the most common authoring mistake.
-
-1. **Surrounding skill shape.** File location, scope, naming, frontmatter parsing. Same rules as any markdown config. Route through `ac:skill-creator` for the broader file-shape decisions (scope, name validation, char budget).
-2. **Agent-specific shape.** Tool allowlist/denylist, model and effort, `permissionMode`, `memory`, `skills:` preload, `isolation`, `background`. This file teaches that.
-3. **System-prompt body content.** The markdown the orchestrator injects as the agent's system. This is a prompt. Route through `ac:prompt-writer` (architecture, snippets, anti-patterns, Opus 5 tuning) for the body, and apply the five-section pattern from `${CLAUDE_SKILL_DIR}/references/system-prompt-structure.md` for the shape.
-
-A great agent body inside the wrong shape (wrong tools, wrong model, wrong permission mode) returns useless work. A modest body inside the right shape returns sharp results every time.
-
-## What an agent actually is, mechanically
-
-Source of truth: `tools/AgentTool/loadAgentsDir.ts`, `tools/AgentTool/builtInAgents.ts`, `tools/AgentTool/built-in/<name>.ts`, `utils/plugins/loadPluginAgents.ts`, `tools/AgentTool/prompt.ts` in the CC source.
-
-The lifecycle:
-
-1. **Discovery.** At session start, the loader walks managed > `--agents` CLI flag > `.claude/agents/` (project, walks up from cwd) > `~/.claude/agents/` (user) > `<plugin>/agents/` > built-in. Higher-priority definitions override lower ones with the same name (`tools/AgentTool/loadAgentsDir.ts:200-220`, agents in later groups overwrite earlier in the map). Directories added with `--add-dir` are NOT scanned for agents; only file access is granted there. To share an agent across projects, use `~/.claude/agents/` or ship it via a plugin. SDK callers can disable all built-ins by setting `CLAUDE_AGENT_SDK_DISABLE_BUILTIN_AGENTS=1` in non-interactive mode.
-2. **Parsing.** Each file's YAML frontmatter is parsed; the markdown body becomes the agent's system prompt. Plugin agents auto-namespace as `<plugin>:<agent-name>`.
-3. **Listing.** Built-in plus active custom agents are summarized in the orchestrator's `Agent` tool description: `- {agentType}: {whenToUse} (Tools: {toolsDescription})`. The orchestrator decides delegation based on these lines.
-4. **Spawn.** Orchestrator calls `Agent({subagent_type, prompt, ...})`. Claude Code creates a fresh isolated context, applies the agent's tool restrictions, model, effort, permission mode, hooks, and any preloaded skills.
-5. **Substitution (plugin agents only).** `&#36;{CLAUDE_PLUGIN_ROOT}` and `&#36;{user_config.X}` are substituted in the system prompt for plugin agents. Non-plugin agents get no substitution; the body is injected verbatim.
-6. **Execution.** The agent runs as its own LLM loop. It receives the agent's body as system, the parent's `prompt` as the first user turn. CLAUDE.md is auto-loaded into its context unless the definition sets `omitClaudeMd: true` (user and plugin frontmatter since Claude Code 2.1.271; managed instructions still load). It saves the hierarchy's tokens on read-only agents that need no commit, PR or lint rules, and it drops every project rule the agent would inherit, so the body has to carry any it still needs. The ac plugin's working rules (`${CLAUDE_PLUGIN_ROOT}/references/working-rules.md`) reach the main thread only, so the body restates any of them either way. A subagent CAN spawn other subagents when `Agent` is in its tool set, which it is whenever the definition uses a `disallowedTools` denylist rather than a `tools:` allowlist. Decide that per agent; `references/tool-restrictions.md` carries the measurement and the two ways to deny it.
-7. **Return.** The agent's final assistant message returns to the parent as the `Agent` tool result. Intermediate tool calls and reasoning stay in the agent's context, not the parent's.
-
-The parent never sees the agent's tool calls or scratch work; only the final summary. This is the central value: context isolation.
+1. **The body is the whole system prompt.** The main thread's persona, tone and Claude Code's built-in rules do not reach a subagent; every rule it follows lives in its body. CLAUDE.md does reach it unless `omitClaudeMd: true`.
+2. **Context isolation is the value.** The parent sees only the final message, so the Output Format is a locked contract the parent can act on without follow-up questions.
+3. **Minimal frontmatter.** `name` and `description` are required; add any other field only when you can name the condition.
+4. **Decide nesting on purpose.** A denylist inherits the Agent tool and the agent will spawn children; an allowlist without `Agent` cannot.
+5. **Plugin agents are restricted.** They ignore `permissionMode`, `hooks`, `mcpServers` and `initialPrompt`; an agent that needs them ships as a user or project agent.
+6. **Plain wording, scope in both directions.** No caps; name what the agent does and where it stops.
 
 ## Decision flow
 
-Route by the user's request.
-
 ```
-Is a custom subagent the right tool at all?
-├── Built-in (Explore / Plan / general-purpose) already fits → use it. Not a custom agent. (on an `/ac:install` setup Explore and Plan are disabled; use `ac:explore` or `general-purpose`)
-├── Repeatable workflow, no isolation needed → SKILL (route through `ac:skill-creator`).
-├── User-typed `/name [args]` action → COMMAND (route through `ac:command-creator`).
-├── Always-on enforcement → HOOK (route through `update-config`).
-├── Single fact, not behavior → CLAUDE.md (route through `ac:claude-md-rules-creator`).
-└── Recurring task that benefits from isolated context, custom tools, or distinct model → AGENT, continue.
+Is a custom subagent the right tool?
+├── A built-in agent already fits → use it (on an `/ac:install` setup Explore and Plan are disabled; use `ac:explore` or `general-purpose`).
+├── A repeatable procedure with no need for isolation → a skill, via `ac:skill-creator`.
+├── A user-typed `/name [args]` workflow → a skill, via `ac:skill-creator` and its user-typed reference; a `context: fork` skill can run it in an agent.
+├── Must happen deterministically → a hook, via `update-config`.
+├── A standing fact → CLAUDE.md or a rule, via `ac:claude-md-rules-creator`.
+└── Recurring work that benefits from its own context, tools or model → an agent. Continue.
 
-Where does the agent live?
-├── Project-scoped → `.claude/agents/<name>.md` (commit to share with team)
-├── Personal cross-project → `~/.claude/agents/<name>.md`
-├── Plugin-distributed → `<plugin>/agents/<name>.md` (auto-namespaced `<plugin>:<name>`)
-├── Org-wide enforced → managed dir
-└── One-off (no persistence) → `--agents` JSON flag
+Where does it live?
+├── Project → `.claude/agents/<name>.md` (commit to share)
+├── Personal → `~/.claude/agents/<name>.md`
+├── Plugin → `<plugin>/agents/<name>.md`, addressed as `<plugin>:<name>`
+├── Org-wide → managed directory
+└── One run → the `--agents` JSON flag
 
-Is this an audit or fix of an existing agent?
-├── YES → `${CLAUDE_SKILL_DIR}/references/anti-patterns.md` first, then specific reference as needed.
-└── NO  → walk the Workflow below.
+Auditing an existing agent? → `${CLAUDE_SKILL_DIR}/references/anti-patterns.md` first.
 ```
 
-For everything outside agent-specific concerns (file naming, char budget, generic frontmatter parsing), defer to `ac:skill-creator` rather than duplicating that material here.
+Definitions with the same name resolve managed > `--agents` > project > user > plugin > built-in. `--add-dir` directories are not scanned for agents.
 
-## Frontmatter: minimal by default
+## Frontmatter
 
-A working agent needs only `name` + `description`. Everything else is opt-in.
+> **Escape convention.** This SKILL.md is preprocessed, so tokens named rather than used appear with `&#36;` for the dollar sign. In a plugin agent body, write a plain `$`.
 
-> **Escape convention used in this documentation.** This SKILL.md is itself a skill body inside a plugin. The Claude Code loader substitutes the plugin-root token, the skill-directory token, the session-id token, and the full-arguments token on every invocation. To document those tokens without corrupting the docs, this file uses the HTML entity `&#36;` standing in for the dollar sign whenever a token name is being NAMED rather than USED. Real path references (the skill-directory token followed by a slash and a relative path) stay literal so the loader resolves them to actual files the model can Read. In your own agent body, agents do NOT support full-arguments substitution or shell injection (only the plugin-context tokens). For plugin agents, write a plain dollar sign for `&#36;{CLAUDE_PLUGIN_ROOT}` and `&#36;{user_config.X}`. Non-plugin agents get no substitution at all; every token stays literal.
+| Field | Default | Semantics, and when to set it |
+|-------|---------|-------------------------------|
+| `name` | required | Identifier the parent delegates to; lowercase and hyphens, at most 256 characters, no `:` |
+| `description` | required | The delegation trigger the parent reads |
+| `tools` | every parent tool | Allowlist; comma string or YAML list. `Agent(x, y)` limits which types it may spawn |
+| `disallowedTools` | none | Denylist; applied to the inherited pool before `tools` filters it |
+| `model` | `inherit` | `sonnet`, `opus`, `haiku`, `fable`, a full model id, or `inherit` |
+| `effort` | session effort | `low`, `medium`, `high`, `xhigh`, `max`; the Agent tool's `effort` parameter overrides it (2.1.292) |
+| `permissionMode` | parent's | `default`, `acceptEdits`, `auto`, `dontAsk`, `bypassPermissions`, `plan`. Ignored on plugin agents |
+| `maxTurns` | none | Positive integer cap on agentic turns |
+| `autoCompactWindow` | inherited | Compaction threshold for the subagent, 100000 to 1000000; only lowers the inherited window (2.1.296) |
+| `skills` | none | Skill bodies preloaded at start; at most 32 (2.1.295); plugin skills as `<plugin>:<name>`; `disable-model-invocation` skills cannot be preloaded |
+| `mcpServers` | none | Servers scoped to the agent, inline or by name. Ignored on plugin agents |
+| `hooks` | none | Hooks active while the agent runs. Ignored on plugin agents |
+| `memory` | none | `user`, `project` or `local`: a persistent directory the agent reads and updates |
+| `background` | `false` | `true` spawns it in the background by default |
+| `omitClaudeMd` | `false` | `true` drops the CLAUDE.md hierarchy from its context (2.1.271) |
+| `isolation` | none | `worktree` runs it in a temporary git worktree |
+| `color` | none | `red`, `blue`, `green`, `yellow`, `purple`, `orange`, `pink`, `cyan` |
+| `initialPrompt` | none | First user turn when the agent runs as the main session (`--agent`). Ignored on plugin agents |
+| `experimental.cacheTtl` | `5m` | `5m` or `1h` prompt-cache lifetime, for an agent that idles longer than five minutes between turns (2.1.248) |
 
-| Field | Required? | When to set |
-|-------|-----------|-------------|
-| `name` | yes | always; lowercase letters and hyphens, unique within scope |
-| `description` | yes | always; this is the trigger surface the orchestrator reads to decide delegation |
-| `tools` | optional | the agent should use only a specific subset of tools (allowlist). Omit to inherit every tool. Comma-separated string or YAML list. |
-| `disallowedTools` | optional | the agent should inherit most tools but be denied a few (denylist). Applied first, then `tools` filters the remainder. |
-| `model` | optional | the agent needs a specific model (`sonnet`/`opus`/`haiku`, full ID like `claude-opus-5`, or `inherit`). Default: `inherit`. |
-| `effort` | optional | the agent needs a different reasoning budget than the session (`low`/`medium`/`high`/`xhigh`/`max`). Haiku 5.5 accepts it; omit it for a Haiku 4.5 agent, which does not support the parameter. |
-| `permissionMode` | optional, NON-PLUGIN ONLY | the agent should run with a specific permission mode (`default`/`acceptEdits`/`auto`/`dontAsk`/`bypassPermissions`/`plan`). Ignored in plugin agents. |
-| `maxTurns` | optional | the agent should stop after N agentic turns. Positive integer. |
-| `autoCompactWindow` | optional | the subagent should compact its own conversation earlier than the window it inherits (Claude Code 2.1.296). Only lowers the inherited window. |
-| `skills` | optional | named skills to preload into the agent's context at startup (full content injected, not just made available). At most 32. |
-| `omitClaudeMd` | optional | `true` drops the CLAUDE.md hierarchy from the subagent (Claude Code 2.1.271). Detail in `${CLAUDE_SKILL_DIR}/references/frontmatter.md`. |
-| `mcpServers` | optional, NON-PLUGIN ONLY | MCP servers scoped to this agent. Inline definitions or names of already-configured servers. Ignored in plugin agents. |
-| `hooks` | optional, NON-PLUGIN ONLY | lifecycle hooks scoped to the agent. Same shape as project hooks. Ignored in plugin agents. |
-| `memory` | optional | persistent memory scope (`user`/`project`/`local`). Creates a directory the agent reads and updates across runs. Auto-injects Read/Write/Edit tools. |
-| `background` | optional | `true` to always spawn this agent in the background by default. |
-| `isolation` | optional | `worktree` to spawn the agent in a temporary git worktree, isolated from the main checkout. |
-| `color` | optional | display color in the task list (`red`/`blue`/`green`/`yellow`/`purple`/`orange`/`pink`/`cyan`). |
-| `initialPrompt` | optional, MAIN-AGENT MODE | first user turn auto-prepended when this agent runs as the main session via `--agent`. |
-| `requiredMcpServers` | optional | array of MCP server name patterns that must be configured for the agent to appear in the listing. Per `loadAgentsDir.ts:233-242`, agents missing required servers are filtered out (case-insensitive substring match). |
+`requiredMcpServers` (server-name substrings that must be configured for the agent to be listed) also parses; detail and every field's pitfalls: `${CLAUDE_SKILL_DIR}/references/frontmatter.md`. `claude --debug` names unknown fields with a typo hint (2.1.296), so a misspelt field shows up there instead of failing silently.
 
-Anti-pattern: copying every optional field "just in case". Each unused field adds noise. A focused research agent usually needs just `name` + `description` + `tools` + `model`. A reviewer that updates a knowledge base adds `memory:`. Reach further only for specific needs.
+Copying every optional field "just in case" is the common mistake. A focused researcher needs `name`, `description`, `tools` and `model`; a reviewer that learns adds `memory`.
 
-**Plugin-agent security boundary**: per `utils/plugins/loadPluginAgents.ts:161-168`, plugin agents silently ignore `permissionMode`, `hooks`, and `mcpServers`. If your agent needs those, ship it as a user/project agent under `.claude/agents/`, not via a plugin. Plugins are third-party marketplace code; install-time trust boundaries cover plugin-level hooks/MCP, but per-agent escalation through a buried agent file is not allowed.
+## Tools and nesting
 
-## Tool access
+| Shape | Frontmatter | Use for |
+|-------|-------------|---------|
+| Allowlist | `tools: Read, Grep, Glob, Bash` | Focused agents; the default for read-only researchers |
+| Denylist | `disallowedTools: Write, Edit, NotebookEdit` | "Anything except touching files" |
+| Both | both fields | Denylist first, then the allowlist filters the rest |
 
-Three patterns cover almost every case. Detail and copy-paste templates: `${CLAUDE_SKILL_DIR}/references/tool-restrictions.md`.
+The Agent tool is a tool like any other. A denylist-only agent inherits it and, on current Opus models, will delegate; an allowlist that omits `Agent` blocks spawning, and `tools: Agent(worker, researcher)` limits it to those types. Nesting reaches 3 levels by default (`CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH`) and at most 20 agents run concurrently. Keep multi-agent chains orchestrator-driven where cost and order matter: the agent returns a report naming the next agent and the parent spawns it.
 
-### Allowlist (most restrictive, recommended for focused agents)
-
-```yaml
-tools: Read, Grep, Glob, Bash
-```
-
-Agent can only use the listed tools. Default for read-only research agents.
-
-### Denylist (start broad, subtract dangerous tools)
-
-```yaml
-disallowedTools: Write, Edit, NotebookEdit
-```
-
-Agent inherits every tool the parent has, minus the denied set. Useful for "do anything except touch files".
-
-### Both (rare, when you need allowlist plus exclusions)
-
-When both are set, `disallowedTools` is applied first to the inherited pool, then `tools` filters that pool. Tools listed in both are removed.
-
-### Restricting subagent spawning
-
-The Agent tool is itself a tool, and it reaches subagents too: an agent declaring only a `disallowedTools` denylist inherits `Agent` and will spawn children on an Opus-tier model. So this matters for main-thread agents run via `claude --agent <name>` AND for every subagent you write. See `references/tool-restrictions.md` for the measurement:
-
-```yaml
-tools: Agent(worker, researcher), Read, Bash
-```
-
-`Agent(x, y)` is an allowlist: only `worker` and `researcher` types can be spawned. To allow any: `Agent` without parentheses. To block all spawning: omit `Agent` from `tools`.
+An allowlist also changes tool loading: without `ToolSearch` in the pool, deferred tools such as `LSP` ship inline instead of behind a search round-trip. An agent whose body requires LSP belongs on an allowlist that names it. Detail and templates: `${CLAUDE_SKILL_DIR}/references/tool-restrictions.md`.
 
 ## Model and effort
 
-```yaml
-model: sonnet      # or opus, haiku, <full-model-id>, inherit
-effort: high       # or low, medium, xhigh, max
-```
+- **haiku**: fast and cheap; search, lookup, classification. On the Anthropic API it is Haiku 5.5, which takes `effort`; on Bedrock, Vertex, Foundry and Claude Platform on AWS it is Haiku 4.5, which takes none, so do not pair `haiku` with `effort` for those providers.
+- **sonnet**: balanced; review, analysis, standard implementation.
+- **opus**: deep reasoning; architecture, cross-file refactors, adversarial review.
+- **fable**: the tier above Opus, for the hardest single-shot work.
+- **inherit**: the agent's quality tracks the session's choice.
 
-Defaults: `model: inherit` (same as parent), no effort override.
+Effort precedence, highest first: the `CLAUDE_CODE_EFFORT_LEVEL` environment variable, the Agent tool's `effort` parameter, the agent's `effort` field, the session effort. Set the field only when the agent's work needs a different level from the session; per-model calibration is in `ac:prompt-writer`.
 
-Picking:
+## Permissions, memory, isolation
 
-- **Haiku**: fast and cheap. Right for read-only search agents, classification, lookup. Built-in Explore uses Haiku (external builds). `haiku` resolves to Haiku 5.5 on the Anthropic API since Claude Code 2.1.293, and `effort:` works there; on Bedrock, Vertex, Foundry and Claude Platform on AWS it resolves to Haiku 4.5, which supports no `effort` value, so do not pair `model: haiku` with `effort:` in an agent meant to run on those providers.
-- **Sonnet**: balanced. Right for code review, analysis, anything intelligence-sensitive but bounded.
-- **Opus**: deep reasoning. Right for architecture review, multi-file refactors, adversarial review (challenger pattern).
-- **Inherit**: when the agent's quality should track the session's model choice.
+`permissionMode` works on user and project agents only. A parent running `bypassPermissions` or `acceptEdits` takes precedence, and a parent in `auto` makes the agent's mode irrelevant. Most agents leave it unset and constrain capability through tools.
 
-Set `effort: high` only for agents that do deep work in one shot (a `plan-deep-review` agent, a `feasibility` analyst). Most agents inherit fine.
+`memory: project` (or `user`, `local`) gives the agent a persistent directory; Read, Write and Edit are added to its tools, the start of its `MEMORY.md` is added to its system prompt, and the body must say when to update it. Use it for reviewers and analysts that benefit from accumulated knowledge.
 
-## Permission mode
+`skills:` injects each listed skill's full body at start; subagents do not inherit the parent's skills. A skill that cannot be resolved is skipped with only a debug line.
 
-Non-plugin agents can set `permissionMode`. Plugin agents ignore the field.
-
-| Mode | Behavior |
-|------|----------|
-| `default` | Standard prompts for new permissions |
-| `acceptEdits` | Auto-accept file edits and common filesystem commands in working dirs |
-| `auto` | Background classifier reviews each command |
-| `dontAsk` | Auto-deny new prompts; only pre-approved tools work |
-| `bypassPermissions` | Skip prompts entirely; CC still protects `.git`, `.claude`, `.vscode`, `.idea`, `.husky` |
-| `plan` | Read-only exploration mode |
-
-Parent precedence rule: if the parent session uses `bypassPermissions` or `acceptEdits`, that takes precedence and the agent cannot downgrade. If the parent uses `auto`, the agent's `permissionMode` is ignored entirely and the classifier evaluates the agent's calls.
-
-For most agents, leave `permissionMode` unset and rely on `tools`/`disallowedTools` to constrain capability. Reach for permission mode only when the agent should run with looser-than-default automation (`acceptEdits` for an autonomous-edit agent the user trusted at install time, `dontAsk` for a strict read-only researcher).
-
-## Memory, skills preload, isolation
+`isolation: worktree` gives the agent its own checkout; an unchanged worktree is cleaned up, a changed one returns its path and branch. Use it for agents that must not touch the main checkout or that run in parallel.
 
 Detail: `${CLAUDE_SKILL_DIR}/references/memory-and-skills.md`.
 
-### Persistent memory
-
-```yaml
-memory: project    # or user, local
-```
-
-Creates a directory the agent reads at startup and writes to during work:
-
-- `user` -> `~/.claude/agent-memory/<name>/`
-- `project` -> `.claude/agent-memory/<name>/` (commit to share)
-- `local` -> `.claude/agent-memory-local/<name>/` (gitignored by default)
-
-When memory is enabled:
-
-- Read, Write, Edit are auto-injected into the agent's tool list if those were missing.
-- The first 200 lines (or 25KB) of `MEMORY.md` in the memory directory is added to the agent's system prompt.
-- The body should include explicit instructions to update memory ("save what you learned to your memory after the task").
-
-Memory makes the agent stateful across runs. Use for code-reviewers, debuggers, domain analysts that benefit from accumulated knowledge.
-
-### Skill preloading
-
-```yaml
-skills:
-  - api-conventions
-  - error-handling-patterns
-```
-
-The full content of each named skill is injected into the agent's system context at startup. The agent gets the skill's body, not just the option to invoke it. Subagents do NOT inherit skills from the parent conversation; you must list every skill the agent needs.
-
-Cannot preload skills with `disable-model-invocation: true` (security: those skills opted out of programmatic invocation).
-
-### Worktree isolation
-
-```yaml
-isolation: worktree
-```
-
-Agent runs in a temporary git worktree, isolated from the main checkout. The worktree is auto-cleaned if the agent makes no changes; if it changes files, the worktree path and branch are returned in the tool result.
-
-Use for agents that should not touch the main checkout, or for parallel agents that need separate working copies.
-
-## System-prompt body
-
-The body is the agent's system prompt. Treat it like any other system prompt and route through `ac:prompt-writer` for principles.
-
-Skill-creator's standing body conventions all apply: persona at the top, static rules before dynamic, XML tags when needed, no aggressive caps (state the rule plain and explain the why), positive instructions over negative-only.
-
-The single most useful agent-body convention is the **five-section format** (extracted from the prior `ac` MVP's 15 agents, applies to almost every focused agent):
+## Body: the five-section pattern
 
 ```markdown
 ## Identity
-
-One or two sentences describing who the agent is and what it returns. Anchors the lens.
+One or two sentences: who the agent is and what it returns.
 
 ## Execution
-
-Numbered steps the agent follows. Reads first, then acts. Sub-numbers for parallel steps.
+Numbered steps; read first, then act. Sub-numbers for parallel steps.
 
 ## Output Format
-
-Exact markdown shape the agent returns. Locked headers, citation format, length cap. The orchestrator parses this; commit to one shape.
+The exact shape the parent parses: headers, citation format, length cap.
 
 ## Failure Conditions
-
-What makes the response BAD. "FAILED if: <list of quality-gate violations>." The agent self-checks against these before returning.
+FAILED if: the quality-gate violations the agent checks itself against.
 
 ## Constraints
-
-Hard rules. Scope limits. Tool restrictions explicit again ("Read-only, no Write or Edit"). Evidence requirements.
+Scope limits, tool restrictions restated, evidence requirements.
 ```
 
-Detail and three worked structures (read-only researcher, code reviewer, action-taking debugger): `${CLAUDE_SKILL_DIR}/references/system-prompt-structure.md`.
-
-## Plugin paths and substitutions
-
-Plugin agents get one substitution pass before the system prompt is injected (`utils/plugins/loadPluginAgents.ts:113-123`):
-
-- `&#36;{CLAUDE_PLUGIN_ROOT}` resolves to the plugin's root directory. Use this when a plugin agent needs to reference bundled files: `Read &#36;{CLAUDE_PLUGIN_ROOT}/templates/foo.md`.
-- `&#36;{user_config.X}` resolves to the value of the `X` key in the plugin's `userConfig` (sensitive keys resolve to a placeholder).
-
-Non-plugin agents (`.claude/agents/`, `~/.claude/agents/`) get NO substitution. Tokens stay literal in the system prompt.
-
-Agents do NOT support `&#36;ARGUMENTS` or `&#36;{CLAUDE_SKILL_DIR}` (those are skill and command tokens). Agents also do NOT support shell injection (`` \!`<cmd>` ``); the agent system prompt is injected verbatim after the plugin substitution pass.
+Each section has a success criterion the agent can check. Plugin agent bodies get one substitution pass, `&#36;{CLAUDE_PLUGIN_ROOT}` and `&#36;{user_config.X}`; other agents get none. Agents never get argument substitution, the skill-directory token or shell injection. Depth and three worked structures: `${CLAUDE_SKILL_DIR}/references/system-prompt-structure.md`.
 
 ## Workflow
 
-Walk these in order. Each step assumes the previous resolved.
-
 ### 1. Capture intent
 
-Always-needed questions:
+Always ask what it does in one sentence, whether it reads or writes, which model fits, and the scope. Ask about tool limits, memory, preloaded skills, permission mode or a worktree only when the answers imply them.
 
-- What does the agent do, in one sentence?
-- Is it read-only or does it modify files?
-- What model and effort fit?
-- Project, user, or plugin scope?
+**Success criterion**: each optional field you will set has a named reason.
 
-Conditional questions (ask only when intent surfaces a need):
-
-- Tool restrictions? Ask if the agent should be constrained (read-only researcher, no-network, no-MCP).
-- Memory? Ask if the agent benefits from accumulated knowledge across runs.
-- Preloaded skills? Ask if there are domain-specific skill bodies the agent should start with.
-- Permission mode? Ask only if the parent's default mode is wrong for this agent's role.
-- Worktree isolation? Ask if the agent should not touch the main checkout.
-
-Do not pre-ask about every optional field; pull each in only when intent makes it relevant.
-
-### 2. Pick scope
-
-`.claude/agents/` for team-shared agents in a repo. `~/.claude/agents/` for cross-project personal agents. `<plugin>/agents/` for distribution. `--agents` JSON flag for one-off testing.
-
-### 3. Draft the frontmatter
-
-Minimal:
+### 2. Write the frontmatter
 
 ```yaml
 ---
@@ -291,146 +144,79 @@ description: <Role noun. Use this when <situation>. Returns <shape>.>
 ---
 ```
 
-Add fields only when the conditional questions surfaced a reason. The "Frontmatter: minimal by default" table above lists each field with its trigger condition.
+Write `description` the way Claude Code writes its built-in agents: a role noun, one "Use this when" sentence, then what it returns, about 200 characters. Name a knob the caller sets in the brief, as the built-in Explore names its breadth levels. An agent only one caller spawns ends with "Spawned only by <caller>; not for general tasks." Skip "use proactively"; the Agent tool's own description already governs how readily the parent delegates.
 
-`description` is the trigger surface; the orchestrator decides whether to delegate based on this line alone. Write it the way Claude Code writes its built-in agents: a role noun, one "Use this when..." sentence, then what it returns ("Software architect agent for designing implementation plans. Use this when you need to plan the implementation strategy for a task. Returns step-by-step plans..."). About 200 characters: leave mechanics to the body but name the knob a caller sets in the brief (the built-in Explore names its breadth levels). An agent only a skill or command spawns ends with "Spawned only by <caller>; not for general tasks." so the main thread does not pick it up directly. Skip "use proactively": on Opus 5.5 the Agent tool description already reads "Reach for this when the task matches an available agent type".
+### 3. Write the body
 
-### 4. Write the body
+The five sections, worded through `ac:prompt-writer`. Restate every rule the agent needs, including any CLAUDE.md rule it loses to `omitClaudeMd`.
 
-Five-section pattern (above) unless the agent is genuinely trivial. For each section, name the **success criterion**: how does the agent know it has fulfilled this section? The Output Format section is locked; the orchestrator parses the agent's response and downstream work fails if shape drifts.
+### 4. Verify
 
-Hand off the prompt-writing details to `/ac:prompt-writer` after picking the shape.
+1. Frontmatter parses, and `claude --debug` reports no unknown field.
+2. The description would make the parent delegate on a relevant request and not on a neighbouring one.
+3. Tools match the body: a read-only agent has no Write or Edit; every tool the body calls is present.
+4. The Output Format is parseable without follow-up.
+5. A fresh-session delegation returns the expected shape.
 
-### 5. Verify
+Worked agents: `${CLAUDE_SKILL_DIR}/references/examples.md`.
 
-Before shipping:
-
-1. **Frontmatter parses.** `name` is lowercase + hyphens, `description` is a string, `tools`/`disallowedTools` use the right format.
-2. **Triggering reads cleanly.** Read `description` aloud. Would the orchestrator know when to delegate to this agent based on this line?
-3. **Tool restrictions match the body.** If the body says "Read-only research", `tools` is an allowlist excluding Write/Edit. If the body uses Bash for git status, `Bash` is in `tools`.
-4. **Output Format is parseable.** The shape the agent returns is consistent enough that the parent can act on it without follow-up questions.
-5. **Test invocation.** Have the orchestrator delegate to the agent in a fresh session with a typical request. Does the agent return the expected shape?
-
-Worked examples that pass all gates: `${CLAUDE_SKILL_DIR}/references/examples.md`.
-
-### 6. Iterate
+### 5. Iterate
 
 | Symptom | Fix |
 |---------|-----|
-| Orchestrator never delegates | Name the situation more exactly in the "Use this when" sentence, or name the agent in CLAUDE.md for the work it owns |
-| Orchestrator delegates too aggressively | Tighten `description`: remove broad keywords; specify when NOT to use |
-| Agent does the wrong thing | Strengthen the body: clearer Identity, explicit steps, lock the Output Format |
-| Agent writes files when it should not | Add `disallowedTools: Write, Edit, NotebookEdit` (or use `tools:` allowlist) |
-| Agent times out / runs forever | Set `maxTurns` (positive integer) |
-| Agent forgets context across runs | Add `memory: project` (or user/local) and instruct the body to update it |
-| Agent re-discovers known patterns every time | Preload domain skills via `skills:` field |
-| Agent prompts user repeatedly during run | Adjust `permissionMode` to `acceptEdits` or `dontAsk` (non-plugin only) |
-| Spawning agents from within an agent fails | The agent's `tools:` allowlist omits `Agent`, or its `disallowedTools` denies it. Add `Agent` to the allowlist if nesting is wanted and budgeted; otherwise keep it out and have the parent orchestrate |
+| Never delegated to | Name the situation more exactly in "Use this when", or name the agent in CLAUDE.md for the work it owns |
+| Delegated too eagerly | Remove broad words; say when not to use it |
+| Does the wrong thing | Clearer Identity, explicit steps, locked Output Format |
+| Writes files it should not | `disallowedTools: Write, Edit, NotebookEdit`, or an allowlist |
+| Runs forever | `maxTurns` |
+| Forgets across runs | `memory` plus an update instruction in the body |
+| Re-discovers known patterns | Preload the domain skills through `skills:` |
+| Spawns children unasked | An allowlist without `Agent`, or `Agent` in `disallowedTools` |
+| A field seems ignored | `claude --debug`; on a plugin agent check the four ignored fields |
 
-Deeper symptom-to-fix mapping: `${CLAUDE_SKILL_DIR}/references/anti-patterns.md`.
+Deeper mapping: `${CLAUDE_SKILL_DIR}/references/anti-patterns.md`.
 
-## Sibling skills (route the surrounding shape)
+## Sibling skills
 
 | Producing | Route shape through | Use this skill for |
 |---|---|---|
-| The surrounding file-shape (scope, name, char budget) | `ac:skill-creator` | Agent-specific concerns (tools, model, memory, body structure) |
-| The system-prompt body itself | `ac:prompt-writer` | The five-section pattern and per-section guidance (this file) |
-| A slash command that delegates to an agent | `ac:command-creator` | Whether to write a custom agent at all (vs a forked-skill command) |
-| CLAUDE.md or `.claude/rules/<topic>.md` | `ac:claude-md-rules-creator` | Whether the work should be persistent context vs an isolated agent |
-| Hook configuration | `update-config` | Whether the work should be deterministic enforcement vs an agent's negotiated behavior |
+| File scope, naming, listing budget | `ac:skill-creator` | Agent-specific fields and body structure |
+| The system-prompt wording | `ac:prompt-writer` | The five-section pattern |
+| A `/name` workflow that delegates to an agent | `ac:skill-creator` (user-typed skills) | Whether an agent is needed at all, or a `context: fork` skill |
+| CLAUDE.md or `.claude/rules/<topic>.md` | `ac:claude-md-rules-creator` | Persistent context versus an isolated agent |
+| PROJECT.md or DESIGN.md | `ac:project-md-writer`, `ac:design-md-writer` | What the agent reads on demand versus what its body carries |
+| Hook configuration | `update-config` | Deterministic enforcement versus an agent's judgment |
 
-When the user request implies any of the rows above, do both: invoke the matching creator for shape, and keep this skill loaded for what is still agent-shaped.
+## Built-in agents
 
-## Built-in agents to know
-
-Read `${CLAUDE_SKILL_DIR}/references/builtin-catalog.md` for full details. Quick reference:
-
-- **Explore** (Haiku, read-only), file search and codebase analysis. Built-in tools-restriction pattern to copy.
-- **Plan** (inherit, read-only), software architect for implementation plans. Plan-mode delegation target.
-- **general-purpose** (inherit, all tools), multi-step research and modification. Default for fork mode.
-- **claude-code-guide** (Haiku, web-fetch + read), answers user questions about CC, Agent SDK, and Claude API.
-- **statusline-setup** (Sonnet), configures status line.
-- **verification** (feature-flagged), runtime observation pattern.
-
-When designing a custom agent, check whether a built-in already fits. If yes, use it.
-
-## Quick template
-
-Full annotated blank template: `${CLAUDE_SKILL_DIR}/assets/AGENT.template.md`.
-
-Minimal form (covers most agents):
-
-```markdown
----
-name: <kebab-case-name>
-description: <Role noun. Use this when <situation>. Returns <shape>.>
-model: <sonnet | haiku | opus | inherit>
----
-
-## Identity
-<One or two sentences: who the agent is and what it returns.>
-
-## Execution
-1. <Step 1: read first>
-2. <Step 2: act precisely>
-3. <Step 3: verify>
-
-## Output Format
-<Locked markdown shape with citations / verdict / length cap.>
-
-## Failure Conditions
-FAILED if: <list of quality-gate violations the agent self-checks against>.
-
-## Constraints
-<Hard rules. Scope limits. Evidence requirements.>
-```
+Explore (Haiku, read-only search), Plan (read-only architect), general-purpose (all tools, the fork default), claude-code-guide (questions about Claude Code and the API), statusline-setup. Check whether one fits before writing a custom agent. Case studies: `${CLAUDE_SKILL_DIR}/references/builtin-catalog.md`.
 
 ## Pre-flight checklist
 
-Always check:
-
-- [ ] File at the right scope (managed / project / user / plugin).
-- [ ] Filename = agent name (lowercase, hyphens, at most 256 characters since Claude Code 2.1.292, no `claude` or `anthropic`).
-- [ ] Frontmatter has `name` and `description`. Other fields only when the agent needs them.
-- [ ] `description` is a role noun, one "Use this when" sentence and what it returns, about 200 characters.
-- [ ] No cargo-culted optional fields (each present field has a specific reason).
-
-Check only the items that apply to the agent's specific shape:
-
-- [ ] (If `tools:` is set) it lists the tools the body actually uses (allowlist).
-- [ ] (If `disallowedTools:` is set) it lists the tools the body avoids (denylist).
-- [ ] (If `model:` is set) the choice matches the agent's complexity tier.
-- [ ] (If `memory:` is set) the body includes instructions to update memory after the task.
-- [ ] (If `skills:` is set) all listed skills exist and have `disable-model-invocation: false`.
-- [ ] (If `permissionMode:` is set) the agent is NOT a plugin agent (plugins ignore it).
-- [ ] (If `hooks:` or `mcpServers:` is set) the agent is NOT a plugin agent.
-- [ ] (If `isolation: worktree`) the agent's work makes sense in an isolated checkout.
-- [ ] Body uses the five-section pattern (Identity / Execution / Output Format / Failure Conditions / Constraints).
-- [ ] Output Format is locked: the orchestrator can parse the agent's return without follow-up questions.
-- [ ] Body passes the `ac:prompt-writer` audit: no aggressive caps unless safety-critical, positive instructions, explained why.
-- [ ] Test invocation in a fresh session: orchestrator delegates correctly, agent returns the right shape.
+- [ ] Right scope; filename equals `name` (at most 256 characters, no `:`).
+- [ ] `description`: role noun, one "Use this when" sentence, what it returns, about 200 characters.
+- [ ] Every optional field has a named reason.
+- [ ] (`tools`) lists what the body uses; `Agent` present only if nesting is wanted.
+- [ ] (`skills`) each exists, none has `disable-model-invocation: true`, at most 32, plugin skills qualified.
+- [ ] (`memory`) the body says when to update it.
+- [ ] (Plugin agent) no `permissionMode`, `hooks`, `mcpServers` or `initialPrompt`.
+- [ ] Body follows the five sections and restates every rule it needs.
+- [ ] Output Format is locked and parseable.
+- [ ] A fresh-session delegation returns the right shape.
 
 ## References
 
 | File | Load when... |
 |---|---|
-| `${CLAUDE_SKILL_DIR}/references/frontmatter.md` | Designing or auditing frontmatter: every field, valid values, plugin-agent restrictions. |
-| `${CLAUDE_SKILL_DIR}/references/system-prompt-structure.md` | Writing the body: the five-section pattern in depth, per-section guidance, three worked structures. |
-| `${CLAUDE_SKILL_DIR}/references/tool-restrictions.md` | Choosing tool allowlist/denylist; `Agent(x, y)` patterns; conditional Bash via PreToolUse hooks. |
-| `${CLAUDE_SKILL_DIR}/references/memory-and-skills.md` | Setting up persistent memory or preloading skills; auto-injected tools, MEMORY.md format. |
-| `${CLAUDE_SKILL_DIR}/references/builtin-catalog.md` | Case studies from built-in agents (Explore, Plan, general-purpose, claude-code-guide). |
-| `${CLAUDE_SKILL_DIR}/references/examples.md` | Five worked agents at different complexity tiers, ready to copy and adapt. |
-| `${CLAUDE_SKILL_DIR}/references/anti-patterns.md` | Diagnosing a misbehaving agent or auditing one before shipping. |
-| `${CLAUDE_SKILL_DIR}/assets/AGENT.template.md` | Starting a new agent from a blank annotated template. |
+| `${CLAUDE_SKILL_DIR}/references/frontmatter.md` | Designing or auditing frontmatter: every field, values, precedence, plugin-agent restrictions, parsing pitfalls. |
+| `${CLAUDE_SKILL_DIR}/references/system-prompt-structure.md` | Writing the body: the five sections in depth and three worked structures. |
+| `${CLAUDE_SKILL_DIR}/references/tool-restrictions.md` | Allowlist or denylist, `Agent(x, y)`, conditional Bash through hooks. |
+| `${CLAUDE_SKILL_DIR}/references/memory-and-skills.md` | Persistent memory or preloaded skills. |
+| `${CLAUDE_SKILL_DIR}/references/builtin-catalog.md` | Case studies from the built-in agents. |
+| `${CLAUDE_SKILL_DIR}/references/examples.md` | Worked agents to copy and adapt. |
+| `${CLAUDE_SKILL_DIR}/references/anti-patterns.md` | Diagnosing or auditing an agent. |
+| `${CLAUDE_SKILL_DIR}/assets/AGENT.template.md` | Starting from a blank annotated template. |
 
-For surrounding skill shape, invoke `/ac:skill-creator`. For the prompt body itself, invoke `/ac:prompt-writer`. Sibling-skill files cannot be read by path from here, since the install layout is unknown at author time; invocation is the portable form.
+Sibling skills are reached by invocation (`/ac:skill-creator`, `/ac:prompt-writer`), not by path.
 
-Canonical Anthropic documentation, served as raw markdown by appending `.md` to the URL:
-
-- Subagents: `https://code.claude.com/docs/en/sub-agents.md`
-- Skills (for the `skills:` preload field): `https://code.claude.com/docs/en/skills.md`
-- Plugins (for plugin-agent restrictions and the plugin-root substitution): `https://code.claude.com/docs/en/plugins.md`
-- Permission modes: `https://code.claude.com/docs/en/permission-modes.md`
-- Hooks: `https://code.claude.com/docs/en/hooks.md`
-
-When canonical docs conflict with observed CLI behavior, trust the live binary.
+Canonical documentation (append `.md` for raw markdown): subagents `https://code.claude.com/docs/en/sub-agents.md`, skills `https://code.claude.com/docs/en/skills.md`, plugins `https://code.claude.com/docs/en/plugins-reference.md`, permission modes `https://code.claude.com/docs/en/permission-modes.md`, hooks `https://code.claude.com/docs/en/hooks.md`. When the docs and the live binary disagree, trust the binary.
