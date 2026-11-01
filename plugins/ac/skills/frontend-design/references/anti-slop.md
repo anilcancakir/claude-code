@@ -6,6 +6,7 @@ Why generated UI looks the same, what actually moves it, and how to check a resu
 
 - Why generic instructions fail
 - Patterns to rule out
+- Subject, hero and copy
 - Process
 - Verification loop
 - Reading a tokens file
@@ -34,6 +35,18 @@ Name them in the brief. The brief's own words always win: when the user asks for
 
 Items 1 to 5 are the clusters in Anthropic's `frontend-design` skill (anthropics/skills at commit 41bbe19). Item 8 comes from practitioner lists and a scan of 1,590 Show HN pages where 22 percent hit four or more patterns; no per-pattern prevalence was published. Do not turn a list of acceptable typefaces into a mandate: a fixed whitelist becomes the next default.
 
+## Subject, hero and copy
+
+From Anthropic's `frontend-design` skill (re-read 2026-11-01 at anthropics/skills commit ca45fc4; the file last changed in 41bbe19). Distinctiveness starts with the subject, not with a style.
+
+- Name the subject, the audience and the primary job before choosing anything; a toy for 8 to 11 year olds and a dashboard for financial analysts look different for that reason. The subject's materials and vernacular are where the choices come from.
+- The hero opens with the most characteristic thing in the subject's world: a headline, an image, a live demo or an interactive moment. A big number with a small label, supporting stats and a gradient accent is the default treatment, so use it only when it is truly the best option.
+- Type carries the personality. Use one family or two, and clearly distinct when two. Keep body lines under 80 characters and give serif body text slightly more line height than sans. Avoid accenting a single word in a headline, all-caps labels and unnecessary labels above content.
+- Visual structure encodes information. Numbering, eyebrows, dividers and outlines belong where the content is a sequence or a hierarchy; check that before adding "01 / 02 / 03".
+- Spend boldness in one place. One memorable element, everything around it quiet, and cut decoration that does not serve the brief.
+- Mind selector specificity when writing the CSS: a class selector and an element selector on the same section cancel each other's padding and margin.
+- Words are design content. A button says what happens ("Save changes", not "Submit") and keeps its name through the flow (the "Publish" button produces a "Published" toast). An error says what went wrong and how to fix it, without an apology. An empty screen invites an action. Use plain verbs, sentence case and the user's vocabulary, not the system's ("notifications", not "webhook config").
+
 ## Process
 
 1. Write a token plan before any code: four to six named hex values, type roles, spacing base, radius, elevation approach, motion character, and an ASCII wireframe per screen.
@@ -45,7 +58,7 @@ Items 1 to 5 are the clusters in Anthropic's `frontend-design` skill (anthropics
 
 Run the checks the project can run; skip, and say so, the ones it cannot.
 
-1. `npx @google/design.md lint DESIGN.md` (exit 1 on errors). `broken-ref` is an error; `missing-typography` and `contrast-ratio` below 4.5:1 warn.
+1. `npx @google/design.md@0.4.0 lint DESIGN.md` (exit 1 on errors). `broken-ref` is an error; `missing-typography`, `orphaned-tokens` and a component `contrast-ratio` below 4.5:1 warn. It checks component pairs only, so check muted text on its surface yourself.
 2. Grep the changed files for hex, px and ms literals outside the token files.
 3. Screenshot full page at 360, 768 and 1280 px wide with the project's own browser tool (`playwright-cli` as the fallback); `page.screenshot({ fullPage: true })`. Flutter: the project's golden or device screenshot path.
 4. Gates: no horizontal overflow (`document.documentElement.scrollWidth <= clientWidth` at 360); axe with `withTags(['wcag2a','wcag2aa','wcag21a','wcag21aa'])` reports no violations; axe finds only part of the accessibility problems, so keep a manual keyboard pass.
@@ -59,7 +72,7 @@ The Google Labs DESIGN.md format (version alpha): YAML tokens are normative and 
 
 1. Parse the file instead of matching it with a regex, and lint it first.
 2. Resolve aliases.
-3. Web: emit CSS custom properties one to one from the token paths. `npx @google/design.md export --format css-tailwind|json-tailwind|dtcg` does it; there is no Flutter exporter.
+3. Web: emit CSS custom properties one to one from the token paths. `npx @google/design.md@0.4.0 export --format css-tailwind|json-tailwind|dtcg|css-vars` does it (`css-tailwind` writes a Tailwind v4 `@theme` block); there is no Flutter exporter.
 4. Flutter: map to `ColorScheme`, `TextTheme` and a `ThemeExtension` (see `tokens-and-platforms.md`).
 5. Read Do's and Don'ts before writing styles. For the file format itself, use `ac:design-md-writer`.
 
