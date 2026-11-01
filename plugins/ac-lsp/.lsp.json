@@ -10,6 +10,10 @@
             ".phtml",
             "--max-severity",
             "2",
+            "--profile",
+            "php",
+            "--busy",
+            "indexingStarted,indexingEnded",
             "--",
             "intelephense",
             "--stdio"

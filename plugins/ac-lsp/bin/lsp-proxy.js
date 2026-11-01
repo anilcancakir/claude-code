@@ -473,6 +473,14 @@ function findProjectRoot(path, exists) {
   }
 }
 var NOISE_PROFILES = {
+  php: [
+    {
+      codes: ["P1009", "P1010", "P1011", "P1012", "P1013", "P1014"],
+      requires: ["composer.json"],
+      missing: ["vendor"],
+      withinProject: true
+    }
+  ],
   typescript: [
     {
       codes: ["2307", "2792", "7016", "2688", "2580", "2591", "2581", "2592", "2582", "2593", "7026"],
@@ -502,7 +510,11 @@ function isNoise(diagnostic, path, options) {
     if (!matched || rule.keep?.test(message) === true) {
       return false;
     }
-    return rule.missing === undefined || rule.missing.every((name) => !options.hasAncestorEntry(path, name));
+    const ceiling = rule.withinProject === true ? options.projectOf(path) : undefined;
+    if (rule.requires !== undefined && !rule.requires.some((name) => options.hasAncestorEntry(path, name, ceiling))) {
+      return false;
+    }
+    return rule.missing === undefined || rule.missing.every((name) => !options.hasAncestorEntry(path, name, ceiling));
   });
 }
 function filterDiagnostics(params, options) {
@@ -523,12 +535,12 @@ function filterDiagnostics(params, options) {
     diagnostics: kept
   };
 }
-function ancestorEntryOnDisk(path, name) {
+function ancestorEntryOnDisk(path, name, ceiling) {
   for (let directory = dirname(path);; directory = dirname(directory)) {
     if (existsSync(join(directory, name))) {
       return true;
     }
-    if (dirname(directory) === directory) {
+    if (directory === ceiling || dirname(directory) === directory) {
       return false;
     }
   }
@@ -540,6 +552,8 @@ class DiagnosticGate {
   maxHoldMs;
   held = new Map;
   activity = new Map;
+  busy = false;
+  idleSince = 0;
   constructor(deps, settleMs, maxHoldMs) {
     this.deps = deps;
     this.settleMs = settleMs;
@@ -579,6 +593,12 @@ class DiagnosticGate {
       lastOffer: now
     });
     return [];
+  }
+  setBusy(busy) {
+    if (this.busy && !busy) {
+      this.idleSince = this.deps.now();
+    }
+    this.busy = busy;
   }
   touch(uri) {
     if (!uri.startsWith("file:")) {
@@ -620,9 +640,31 @@ class DiagnosticGate {
     return earliest === undefined ? undefined : Math.max(0, earliest - this.deps.now());
   }
   dueAt(held) {
-    const quiet = Math.max(held.lastOffer, this.activity.get(held.project) ?? 0) + this.settleMs;
-    return Math.min(quiet, held.firstHeld + this.maxHoldMs);
+    const limit = held.firstHeld + this.maxHoldMs;
+    if (this.busy) {
+      return limit;
+    }
+    const quiet = Math.max(held.lastOffer, this.activity.get(held.project) ?? 0, this.idleSince) + this.settleMs;
+    return Math.min(quiet, limit);
   }
+}
+function createBusyReader(busy) {
+  const start = Buffer.from(JSON.stringify(busy.start));
+  const end = Buffer.from(JSON.stringify(busy.end));
+  return (body) => {
+    if (!body.includes(start) && !body.includes(end)) {
+      return;
+    }
+    try {
+      const message = JSON.parse(body.toString("utf8"));
+      if (message.id !== undefined) {
+        return;
+      }
+      return message.method === busy.start ? "start" : message.method === busy.end ? "end" : undefined;
+    } catch {
+      return;
+    }
+  };
 }
 var MAX_TIMER_MS = 2147483647;
 function parseMilliseconds(flag, value) {
@@ -644,6 +686,7 @@ function parseProxyArgs(argv) {
   let settleMs = DEFAULT_SETTLE_MS;
   let maxHoldMs = DEFAULT_MAX_HOLD_MS;
   let maxSeverity = 4;
+  let busy;
   const profiles = [];
   const extensions = [];
   const flags = argv.slice(0, separator);
@@ -681,6 +724,14 @@ function parseProxyArgs(argv) {
       profiles.push(name);
       continue;
     }
+    if (flag === "--busy") {
+      const match = /^([^\s,"]+),([^\s,"]+)$/.exec(flags[++index] ?? "");
+      if (match === null || match[1] === match[2]) {
+        throw new Error('"--busy" needs two different notification methods, <start>,<end>');
+      }
+      busy = { start: match[1], end: match[2] };
+      continue;
+    }
     throw new Error(`unknown or incomplete option "${flag}"`);
   }
   return {
@@ -690,6 +741,7 @@ function parseProxyArgs(argv) {
     maxHoldMs,
     maxSeverity,
     profiles,
+    busy,
     command,
     args: argv.slice(separator + 2)
   };
@@ -771,7 +823,7 @@ function runLspProxy(argv) {
     options = parseProxyArgs(argv);
   } catch (error) {
     process.stderr.write(`${LOG_PREFIX} ${errorMessage(error)}
-` + `usage: lsp-proxy [--watch-root] [--ext .php]... [--settle <ms>] [--max-hold <ms>] [--max-severity <1-4>] [--profile <name>]... -- <server command> [args...]
+` + `usage: lsp-proxy [--watch-root] [--ext .php]... [--settle <ms>] [--max-hold <ms>] [--max-severity <1-4>] [--profile <name>]... [--busy <start>,<end>] -- <server command> [args...]
 `);
     process.exit(2);
   }
@@ -780,12 +832,15 @@ function runLspProxy(argv) {
   const table = new DocumentTable;
   const parser = new FrameParser;
   const serverParser = new FrameParser;
-  const gate = new DiagnosticGate(diskGateDeps(), options.settleMs, options.maxHoldMs);
+  const gateDeps = diskGateDeps();
+  const gate = new DiagnosticGate(gateDeps, options.settleMs, options.maxHoldMs);
   const filterOptions = {
     maxSeverity: options.maxSeverity,
     rules: options.profiles.flatMap((name) => NOISE_PROFILES[name] ?? []),
-    hasAncestorEntry: ancestorEntryOnDisk
+    hasAncestorEntry: ancestorEntryOnDisk,
+    projectOf: gateDeps.projectOf
   };
+  const busyEdge = options.busy === undefined ? undefined : createBusyReader(options.busy);
   let gateTimer;
   let gateClosed = false;
   const server = spawn(options.command, options.args, {
@@ -1022,6 +1077,10 @@ function runLspProxy(argv) {
       }
       const published = publishMessage(event.body);
       if (published === undefined) {
+        const edge = busyEdge?.(event.body);
+        if (edge !== undefined) {
+          gate.setBusy(edge === "start");
+        }
         toClient(event.raw);
         continue;
       }

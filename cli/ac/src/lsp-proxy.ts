@@ -235,6 +235,7 @@ export interface TrackedDocument {
 
 /** The subset of a JSON-RPC message the proxy reads; every field is optional because nothing is validated. */
 export interface ClientMessage {
+    id?: unknown;
     method?: unknown;
     params?: any;
 }
@@ -713,6 +714,13 @@ export interface NoiseRule {
     keep?: RegExp;
     /** The rule applies only while none of these entries exists in any ancestor directory of the file. */
     missing?: readonly string[];
+    /** The rule applies only while at least one of these entries exists in an ancestor directory of the file. */
+    requires?: readonly string[];
+    /**
+     * `missing` and `requires` look only from the file's directory up to its project root (`findProjectRoot`).
+     * A server rooted at a worktree never sees the checkout above it, so that checkout's `vendor` must not count.
+     */
+    withinProject?: boolean;
 }
 
 /**
@@ -720,6 +728,20 @@ export interface NoiseRule {
  * (dependencies never installed, a package never built) or false positives of the server, not of the code.
  */
 export const NOISE_PROFILES: Readonly<Record<string, readonly NoiseRule[]>> = {
+    // intelephense: a project that lists its dependencies (composer.json) but has no vendor directory yet,
+    // such as a fresh git worktree before `composer install`, cannot resolve Laravel, PHPUnit or Carbon, so
+    // every symbol from them is undefined. P1009 type, P1010 function, P1011 constant, P1012 class constant,
+    // P1013 method, P1014 property. A project without composer.json has no dependencies to miss, so there
+    // these stay real errors. Only the worktree's own tree counts: the main checkout above it has a vendor,
+    // but a server rooted at the worktree cannot see it.
+    php: [
+        {
+            codes: ["P1009", "P1010", "P1011", "P1012", "P1013", "P1014"],
+            requires: ["composer.json"],
+            missing: ["vendor"],
+            withinProject: true,
+        },
+    ],
     // tsserver: every bare import and every Node global is an error until a node_modules exists above
     // the file, which is where it resolves them from. A relative import that cannot be found stays an
     // error, because that one is a typo.
@@ -751,8 +773,10 @@ export interface DiagnosticFilterOptions {
     /** LSP severity numbers: 1 error, 2 warning, 3 information, 4 hint. */
     maxSeverity: number;
     rules: readonly NoiseRule[];
-    /** Whether `name` exists in `path`'s directory or any directory above it. */
-    hasAncestorEntry(path: string, name: string): boolean;
+    /** Whether `name` exists in `path`'s directory or any directory above it, up to and including `ceiling` when given. */
+    hasAncestorEntry(path: string, name: string, ceiling?: string): boolean;
+    /** The project root of `path` (see `findProjectRoot`). */
+    projectOf(path: string): string;
 }
 
 interface LspDiagnostic {
@@ -774,7 +798,11 @@ function isNoise(diagnostic: LspDiagnostic, path: string, options: DiagnosticFil
         if (!matched || rule.keep?.test(message) === true) {
             return false;
         }
-        return rule.missing === undefined || rule.missing.every((name) => !options.hasAncestorEntry(path, name));
+        const ceiling = rule.withinProject === true ? options.projectOf(path) : undefined;
+        if (rule.requires !== undefined && !rule.requires.some((name) => options.hasAncestorEntry(path, name, ceiling))) {
+            return false;
+        }
+        return rule.missing === undefined || rule.missing.every((name) => !options.hasAncestorEntry(path, name, ceiling));
     });
 }
 
@@ -806,13 +834,16 @@ export function filterDiagnostics(
     };
 }
 
-/** Whether `name` exists in `path`'s directory or any directory above it, which is how a resolver finds `node_modules`. */
-function ancestorEntryOnDisk(path: string, name: string): boolean {
+/**
+ * Whether `name` exists in `path`'s directory or any directory above it, which is how a resolver finds
+ * `node_modules`; the walk ends at `ceiling` (inclusive) when one is given.
+ */
+export function ancestorEntryOnDisk(path: string, name: string, ceiling?: string): boolean {
     for (let directory = dirname(path); ; directory = dirname(directory)) {
         if (existsSync(join(directory, name))) {
             return true;
         }
-        if (dirname(directory) === directory) {
+        if (directory === ceiling || dirname(directory) === directory) {
             return false;
         }
     }
@@ -830,6 +861,10 @@ function ancestorEntryOnDisk(path: string, name: string): boolean {
  * stay open in the server and it keeps republishing errors for them. A set held for `maxHoldMs` is
  * forwarded regardless, so a project that never goes quiet still hears about a real error.
  *
+ * While the server says it is busy (see `setBusy`), a held set is not released for being quiet: a
+ * server that is still indexing publishes errors about symbols it has not read yet. When the server
+ * goes idle again the quiet time starts over, so the republish that follows can replace the set.
+ *
  * Contract: only non-empty publishes for existing `file:` URIs are ever held. Everything else is
  * returned at once, byte for byte, and `settleMs <= 0` turns holding off but keeps the deleted-file drop.
  */
@@ -839,6 +874,8 @@ export class DiagnosticGate {
     private readonly maxHoldMs: number;
     private readonly held: Map<string, HeldDiagnostics> = new Map();
     private readonly activity: Map<string, number> = new Map();
+    private busy = false;
+    private idleSince = 0;
 
     public constructor(deps: GateDeps, settleMs: number, maxHoldMs: number) {
         this.deps = deps;
@@ -885,6 +922,14 @@ export class DiagnosticGate {
             lastOffer: now,
         });
         return [];
+    }
+
+    /** The server's latest word on whether it is busy; the last call wins, so an unpaired notice cannot stack. */
+    public setBusy(busy: boolean): void {
+        if (this.busy && !busy) {
+            this.idleSince = this.deps.now();
+        }
+        this.busy = busy;
     }
 
     /** Records an edit, a synced disk change or a watcher event for the file's project. */
@@ -937,8 +982,12 @@ export class DiagnosticGate {
     }
 
     private dueAt(held: HeldDiagnostics): number {
-        const quiet = Math.max(held.lastOffer, this.activity.get(held.project) ?? 0) + this.settleMs;
-        return Math.min(quiet, held.firstHeld + this.maxHoldMs);
+        const limit = held.firstHeld + this.maxHoldMs;
+        if (this.busy) {
+            return limit;
+        }
+        const quiet = Math.max(held.lastOffer, this.activity.get(held.project) ?? 0, this.idleSince) + this.settleMs;
+        return Math.min(quiet, limit);
     }
 }
 
@@ -950,8 +999,40 @@ export interface ProxyOptions {
     maxHoldMs: number;
     maxSeverity: number;
     profiles: string[];
+    /** Notification methods with which the server says it started and finished indexing. */
+    busy?: BusyMethods;
     command: string;
     args: string[];
+}
+
+/** The two notifications a server sends around work during which its diagnostics are not yet trustworthy. */
+export interface BusyMethods {
+    start: string;
+    end: string;
+}
+
+/**
+ * Returns a reader that tells, for a server message body, whether it is the `start` or the `end`
+ * notification. The method name has to appear in the bytes first, so a large response never reaches the
+ * JSON parser; a request or a response that merely quotes the name does not count.
+ */
+export function createBusyReader(busy: BusyMethods): (body: Buffer) => "start" | "end" | undefined {
+    const start = Buffer.from(JSON.stringify(busy.start));
+    const end = Buffer.from(JSON.stringify(busy.end));
+    return (body) => {
+        if (!body.includes(start) && !body.includes(end)) {
+            return undefined;
+        }
+        try {
+            const message = JSON.parse(body.toString("utf8")) as ClientMessage;
+            if (message.id !== undefined) {
+                return undefined;
+            }
+            return message.method === busy.start ? "start" : message.method === busy.end ? "end" : undefined;
+        } catch {
+            return undefined;
+        }
+    };
 }
 
 /** Largest delay a Node timer takes; a larger one is clamped to 1 ms and would spin the gate's timer. */
@@ -966,7 +1047,7 @@ function parseMilliseconds(flag: string, value: string | undefined): number {
 
 /**
  * Parses `[--watch-root] [--ext <.ext>]... [--settle <ms>] [--max-hold <ms>] [--max-severity <1-4>]
- * [--profile <name>]... -- <command> [args...]`; throws an Error naming the problem.
+ * [--profile <name>]... [--busy <start>,<end>] -- <command> [args...]`; throws an Error naming the problem.
  */
 export function parseProxyArgs(argv: string[]): ProxyOptions {
     const separator = argv.indexOf("--");
@@ -982,6 +1063,7 @@ export function parseProxyArgs(argv: string[]): ProxyOptions {
     let settleMs = DEFAULT_SETTLE_MS;
     let maxHoldMs = DEFAULT_MAX_HOLD_MS;
     let maxSeverity = 4;
+    let busy: BusyMethods | undefined;
     const profiles: string[] = [];
     const extensions: string[] = [];
     const flags = argv.slice(0, separator);
@@ -1019,6 +1101,14 @@ export function parseProxyArgs(argv: string[]): ProxyOptions {
             profiles.push(name);
             continue;
         }
+        if (flag === "--busy") {
+            const match = /^([^\s,"]+),([^\s,"]+)$/.exec(flags[++index] ?? "");
+            if (match === null || match[1] === match[2]) {
+                throw new Error("\"--busy\" needs two different notification methods, <start>,<end>");
+            }
+            busy = { start: match[1]!, end: match[2]! };
+            continue;
+        }
         throw new Error(`unknown or incomplete option "${flag}"`);
     }
 
@@ -1029,6 +1119,7 @@ export function parseProxyArgs(argv: string[]): ProxyOptions {
         maxHoldMs,
         maxSeverity,
         profiles,
+        busy,
         command,
         args: argv.slice(separator + 2),
     };
@@ -1131,7 +1222,7 @@ export function publishMessage(body: Buffer): PublishMessage | undefined {
 
 /**
  * Runs the proxy: `[--watch-root] [--ext .php]... [--settle <ms>] [--max-hold <ms>] [--max-severity <1-4>]
- * [--profile <name>]... -- <server command> [args...]`.
+ * [--profile <name>]... [--busy <start>,<end>] -- <server command> [args...]`.
  *
  * Spawns the server and relays both directions. Client messages are forwarded byte for byte; before
  * each one, and 150 ms after any change in a directory holding an open document, the proxy writes
@@ -1149,7 +1240,7 @@ export function runLspProxy(argv: string[]): void {
     } catch (error) {
         process.stderr.write(
             `${LOG_PREFIX} ${errorMessage(error)}\n`
-            + "usage: lsp-proxy [--watch-root] [--ext .php]... [--settle <ms>] [--max-hold <ms>] [--max-severity <1-4>] [--profile <name>]... -- <server command> [args...]\n",
+            + "usage: lsp-proxy [--watch-root] [--ext .php]... [--settle <ms>] [--max-hold <ms>] [--max-severity <1-4>] [--profile <name>]... [--busy <start>,<end>] -- <server command> [args...]\n",
         );
         process.exit(2);
     }
@@ -1159,12 +1250,15 @@ export function runLspProxy(argv: string[]): void {
     const table = new DocumentTable();
     const parser = new FrameParser();
     const serverParser = new FrameParser();
-    const gate = new DiagnosticGate(diskGateDeps(), options.settleMs, options.maxHoldMs);
+    const gateDeps = diskGateDeps();
+    const gate = new DiagnosticGate(gateDeps, options.settleMs, options.maxHoldMs);
     const filterOptions: DiagnosticFilterOptions = {
         maxSeverity: options.maxSeverity,
         rules: options.profiles.flatMap((name) => NOISE_PROFILES[name] ?? []),
         hasAncestorEntry: ancestorEntryOnDisk,
+        projectOf: gateDeps.projectOf,
     };
+    const busyEdge = options.busy === undefined ? undefined : createBusyReader(options.busy);
     let gateTimer: NodeJS.Timeout | undefined;
     let gateClosed = false;
     const server = spawn(options.command, options.args, {
@@ -1445,6 +1539,10 @@ export function runLspProxy(argv: string[]): void {
             }
             const published = publishMessage(event.body);
             if (published === undefined) {
+                const edge = busyEdge?.(event.body);
+                if (edge !== undefined) {
+                    gate.setBusy(edge === "start");
+                }
                 toClient(event.raw);
                 continue;
             }

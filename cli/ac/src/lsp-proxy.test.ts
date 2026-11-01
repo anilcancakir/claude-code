@@ -16,7 +16,9 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { FileStamp, FrameEvent, SweepDeps } from "./lsp-proxy.ts";
 import {
+    ancestorEntryOnDisk,
     applyContentChanges,
+    createBusyReader,
     DEFAULT_MAX_HOLD_MS,
     DEFAULT_SETTLE_MS,
     DiagnosticGate,
@@ -516,6 +518,15 @@ describe("parseProxyArgs", () => {
         expect(() => parseProxyArgs(["--profile", "--", "srv"])).toThrow();
     });
 
+    test("reads the busy notification pair and rejects anything else", () => {
+        expect(parseProxyArgs(["--busy", "indexingStarted,indexingEnded", "--", "srv"]).busy).toEqual({ start: "indexingStarted", end: "indexingEnded" });
+        expect(parseProxyArgs(["--", "srv"]).busy).toBeUndefined();
+        for (const value of ["indexingStarted", "a,b,c", "a,", ",b", "same,same", "has space,b"]) {
+            expect(() => parseProxyArgs(["--busy", value, "--", "srv"])).toThrow();
+        }
+        expect(() => parseProxyArgs(["--busy", "--", "srv"])).toThrow();
+    });
+
     test("defaults to no root watch and the .php extension", () => {
         expect(parseProxyArgs(["--", "dart", "language-server"])).toEqual({
             watchRoot: false,
@@ -584,6 +595,19 @@ describe("editedUri and publishMessage", () => {
         expect(publishMessage(Buffer.from("\"textDocument/publishDiagnostics\" not json"))).toBeUndefined();
     });
 
+    test("busy reader names the start and end notifications and nothing that merely quotes them", () => {
+        const read = createBusyReader({ start: "indexingStarted", end: "indexingEnded" });
+        const body = (message: object): Buffer => Buffer.from(JSON.stringify({ jsonrpc: "2.0", ...message }));
+
+        expect(read(body({ method: "indexingStarted" }))).toBe("start");
+        expect(read(body({ method: "indexingEnded", params: null }))).toBe("end");
+        expect(read(body({ method: "window/logMessage", params: { message: "indexingStarted" } }))).toBeUndefined();
+        expect(read(body({ id: 4, method: "indexingStarted" }))).toBeUndefined();
+        expect(read(body({ id: 4, result: "indexingEnded" }))).toBeUndefined();
+        expect(read(Buffer.from("\"indexingEnded\" not json"))).toBeUndefined();
+        expect(read(body({ method: "textDocument/hover" }))).toBeUndefined();
+    });
+
     test("read a publish whose method name has an escaped slash, as sourcekit-lsp writes it", () => {
         const escaped = Buffer.from('{"method":"textDocument\\/publishDiagnostics","jsonrpc":"2.0","params":{"uri":"file:\\/\\/\\/a.swift","diagnostics":[]}}');
         expect(publishMessage(escaped)?.params).toEqual({ uri: "file:///a.swift", diagnostics: [] });
@@ -597,6 +621,7 @@ describe("filterDiagnostics", () => {
         maxSeverity,
         rules: profile.flatMap((name) => NOISE_PROFILES[name] ?? []),
         hasAncestorEntry: (_path: string, name: string): boolean => installed.has(name),
+        projectOf: (): string => "/repo",
     });
     const diagnostic = (message: string, code: string | number = "", severity: number | undefined = 1): object => ({ message, code, severity });
     const messages = (params: { diagnostics?: unknown } | undefined): string[] =>
@@ -637,6 +662,75 @@ describe("filterDiagnostics", () => {
             "Cannot find module './nope' or its corresponding type declarations.",
             "Cannot find module '../up' or its corresponding type declarations.",
         ]);
+    });
+
+    test("php profile drops undefined-symbol errors only where composer.json is present and vendor is not", () => {
+        const params = { uri: "file:///wt/backend/app/PlaceLayout.php", diagnostics: [
+            diagnostic("Undefined type 'Illuminate\\Validation\\Rule'.", "P1009"),
+            diagnostic("Undefined method 'getKey'.", "P1013"),
+            diagnostic("Undefined property '$layout_rows'.", "P1014"),
+            diagnostic("Expected type 'int'. Found 'string'.", "P1006"),
+            diagnostic("syntax error, unexpected '}'", "P1001"),
+        ] };
+        const real = ["Expected type 'int'. Found 'string'.", "syntax error, unexpected '}'"];
+
+        // No composer.json: nothing is missing, so an undefined symbol is a real error.
+        expect(filterDiagnostics(params, options(4, ["php"]))).toBeUndefined();
+
+        installed.add("composer.json");
+        expect(messages(filterDiagnostics(params, options(4, ["php"])))).toEqual(real);
+
+        // Installed: every code is kept again.
+        installed.add("vendor");
+        expect(filterDiagnostics(params, options(4, ["php"]))).toBeUndefined();
+        installed.clear();
+    });
+
+    test("php profile counts only the worktree's own vendor, not the checkout above it", () => {
+        const scratch = realpathSync(mkdtempSync(join(tmpdir(), "ac-lsp-php-")));
+        try {
+            const put = (path: string, text = ""): void => {
+                mkdirSync(join(scratch, path, ".."), { recursive: true });
+                writeFileSync(join(scratch, path), text);
+            };
+            // The checkout has composer.json and vendor at its root; its worktree has the tracked files only.
+            put("repo/.git/HEAD");
+            put("repo/composer.json");
+            put("repo/vendor/autoload.php");
+            put("repo/app/Main.php");
+            put("repo/.claude/worktrees/wt/.git", "gitdir: ../../../.git/worktrees/wt\n");
+            put("repo/.claude/worktrees/wt/composer.json");
+            put("repo/.claude/worktrees/wt/app/X.php");
+            // And the layout with the PHP project one directory down.
+            put("mono/.git/HEAD");
+            put("mono/backend/composer.json");
+            put("mono/backend/vendor/autoload.php");
+            put("mono/.claude/worktrees/wt/.git", "gitdir: ../../../.git/worktrees/wt\n");
+            put("mono/.claude/worktrees/wt/backend/composer.json");
+            put("mono/.claude/worktrees/wt/backend/app/Y.php");
+
+            const filter = (relative: string) => filterDiagnostics(
+                { uri: pathToFileURL(join(scratch, relative)).href, diagnostics: [diagnostic("Undefined type 'PHPUnit\\Framework\\TestCase'.", "P1009")] },
+                {
+                    maxSeverity: 4,
+                    rules: NOISE_PROFILES.php ?? [],
+                    hasAncestorEntry: ancestorEntryOnDisk,
+                    projectOf: (path: string): string => findProjectRoot(path, existsSync),
+                },
+            );
+
+            // Undefined means nothing was dropped; an empty list means everything was.
+            expect(filter("repo/.claude/worktrees/wt/app/X.php")?.diagnostics).toEqual([]);
+            expect(filter("repo/app/Main.php")).toBeUndefined();
+            expect(filter("mono/.claude/worktrees/wt/backend/app/Y.php")?.diagnostics).toEqual([]);
+            expect(filter("mono/backend/app/Z.php")).toBeUndefined();
+
+            // composer install in the worktree: from then on its errors are kept.
+            put("repo/.claude/worktrees/wt/vendor/autoload.php");
+            expect(filter("repo/.claude/worktrees/wt/app/X.php")).toBeUndefined();
+        } finally {
+            rmSync(scratch, { recursive: true, force: true });
+        }
     });
 
     test("swift profile always drops the package-name error and drops a missing module only without a build description", () => {
@@ -782,6 +876,60 @@ describe("DiagnosticGate", () => {
         expect(names(gate.flush())).toEqual(["first", "third"]);
         expect(gate.size).toBe(0);
         expect(gate.nextWake()).toBeUndefined();
+    });
+
+    test("a busy server holds a set past the settle time, and the quiet time restarts when it goes idle", () => {
+        const { gate, clock } = fixture(1000, 60_000);
+        gate.setBusy(true);
+        gate.offer(frame("red"), { uri, diagnostics: error });
+
+        clock.now += 20_000;
+        expect(gate.release()).toEqual([]);
+        expect(gate.nextWake()).toBe(40_000);
+
+        gate.setBusy(false);
+        expect(gate.nextWake()).toBe(1000);
+        clock.now += 999;
+        expect(gate.release()).toEqual([]);
+        clock.now += 1;
+        expect(names(gate.release())).toEqual(["red"]);
+    });
+
+    test("the republish after a busy period replaces the held set", () => {
+        const { gate, clock } = fixture(1000, 60_000);
+        gate.setBusy(true);
+        gate.offer(frame("transient"), { uri, diagnostics: error });
+        clock.now += 5000;
+        gate.setBusy(false);
+
+        // Idle for 300 ms, inside the quiet time: without the restart the set would be due already.
+        clock.now += 300;
+        expect(gate.release()).toEqual([]);
+        expect(gate.size).toBe(1);
+
+        expect(names(gate.offer(frame("clean"), { uri, diagnostics: [] }))).toEqual(["clean"]);
+        clock.now += 5000;
+        expect(gate.release()).toEqual([]);
+    });
+
+    test("a server that stays busy cannot hold a set past the max-hold time", () => {
+        const { gate, clock } = fixture(1000, 3000);
+        gate.setBusy(true);
+        gate.offer(frame("red"), { uri, diagnostics: error });
+        clock.now += 2999;
+        expect(gate.release()).toEqual([]);
+        clock.now += 1;
+        expect(names(gate.release())).toEqual(["red"]);
+    });
+
+    test("an idle notice without a start leaves the gate as it was", () => {
+        const { gate, clock } = fixture();
+        gate.offer(frame("red"), { uri, diagnostics: error });
+        clock.now += 500;
+        gate.setBusy(false);
+        expect(gate.nextWake()).toBe(500);
+        clock.now += 500;
+        expect(names(gate.release())).toEqual(["red"]);
     });
 
     test("holds a copy of the frame, so a later write to the parser's buffer cannot change it", () => {
@@ -1188,6 +1336,26 @@ describe("proxy process", () => {
         await untilDelivered(harness, uri);
         await Bun.sleep(300);
         expect(diagnosticsAt(harness, uri)).toEqual([1]);
+    });
+
+    test("holds a publish while the server reports indexing, then releases it after the quiet time", async () => {
+        const harness = startProxy(["--settle", "300", "--busy", "indexingStarted,indexingEnded"]);
+        const file = join(harness.workspace, "indexing.php");
+        const uri = pathToFileURL(file).href;
+        writeFileSync(file, "a\n");
+
+        harness.emit({ method: "indexingStarted" });
+        harness.emit(publish(uri, ["Undefined type 'PHPUnit\\Framework\\TestCase'."]));
+        await harness.waitFor((messages) => methods(messages).filter((method) => method === "test/emit").length === 2);
+        await Bun.sleep(900);
+        // Three times the settle time has passed, and the server is still indexing.
+        expect(diagnosticsAt(harness, uri)).toEqual([]);
+
+        harness.emit({ method: "indexingEnded" });
+        await untilDelivered(harness, uri);
+        expect(diagnosticsAt(harness, uri)).toEqual([1]);
+        expect(harness.toClient().map((message) => message.method)).toContain("indexingStarted");
+        expect(harness.toClient().map((message) => message.method)).toContain("indexingEnded");
     });
 
     test("flushes held diagnostics when the server's output ends", async () => {
