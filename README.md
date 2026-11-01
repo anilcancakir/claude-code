@@ -129,7 +129,7 @@ Seven further skills write and audit the files Claude reads: `ac:skill-creator`,
 
 ## Also in this marketplace
 
-`ac-lsp` runs Dart and Intelephense through a small proxy that keeps each server in step with the disk. Claude Code tells a language server only about its own Edit and Write changes, so without it an edit from Bash, git, a formatter or another session leaves the server analysing old content. Intelephense also skips `build/` and `.claude/worktrees/`, so indexing finishes in Flutter monorepos. Disable the stock `php-lsp` and `dart` plugins first, then `/plugin install ac-lsp@ac`; [`plugins/ac-lsp/README.md`](plugins/ac-lsp/README.md) has the details and the per-project override.
+`ac-lsp` runs language servers for Dart, PHP, TypeScript and JavaScript, Python, Go, Swift, HTML, CSS, SCSS and Sass through a small proxy that keeps each server in step with the disk and drops the hints and missing-dependency errors an agent cannot act on. Claude Code tells a language server only about its own Edit and Write changes, so without it an edit from Bash, git, a formatter or another session leaves the server analysing old content. Intelephense also skips `build/` and `.claude/worktrees/`, so indexing finishes in Flutter monorepos. Disable the stock plugins for those languages first (the list is in the plugin README), then `/plugin install ac-lsp@ac`; [`plugins/ac-lsp/README.md`](plugins/ac-lsp/README.md) has the details and the per-project override.
 
 ## Repository layout
 
@@ -137,7 +137,7 @@ Seven further skills write and audit the files Claude reads: `ac:skill-creator`,
 plugins/ac/          The plugin: skills, agents, hooks, output styles, references.
 plugins/ac/docs/     Human-facing guides, such as the hook list and the iTerm2 terminal setup.
 plugins/ac/cli/      Bundled MCP runtime (ac.js), built from cli/ac/.
-plugins/ac-lsp/      Dart and Intelephense behind a disk-sync proxy (bin/ built from cli/ac/).
+plugins/ac-lsp/      Eight language servers behind a disk-sync proxy (bin/ built from cli/ac/).
 cli/ac/              CLI source, TypeScript on Bun.
 .claude-plugin/      Marketplace manifest.
 ```

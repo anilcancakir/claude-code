@@ -660,18 +660,6 @@ describe("filterDiagnostics", () => {
         }
     });
 
-    test("markdown profile drops a broken wiki link (an error) and keeps a broken markdown link (a warning)", () => {
-        const params = { uri: "file:///repo/docs/a.md", diagnostics: [
-            diagnostic("Link to non-existent document 'wiki-missing'", "2", 1),
-            diagnostic("Link to non-existent document 'missing.md'", "2", 2),
-            diagnostic("Ambiguous link", "1", 2),
-        ] };
-        expect(messages(filterDiagnostics(params, options(4, ["markdown"])))).toEqual([
-            "Link to non-existent document 'missing.md'",
-            "Ambiguous link",
-        ]);
-    });
-
     test("leaves a publish for a URI that is not a local file alone", () => {
         const params = { uri: "untitled:Untitled-1", diagnostics: [diagnostic("hint", "", 4)] };
         expect(filterDiagnostics(params, options(1))).toBeUndefined();

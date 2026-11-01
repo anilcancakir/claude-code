@@ -46,7 +46,7 @@
         {
             "name": "ac-lsp",
             "source": "./plugins/ac-lsp",
-            "description": "Language servers for Claude Code that stay in step with the disk and stay quiet: Dart, PHP, TypeScript and JavaScript, Python, Go, Swift, HTML, CSS, SCSS, Sass and Markdown behind one proxy that holds retracted diagnostics, drops ghosts of deleted worktrees and filters hints and environment noise.",
+            "description": "Language servers for Claude Code that stay in step with the disk and stay quiet: Dart, PHP, TypeScript and JavaScript, Python, Go, Swift, HTML, CSS, SCSS and Sass behind one proxy that holds retracted diagnostics, drops ghosts of deleted worktrees and filters hints and environment noise.",
             "version": "0.3.0",
             "author": {
                 "name": "Anilcan Cakir",
@@ -64,7 +64,6 @@
                 "go",
                 "swift",
                 "css",
-                "markdown",
                 "diagnostics"
             ],
             "keywords": [
@@ -88,7 +87,6 @@
                 "css",
                 "scss",
                 "sass",
-                "markdown",
                 "worktree"
             ]
         }

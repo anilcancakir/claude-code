@@ -1,6 +1,6 @@
 # ac-lsp
 
-Language servers for Claude Code that stay in step with the disk, say only what an agent can act on, and stay cheap. `ac-lsp` runs Dart, PHP (Intelephense), TypeScript and JavaScript (Node.js included), Python, Go, Swift, HTML, CSS, SCSS, Sass and Markdown, each started through one small proxy. No more stale diagnostics after an edit from Bash, git, a formatter or another Claude Code session, no diagnostics about files that no longer exist, and no hints or environment errors spending the agent's tokens. Intelephense also keeps a workspace exclude list that holds indexing finite in repositories with Claude Code worktrees or Flutter build output.
+Language servers for Claude Code that stay in step with the disk, say only what an agent can act on, and stay cheap. `ac-lsp` runs Dart, PHP (Intelephense), TypeScript and JavaScript (Node.js included), Python, Go, Swift, HTML, CSS, SCSS and Sass, each started through one small proxy. No more stale diagnostics after an edit from Bash, git, a formatter or another Claude Code session, no diagnostics about files that no longer exist, and no hints or environment errors spending the agent's tokens. Intelephense also keeps a workspace exclude list that holds indexing finite in repositories with Claude Code worktrees or Flutter build output.
 
 | Language | Server | Memory, one-file project | Notes |
 |---|---|---|---|
@@ -12,7 +12,6 @@ Language servers for Claude Code that stay in step with the disk, say only what 
 | Swift | `sourcekit-lsp` | 77 MB, 8 to 10 s to the first diagnostic | from the Swift toolchain |
 | HTML | `superhtml lsp --syntax-only` | 47 to 53 MB | syntax errors only |
 | CSS, SCSS, Sass | `some-sass-language-server` | 91 MB | lint rules that fire on Tailwind and vendor prefixes off |
-| Markdown | `marksman server` | 156 MB | broken `[text](path)` links only; needs a `.git` directory or `.marksman.toml` root |
 
 Memory is the resident size (`ps` RSS) of the whole process tree, proxy included, about ten seconds after the first file is opened in a one-file project. The proxy is a Node process of about 45 MB per server (superhtml itself is 3 MB), a run varies by 20% or more (TypeScript the most, because `ps` leaves out compressed pages), and a real project grows every figure. Kotlin and Java are not shipped (see the end).
 
@@ -52,10 +51,9 @@ Every diagnostic Claude Code receives costs tokens, and most of what a server sa
 - `--profile` names diagnostics that are symptoms of a missing environment, not of the code:
   - `typescript` drops the dependency errors (TS2307, 2792, 7016, 2688, 2580 to 2582, 2591 to 2593, 7026) while no `node_modules` exists in any directory above the file, and keeps a relative import that cannot be found, because that one is a typo.
   - `swift` drops `The package access level used on 'X' requires a package name` (raised for a file compiled with fallback settings) and `No such module` in a project that has no `Package.swift`, `compile_commands.json` or `buildServer.json` (an Xcode project, where sourcekit-lsp cannot see the modules). In a Swift package a missing module is reported: `.build` is no signal, because sourcekit-lsp creates it within a fraction of a second.
-  - `markdown` drops a broken `[[wiki link]]` (marksman reports it as an error) and keeps a broken `[text](path)` link (a warning). A wiki link may point at a note that is not written yet, which is why it is not reported.
 - The servers are configured lean in `.lsp.json`: tsserver with `disableSuggestions` (no unused-variable hints), `useSyntaxServer: never` (one process, not two) and no automatic type acquisition from the network; pyrefly in `default` mode with inlay hints, completion, semantic tokens and code lenses off, which leaves `definition`, `references` and `hover` working; gopls with 35 style, simplification and modernisation analyzers (`writestring`, `mapsloop`, `unusedparams` and others) and `staticcheck` off, which keeps the `go vet` analyzers and `unusedwrite`; some-sass with `unknownProperties`, `unknownAtRules` (Tailwind `@apply`), `vendorPrefix`, `emptyRules`, `fontFaceProperties` and `propertyIgnoredDueToDisplay` ignored.
 
-A real error is never dropped by these rules: an assignment of a string to an `int`, an undefined name, a missing `}` and a broken link in a document all still arrive (checked in real Claude Code runs for each language).
+A real error is never dropped by these rules: an assignment of a string to an `int`, an undefined name and a missing `}` all still arrive (checked in real Claude Code runs for each language).
 
 ## Why not the stock `php-lsp`
 
@@ -98,7 +96,7 @@ Dart comes from the Dart or Flutter SDK and `sourcekit-lsp` from the Swift toolc
 npm install -g intelephense typescript@6 typescript-language-server some-sass-language-server
 uv tool install pyrefly
 go install golang.org/x/tools/gopls@latest
-brew install superhtml marksman
+brew install superhtml
 ```
 
 Install `typescript@6`, not the latest: TypeScript 7 ships no `tsserver.js`, which `typescript-language-server` runs, and without a TypeScript 5 or 6 (a global one, or the project's own in `node_modules`) the server exits and delivers nothing (checked with typescript 7.0.2 and typescript-language-server 6.0.2). That version of the server needs Node 22.22.2 or later (`engines` in its package.json); the proxy itself needs 22.13.
@@ -113,7 +111,7 @@ A server that is not installed fails to start for its own extensions only; the o
 - A PHP source directory named `build/` is excluded as well (the match is case-sensitive, so `app/Build/` is not). Fork the plugin if a project keeps code there.
 - Intelephense's "declared but not used" hints are switched off (`diagnostics.unusedSymbols: false` in `.lsp.json`). By a raw count of transcripts since 1 October they were 3,062 of 35,968 Intelephense diagnostic lines Claude saw (8.5%, repeats included), nothing acts on them, and Pint already removes unused imports. Every other diagnostic stays on, so a real undefined method or type still shows.
 - A language server starts with the session. A session opened before `ac-lsp` was enabled keeps the stock server, without the proxy, so a class created from Bash shows as `Undefined type` until the session restarts. Restart it; `/reload-plugins` is documented to reload plugin language servers, but swapping the stock plugin for this one that way has not been verified.
-- Markdown diagnostics need a project root: marksman accepts a directory with a `.git` directory or a `.marksman.toml` file, and otherwise stays silent about links to other documents. A git worktree has a `.git` file, not a directory, so a worktree session needs an empty `.marksman.toml` at its root (checked: with the `.git` file alone nothing was published, with the `.toml` the broken link arrived). In my test of marksman 2026-02-08 only a missing document was reported; a link to a missing heading and a duplicate heading were not.
+- Markdown is not shipped. The one check `marksman` made for an agent was a link to a document that does not exist; it cost a process of about 150 MB in every session that edits a Markdown file, it flagged two links in this repository's own READMEs as non-existent although their targets exist, and it stays silent in a git worktree (a `.git` file does not count as a root; an empty `.marksman.toml` does).
 - Swift: in a project without `Package.swift`, `compile_commands.json` or `buildServer.json` (an Xcode project) the `swift` profile drops every `No such module`, a misspelled import included; the compiler catches it. In a package, a sibling target is reported as `No such module` until the first index build finishes (5 s in one run, with the real error following 4.6 s later); the quiet time absorbs that when the index builds within it, and a slower first build can let the transient through once.
 - sourcekit-lsp writes `textDocument\/publishDiagnostics` with an escaped slash; the proxy reads both spellings, and a server that escapes other characters of the method name is not handled.
 - some-sass fails with a `TypeError` on `loadPaths` when the client answers its configuration request with null, which is what Claude Code sends for a plugin entry that has no `settings`. That is why `.lsp.json` carries a `somesass` settings object for it; keep one if you fork the file.

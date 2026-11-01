@@ -488,12 +488,6 @@ var NOISE_PROFILES = {
       message: /^No such module '/,
       missing: ["Package.swift", "compile_commands.json", "buildServer.json"]
     }
-  ],
-  markdown: [
-    {
-      codes: ["2"],
-      severity: 1
-    }
   ]
 };
 function isNoise(diagnostic, path, options) {
@@ -505,7 +499,7 @@ function isNoise(diagnostic, path, options) {
   const code = String(diagnostic.code ?? "");
   return options.rules.some((rule) => {
     const matched = rule.codes?.includes(code) === true || rule.message?.test(message) === true;
-    if (!matched || rule.keep?.test(message) === true || rule.severity !== undefined && rule.severity !== severity) {
+    if (!matched || rule.keep?.test(message) === true) {
       return false;
     }
     return rule.missing === undefined || rule.missing.every((name) => !options.hasAncestorEntry(path, name));

@@ -273,23 +273,5 @@
             }
         },
         "startupTimeout": 30000
-    },
-    "markdown": {
-        "command": "node",
-        "args": [
-            "${CLAUDE_PLUGIN_ROOT}/bin/lsp-proxy.js",
-            "--max-severity",
-            "2",
-            "--profile",
-            "markdown",
-            "--",
-            "marksman",
-            "server"
-        ],
-        "extensionToLanguage": {
-            ".md": "markdown",
-            ".markdown": "markdown"
-        },
-        "startupTimeout": 30000
     }
 }

@@ -711,8 +711,6 @@ export interface NoiseRule {
     message?: RegExp;
     /** A matched diagnostic whose message also matches this is kept: the real error a noisy code covers. */
     keep?: RegExp;
-    /** The rule applies only to diagnostics of exactly this LSP severity. */
-    severity?: number;
     /** The rule applies only while none of these entries exists in any ancestor directory of the file. */
     missing?: readonly string[];
 }
@@ -746,15 +744,6 @@ export const NOISE_PROFILES: Readonly<Record<string, readonly NoiseRule[]>> = {
             missing: ["Package.swift", "compile_commands.json", "buildServer.json"],
         },
     ],
-    // marksman: code 2 is a link to a document that does not exist, an error for a [[wiki link]] and a
-    // warning for a [text](path) link. Only the second kind is a broken link in a document an agent writes;
-    // a wiki link names a note that may not exist yet, which the memory notes allow by convention.
-    markdown: [
-        {
-            codes: ["2"],
-            severity: 1,
-        },
-    ],
 };
 
 /** What `filterDiagnostics` drops: everything less severe than `maxSeverity` and whatever a rule matches. */
@@ -782,7 +771,7 @@ function isNoise(diagnostic: LspDiagnostic, path: string, options: DiagnosticFil
     const code = String(diagnostic.code ?? "");
     return options.rules.some((rule) => {
         const matched = rule.codes?.includes(code) === true || rule.message?.test(message) === true;
-        if (!matched || rule.keep?.test(message) === true || (rule.severity !== undefined && rule.severity !== severity)) {
+        if (!matched || rule.keep?.test(message) === true) {
             return false;
         }
         return rule.missing === undefined || rule.missing.every((name) => !options.hasAncestorEntry(path, name));

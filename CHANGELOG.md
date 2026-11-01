@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+
+- `ac-lsp` no longer serves Markdown. The `marksman` entry, the `markdown` noise profile and the `severity` field of a noise rule (only that profile used it) are gone. Its one check for an agent was a link to a document that does not exist; it cost a process of about 150 MB in every session that edits a Markdown file, it flagged two links in this repository's own READMEs as non-existent although their targets exist, and it published nothing in a git worktree, whose `.git` is a file. Run `/plugin update ac-lsp@ac` and restart open sessions to stop the server. A fork of `.lsp.json` that still has a `markdown` entry with `--profile markdown` must drop that entry, because the proxy now rejects the profile name.
+
 ## [0.38.0] - 2026-11-01
 
 ### Fixed
