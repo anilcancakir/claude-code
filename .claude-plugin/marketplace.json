@@ -11,7 +11,7 @@
             "name": "ac",
             "source": "./plugins/ac",
             "description": "Describe a change and ac builds it: parallel research, slices routed to haiku, sonnet or opus by cost, an independent review, and an unattended mode that ends at a read-only gate. Adds a planner, a roadmap coordinator, a QA pass, authoring skills and gated, fail-open hooks.",
-            "version": "0.38.0",
+            "version": "0.38.1",
             "author": {
                 "name": "Anilcan Cakir",
                 "email": "anilcan.cakir@gmail.com"
@@ -47,7 +47,7 @@
             "name": "ac-lsp",
             "source": "./plugins/ac-lsp",
             "description": "Language servers for Claude Code that stay in step with the disk and stay quiet: Dart, PHP, TypeScript and JavaScript, Python, Go, Swift, HTML, CSS, SCSS and Sass behind one proxy that holds retracted diagnostics, drops ghosts of deleted worktrees and filters hints and environment noise.",
-            "version": "0.3.0",
+            "version": "0.3.1",
             "author": {
                 "name": "Anilcan Cakir",
                 "email": "anilcan.cakir@gmail.com"

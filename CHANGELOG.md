@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.38.1] - 2026-11-01
+
 ### Fixed
 
 - `ac-lsp` 0.3.1: Intelephense errors about symbols from `vendor` no longer reach the agent in a worktree before `composer install`. A server that started before `vendor` existed reported 47 errors (`Undefined type 'Illuminate\Validation\Rule'`, `Undefined method 'getKey'` and the like) on a copy of a real Laravel backend; the stock server never withdrew them, and the 0.3.0 proxy delivered them after 8.9 s although the server cleared them at 46 s, after which Claude Code still showed them. The `php` profile drops P1009, P1010, P1011, P1012, P1013 and P1014 where a `composer.json` exists and no `vendor` does between the file and its project root (the nearest `.git`, so a worktree does not borrow the checkout's `vendor`), and the new `--busy <start>,<end>` flag holds the rest while the server reports indexing (`indexingStarted,indexingEnded` for Intelephense), then restarts the quiet time. A genuine undefined class written once `vendor` is indexed still arrives.
