@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `ac-lsp` 0.3.0: the proxy holds a server's non-empty `publishDiagnostics` until the file's project (nearest ancestor with `.git`, so a worktree is its own project) has been quiet for `--settle` ms (6000 by default), replaces a held set with the next publish, drops it when the server withdraws it, and never forwards one for a file that no longer exists. Claude Code registers every non-empty publish and never withdraws one, so a diagnostic that resolved a second later (a test written before its implementation, or a worktree removed while its files were still open, after which Dart republishes errors for the gone files) was still shown a turn later and read as stale. In the transcripts of four sessions that ran with the proxy, 683 of 837 diagnostics were on files that have since been deleted, and 270 of 663 in worktrees were delivered after the command that removed the worktree (delivery is a turn late). A real, persistent error still arrives once, after the quiet time; `--max-hold` (300000 ms by default) bounds the wait in a project that never goes quiet, and `--settle 0` turns holding off. When the server's output stops being whole frames or ends, held sets are written out first so a later write cannot land inside a frame. The gate and the filters also recognise a `textDocument\/publishDiagnostics` written with an escaped slash, as sourcekit-lsp writes it.
+- `cli/ac/src/lsp-proxy.test.ts` covers the gate with a fake clock and through the real entry point against a fake server, and the severity cap and profiles (36 new tests).
+
+### Added
+
+- `ac-lsp` 0.3.0 runs seven more language servers through the same proxy: TypeScript and JavaScript including Node.js (`typescript-language-server`), Python (`pyrefly lsp`), Go (`gopls`), Swift (`sourcekit-lsp`), HTML (`superhtml lsp --syntax-only`), CSS, SCSS and Sass (`some-sass-language-server`) and Markdown (`marksman`). Each is configured lean for an agent: one tsserver process instead of two and no unused-variable hints, no inlay hints or completion in pyrefly, 35 style, simplification and modernisation analyzers and `staticcheck` off in gopls, and Tailwind and vendor-prefix lint off in some-sass. The README tabulates resident memory per server on a one-file fixture (the whole process tree with the proxy, from 47 MB for HTML to about 400 MB for Dart).
+- `lsp-proxy --max-severity <1-4>` forwards only diagnostics at or above that severity, and every `ac-lsp` server sets it to 2 (errors and warnings). Hints and information made up 1,351 of 13,227 diagnostics (10%) in the session transcripts from 24 September to 31 October; 909 of them were Intelephense unused-symbol hints that `unusedSymbols: false` already removed.
+- `lsp-proxy --profile <name>` drops diagnostics that describe a missing environment rather than the code. `typescript` drops the missing-dependency codes while no `node_modules` exists above the file, and keeps a relative import that cannot be found; `swift` drops the package-access-level message, and `No such module` in a project with no `Package.swift`, `compile_commands.json` or `buildServer.json`; `markdown` drops marksman's broken wiki-link error. A publish that loses nothing keeps the server's own bytes.
+
+### Changed
+
+- `ac-lsp` descriptions and keywords in both manifests now name the nine languages.
+- Kotlin and Java are deliberately not shipped (the README says why and how to enable `kotlin-lsp` in one project).
+
 ## [0.37.0] - 2026-11-01
 
 ### Changed

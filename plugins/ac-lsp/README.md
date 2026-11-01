@@ -1,6 +1,20 @@
 # ac-lsp
 
-No more stale diagnostics after an edit from Bash, git, a formatter or another Claude Code session. `ac-lsp` runs Dart and Intelephense for Claude Code, each started through a small proxy that keeps the server in step with the disk. Intelephense also keeps a workspace exclude list that holds indexing finite in repositories with Claude Code worktrees or Flutter build output.
+Language servers for Claude Code that stay in step with the disk, say only what an agent can act on, and stay cheap. `ac-lsp` runs Dart, PHP (Intelephense), TypeScript and JavaScript (Node.js included), Python, Go, Swift, HTML, CSS, SCSS, Sass and Markdown, each started through one small proxy. No more stale diagnostics after an edit from Bash, git, a formatter or another Claude Code session, no diagnostics about files that no longer exist, and no hints or environment errors spending the agent's tokens. Intelephense also keeps a workspace exclude list that holds indexing finite in repositories with Claude Code worktrees or Flutter build output.
+
+| Language | Server | Memory, one-file project | Notes |
+|---|---|---|---|
+| Dart | `dart language-server` | 400 MB | from the SDK |
+| PHP | `intelephense` | 330 MB, grows with the index | workspace excludes for worktrees and `build/` |
+| TypeScript, JavaScript | `typescript-language-server` | 120 to 170 MB (stock plugin 250 to 430 MB) | one tsserver process instead of two |
+| Python | `pyrefly lsp` | 57 MB (pyright 200 MB, basedpyright 166 MB) | `default` checking mode, editor extras off |
+| Go | `gopls` | 97 MB | style and modernisation analyzers and staticcheck off |
+| Swift | `sourcekit-lsp` | 77 MB, 8 to 10 s to the first diagnostic | from the Swift toolchain |
+| HTML | `superhtml lsp --syntax-only` | 47 to 53 MB | syntax errors only |
+| CSS, SCSS, Sass | `some-sass-language-server` | 91 MB | lint rules that fire on Tailwind and vendor prefixes off |
+| Markdown | `marksman server` | 156 MB | broken `[text](path)` links only; needs a `.git` directory or `.marksman.toml` root |
+
+Memory is the resident size (`ps` RSS) of the whole process tree, proxy included, about ten seconds after the first file is opened in a one-file project. The proxy is a Node process of about 45 MB per server (superhtml itself is 3 MB), a run varies by 20% or more (TypeScript the most, because `ps` leaves out compressed pages), and a real project grows every figure. Kotlin and Java are not shipped (see the end).
 
 ## Why a proxy
 
@@ -14,7 +28,34 @@ Both end in the same place: diagnostics about code that no longer exists, and a 
 - Before it forwards each message from Claude Code, and whenever a watched directory changes, it compares every opened file with the disk and sends the server a full-text `didChange` when they differ.
 - For Intelephense (`--watch-root`), it watches the workspace root and reports changed `.php` files as `workspace/didChangeWatchedFiles`, skipping `.git`, `node_modules`, `vendor/composer`, `storage`, `build` and `.claude/worktrees`.
 
-Everything else passes through byte for byte. Claude Code still shows each diagnostic once and may deliver it a turn late; the `ac` plugin's PostToolUse hook covers that side by running `dart analyze --fatal-infos` on an edited Dart file, and `php -l` plus the project's PHPStan (when `vendor/bin/phpstan` exists) on an edited PHP file.
+Everything else passes through byte for byte, except one thing going the other way (next section). The `ac` plugin's PostToolUse hook covers the synchronous side by running `dart analyze --fatal-infos` on an edited Dart file, and `php -l` plus the project's PHPStan (when `vendor/bin/phpstan` exists) on an edited PHP file.
+
+## Held diagnostics
+
+Claude Code keeps every non-empty `publishDiagnostics` until its next turn and never withdraws one. A diagnostic that the server retracts a second later, because the file it was missing has just been written, is still shown a turn later, and the model learns to call every diagnostic stale. In a multi-worker run that is most of the noise: a test written before its implementation, a worktree removed while its files are still open in the server (Dart then republishes errors for the files that are gone, `Target of URI doesn't exist` and `The function isn't defined`; Intelephense showed the same in transcripts but not in a lab run), a wave of edits that is consistent only at the end. In the transcripts of four sessions that ran with the proxy, 683 of 837 diagnostics were on files that have since been deleted, and 270 of the 663 in worktrees were delivered after the command that removed the worktree (delivery is a turn late, so some of those were published before it).
+
+The proxy therefore holds a non-empty set for a file until its project has been quiet:
+
+- **Quiet** means no new publish for that file, and no client edit, synced disk change or watched-file event in its project (the nearest ancestor with a `.git`, so a worktree is its own project), for `--settle` milliseconds, 6000 by default.
+- A newer publish for the file replaces the held one, and an empty publish drops it, so a diagnostic that resolves inside the window never reaches Claude Code.
+- A set for a file that no longer exists is dropped, never forwarded.
+- A set held for `--max-hold` milliseconds, 300000 by default, is forwarded anyway, so a project that never goes quiet still hears about a real error.
+- `--settle 0` turns holding off and keeps only the deleted-file drop.
+
+A real, persistent error still arrives, once, after the quiet time. Measured: in a real Claude Code run, a Dart test written before its implementation was shown as `Target of URI doesn't exist` and `The function 'B' isn't defined` on the stock server and not at all behind the proxy, while a persistent type error was still shown once; against a real Dart server, the 2 errors published after the whole package was removed became 0, and a persistent error arrived 3 s after publication with `--settle 3000`. To change the flags, edit `args` in `.lsp.json` in a fork of the plugin; a plugin update replaces the installed copy.
+
+## Less noise, fewer tokens
+
+Every diagnostic Claude Code receives costs tokens, and most of what a server says is not about the code. Of the 13,227 diagnostics in my session transcripts (24 September to 31 October), 1,351 were hints or information (909 of them Intelephense unused-symbol hints, which `unusedSymbols: false` already removes), and 251 of 656 TypeScript diagnostics were missing-dependency errors (`Cannot find module 'left-pad'`, `Cannot find name 'process'`). Only 53 of those 251 came from a tree with no `node_modules` above the file, the case the `typescript` profile removes; the other 198 had an install and stay. The proxy removes the noise at the source:
+
+- `--max-severity 2` (set for every server) forwards errors and warnings only. For Dart and PHP, the `ac` plugin's PostToolUse check still reports the rest at the end of an edit (`dart analyze --fatal-infos`, `php -l`, PHPStan); for the other languages, and without `ac`, hints and information are not reported at all.
+- `--profile` names diagnostics that are symptoms of a missing environment, not of the code:
+  - `typescript` drops the dependency errors (TS2307, 2792, 7016, 2688, 2580 to 2582, 2591 to 2593, 7026) while no `node_modules` exists in any directory above the file, and keeps a relative import that cannot be found, because that one is a typo.
+  - `swift` drops `The package access level used on 'X' requires a package name` (raised for a file compiled with fallback settings) and `No such module` in a project that has no `Package.swift`, `compile_commands.json` or `buildServer.json` (an Xcode project, where sourcekit-lsp cannot see the modules). In a Swift package a missing module is reported: `.build` is no signal, because sourcekit-lsp creates it within a fraction of a second.
+  - `markdown` drops a broken `[[wiki link]]` (marksman reports it as an error) and keeps a broken `[text](path)` link (a warning). A wiki link may point at a note that is not written yet, which is why it is not reported.
+- The servers are configured lean in `.lsp.json`: tsserver with `disableSuggestions` (no unused-variable hints), `useSyntaxServer: never` (one process, not two) and no automatic type acquisition from the network; pyrefly in `default` mode with inlay hints, completion, semantic tokens and code lenses off, which leaves `definition`, `references` and `hover` working; gopls with 35 style, simplification and modernisation analyzers (`writestring`, `mapsloop`, `unusedparams` and others) and `staticcheck` off, which keeps the `go vet` analyzers and `unusedwrite`; some-sass with `unknownProperties`, `unknownAtRules` (Tailwind `@apply`), `vendorPrefix`, `emptyRules`, `fontFaceProperties` and `propertyIgnoredDueToDisplay` ignored.
+
+A real error is never dropped by these rules: an assignment of a string to an `int`, an undefined name, a missing `}` and a broken link in a document all still arrive (checked in real Claude Code runs for each language).
 
 ## Why not the stock `php-lsp`
 
@@ -25,12 +66,17 @@ The official `php-lsp` plugin starts Intelephense with no settings, so it indexe
 
 ## Install
 
-Disable any other plugin that claims `.php` or `.dart` first. When two plugins claim an extension, Claude Code routes it to whichever loads first and never starts the other one for it.
+Disable any other plugin that claims one of these extensions first. When two plugins claim an extension, Claude Code routes it to whichever loads first and never starts the other one for it. The `kotlin-lsp` line is not an overlap; the reason is under Kotlin and Java at the end. Other marketplaces ship servers for the same extensions too (`vtsls`, `basedpyright` and others), so disable any that you have installed.
 
 ```
 /plugin marketplace add anilcancakir/claude-code
 /plugin disable php-lsp@claude-plugins-official
 /plugin disable dart@claude-code-lsps
+/plugin disable typescript-lsp@claude-plugins-official
+/plugin disable pyright-lsp@claude-plugins-official
+/plugin disable gopls-lsp@claude-plugins-official
+/plugin disable swift-lsp@claude-plugins-official
+/plugin disable kotlin-lsp@claude-plugins-official
 /plugin install ac-lsp@ac
 ```
 
@@ -46,17 +92,45 @@ A project that enables `php-lsp@claude-plugins-official` in its own `.claude/set
 }
 ```
 
-Intelephense comes from npm, and Dart from the Dart or Flutter SDK on your `PATH`:
+Dart comes from the Dart or Flutter SDK and `sourcekit-lsp` from the Swift toolchain, both on your `PATH`. The rest:
 
 ```
-npm install -g intelephense
+npm install -g intelephense typescript@6 typescript-language-server some-sass-language-server
+uv tool install pyrefly
+go install golang.org/x/tools/gopls@latest
+brew install superhtml marksman
 ```
+
+Install `typescript@6`, not the latest: TypeScript 7 ships no `tsserver.js`, which `typescript-language-server` runs, and without a TypeScript 5 or 6 (a global one, or the project's own in `node_modules`) the server exits and delivers nothing (checked with typescript 7.0.2 and typescript-language-server 6.0.2). That version of the server needs Node 22.22.2 or later (`engines` in its package.json); the proxy itself needs 22.13.
+
+A server that is not installed fails to start for its own extensions only; the others are unaffected.
 
 ## Behaviour to know
 
 - Claude Code roots the server at the session's working directory the first time a `.php` file is touched, and keeps that root for the session. Start worktree sessions with `claude --worktree <name>` so the worktree is the root.
 - After `EnterWorktree` in a session whose PHP server is already running, the server stays rooted at the main checkout, and the worktree's files fall under the `.claude/worktrees` exclude. Intelephense answers nothing for an excluded file, even an open one. Start a new session in the worktree for PHP work there. `/reload-plugins` is meant to restart language servers, but whether it re-roots them has not been verified.
+- Dart gives a server rooted at the main checkout no diagnostics at all for a worktree under `.claude/worktrees` (measured on SDK 3.13.7: it does not analyze files below a hidden directory, and a worktree outside the root is not analyzed either). Rooted at the worktree it works as in any project. Silence is not a clean bill, so the PostToolUse `dart analyze` result is the check for worktree files.
 - A PHP source directory named `build/` is excluded as well (the match is case-sensitive, so `app/Build/` is not). Fork the plugin if a project keeps code there.
 - Intelephense's "declared but not used" hints are switched off (`diagnostics.unusedSymbols: false` in `.lsp.json`). By a raw count of transcripts since 1 October they were 3,062 of 35,968 Intelephense diagnostic lines Claude saw (8.5%, repeats included), nothing acts on them, and Pint already removes unused imports. Every other diagnostic stays on, so a real undefined method or type still shows.
 - A language server starts with the session. A session opened before `ac-lsp` was enabled keeps the stock server, without the proxy, so a class created from Bash shows as `Undefined type` until the session restarts. Restart it; `/reload-plugins` is documented to reload plugin language servers, but swapping the stock plugin for this one that way has not been verified.
+- Markdown diagnostics need a project root: marksman accepts a directory with a `.git` directory or a `.marksman.toml` file, and otherwise stays silent about links to other documents. A git worktree has a `.git` file, not a directory, so a worktree session needs an empty `.marksman.toml` at its root (checked: with the `.git` file alone nothing was published, with the `.toml` the broken link arrived). In my test of marksman 2026-02-08 only a missing document was reported; a link to a missing heading and a duplicate heading were not.
+- Swift: in a project without `Package.swift`, `compile_commands.json` or `buildServer.json` (an Xcode project) the `swift` profile drops every `No such module`, a misspelled import included; the compiler catches it. In a package, a sibling target is reported as `No such module` until the first index build finishes (5 s in one run, with the real error following 4.6 s later); the quiet time absorbs that when the index builds within it, and a slower first build can let the transient through once.
+- sourcekit-lsp writes `textDocument\/publishDiagnostics` with an escaped slash; the proxy reads both spellings, and a server that escapes other characters of the method name is not handled.
+- some-sass fails with a `TypeError` on `loadPaths` when the client answers its configuration request with null, which is what Claude Code sends for a plugin entry that has no `settings`. That is why `.lsp.json` carries a `somesass` settings object for it; keep one if you fork the file.
+- The TypeScript profile looks for `node_modules` the way module resolution does, in the file's directory and every directory above it, so a worktree under a checkout that has `node_modules` is not treated as uninstalled.
+- JSON, ESLint and Tailwind servers are not shipped. JSON syntax errors are better caught by the tool that reads the file, and an ESLint server needs a project config and a custom client protocol.
 - The index cache lives in `~/.config/intelephense/workspace/` (or under `$XDG_CONFIG_HOME`), one hashed directory of roughly 20 MB per workspace root, so each worktree root adds one. Intelephense rebuilds a missing cache on the next start, so deleting the whole directory is safe.
+
+## Kotlin and Java
+
+Not shipped, and the official `kotlin-lsp` plugin is best left disabled globally. In the transcripts since 20 October, agents made 2,439 Kotlin edits across 9 sessions and the language server produced one diagnostic. JetBrains' `kotlin-lsp` is in Alpha with experimental Android Gradle Plugin support. Its issue tracker reports 2.5 to 3.2 GB per JVM and a restart loop that leaks them ([#205](https://github.com/Kotlin/kotlin-lsp/issues/205)), servers that outlive the client and hold several GB ([#276](https://github.com/Kotlin/kotlin-lsp/issues/276)) and an Android import that builds every variant ([#291](https://github.com/Kotlin/kotlin-lsp/issues/291)); I did not measure these. `jdtls` needs Java 25 at a minimum, per its README. The authority for an Android project is Gradle (`./gradlew compileDebugKotlin`).
+
+To use it in one project anyway, enable it there only, in that project's `.claude/settings.local.json`:
+
+```json
+{
+    "enabledPlugins": {
+        "kotlin-lsp@claude-plugins-official": true
+    }
+}
+```

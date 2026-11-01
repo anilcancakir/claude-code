@@ -1,8 +1,8 @@
 {
     "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
     "name": "ac-lsp",
-    "version": "0.2.1",
-    "description": "Stops stale diagnostics in Claude Code: Dart and Intelephense behind a proxy that keeps each language server in step with the disk, so edits from Bash, git, formatters and other sessions are seen.",
+    "version": "0.3.0",
+    "description": "Language servers for Claude Code that stay in step with the disk and stay quiet: Dart, PHP, TypeScript and JavaScript, Python, Go, Swift, HTML, CSS, SCSS, Sass and Markdown behind one proxy that holds retracted diagnostics, drops ghosts of deleted worktrees and filters hints and environment noise.",
     "author": {
         "name": "Anilcan Cakir",
         "email": "anilcan.cakir@gmail.com"
@@ -19,6 +19,19 @@
         "flutter",
         "php",
         "intelephense",
+        "typescript",
+        "javascript",
+        "nodejs",
+        "python",
+        "pyrefly",
+        "go",
+        "gopls",
+        "swift",
+        "html",
+        "css",
+        "scss",
+        "sass",
+        "markdown",
         "worktree"
     ]
 }
