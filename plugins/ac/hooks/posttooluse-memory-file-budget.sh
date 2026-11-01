@@ -1,6 +1,6 @@
 #!/bin/sh
 # PostToolUse budget for memory files: CLAUDE.md, CLAUDE.local.md, AGENTS.md, .claude/rules/*.md,
-# PROJECT.md and DESIGN.md.
+# PROJECT.md, DESIGN.md and ARCHITECTURE.md.
 #
 # These files are read into every turn that loads them, so each line is paid on every turn. Without a
 # budget they only grow: one project reached 33 rule files and 470 KB, one file 706 lines. After a
@@ -17,6 +17,7 @@
 #   .claude/rules/*.md     AC_RULE_MAX_LINES 120              AC_RULE_MAX_BYTES 12288
 #   PROJECT.md             AC_PROJECT_MD_MAX_LINES 150        no byte budget
 #   DESIGN.md              AC_DESIGN_MD_MAX_LINES 300         no byte budget
+#   ARCHITECTURE.md        AC_ARCHITECTURE_MD_MAX_LINES 300   no byte budget
 # AC_MEMORY_FILE_BUDGET=0 turns the whole hook off.
 #
 # These are hard ceilings above the targets ac:claude-md-rules-creator writes to (a rule 15 to 50 lines,
@@ -98,6 +99,11 @@ case "$file" in
             DESIGN.md)
                 skill="ac:design-md-writer"
                 max_lines="$(limit "${AC_DESIGN_MD_MAX_LINES:-}" 300)"
+                max_bytes=0
+                ;;
+            ARCHITECTURE.md)
+                skill="ac:architecture-md-writer"
+                max_lines="$(limit "${AC_ARCHITECTURE_MD_MAX_LINES:-}" 300)"
                 max_bytes=0
                 ;;
             *) exit 0 ;;

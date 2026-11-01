@@ -1,8 +1,8 @@
 #!/bin/sh
 # PreToolUse gate for memory-file writes, every session and every subagent.
 #
-# CLAUDE.md, CLAUDE.local.md, AGENTS.md, .claude/rules/*.md, PROJECT.md and DESIGN.md are loaded into
-# every turn that reads them, so what an agent appends is paid for again and again. Left alone, agents
+# CLAUDE.md, CLAUDE.local.md, AGENTS.md, .claude/rules/*.md, PROJECT.md, DESIGN.md and ARCHITECTURE.md
+# are loaded into every turn that reads them, so what an agent appends is paid for again and again. Left alone, agents
 # append without the writer skill's rules (scope, size budget, one home per fact, paths: for anything
 # file-specific): one project reached 33 rule files and 470 KB, one file 706 lines, written straight
 # from main threads and subagents with no skill loaded. Before a Write, Edit or MultiEdit of one of
@@ -57,6 +57,10 @@ case "$file" in
             DESIGN.md)
                 skill="ac:design-md-writer"
                 dir="design-md-writer"
+                ;;
+            ARCHITECTURE.md)
+                skill="ac:architecture-md-writer"
+                dir="architecture-md-writer"
                 ;;
             *) exit 0 ;;
         esac

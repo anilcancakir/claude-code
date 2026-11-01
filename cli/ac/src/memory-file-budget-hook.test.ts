@@ -28,6 +28,7 @@ const ENV_KEYS = [
     "AC_RULE_MAX_BYTES",
     "AC_PROJECT_MD_MAX_LINES",
     "AC_DESIGN_MD_MAX_LINES",
+    "AC_ARCHITECTURE_MD_MAX_LINES",
 ];
 
 let root: string;
@@ -114,6 +115,7 @@ test("each file kind over its line budget blocks naming its skill", () => {
         [".claude/rules/a.md", 121, "121/120 lines", "ac:claude-md-rules-creator"],
         ["PROJECT.md", 151, "151/150 lines", "ac:project-md-writer"],
         ["DESIGN.md", 301, "301/300 lines", "ac:design-md-writer"],
+        ["ARCHITECTURE.md", 301, "301/300 lines", "ac:architecture-md-writer"],
     ];
 
     for (const [relative, count, measured, skill] of cases) {
@@ -129,6 +131,7 @@ test("a file at its line budget passes silently", () => {
     expect(runHook(payload(create("CLAUDE.local.md", rows(60))))).toEqual(SILENT);
     expect(runHook(payload(create("PROJECT.md", rows(150))))).toEqual(SILENT);
     expect(runHook(payload(create("DESIGN.md", rows(300))))).toEqual(SILENT);
+    expect(runHook(payload(create("ARCHITECTURE.md", rows(300))))).toEqual(SILENT);
 });
 
 test("a last line without a trailing newline still counts", () => {
@@ -150,9 +153,19 @@ test("CLAUDE.local.md has its own, smaller byte budget", () => {
     expect(blockReason(runHook(payload(file)).stdout)).toContain("30/60 lines, 7530/6144 bytes");
 });
 
-test("PROJECT.md and DESIGN.md have no byte budget", () => {
+test("PROJECT.md, DESIGN.md and ARCHITECTURE.md have no byte budget", () => {
     expect(runHook(payload(create("PROJECT.md", rows(100, 500))))).toEqual(SILENT);
     expect(runHook(payload(create("DESIGN.md", rows(100, 500))))).toEqual(SILENT);
+    expect(runHook(payload(create("ARCHITECTURE.md", rows(100, 500))))).toEqual(SILENT);
+});
+
+test("AC_ARCHITECTURE_MD_MAX_LINES overrides the ARCHITECTURE.md limit", () => {
+    const file = create("ARCHITECTURE.md", rows(10));
+
+    expect(blockReason(runHook(payload(file), { AC_ARCHITECTURE_MD_MAX_LINES: "5" }).stdout)).toContain("10/5 lines");
+
+    const long = create("ARCHITECTURE.md", rows(400));
+    expect(runHook(payload(long), { AC_ARCHITECTURE_MD_MAX_LINES: "0" })).toEqual(SILENT);
 });
 
 test("an env override tightens a limit", () => {

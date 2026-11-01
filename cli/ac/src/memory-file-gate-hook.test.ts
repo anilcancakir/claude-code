@@ -179,6 +179,12 @@ test("a slash command for the skill itself allows the write", () => {
     expect(runHook(payload("/tmp/x/DESIGN.md"))).toEqual(SILENT);
 });
 
+test("a slash command for the architecture skill allows the ARCHITECTURE.md write", () => {
+    writeTranscript(slashCommand("<command-name>/ac:architecture-md-writer</command-name>"));
+
+    expect(runHook(payload("/tmp/x/ARCHITECTURE.md"))).toEqual(SILENT);
+});
+
 test("a slash command quoted inside a tool result is not a typed command", () => {
     writeTranscript(
         JSON.stringify({
@@ -220,6 +226,35 @@ test("DESIGN.md maps to ac:design-md-writer", () => {
 
     expect(reason).toContain("ac:design-md-writer");
     expect(reason).toContain("/skills/design-md-writer/SKILL.md");
+});
+
+test("ARCHITECTURE.md maps to ac:architecture-md-writer", () => {
+    writeTranscript(toolUse("Skill", { skill: "ac:claude-md-rules-creator" }));
+
+    const reason = denyReason(runHook(payload("/tmp/x/ARCHITECTURE.md")).stdout);
+
+    expect(reason).toContain("ac:architecture-md-writer");
+    expect(reason).toContain("/skills/architecture-md-writer/SKILL.md");
+});
+
+test("a Skill call for the architecture skill allows the ARCHITECTURE.md write", () => {
+    writeTranscript(toolUse("Skill", { skill: "ac:architecture-md-writer" }));
+
+    expect(runHook(payload("/tmp/x/ARCHITECTURE.md"))).toEqual(SILENT);
+});
+
+test("a Read of the architecture skill body allows the ARCHITECTURE.md write", () => {
+    writeTranscript(toolUse("Read", { file_path: "/plugins/ac/skills/architecture-md-writer/SKILL.md" }));
+
+    expect(runHook(payload("/tmp/x/ARCHITECTURE.md"))).toEqual(SILENT);
+});
+
+test("the DESIGN.md and ARCHITECTURE.md skills do not stand in for each other", () => {
+    writeTranscript(toolUse("Skill", { skill: "ac:architecture-md-writer" }));
+    expect(denyReason(runHook(payload("/tmp/x/DESIGN.md")).stdout)).toContain("ac:design-md-writer");
+
+    writeTranscript(toolUse("Skill", { skill: "ac:design-md-writer" }));
+    expect(denyReason(runHook(payload("/tmp/x/ARCHITECTURE.md")).stdout)).toContain("ac:architecture-md-writer");
 });
 
 test("CLAUDE.local.md and AGENTS.md are governed by the rules skill", () => {
