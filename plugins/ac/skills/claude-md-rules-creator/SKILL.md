@@ -9,7 +9,7 @@ disable-model-invocation: false
 
 CLAUDE.md, CLAUDE.local.md and `.claude/rules/*.md` are one content type at runtime. The memory loader concatenates them behind a prefix that says they override the model's defaults, and they arrive in the first user message as a `<system-reminder>` block, never in `system`. The file shape only decides when a file loads and how a human maintains it.
 
-This skill writes the shortest file set that changes behavior on Opus 5.5 and Sonnet 5.5, and debugs "Claude is not following my CLAUDE.md". The prose inside a file is a prompt: route its phrasing through `ac:prompt-writer`. A multi-step procedure or a user-typed `/name` action is a skill (`ac:skill-creator`), a custom worker is an agent (`ac:agent-creator`), a why-and-scope or architecture document is `ac:project-md-writer` or `ac:design-md-writer`, UI tokens and visual direction are `ac:frontend-design` (a `paths:` rule over the view files can point at its DESIGN.md), and a feature's requirements are a PRD from `/ac:product`, never CLAUDE.md lines. A whole-project setup or audit, existing files and auto-memory included, is `/ac:init-project`.
+This skill writes the shortest file set that changes behavior on Opus 5.5 and Sonnet 5.5, and debugs "Claude is not following my CLAUDE.md". The prose inside a file is a prompt: route its phrasing through `ac:prompt-writer`. A multi-step procedure or a user-typed `/name` action is a skill (`ac:skill-creator`), a custom worker is an agent (`ac:agent-creator`), a why-and-scope document is `ac:project-md-writer`, an architecture document is `ac:architecture-md-writer`, UI tokens and visual direction are `ac:frontend-design` (a `paths:` rule over the view files can point at its DESIGN.md), and a feature's requirements are a PRD from `/ac:product`, never CLAUDE.md lines. A whole-project setup or audit, existing files and auto-memory included, is `/ac:init-project`.
 
 ## Core principles
 
@@ -21,7 +21,7 @@ This skill writes the shortest file set that changes behavior on Opus 5.5 and So
 6. **No emphasis caps.** The loader already tells the model the file overrides defaults. State a rule once with its reason; shouting over-applies it.
 7. **Audit the stack before writing.** The file joins the host system prompt and every memory layer; run Workflow step 1 and check `${CLAUDE_SKILL_DIR}/references/claude-code-builtin-prompts.md` for the reader's model shape. The lean prompt (Opus 5.5, Sonnet 5.5, Haiku 5.5) lacks "no comments unless non-obvious", "no speculative abstraction" and "no compatibility shims"; the classic prompt (Sonnet 5 and earlier) carries them. Contradict a host line only as a stated override ("Push to `main` without asking; this overrides the default confirmation."). Protocol and the do-not-restate list: `${CLAUDE_SKILL_DIR}/references/layered-context.md`.
 8. **Scope to the audience.** If the team gets value from a rule it belongs in the project; if only you do, in `CLAUDE.local.md` (this project) or `~/.claude/CLAUDE.md` (all projects).
-9. **Pointers, not imports, for documents.** An `@import` loads the whole file every session, exactly like inlining it. Use `@AGENTS.md` for the one file shared with other tools. For a PROJECT.md, DESIGN.md or any reference document, write one line with a trigger ("Before changing structure, read docs/DESIGN.md") and let Claude read it on demand.
+9. **Pointers, not imports, for documents.** An `@import` loads the whole file every session, exactly like inlining it. Use `@AGENTS.md` for the one file shared with other tools. For a PROJECT.md, ARCHITECTURE.md, DESIGN.md or any reference document, write one line with a trigger ("Before changing structure, read ARCHITECTURE.md") and let Claude read it on demand.
 10. **Write for Opus 5.5 and Sonnet 5.5.** Skip lines the model acts on without being told, and "think carefully" lines. Sonnet 5.5 adds tests, docs and small files nobody asked for and checks in early at low and medium effort, so a project that wants otherwise says so in one line each. The Agent tool description already says "When in doubt, don't spawn"; add a delegation limit only if the user wants a stricter one. The block is re-sent whole to every subagent unless it sets `omitClaudeMd: true` (managed files, and nested files and path-scoped rules on a matching access, still load).
 
 ## Decide the file
@@ -30,7 +30,7 @@ This skill writes the shortest file set that changes behavior on Opus 5.5 and So
 Is a CLAUDE.md or rule the right tool?
 ├── Must hold on every edit, no judgment → hook, permission rule or plugin in settings.json
 ├── Steps on demand → skill; user-typed action → command; custom worker → agent
-├── Why and scope, or architecture → PROJECT.md / DESIGN.md plus one pointer line
+├── Why and scope, or architecture → PROJECT.md / ARCHITECTURE.md plus one pointer line
 └── Standing rule, convention, off-limits, project fact → continue
 
 Which file?

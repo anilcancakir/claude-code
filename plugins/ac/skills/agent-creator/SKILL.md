@@ -147,7 +147,7 @@ Deeper mapping: `${CLAUDE_SKILL_DIR}/references/anti-patterns.md`.
 
 ## Sibling skills
 
-File scope, naming and listing budget go through `ac:skill-creator`; system-prompt wording through `ac:prompt-writer`; CLAUDE.md or `.claude/rules/<topic>.md` through `ac:claude-md-rules-creator`; PROJECT.md or DESIGN.md through `ac:project-md-writer` or `ac:design-md-writer`; a `/name` workflow that delegates to an agent through `ac:skill-creator` (user-typed skills); hook configuration through `update-config`.
+File scope, naming and listing budget go through `ac:skill-creator`; system-prompt wording through `ac:prompt-writer`; CLAUDE.md or `.claude/rules/<topic>.md` through `ac:claude-md-rules-creator`; PROJECT.md, ARCHITECTURE.md or DESIGN.md through `ac:project-md-writer`, `ac:architecture-md-writer` or `ac:design-md-writer`; a `/name` workflow that delegates to an agent through `ac:skill-creator` (user-typed skills); hook configuration through `update-config`.
 
 ## Built-in agents
 

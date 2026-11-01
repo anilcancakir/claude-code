@@ -34,7 +34,7 @@
 
 ## Where to look
 
-- Architecture: [docs/DESIGN.md]
+- Architecture: [ARCHITECTURE.md]
 - Commands and conventions: [CLAUDE.md]
 - Shipped history: [CHANGELOG.md]
 

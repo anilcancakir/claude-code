@@ -169,7 +169,7 @@ This skill owns the prompt text; the shape around it routes through a sibling sk
 - A SKILL.md body or a slash workflow body (`/name [args]`): `ac:skill-creator`.
 - A subagent definition (`.claude/agents/<name>.md`): `ac:agent-creator`.
 - `CLAUDE.md`, `CLAUDE.local.md` or `.claude/rules/<topic>.md`: `ac:claude-md-rules-creator`.
-- `PROJECT.md` or `DESIGN.md`: `ac:project-md-writer`, `ac:design-md-writer`.
+- `PROJECT.md`, `ARCHITECTURE.md` or `DESIGN.md`: `ac:project-md-writer`, `ac:architecture-md-writer`, `ac:design-md-writer`.
 - A direct Agent tool call (no custom subagent type): no sibling; this skill covers the `prompt` field.
 
 When the request implies one of these, invoke the matching creator for shape and keep this skill for the prompt body.

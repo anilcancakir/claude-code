@@ -2,7 +2,7 @@
 name: flow
 description: "Run a medium or large request on the main thread: parallel research, interview, build in slices, oracle review. Use before building anything that touches several files, an unfamiliar area or an open behaviour choice; not for a one-file change or an explicit /ac/plan."
 ---
-<!-- ported-from: plugins/ac/skills/flow/SKILL.md sha256:4bd5d2b8001b9c573f6238f9fe5c12468c86327c99e9ffa5a68e7b0b980f4296 -->
+<!-- ported-from: plugins/ac/skills/flow/SKILL.md sha256:ade5f1ba96005064505e558832978040e448aa77bff2cbce47f25c9311b4d0a8 -->
 
 # flow
 
@@ -76,7 +76,7 @@ Start the full test suite and the repo-wide lint with `background: true` on the 
 
 ## 7. Report
 
-Result first: what changed, what the review found and what you did about it, the defaults you assumed, and what stayed unverified. When user-facing work landed, name `/ac/qa` as the next step. When the run settled a convention every later session must follow, or changed the architecture, name the file it belongs in and its writer (AGENTS.md, written by the user; the `design-md-writer` skill; the `project-md-writer` skill) instead of writing it unasked.
+Result first: what changed, what the review found and what you did about it, the defaults you assumed, and what stayed unverified. When user-facing work landed, name `/ac/qa` as the next step. When the run settled a convention every later session must follow, or changed the architecture, name the file it belongs in and its writer (AGENTS.md, written by the user; the `architecture-md-writer` skill; the `design-md-writer` skill; the `project-md-writer` skill) instead of writing it unasked.
 
 ## References
 

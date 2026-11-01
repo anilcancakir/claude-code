@@ -1,62 +1,84 @@
-# [Project name] design
+---
+version: alpha
+name: [Project name]
+description: [One line: the product and how it should feel]
+colors:
+  primary: "[#hex]"
+  on-primary: "[#hex]"
+  surface: "[#hex]"
+  on-surface: "[#hex]"
+  on-surface-muted: "[#hex]"
+  outline: "[#hex]"
+  error: "[#hex]"
+typography:
+  display:
+    fontFamily: [Typeface]
+    fontSize: [44px]
+    fontWeight: [700]
+    lineHeight: [48px]
+  body-md:
+    fontFamily: [Typeface]
+    fontSize: [16px]
+    fontWeight: [400]
+    lineHeight: [24px]
+  label-md:
+    fontFamily: [Typeface]
+    fontSize: [14px]
+    fontWeight: [600]
+    lineHeight: [20px]
+rounded:
+  sm: [4px]
+  md: [8px]
+  full: 9999px
+spacing:
+  base: [8px]
+  md: [16px]
+  lg: [24px]
+components:
+  button-primary:
+    backgroundColor: "{colors.primary}"
+    textColor: "{colors.on-primary}"
+    typography: "{typography.label-md}"
+    rounded: "{rounded.md}"
+    padding: "{spacing.md}"
+  caption:
+    backgroundColor: "{colors.surface}"
+    textColor: "{colors.on-surface-muted}"
+    typography: "{typography.body-md}"
+---
 
 ## Overview
 
-[One paragraph: how the system works end to end, in terms of the parts below.]
+[Brand character in two or three sentences: the audience, the job the interface does, the feel.]
 
-```text
-[One diagram, under 20 lines: components and the direction of data flow.]
-```
+## Colors
+
+- **Primary ([#hex]) and On-primary ([#hex]):** [its one role, and the text colour that sits on it]
+- **Surface ([#hex]), On-surface ([#hex]) and On-surface muted ([#hex]):** [where the text sits, and what the muted tone is for]
+- **Outline ([#hex]):** [where hairlines appear]
+- **Error ([#hex]):** [when it is used]
+
+## Typography
+
+[Each typeface, where it comes from (system stack, Google Fonts family, project files) and which role it plays.]
+
+## Layout
+
+[Grid, base spacing unit, breakpoints, density, alignment.]
+
+## Elevation & Depth
+
+[How depth is shown: the shadow values or the tonal steps, and what never gets a shadow.]
+
+## Shapes
+
+[The radius scale and where each step applies.]
 
 ## Components
 
-### [Component name]
+[Per component: the states it has and the tokens each state uses.]
 
-- Location: `[path/]`
-- Responsibility: [one sentence]
-- Depends on: [components]
-- Invariants: [only rules local to this component; shared rules go in the Invariants table]
+## Do's and Don'ts
 
-## Data flow
-
-[Name of the path]:
-
-1. [Step]: `[path:symbol]`
-2. [Step]: `[path:symbol]`
-
-## Data model
-
-- [Entity and relation]: schema in `[path]`.
-
-## Interfaces
-
-- [External API, event or file format]: source in `[path]`; [invariant types cannot express].
-
-## Invariants
-
-| Rule | Why | How to verify |
-|------|-----|---------------|
-| [Rule] | [Reason] | [Test name or command] |
-
-## Decisions
-
-| Decision | Why | Rejected alternatives | Status |
-|----------|-----|-----------------------|--------|
-| [Choice] | [Reason] | [Option, and why not] | [Active / Revisit / Superseded] |
-
-## Errors and testing
-
-- Errors: [the error contract]
-- Tests: [where they live, what each layer covers]
-
-## Change guide
-
-| To change | Touch | Also check |
-|-----------|-------|------------|
-| [Task] | `[paths]` | [coupled place or test] |
-
-## Known gaps
-
-- [Gap]: `[path]`
-
-Last reviewed: [YYYY-MM-DD] after [trigger].
+- Do [a checkable rule].
+- Don't [a pattern this brief rules out].

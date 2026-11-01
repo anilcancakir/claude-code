@@ -27,7 +27,7 @@ The body of every skill you produce is a prompt: route that work through `ac:pro
 ```
 Is a skill the right tool?
 ├── A fact that never changes → CLAUDE.md or a rule, via `ac:claude-md-rules-creator`.
-├── A why-and-scope or architecture document → `ac:project-md-writer` or `ac:design-md-writer`.
+├── A why-and-scope or architecture document → `ac:project-md-writer` or `ac:architecture-md-writer`.
 ├── Must happen deterministically → a hook, via `update-config`.
 ├── Needs its own context, tools or model → a subagent, via `ac:agent-creator`.
 ├── A one-off task → just do it.
@@ -159,7 +159,7 @@ Invoke the sibling for its shape and keep this skill loaded for what is still sk
 - The prompt body inside any skill: `ac:prompt-writer`; this skill keeps the structure around it.
 - A subagent definition: `ac:agent-creator`; this skill decides whether a skill or a `context: fork` skill fits instead.
 - CLAUDE.md or `.claude/rules/<topic>.md`: `ac:claude-md-rules-creator`; this skill decides procedure (skill) versus standing fact.
-- PROJECT.md or DESIGN.md: `ac:project-md-writer`, `ac:design-md-writer`; this skill decides procedure (skill) versus fact (design document).
+- PROJECT.md, ARCHITECTURE.md or DESIGN.md: `ac:project-md-writer`, `ac:architecture-md-writer`, `ac:design-md-writer`; this skill decides procedure (skill) versus fact (design document).
 - Hook configuration: `update-config`; this skill decides determinism (hook) versus judgment (skill).
 
 ## Pre-flight checklist

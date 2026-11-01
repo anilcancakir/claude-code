@@ -6,7 +6,7 @@ The `ac` workflow on [opencode](https://opencode.ai): describe a change, and it 
 
 - **Eight commands.** `/ac/plan`, `/ac/execute`, `/ac/coordinate`, `/ac/commit`, `/ac/qa`, `/ac/flow`, `/ac/auto` and `/ac/product`. A request sized medium or large runs through `flow` on its own; the others start when you type them.
 - **Thirteen agents.** Read-only researchers and reviewers (`ac/explore`, `ac/librarian`, `ac/oracle`, `ac/plan-reviewer`, `ac/plan-code-review`, `ac/design-director`, `ac/auto-verifier`), four cost-tiered workers (`ac/plan-worker-quick`, `-junior`, `-junior-high`, `-senior`), `ac/lane` for parallel worktrees and `ac/qa-tester`.
-- **Twelve skills.** The workflows above plus `github-cli`, `frontend-design`, `design-md-writer` and `project-md-writer`; `commit` also covers rebase, squash and history tracing.
+- **Thirteen skills.** The workflows above plus `github-cli`, `frontend-design`, `architecture-md-writer`, `design-md-writer` and `project-md-writer`; `commit` also covers rebase, squash and history tracing.
 - **Guards that act on the run.** A worker edits only the files of its wave; a turn that ends while an execute or away run is unfinished is nudged on; read-only agents cannot write through the shell; an `/ac/auto` run pushes, merges or releases only what you named, and irreversible git verbs stay denied while it lives.
 - **Model chains.** Each agent has an ordered list of models. A provider failure moves the same child down the list, and a rate limit waits and retries instead of burning the chain.
 - **Diagnostics after an edit.** Edit and write results carry a `<diagnostics>` block from `php -l`, PHPStan, Pint, `dart analyze` and similar checkers, so a mistake shows up in the turn that made it.

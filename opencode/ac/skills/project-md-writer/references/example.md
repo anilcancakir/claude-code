@@ -1,4 +1,4 @@
-<!-- ported-from: plugins/ac/skills/project-md-writer/references/example.md sha256:3f688d6aae993a0612f3266343a687639b638f4e64dc47d6059fa40d2530d96e -->
+<!-- ported-from: plugins/ac/skills/project-md-writer/references/example.md sha256:67b1d61b4faaf2df8850916d44a5516bf99c8a315d723bd8b939ef6178f3a57c -->
 # Example PROJECT.md
 
 An illustrative file for a fictional project, filled to the level of detail the contract asks for. Match its register: short lines, a reason beside every limit, nothing the code already shows.
@@ -49,7 +49,7 @@ An issued invoice is never altered or lost.
 
 ## Where to look
 
-- Architecture: docs/DESIGN.md
+- Architecture: ARCHITECTURE.md
 - Commands and conventions: AGENTS.md
 - Shipped history: CHANGELOG.md
 

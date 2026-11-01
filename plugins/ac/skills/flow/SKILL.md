@@ -75,7 +75,7 @@ Start the full test suite and the repo-wide lint with `run_in_background: true`,
 
 ## 7. Report
 
-Result first: what changed, what the review found and what you did about it, the defaults you assumed, and what stayed unverified. When user-facing work landed, name `/ac:qa` as the next step. When the run settled a convention every later session must follow, or changed the architecture, name the file it belongs in and its writer (`ac:claude-md-rules-creator`, `ac:design-md-writer`, `ac:project-md-writer`) instead of writing it unasked.
+Result first: what changed, what the review found and what you did about it, the defaults you assumed, and what stayed unverified. When user-facing work landed, name `/ac:qa` as the next step. When the run settled a convention every later session must follow, or changed the architecture, name the file it belongs in and its writer (`ac:claude-md-rules-creator`, `ac:architecture-md-writer`, `ac:design-md-writer`, `ac:project-md-writer`) instead of writing it unasked.
 
 ## References
 

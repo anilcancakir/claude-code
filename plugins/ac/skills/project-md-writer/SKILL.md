@@ -16,7 +16,7 @@ Scope: one file (or the split files the size rule names), plus one pointer line 
 |---|---|---|---|
 | Rules | CLAUDE.md, AGENTS.md | every session | commands, conventions, off-limits; route through `ac:claude-md-rules-creator` |
 | Why and scope | PROJECT.md | when an agent reads it | what, value, scope, constraints, decisions; a feature's PRD and roadmap from `/ac:product` feed its scope and non-goals |
-| How it is built | DESIGN.md | when an agent reads it | architecture; route through `ac:design-md-writer` |
+| How it is built | ARCHITECTURE.md | when an agent reads it | architecture; route through `ac:architecture-md-writer` (DESIGN.md is how it looks, through `ac:design-md-writer`) |
 | State | a notes or plan file | per task | progress and next steps |
 
 PROJECT.md stays out of the always-loaded layer on purpose. Claude Code loads every CLAUDE.md from the working directory upward in full at launch, an `@import` costs the same, and Anthropic's memory docs target under 200 lines per file because adherence drops as it grows. A pointer line with a trigger gives Claude the file when the task needs it and costs one line otherwise.
@@ -27,7 +27,7 @@ PROJECT.md stays out of the always-loaded layer on purpose. Claude Code loads ev
 - One exists and is mostly right: update in place, keep its headings.
 - One exists and the user says agents ignore it, or its quality is unknown: audit first and report ranked findings with line numbers; edit only when the user asked for the fix.
 
-If the content is commands or conventions, use CLAUDE.md. If it is architecture, use DESIGN.md. If it is progress or a to-do list, use a notes file. If it is one feature's spec, use `ac:plan`.
+If the content is commands or conventions, use CLAUDE.md. If it is architecture, use ARCHITECTURE.md. If it is progress or a to-do list, use a notes file. If it is one feature's spec, use `ac:plan`.
 
 ## Workflow
 
@@ -83,7 +83,7 @@ Success: `grep -n PROJECT.md` on the rules file finds the line.
 - State what is true now. No aspirations ("we aim for"), no marketing, no progress or status; volatile state goes in a notes file, because a stale doc is worse than none.
 - Be checkable: name paths, versions, limits. "Fast" and "scalable" tell an agent nothing.
 - Anchor to paths or symbol names, never line numbers; they survive edits.
-- Give each fact one home. If CLAUDE.md or DESIGN.md holds it, point there.
+- Give each fact one home. If CLAUDE.md or ARCHITECTURE.md holds it, point there.
 - Keep the headings exactly as in the contract, so agents can grep them. Prefer bullets and tables to paragraphs.
 - State a rule once with its reason. No capitals for emphasis.
 - Write in the project's documentation language, English by default.
@@ -103,7 +103,7 @@ Run these after a milestone or a scope change:
 ## Audit checklist
 
 - Every cited path exists.
-- No line duplicates CLAUDE.md or DESIGN.md.
+- No line duplicates CLAUDE.md or ARCHITECTURE.md.
 - Out of scope items each carry a reason.
 - Constraints each carry a reason.
 - No status, progress or aspiration lines.
