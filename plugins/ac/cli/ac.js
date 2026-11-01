@@ -38084,7 +38084,7 @@ function errorMessage(error) {
 // package.json
 var package_default = {
   name: "@anilcancakir/ac-cli",
-  version: "0.38.1",
+  version: "0.39.0",
   description: "Companion CLI runtime for the ac Claude Code plugin. Serves the ac MCP tools, checks plans, prices runs and searches the local history archive.",
   private: true,
   type: "module",
@@ -40481,4 +40481,4 @@ function formatSyncReport(report) {
 }
 await program2.parseAsync(process.argv);
 
-//# debugId=955CAF1F1C9CD94064756E2164756E21
+//# debugId=832067369F30504264756E2164756E21

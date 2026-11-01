@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.39.0] - 2026-11-01
+
+### Added
+
+- `ac:architecture-md-writer` writes and audits an `ARCHITECTURE.md` for agents. The old `ac:design-md-writer` architecture mode is its starting point, rebuilt around what current sources say survives for an agent reader: Anthropic's best-practices page lists "describe your architecture and file layout" as retired advice, and a 2026 study of context files (arXiv 2602.11988) found repository overviews unhelpful and added over 20 percent cost. The file keeps a codemap of modules whose boundary the name does not show, invariants with a verify command (many of them absences), main flows, decisions with rejected alternatives, a change guide written from the git log, cross-cutting rules, traps and an optional glossary. A two-question line test and a "decide first" bar (no file below roughly 10k lines or without real boundaries) keep it thin.
+- The memory-file hooks govern `ARCHITECTURE.md` like `DESIGN.md`: the gate denies a write until `ac:architecture-md-writer` is loaded, and the budget blocks growth past 300 lines (`AC_ARCHITECTURE_MD_MAX_LINES`).
+- `ac:frontend-design` Stitch branch: a prompt shape for Stitch (an idea sentence, platform, numbered page structure with real copy, vibe, exclusions; no hex, font or radius once a design system is bound; one change per edit), the hand-off from Stitch HTML to the project's own stack, and corrected tool and model facts. `ac:design-director` ends a `commit` output with that block when the brief says the build goes through Stitch.
+- `anti-slop.md` gains a Subject, hero and copy section from Anthropic's current `frontend-design` skill: ground the design in the subject, open with its most characteristic thing, type and line-length guidance, structure that encodes information, and UI copy rules.
+
+### Changed
+
+- `ac:design-md-writer` is visual identity only. It writes the Google Labs `design.md` format (YAML tokens plus rationale) from an existing theme or a chosen `ac:design-director` direction, never invents a palette, and lints with the pinned `npx @google/design.md@0.4.0`. Its reference now covers the full spec read at commit `6e5da53`, the lint rules, the `omitted` key, the `css-vars` export and the fact that the 0.4.0 parser merges every fenced `yaml` block into the tokens; the example file lints with 0 errors and 0 warnings. An existing DESIGN.md that describes architecture is moved to `ARCHITECTURE.md` only with the user's say.
+- `/ac:init-project` now handles the project documents on an existing or new project (new phases 2f and 3h, `--no-docs` to skip). It inventories `PROJECT.md`, `ARCHITECTURE.md` and `DESIGN.md`, decides per document whether to write, audit and fix, move or skip, lists that in the single approved proposal, and runs the matching writer skill. A missing `ARCHITECTURE.md` is written only when the project clears the writer's size bar (about 10k lines or real module boundaries), a missing `DESIGN.md` only when a theme exists to derive tokens from, and an existing document is repaired in place, never replaced wholesale. A `DESIGN.md` that describes architecture is offered a `git mv` to `ARCHITECTURE.md`.
+- Pointers to the architecture doc in `ac:flow`, `ac:project-md-writer`, `ac:claude-md-rules-creator`, `ac:init-project`, `ac:skill-creator`, `ac:prompt-writer`, `ac:agent-creator` and the READMEs now name `ARCHITECTURE.md` and its writer; skill count is 19.
+
 ## [0.38.1] - 2026-11-01
 
 ### Fixed
