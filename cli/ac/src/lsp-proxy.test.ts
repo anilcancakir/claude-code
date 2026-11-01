@@ -1,5 +1,7 @@
 // Contract pinned here: the stdio LSP proxy forwards every client and server byte unchanged, and only
-// inserts whole synthetic notifications. Framing survives arbitrary chunking and falls back to raw
+// inserts whole synthetic notifications; the one thing it withholds is a server's non-empty
+// publishDiagnostics, which the gate holds until the file's project is quiet, replaces or drops when the
+// server withdraws it, and never forwards for a file that no longer exists. Framing survives arbitrary chunking and falls back to raw
 // passthrough on a malformed or over-cap header; range edits use UTF-16 positions; the sync sweep emits
 // a full-text didChange only when the disk text differs from the tracked text; watched-file events are
 // filtered, typed and de-duplicated per URI; the per-directory tree watcher prunes ignored trees and picks up
@@ -15,9 +17,15 @@ import { pathToFileURL } from "node:url";
 import type { FileStamp, FrameEvent, SweepDeps } from "./lsp-proxy.ts";
 import {
     applyContentChanges,
+    DEFAULT_MAX_HOLD_MS,
+    DEFAULT_SETTLE_MS,
+    DiagnosticGate,
     DirectoryTreeWatcher,
     DocumentTable,
+    editedUri,
     FileChangeType,
+    filterDiagnostics,
+    findProjectRoot,
     frameMessage,
     FrameParser,
     isIgnoredPath,
@@ -25,7 +33,9 @@ import {
     isWatchLimitError,
     MAX_BODY_BYTES,
     MAX_HEADER_BYTES,
+    NOISE_PROFILES,
     parseProxyArgs,
+    publishMessage,
     resolveWorkspaceRoot,
     sweepDocuments,
     syncedUri,
@@ -485,25 +495,322 @@ describe("parseProxyArgs", () => {
         expect(parseProxyArgs(["--watch-root", "--ext", ".php", "--ext", ".inc", "--", "srv", "--stdio"])).toEqual({
             watchRoot: true,
             extensions: [".php", ".inc"],
+            settleMs: DEFAULT_SETTLE_MS,
+            maxHoldMs: DEFAULT_MAX_HOLD_MS,
+            maxSeverity: 4,
+            profiles: [],
             command: "srv",
             args: ["--stdio"],
         });
+    });
+
+    test("reads the severity cap and named noise profiles", () => {
+        const options = parseProxyArgs(["--max-severity", "2", "--profile", "typescript", "--profile", "swift", "--", "srv"]);
+        expect(options.maxSeverity).toBe(2);
+        expect(options.profiles).toEqual(["typescript", "swift"]);
+        expect(() => parseProxyArgs(["--max-severity", "5", "--", "srv"])).toThrow();
+        expect(() => parseProxyArgs(["--max-severity", "--", "srv"])).toThrow();
+        expect(() => parseProxyArgs(["--profile", "cobol", "--", "srv"])).toThrow();
+        expect(() => parseProxyArgs(["--profile", "toString", "--", "srv"])).toThrow();
+        expect(() => parseProxyArgs(["--profile", "constructor", "--", "srv"])).toThrow();
+        expect(() => parseProxyArgs(["--profile", "--", "srv"])).toThrow();
     });
 
     test("defaults to no root watch and the .php extension", () => {
         expect(parseProxyArgs(["--", "dart", "language-server"])).toEqual({
             watchRoot: false,
             extensions: [".php"],
+            settleMs: DEFAULT_SETTLE_MS,
+            maxHoldMs: DEFAULT_MAX_HOLD_MS,
+            maxSeverity: 4,
+            profiles: [],
             command: "dart",
             args: ["language-server"],
         });
     });
 
-    test("rejects a missing separator, a missing command and an unknown flag", () => {
+    test("reads the settle and max-hold times, zero included", () => {
+        const options = parseProxyArgs(["--settle", "0", "--max-hold", "1500", "--", "srv"]);
+        expect(options.settleMs).toBe(0);
+        expect(options.maxHoldMs).toBe(1500);
+    });
+
+    test("rejects a missing separator, a missing command, an unknown flag and a bad duration", () => {
         expect(() => parseProxyArgs(["dart"])).toThrow();
         expect(() => parseProxyArgs(["--"])).toThrow();
         expect(() => parseProxyArgs(["--nope", "--", "dart"])).toThrow();
         expect(() => parseProxyArgs(["--ext", "--", "dart"])).toThrow();
+        expect(() => parseProxyArgs(["--settle", "--", "dart"])).toThrow();
+        expect(() => parseProxyArgs(["--settle", "soon", "--", "dart"])).toThrow();
+        expect(() => parseProxyArgs(["--max-hold", "-5", "--", "dart"])).toThrow();
+        expect(() => parseProxyArgs(["--max-hold", "2147483648", "--", "dart"])).toThrow();
+        expect(parseProxyArgs(["--max-hold", "2147483647", "--", "dart"]).maxHoldMs).toBe(2147483647);
+    });
+});
+
+describe("findProjectRoot", () => {
+    test("returns the nearest ancestor holding .git, so each worktree is its own project", () => {
+        const present = new Set(["/repo/.git", "/repo/.claude/worktrees/lane/.git"]);
+        const exists = (path: string): boolean => present.has(path);
+
+        expect(findProjectRoot("/repo/lib/a.dart", exists)).toBe("/repo");
+        expect(findProjectRoot("/repo/.claude/worktrees/lane/lib/a.dart", exists)).toBe("/repo/.claude/worktrees/lane");
+    });
+
+    test("falls back to the file's own directory when no ancestor has .git", () => {
+        expect(findProjectRoot("/tmp/scratch/a.dart", () => false)).toBe("/tmp/scratch");
+    });
+});
+
+describe("editedUri and publishMessage", () => {
+    test("name the document of open, change, save and close, and no other message", () => {
+        const textDocument = { uri: "file:///a.dart" };
+        for (const method of ["didOpen", "didChange", "didSave", "didClose"]) {
+            expect(editedUri({ method: `textDocument/${method}`, params: { textDocument } })).toBe("file:///a.dart");
+        }
+        expect(editedUri({ method: "textDocument/hover", params: { textDocument } })).toBeUndefined();
+    });
+
+    test("read publishDiagnostics params and leave every other body alone", () => {
+        const publish = Buffer.from(JSON.stringify({
+            jsonrpc: "2.0",
+            method: "textDocument/publishDiagnostics",
+            params: { uri: "file:///a.dart", diagnostics: [{ message: "x" }] },
+        }));
+        expect(publishMessage(publish)?.params).toEqual({ uri: "file:///a.dart", diagnostics: [{ message: "x" }] });
+
+        const hover = Buffer.from(JSON.stringify({ jsonrpc: "2.0", id: 1, result: { contents: "textDocument/publishDiagnostics" } }));
+        expect(publishMessage(hover)).toBeUndefined();
+        expect(publishMessage(Buffer.from("\"textDocument/publishDiagnostics\" not json"))).toBeUndefined();
+    });
+
+    test("read a publish whose method name has an escaped slash, as sourcekit-lsp writes it", () => {
+        const escaped = Buffer.from('{"method":"textDocument\\/publishDiagnostics","jsonrpc":"2.0","params":{"uri":"file:\\/\\/\\/a.swift","diagnostics":[]}}');
+        expect(publishMessage(escaped)?.params).toEqual({ uri: "file:///a.swift", diagnostics: [] });
+    });
+});
+
+describe("filterDiagnostics", () => {
+    const uri = "file:///repo/src/a.ts";
+    const installed = new Set<string>();
+    const options = (maxSeverity: number, profile: string[] = []) => ({
+        maxSeverity,
+        rules: profile.flatMap((name) => NOISE_PROFILES[name] ?? []),
+        hasAncestorEntry: (_path: string, name: string): boolean => installed.has(name),
+    });
+    const diagnostic = (message: string, code: string | number = "", severity: number | undefined = 1): object => ({ message, code, severity });
+    const messages = (params: { diagnostics?: unknown } | undefined): string[] =>
+        ((params?.diagnostics ?? []) as { message: string }[]).map((item) => item.message);
+
+    test("keeps everything and reports no change when nothing is dropped", () => {
+        const params = { uri, diagnostics: [diagnostic("a"), diagnostic("b", "x", 4)] };
+        expect(filterDiagnostics(params, options(4))).toBeUndefined();
+    });
+
+    test("drops what is less severe than the cap, and treats a missing severity as an error", () => {
+        const params = { uri, diagnostics: [diagnostic("hint", "", 4), diagnostic("info", "", 3), diagnostic("warn", "", 2), diagnostic("error", "", 1), diagnostic("none", "", undefined)] };
+        expect(messages(filterDiagnostics(params, options(2)))).toEqual(["warn", "error", "none"]);
+        expect(messages(filterDiagnostics(params, options(1)))).toEqual(["error", "none"]);
+    });
+
+    test("typescript profile drops dependency errors only while no node_modules exists above the file", () => {
+        const params = { uri, diagnostics: [
+            diagnostic("Cannot find module 'react' or its corresponding type declarations.", 2307),
+            diagnostic("Cannot find name 'process'. Do you need to install type definitions for node?", 2591),
+            diagnostic("Type 'string' is not assignable to type 'number'.", 2322),
+        ] };
+
+        expect(messages(filterDiagnostics(params, options(4, ["typescript"])))).toEqual(["Type 'string' is not assignable to type 'number'."]);
+
+        installed.add("node_modules");
+        expect(filterDiagnostics(params, options(4, ["typescript"]))).toBeUndefined();
+        installed.clear();
+    });
+
+    test("typescript profile keeps a relative import that cannot be found, because that is a typo", () => {
+        const params = { uri, diagnostics: [
+            diagnostic("Cannot find module './nope' or its corresponding type declarations.", 2307),
+            diagnostic("Cannot find module '../up' or its corresponding type declarations.", 2307),
+            diagnostic("Cannot find module 'left-pad' or its corresponding type declarations.", 2307),
+        ] };
+        expect(messages(filterDiagnostics(params, options(4, ["typescript"])))).toEqual([
+            "Cannot find module './nope' or its corresponding type declarations.",
+            "Cannot find module '../up' or its corresponding type declarations.",
+        ]);
+    });
+
+    test("swift profile always drops the package-name error and drops a missing module only without a build description", () => {
+        const params = { uri: "file:///pkg/Sources/App/main.swift", diagnostics: [
+            diagnostic("The package access level used on 'Foo' requires a package name; set it with the compiler flag '-package-name'"),
+            diagnostic("No such module 'Foo'"),
+            diagnostic("Cannot convert value of type 'String' to specified type 'Int'"),
+        ] };
+
+        expect(messages(filterDiagnostics(params, options(4, ["swift"])))).toEqual(["Cannot convert value of type 'String' to specified type 'Int'"]);
+
+        // A package creates its own .build almost at once, so that directory alone is no reason to keep the error.
+        installed.add(".build");
+        expect(messages(filterDiagnostics(params, options(4, ["swift"])))).toEqual(["Cannot convert value of type 'String' to specified type 'Int'"]);
+        installed.clear();
+
+        for (const description of ["Package.swift", "compile_commands.json", "buildServer.json"]) {
+            installed.add(description);
+            expect(messages(filterDiagnostics(params, options(4, ["swift"])))).toEqual(["No such module 'Foo'", "Cannot convert value of type 'String' to specified type 'Int'"]);
+            installed.clear();
+        }
+    });
+
+    test("markdown profile drops a broken wiki link (an error) and keeps a broken markdown link (a warning)", () => {
+        const params = { uri: "file:///repo/docs/a.md", diagnostics: [
+            diagnostic("Link to non-existent document 'wiki-missing'", "2", 1),
+            diagnostic("Link to non-existent document 'missing.md'", "2", 2),
+            diagnostic("Ambiguous link", "1", 2),
+        ] };
+        expect(messages(filterDiagnostics(params, options(4, ["markdown"])))).toEqual([
+            "Link to non-existent document 'missing.md'",
+            "Ambiguous link",
+        ]);
+    });
+
+    test("leaves a publish for a URI that is not a local file alone", () => {
+        const params = { uri: "untitled:Untitled-1", diagnostics: [diagnostic("hint", "", 4)] };
+        expect(filterDiagnostics(params, options(1))).toBeUndefined();
+    });
+});
+
+describe("DiagnosticGate", () => {
+    const uri = "file:///repo/lib/a.dart";
+    const other = "file:///lane/lib/b.dart";
+    const error = [{ message: "Undefined name 'A'." }];
+
+    interface Fixture {
+        gate: DiagnosticGate;
+        clock: { now: number };
+        files: Set<string>;
+    }
+
+    function fixture(settleMs: number = 1000, maxHoldMs: number = 10_000): Fixture {
+        const clock = { now: 1_000_000 };
+        const files = new Set(["/repo/lib/a.dart", "/lane/lib/b.dart"]);
+        const gate = new DiagnosticGate({
+            now: () => clock.now,
+            fileExists: (path) => files.has(path),
+            projectOf: (path) => (path.startsWith("/lane/") ? "/lane" : "/repo"),
+        }, settleMs, maxHoldMs);
+        return { gate, clock, files };
+    }
+
+    const frame = (name: string): Buffer => Buffer.from(name);
+    const names = (frames: Buffer[]): string[] => frames.map((item) => item.toString());
+
+    test("holds a non-empty publish until the project has been quiet for the settle time", () => {
+        const { gate, clock } = fixture();
+        expect(gate.offer(frame("red"), { uri, diagnostics: error })).toEqual([]);
+        expect(gate.size).toBe(1);
+
+        clock.now += 999;
+        expect(gate.release()).toEqual([]);
+        clock.now += 1;
+        expect(names(gate.release())).toEqual(["red"]);
+        expect(gate.size).toBe(0);
+    });
+
+    test("an empty publish drops the held set and is forwarded at once", () => {
+        const { gate, clock } = fixture();
+        gate.offer(frame("red"), { uri, diagnostics: error });
+        clock.now += 400;
+
+        expect(names(gate.offer(frame("clean"), { uri, diagnostics: [] }))).toEqual(["clean"]);
+        clock.now += 5000;
+        expect(gate.release()).toEqual([]);
+    });
+
+    test("a newer publish replaces the held one and restarts its quiet time", () => {
+        const { gate, clock } = fixture();
+        gate.offer(frame("first"), { uri, diagnostics: error });
+        clock.now += 800;
+        gate.offer(frame("second"), { uri, diagnostics: error });
+
+        clock.now += 800;
+        expect(gate.release()).toEqual([]);
+        clock.now += 200;
+        expect(names(gate.release())).toEqual(["second"]);
+    });
+
+    test("client activity in the same project pushes the held set back, other projects do not", () => {
+        const { gate, clock } = fixture();
+        gate.offer(frame("red"), { uri, diagnostics: error });
+        clock.now += 900;
+        gate.touch(other);
+        expect(gate.nextWake()).toBe(100);
+
+        gate.touch("file:///repo/lib/c.dart");
+        expect(gate.nextWake()).toBe(1000);
+        clock.now += 1000;
+        expect(names(gate.release())).toEqual(["red"]);
+    });
+
+    test("drops a publish for a file that does not exist, and a held set whose file is deleted", () => {
+        const { gate, clock, files } = fixture();
+        files.delete("/lane/lib/b.dart");
+        expect(gate.offer(frame("ghost"), { uri: other, diagnostics: error })).toEqual([]);
+        expect(gate.size).toBe(0);
+
+        gate.offer(frame("red"), { uri, diagnostics: error });
+        files.delete("/repo/lib/a.dart");
+        clock.now += 5000;
+        expect(gate.release()).toEqual([]);
+        expect(gate.size).toBe(0);
+    });
+
+    test("forwards a set held for the max-hold time even in a project that never goes quiet", () => {
+        const { gate, clock } = fixture(1000, 3000);
+        gate.offer(frame("red"), { uri, diagnostics: error });
+        for (let step = 0; step < 2; step++) {
+            clock.now += 900;
+            gate.touch(uri);
+            expect(gate.release()).toEqual([]);
+        }
+        clock.now += 1200;
+        gate.touch(uri);
+        expect(names(gate.release())).toEqual(["red"]);
+    });
+
+    test("hands back frames that are not held diagnostics untouched", () => {
+        const { gate } = fixture();
+        expect(names(gate.offer(frame("untitled"), { uri: "untitled:Untitled-1", diagnostics: error }))).toEqual(["untitled"]);
+        expect(names(gate.offer(frame("odd"), { uri, diagnostics: "not a list" }))).toEqual(["odd"]);
+        expect(gate.size).toBe(0);
+    });
+
+    test("flush hands back every held frame whose file exists, oldest first, and empties the gate", () => {
+        const { gate, files } = fixture();
+        files.add("/repo/lib/c.dart");
+        gate.offer(frame("first"), { uri, diagnostics: error });
+        gate.offer(frame("second"), { uri: other, diagnostics: error });
+        gate.offer(frame("third"), { uri: "file:///repo/lib/c.dart", diagnostics: error });
+        files.delete("/lane/lib/b.dart");
+
+        expect(names(gate.flush())).toEqual(["first", "third"]);
+        expect(gate.size).toBe(0);
+        expect(gate.nextWake()).toBeUndefined();
+    });
+
+    test("holds a copy of the frame, so a later write to the parser's buffer cannot change it", () => {
+        const { gate, clock } = fixture();
+        const raw = Buffer.from("red");
+        gate.offer(raw, { uri, diagnostics: error });
+        raw.write("XXX");
+
+        clock.now += 1000;
+        expect(names(gate.release())).toEqual(["red"]);
+    });
+
+    test("a zero settle time forwards at once but still drops deleted files", () => {
+        const { gate, files } = fixture(0);
+        expect(names(gate.offer(frame("red"), { uri, diagnostics: error }))).toEqual(["red"]);
+        files.delete("/repo/lib/a.dart");
+        expect(gate.offer(frame("ghost"), { uri, diagnostics: error })).toEqual([]);
     });
 });
 
@@ -526,6 +833,12 @@ describe("proxy process", () => {
         send(message: object): void;
         logged(): Record<string, unknown>[];
         waitFor(predicate: (messages: Record<string, unknown>[]) => boolean): Promise<Record<string, unknown>[]>;
+        /** Frames the proxy wrote to the client, in order. */
+        toClient(): Record<string, unknown>[];
+        /** Asks the fake server to write `message` to its stdout, as a real server would. */
+        emit(message: object): void;
+        /** Asks the fake server to write these bytes to its stdout as they are, framed or not. */
+        emitRaw(bytes: string): void;
         exitCode(): Promise<number | null>;
     }
 
@@ -537,7 +850,7 @@ describe("proxy process", () => {
         Bun.spawnSync(["mkdir", "-p", workspace]);
         writeFileSync(fakeServer, [
             `import { appendFileSync } from "node:fs";`,
-            `import { FrameParser } from ${JSON.stringify(proxyModule)};`,
+            `import { frameMessage, FrameParser } from ${JSON.stringify(proxyModule)};`,
             `const parser = new FrameParser();`,
             `process.stdin.on("data", (chunk) => {`,
             `    for (const event of parser.push(chunk)) {`,
@@ -545,6 +858,16 @@ describe("proxy process", () => {
             `            ? event.body.toString("utf8")`,
             `            : JSON.stringify({ raw: event.raw.toString("utf8") });`,
             `        appendFileSync(process.argv[2], line + "\\n");`,
+            `        if (event.kind === "message") {`,
+            `            const message = JSON.parse(event.body.toString("utf8"));`,
+            `            if (message.method === "test/emit") {`,
+            `                process.stdout.write(frameMessage(JSON.stringify(message.params)));`,
+            `            } else if (message.method === "test/raw") {`,
+            `                process.stdout.write(message.params.bytes);`,
+            `            } else if (message.method === "test/exit") {`,
+            `                process.stdout.write("", () => process.exit(0));`,
+            `            }`,
+            `        }`,
             `    }`,
             `});`,
             `process.stdin.on("end", () => process.exit(3));`,
@@ -568,13 +891,28 @@ describe("proxy process", () => {
             .filter((line) => line !== "")
             .map((line) => JSON.parse(line) as Record<string, unknown>);
 
+        const clientParser = new FrameParser();
+        const received: Record<string, unknown>[] = [];
+        proxy.stdout.on("data", (chunk: Buffer) => {
+            for (const event of clientParser.push(chunk)) {
+                if (event.kind === "message") {
+                    received.push(JSON.parse(event.body.toString("utf8")) as Record<string, unknown>);
+                }
+            }
+        });
+
+        const send = (message: object): void => {
+            proxy.stdin.write(frameMessage(JSON.stringify({ jsonrpc: "2.0", ...message })));
+        };
+
         return {
             workspace,
             logPath,
             proxy,
-            send: (message: object): void => {
-                proxy.stdin.write(frameMessage(JSON.stringify({ jsonrpc: "2.0", ...message })));
-            },
+            send,
+            toClient: () => received,
+            emit: (message: object): void => send({ method: "test/emit", params: { jsonrpc: "2.0", ...message } }),
+            emitRaw: (bytes: string): void => send({ method: "test/raw", params: { bytes } }),
             logged,
             waitFor: async (predicate) => {
                 const deadline = Date.now() + 3000;
@@ -679,6 +1017,235 @@ describe("proxy process", () => {
         expect(changes.map((change) => change.uri)).toContain(pathToFileURL(file).href);
         const accepted: number[] = [FileChangeType.Created, FileChangeType.Changed];
         expect(accepted).toContain(changes[0]!.type);
+    });
+
+    function publish(uri: string, messages: string[]): object {
+        return {
+            method: "textDocument/publishDiagnostics",
+            params: { uri, diagnostics: messages.map((message) => ({ message })) },
+        };
+    }
+
+    function diagnosticsAt(harness: Harness, uri: string): number[] {
+        return harness.toClient()
+            .filter((message) => message.method === "textDocument/publishDiagnostics")
+            .map((message) => message.params as { uri: string; diagnostics: unknown[] })
+            .filter((params) => params.uri === uri)
+            .map((params) => params.diagnostics.length);
+    }
+
+    async function untilDelivered(harness: Harness, uri: string): Promise<void> {
+        const deadline = Date.now() + 3000;
+        while (diagnosticsAt(harness, uri).length === 0 && Date.now() < deadline) {
+            await Bun.sleep(20);
+        }
+    }
+
+    test("holds a diagnostic until the project is quiet, then forwards it once", async () => {
+        const harness = startProxy(["--settle", "400"]);
+        const file = join(harness.workspace, "held.dart");
+        const uri = pathToFileURL(file).href;
+        writeFileSync(file, "a\n");
+
+        harness.emit(publish(uri, ["Undefined name 'A'."]));
+        await harness.waitFor((messages) => methods(messages).includes("test/emit"));
+        await Bun.sleep(200);
+        expect(diagnosticsAt(harness, uri)).toEqual([]);
+
+        await untilDelivered(harness, uri);
+        await Bun.sleep(600);
+        expect(diagnosticsAt(harness, uri)).toEqual([1]);
+    });
+
+    test("drops a held diagnostic the server withdraws before the quiet time ends", async () => {
+        const harness = startProxy(["--settle", "500"]);
+        const file = join(harness.workspace, "fixed.dart");
+        const uri = pathToFileURL(file).href;
+        writeFileSync(file, "a\n");
+
+        harness.emit(publish(uri, ["Undefined name 'A'."]));
+        harness.emit(publish(uri, []));
+        await Bun.sleep(900);
+
+        expect(diagnosticsAt(harness, uri)).toEqual([0]);
+    });
+
+    test("never forwards diagnostics for a file that is gone, and passes other server output at once", async () => {
+        const harness = startProxy(["--settle", "10000"]);
+        const gone = pathToFileURL(join(harness.workspace, "removed-worktree", "a.dart")).href;
+
+        harness.emit(publish(gone, ["Target of URI doesn't exist."]));
+        harness.emit({ method: "window/logMessage", params: { type: 3, message: "hello" } });
+        // Starting the fake server can take over a second on a loaded machine, so wait as long as waitFor does.
+        const deadline = Date.now() + 3000;
+        while (harness.toClient().length === 0 && Date.now() < deadline) {
+            await Bun.sleep(10);
+        }
+
+        // The log line is back long before the 10 s quiet time, and the ghost set never follows it.
+        expect(harness.toClient().map((message) => message.method)).toEqual(["window/logMessage"]);
+        await Bun.sleep(300);
+        expect(diagnosticsAt(harness, gone)).toEqual([]);
+    });
+
+    test("removes diagnostics above the severity cap and keeps the rest of the message", async () => {
+        const harness = startProxy(["--settle", "0", "--max-severity", "2"]);
+        const file = join(harness.workspace, "mixed.dart");
+        const uri = pathToFileURL(file).href;
+        writeFileSync(file, "a\n");
+
+        harness.emit({
+            method: "textDocument/publishDiagnostics",
+            params: { uri, version: 3, diagnostics: [
+                { message: "error", severity: 1 },
+                { message: "hint", severity: 4 },
+                { message: "warning", severity: 2 },
+            ] },
+        });
+        await untilDelivered(harness, uri);
+
+        const [forwarded] = harness.toClient();
+        expect(forwarded).toEqual({
+            jsonrpc: "2.0",
+            method: "textDocument/publishDiagnostics",
+            params: { uri, version: 3, diagnostics: [
+                { message: "error", severity: 1 },
+                { message: "warning", severity: 2 },
+            ] },
+        });
+    });
+
+    test("a publish whose diagnostics are all filtered goes out empty, at once, never held", async () => {
+        const harness = startProxy(["--settle", "60000", "--max-severity", "1"]);
+        const file = join(harness.workspace, "hints.dart");
+        const uri = pathToFileURL(file).href;
+        writeFileSync(file, "a\n");
+
+        harness.emit({
+            method: "textDocument/publishDiagnostics",
+            params: { uri, diagnostics: [{ message: "hint", severity: 4 }] },
+        });
+        const deadline = Date.now() + 1500;
+        while (harness.toClient().length === 0 && Date.now() < deadline) {
+            await Bun.sleep(10);
+        }
+
+        expect(diagnosticsAt(harness, uri)).toEqual([0]);
+    });
+
+    test("drops a held diagnostic whose file is deleted before the quiet time ends", async () => {
+        const harness = startProxy(["--settle", "400"]);
+        const file = join(harness.workspace, "doomed.dart");
+        const uri = pathToFileURL(file).href;
+        writeFileSync(file, "a\n");
+
+        harness.emit(publish(uri, ["Undefined name 'A'."]));
+        await harness.waitFor((messages) => methods(messages).includes("test/emit"));
+        rmSync(file);
+        await Bun.sleep(900);
+
+        expect(diagnosticsAt(harness, uri)).toEqual([]);
+    });
+
+    test("forwards a held diagnostic after the max-hold time while edits keep the project busy", async () => {
+        const harness = startProxy(["--settle", "5000", "--max-hold", "500"]);
+        const file = join(harness.workspace, "never-quiet.dart");
+        const uri = pathToFileURL(file).href;
+        writeFileSync(file, "a\n");
+        harness.send({ method: "textDocument/didOpen", params: { textDocument: { uri, languageId: "dart", version: 1, text: "a\n" } } });
+        await harness.waitFor((messages) => messages.length === 1);
+
+        harness.emit(publish(uri, ["Undefined name 'A'."]));
+        const start = Date.now();
+        while (diagnosticsAt(harness, uri).length === 0 && Date.now() - start < 2500) {
+            harness.send({ method: "textDocument/didSave", params: { textDocument: { uri } } });
+            await Bun.sleep(100);
+        }
+
+        expect(diagnosticsAt(harness, uri)).toEqual([1]);
+        expect(Date.now() - start).toBeLessThan(2500);
+    });
+
+    test("flushes held diagnostics ahead of raw bytes when the server's framing is abandoned", async () => {
+        const harness = startProxy(["--settle", "60000"]);
+        const file = join(harness.workspace, "flushed.dart");
+        const uri = pathToFileURL(file).href;
+        writeFileSync(file, "a\n");
+
+        harness.emit(publish(uri, ["Undefined name 'A'."]));
+        harness.emitRaw("Broken-Header\r\n\r\nxx");
+        await untilDelivered(harness, uri);
+
+        // Delivered long before the 60 s quiet time, and whole: the client parser read it as a frame.
+        expect(diagnosticsAt(harness, uri)).toEqual([1]);
+    });
+
+    test("holds and filters a publish from a server that escapes the slash in the method name", async () => {
+        const harness = startProxy(["--settle", "400", "--max-severity", "1"]);
+        const file = join(harness.workspace, "escaped.swift");
+        const uri = pathToFileURL(file).href;
+        writeFileSync(file, "a\n");
+
+        const body = JSON.stringify({
+            jsonrpc: "2.0",
+            method: "textDocument/publishDiagnostics",
+            params: { uri, diagnostics: [{ message: "never used", severity: 2 }, { message: "type error", severity: 1 }] },
+        }).replace("textDocument/publishDiagnostics", "textDocument\\/publishDiagnostics");
+        expect(body).toContain("textDocument\\/publishDiagnostics");
+        harness.emitRaw(frameMessage(body).toString("utf8"));
+        await harness.waitFor((messages) => methods(messages).includes("test/raw"));
+        await Bun.sleep(200);
+        expect(diagnosticsAt(harness, uri)).toEqual([]);
+
+        await untilDelivered(harness, uri);
+        await Bun.sleep(300);
+        expect(diagnosticsAt(harness, uri)).toEqual([1]);
+    });
+
+    test("flushes held diagnostics when the server's output ends", async () => {
+        const harness = startProxy(["--settle", "60000"]);
+        const file = join(harness.workspace, "ended.dart");
+        const uri = pathToFileURL(file).href;
+        writeFileSync(file, "a\n");
+
+        harness.emit(publish(uri, ["Undefined name 'A'."]));
+        harness.send({ method: "test/exit", params: {} });
+        const exit = harness.exitCode();
+        await exit;
+
+        expect(diagnosticsAt(harness, uri)).toEqual([1]);
+    });
+
+    test("still releases a held diagnostic after the client's framing is abandoned", async () => {
+        const harness = startProxy(["--settle", "300"]);
+        const file = join(harness.workspace, "client-raw.dart");
+        const uri = pathToFileURL(file).href;
+        writeFileSync(file, "a\n");
+
+        harness.emit(publish(uri, ["Undefined name 'A'."]));
+        await harness.waitFor((messages) => methods(messages).includes("test/emit"));
+        harness.proxy.stdin.write("Broken-Header\r\n\r\n");
+        await untilDelivered(harness, uri);
+
+        expect(diagnosticsAt(harness, uri)).toEqual([1]);
+    });
+
+    test("an edit in the same project restarts the quiet time of a held diagnostic", async () => {
+        const harness = startProxy(["--settle", "500"]);
+        const file = join(harness.workspace, "busy.dart");
+        const uri = pathToFileURL(file).href;
+        writeFileSync(file, "a\n");
+        harness.send({ method: "textDocument/didOpen", params: { textDocument: { uri, languageId: "dart", version: 1, text: "a\n" } } });
+        await harness.waitFor((messages) => messages.length === 1);
+
+        harness.emit(publish(uri, ["Undefined name 'A'."]));
+        await Bun.sleep(350);
+        harness.send({ method: "textDocument/didSave", params: { textDocument: { uri } } });
+        await Bun.sleep(350);
+        expect(diagnosticsAt(harness, uri)).toEqual([]);
+
+        await untilDelivered(harness, uri);
+        expect(diagnosticsAt(harness, uri)).toEqual([1]);
     });
 
     test("writes nothing synthetic once framing is abandoned", async () => {

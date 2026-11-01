@@ -213,6 +213,14 @@ function syncedUri(message) {
   const uri = message.params?.textDocument?.uri;
   return DOCUMENT_SYNC_METHODS.has(message.method) && typeof uri === "string" ? uri : undefined;
 }
+var EDIT_METHODS = new Set([
+  ...DOCUMENT_SYNC_METHODS,
+  "textDocument/didSave"
+]);
+function editedUri(message) {
+  const uri = message.params?.textDocument?.uri;
+  return EDIT_METHODS.has(message.method) && typeof uri === "string" ? uri : undefined;
+}
 function filePathOf(uri) {
   return uri.startsWith("file:") ? fileURLToPath(uri) : undefined;
 }
@@ -236,6 +244,7 @@ function sweepDocuments(table, deps, options) {
     }
     document.text = text;
     document.version += 1;
+    options.onChange?.(document.uri);
     bodies.push(JSON.stringify({
       jsonrpc: "2.0",
       method: "textDocument/didChange",
@@ -448,6 +457,186 @@ function resolveWorkspaceRoot(params, cwd) {
   }
   return cwd;
 }
+var DEFAULT_SETTLE_MS = 6000;
+var DEFAULT_MAX_HOLD_MS = 300000;
+function findProjectRoot(path, exists) {
+  let directory = dirname(path);
+  for (;; ) {
+    if (exists(join(directory, ".git"))) {
+      return directory;
+    }
+    const parent = dirname(directory);
+    if (parent === directory) {
+      return dirname(path);
+    }
+    directory = parent;
+  }
+}
+var NOISE_PROFILES = {
+  typescript: [
+    {
+      codes: ["2307", "2792", "7016", "2688", "2580", "2591", "2581", "2592", "2582", "2593", "7026"],
+      keep: /module '[./]/,
+      missing: ["node_modules"]
+    }
+  ],
+  swift: [
+    {
+      message: /^The package access level used on/
+    },
+    {
+      message: /^No such module '/,
+      missing: ["Package.swift", "compile_commands.json", "buildServer.json"]
+    }
+  ],
+  markdown: [
+    {
+      codes: ["2"],
+      severity: 1
+    }
+  ]
+};
+function isNoise(diagnostic, path, options) {
+  const severity = typeof diagnostic.severity === "number" ? diagnostic.severity : 1;
+  if (severity > options.maxSeverity) {
+    return true;
+  }
+  const message = String(diagnostic.message ?? "");
+  const code = String(diagnostic.code ?? "");
+  return options.rules.some((rule) => {
+    const matched = rule.codes?.includes(code) === true || rule.message?.test(message) === true;
+    if (!matched || rule.keep?.test(message) === true || rule.severity !== undefined && rule.severity !== severity) {
+      return false;
+    }
+    return rule.missing === undefined || rule.missing.every((name) => !options.hasAncestorEntry(path, name));
+  });
+}
+function filterDiagnostics(params, options) {
+  const uri = params.uri;
+  if (typeof uri !== "string" || !uri.startsWith("file:") || !Array.isArray(params.diagnostics)) {
+    return;
+  }
+  let path;
+  try {
+    path = fileURLToPath(uri);
+  } catch {
+    return;
+  }
+  const diagnostics = params.diagnostics;
+  const kept = diagnostics.filter((diagnostic) => !isNoise(diagnostic, path, options));
+  return kept.length === diagnostics.length ? undefined : {
+    ...params,
+    diagnostics: kept
+  };
+}
+function ancestorEntryOnDisk(path, name) {
+  for (let directory = dirname(path);; directory = dirname(directory)) {
+    if (existsSync(join(directory, name))) {
+      return true;
+    }
+    if (dirname(directory) === directory) {
+      return false;
+    }
+  }
+}
+
+class DiagnosticGate {
+  deps;
+  settleMs;
+  maxHoldMs;
+  held = new Map;
+  activity = new Map;
+  constructor(deps, settleMs, maxHoldMs) {
+    this.deps = deps;
+    this.settleMs = settleMs;
+    this.maxHoldMs = maxHoldMs;
+  }
+  get size() {
+    return this.held.size;
+  }
+  offer(raw, params) {
+    const uri = params.uri;
+    if (typeof uri !== "string" || !uri.startsWith("file:")) {
+      return [raw];
+    }
+    if (!Array.isArray(params.diagnostics) || params.diagnostics.length === 0) {
+      this.held.delete(uri);
+      return [raw];
+    }
+    let path;
+    try {
+      path = fileURLToPath(uri);
+    } catch {
+      return [raw];
+    }
+    if (!this.deps.fileExists(path)) {
+      this.held.delete(uri);
+      return [];
+    }
+    if (this.settleMs <= 0) {
+      return [raw];
+    }
+    const now = this.deps.now();
+    this.held.set(uri, {
+      raw: Buffer.from(raw),
+      path,
+      project: this.deps.projectOf(path),
+      firstHeld: this.held.get(uri)?.firstHeld ?? now,
+      lastOffer: now
+    });
+    return [];
+  }
+  touch(uri) {
+    if (!uri.startsWith("file:")) {
+      return;
+    }
+    try {
+      this.activity.set(this.deps.projectOf(fileURLToPath(uri)), this.deps.now());
+    } catch {}
+  }
+  release() {
+    const now = this.deps.now();
+    const frames = [];
+    for (const [uri, held] of this.held) {
+      if (!this.deps.fileExists(held.path)) {
+        this.held.delete(uri);
+      } else if (now >= this.dueAt(held)) {
+        frames.push(held.raw);
+        this.held.delete(uri);
+      }
+    }
+    return frames;
+  }
+  flush() {
+    const frames = [];
+    for (const held of this.held.values()) {
+      if (this.deps.fileExists(held.path)) {
+        frames.push(held.raw);
+      }
+    }
+    this.held.clear();
+    return frames;
+  }
+  nextWake() {
+    let earliest;
+    for (const held of this.held.values()) {
+      const due = this.dueAt(held);
+      earliest = earliest === undefined ? due : Math.min(earliest, due);
+    }
+    return earliest === undefined ? undefined : Math.max(0, earliest - this.deps.now());
+  }
+  dueAt(held) {
+    const quiet = Math.max(held.lastOffer, this.activity.get(held.project) ?? 0) + this.settleMs;
+    return Math.min(quiet, held.firstHeld + this.maxHoldMs);
+  }
+}
+var MAX_TIMER_MS = 2147483647;
+function parseMilliseconds(flag, value) {
+  if (value === undefined || !/^\d+$/.test(value) || Number(value) > MAX_TIMER_MS) {
+    throw new Error(`"${flag}" needs a whole number of milliseconds up to ${MAX_TIMER_MS}`);
+  }
+  return Number(value);
+}
 function parseProxyArgs(argv) {
   const separator = argv.indexOf("--");
   if (separator === -1) {
@@ -458,6 +647,10 @@ function parseProxyArgs(argv) {
     throw new Error('missing server command after "--"');
   }
   let watchRoot = false;
+  let settleMs = DEFAULT_SETTLE_MS;
+  let maxHoldMs = DEFAULT_MAX_HOLD_MS;
+  let maxSeverity = 4;
+  const profiles = [];
   const extensions = [];
   const flags = argv.slice(0, separator);
   for (let index = 0;index < flags.length; index++) {
@@ -470,11 +663,39 @@ function parseProxyArgs(argv) {
       extensions.push(flags[++index]);
       continue;
     }
+    if (flag === "--settle") {
+      settleMs = parseMilliseconds(flag, flags[++index]);
+      continue;
+    }
+    if (flag === "--max-hold") {
+      maxHoldMs = parseMilliseconds(flag, flags[++index]);
+      continue;
+    }
+    if (flag === "--max-severity") {
+      const value = flags[++index];
+      if (value === undefined || !/^[1-4]$/.test(value)) {
+        throw new Error('"--max-severity" needs 1 (errors), 2 (and warnings), 3 (and information) or 4 (everything)');
+      }
+      maxSeverity = Number(value);
+      continue;
+    }
+    if (flag === "--profile") {
+      const name = flags[++index];
+      if (name === undefined || !Object.hasOwn(NOISE_PROFILES, name)) {
+        throw new Error(`"--profile" needs one of: ${Object.keys(NOISE_PROFILES).join(", ")}`);
+      }
+      profiles.push(name);
+      continue;
+    }
     throw new Error(`unknown or incomplete option "${flag}"`);
   }
   return {
     watchRoot,
     extensions: extensions.length > 0 ? extensions : [".php"],
+    settleMs,
+    maxHoldMs,
+    maxSeverity,
+    profiles,
     command,
     args: argv.slice(separator + 2)
   };
@@ -519,13 +740,44 @@ function diskDeps(log) {
     }
   };
 }
+function diskGateDeps() {
+  const roots = new Map;
+  return {
+    now: () => Date.now(),
+    fileExists: (path) => existsSync(path),
+    projectOf: (path) => {
+      const directory = dirname(path);
+      let root = roots.get(directory);
+      if (root === undefined) {
+        root = findProjectRoot(path, existsSync);
+        roots.set(directory, root);
+      }
+      return root;
+    }
+  };
+}
+var PUBLISH_MARKERS = [
+  Buffer.from('"textDocument/publishDiagnostics"'),
+  Buffer.from('"textDocument\\/publishDiagnostics"')
+];
+function publishMessage(body) {
+  if (!PUBLISH_MARKERS.some((marker) => body.includes(marker))) {
+    return;
+  }
+  try {
+    const message = JSON.parse(body.toString("utf8"));
+    return message.method === "textDocument/publishDiagnostics" && typeof message.params === "object" && message.params !== null ? message : undefined;
+  } catch {
+    return;
+  }
+}
 function runLspProxy(argv) {
   let options;
   try {
     options = parseProxyArgs(argv);
   } catch (error) {
     process.stderr.write(`${LOG_PREFIX} ${errorMessage(error)}
-` + `usage: lsp-proxy [--watch-root] [--ext .php]... -- <server command> [args...]
+` + `usage: lsp-proxy [--watch-root] [--ext .php]... [--settle <ms>] [--max-hold <ms>] [--max-severity <1-4>] [--profile <name>]... -- <server command> [args...]
 `);
     process.exit(2);
   }
@@ -533,6 +785,15 @@ function runLspProxy(argv) {
   const deps = diskDeps(log);
   const table = new DocumentTable;
   const parser = new FrameParser;
+  const serverParser = new FrameParser;
+  const gate = new DiagnosticGate(diskGateDeps(), options.settleMs, options.maxHoldMs);
+  const filterOptions = {
+    maxSeverity: options.maxSeverity,
+    rules: options.profiles.flatMap((name) => NOISE_PROFILES[name] ?? []),
+    hasAncestorEntry: ancestorEntryOnDisk
+  };
+  let gateTimer;
+  let gateClosed = false;
   const server = spawn(options.command, options.args, {
     stdio: [
       "pipe",
@@ -560,7 +821,11 @@ function runLspProxy(argv) {
     if (passthrough()) {
       return;
     }
-    for (const body of sweepDocuments(table, deps, sweepOptions)) {
+    const synced = {
+      ...sweepOptions,
+      onChange: (uri) => gate.touch(uri)
+    };
+    for (const body of sweepDocuments(table, deps, synced)) {
       toServer(frameMessage(body));
     }
   };
@@ -636,7 +901,9 @@ function runLspProxy(argv) {
     if (!isReportablePath(relative(root, path), options.extensions)) {
       return;
     }
-    batch.record(pathToFileURL(path).href, watchEventType(eventType, existsSync(path)));
+    const uri = pathToFileURL(path).href;
+    gate.touch(uri);
+    batch.record(uri, watchEventType(eventType, existsSync(path)));
     batchTimer ??= setTimeout(flushBatch, WATCH_BATCH_MS);
   };
   const watchRoot = (root) => {
@@ -689,6 +956,10 @@ function runLspProxy(argv) {
       return;
     }
     table.apply(message);
+    const edited = editedUri(message);
+    if (edited !== undefined) {
+      gate.touch(edited);
+    }
     reconcileDirectoryWatchers();
     if (!options.watchRoot) {
       return;
@@ -718,8 +989,62 @@ function runLspProxy(argv) {
     }
     server.stdin.end();
   });
-  server.stdout.pipe(process.stdout, {
-    end: false
+  const toClient = (bytes) => {
+    if (!process.stdout.write(bytes)) {
+      server.stdout.pause();
+    }
+  };
+  process.stdout.on("drain", () => server.stdout.resume());
+  const closeGate = () => {
+    gateClosed = true;
+    clearTimeout(gateTimer);
+    gateTimer = undefined;
+    for (const frame of gate.flush()) {
+      toClient(frame);
+    }
+  };
+  const armGate = () => {
+    clearTimeout(gateTimer);
+    gateTimer = undefined;
+    const wait = gate.nextWake();
+    if (wait === undefined || gateClosed) {
+      return;
+    }
+    gateTimer = setTimeout(() => {
+      gateTimer = undefined;
+      for (const frame of gate.release()) {
+        toClient(frame);
+      }
+      armGate();
+    }, wait);
+  };
+  server.stdout.on("data", (chunk) => {
+    for (const event of serverParser.push(chunk)) {
+      if (event.kind === "raw") {
+        log("server-framing", `framing abandoned on server output, passing it through raw: ${serverParser.failure}`);
+        closeGate();
+        toClient(event.raw);
+        continue;
+      }
+      const published = publishMessage(event.body);
+      if (published === undefined) {
+        toClient(event.raw);
+        continue;
+      }
+      const kept = filterDiagnostics(published.params, filterOptions);
+      const frame = kept === undefined ? event.raw : frameMessage(JSON.stringify({ ...published, params: kept }));
+      for (const out of gate.offer(frame, kept ?? published.params)) {
+        toClient(out);
+      }
+    }
+    armGate();
+  });
+  server.stdout.on("end", () => {
+    closeGate();
+    const rest = serverParser.drain();
+    if (rest.length > 0) {
+      toClient(rest);
+    }
   });
   process.stdout.on("error", (error) => {
     log("stdout", `writing to the client failed, stopping the server: ${errorMessage(error)}`);
@@ -731,6 +1056,8 @@ function runLspProxy(argv) {
     }
     finished = true;
     stopWatching();
+    clearTimeout(gateTimer);
+    gateTimer = undefined;
     if (process.stdout.destroyed) {
       process.exit(code);
     }

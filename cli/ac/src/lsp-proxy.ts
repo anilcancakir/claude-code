@@ -318,6 +318,17 @@ export function syncedUri(message: ClientMessage): string | undefined {
     return DOCUMENT_SYNC_METHODS.has(message.method) && typeof uri === "string" ? uri : undefined;
 }
 
+const EDIT_METHODS: ReadonlySet<unknown> = new Set([
+    ...DOCUMENT_SYNC_METHODS,
+    "textDocument/didSave",
+]);
+
+/** The URI of a document the client just opened, changed, saved or closed: activity in its project. */
+export function editedUri(message: ClientMessage): string | undefined {
+    const uri: unknown = message.params?.textDocument?.uri;
+    return EDIT_METHODS.has(message.method) && typeof uri === "string" ? uri : undefined;
+}
+
 function filePathOf(uri: string): string | undefined {
     return uri.startsWith("file:") ? fileURLToPath(uri) : undefined;
 }
@@ -332,6 +343,8 @@ export interface SweepDeps {
 export interface SweepOptions {
     skipUri?: string;
     directory?: string;
+    /** Called with the URI of each document the sweep sends a didChange for. */
+    onChange?: (uri: string) => void;
 }
 
 /**
@@ -367,6 +380,7 @@ export function sweepDocuments(table: DocumentTable, deps: SweepDeps, options: S
         // 3. Full text, no range: Dart and intelephense both accept it and neither checks versions.
         document.text = text;
         document.version += 1;
+        options.onChange?.(document.uri);
         bodies.push(JSON.stringify({
             jsonrpc: "2.0",
             method: "textDocument/didChange",
@@ -644,15 +658,327 @@ export function resolveWorkspaceRoot(params: any, cwd: string): string {
     return cwd;
 }
 
+/** Quiet time a project needs before its held diagnostics are forwarded, in ms. */
+export const DEFAULT_SETTLE_MS: number = 6000;
+
+/** Longest a diagnostic set is held in a project that never goes quiet, in ms. */
+export const DEFAULT_MAX_HOLD_MS: number = 300_000;
+
+/** The `textDocument/publishDiagnostics` params the gate reads. */
+export interface PublishedDiagnostics {
+    uri?: unknown;
+    diagnostics?: unknown;
+}
+
+/** Clock and disk access for the gate, injected so a test can drive time and the filesystem. */
+export interface GateDeps {
+    now(): number;
+    fileExists(path: string): boolean;
+    projectOf(path: string): string;
+}
+
+interface HeldDiagnostics {
+    raw: Buffer;
+    path: string;
+    project: string;
+    firstHeld: number;
+    lastOffer: number;
+}
+
+/**
+ * The nearest ancestor directory holding a `.git` entry (a directory in a checkout, a file in a
+ * worktree), which is what separates one worktree's activity from another's; the file's own
+ * directory when there is none.
+ */
+export function findProjectRoot(path: string, exists: (path: string) => boolean): string {
+    let directory = dirname(path);
+    for (;;) {
+        if (exists(join(directory, ".git"))) {
+            return directory;
+        }
+        const parent = dirname(directory);
+        if (parent === directory) {
+            return dirname(path);
+        }
+        directory = parent;
+    }
+}
+
+/** One kind of diagnostic that costs an agent tokens and tells it nothing about its code. */
+export interface NoiseRule {
+    /** A diagnostic is matched by its code (compared as text), by its message, or by either. */
+    codes?: readonly string[];
+    message?: RegExp;
+    /** A matched diagnostic whose message also matches this is kept: the real error a noisy code covers. */
+    keep?: RegExp;
+    /** The rule applies only to diagnostics of exactly this LSP severity. */
+    severity?: number;
+    /** The rule applies only while none of these entries exists in any ancestor directory of the file. */
+    missing?: readonly string[];
+}
+
+/**
+ * Rule sets chosen with `--profile`. Each names diagnostics that are symptoms of a missing environment
+ * (dependencies never installed, a package never built) or false positives of the server, not of the code.
+ */
+export const NOISE_PROFILES: Readonly<Record<string, readonly NoiseRule[]>> = {
+    // tsserver: every bare import and every Node global is an error until a node_modules exists above
+    // the file, which is where it resolves them from. A relative import that cannot be found stays an
+    // error, because that one is a typo.
+    typescript: [
+        {
+            codes: ["2307", "2792", "7016", "2688", "2580", "2591", "2581", "2592", "2582", "2593", "7026"],
+            keep: /module '[./]/,
+            missing: ["node_modules"],
+        },
+    ],
+    // sourcekit-lsp: the package-name error is raised for a file compiled with fallback settings and
+    // is never about the code; a missing module is the same symptom in a project with no build description
+    // (no Package.swift, compile_commands.json or buildServer.json, an Xcode project). A Swift package
+    // creates its own `.build` within a fraction of a second, so that is no signal; in a package the module
+    // is found once indexing has built it, and the gate holds the transient publish until then.
+    swift: [
+        {
+            message: /^The package access level used on/,
+        },
+        {
+            message: /^No such module '/,
+            missing: ["Package.swift", "compile_commands.json", "buildServer.json"],
+        },
+    ],
+    // marksman: code 2 is a link to a document that does not exist, an error for a [[wiki link]] and a
+    // warning for a [text](path) link. Only the second kind is a broken link in a document an agent writes;
+    // a wiki link names a note that may not exist yet, which the memory notes allow by convention.
+    markdown: [
+        {
+            codes: ["2"],
+            severity: 1,
+        },
+    ],
+};
+
+/** What `filterDiagnostics` drops: everything less severe than `maxSeverity` and whatever a rule matches. */
+export interface DiagnosticFilterOptions {
+    /** LSP severity numbers: 1 error, 2 warning, 3 information, 4 hint. */
+    maxSeverity: number;
+    rules: readonly NoiseRule[];
+    /** Whether `name` exists in `path`'s directory or any directory above it. */
+    hasAncestorEntry(path: string, name: string): boolean;
+}
+
+interface LspDiagnostic {
+    severity?: unknown;
+    code?: unknown;
+    message?: unknown;
+}
+
+function isNoise(diagnostic: LspDiagnostic, path: string, options: DiagnosticFilterOptions): boolean {
+    const severity = typeof diagnostic.severity === "number" ? diagnostic.severity : 1;
+    if (severity > options.maxSeverity) {
+        return true;
+    }
+
+    const message = String(diagnostic.message ?? "");
+    const code = String(diagnostic.code ?? "");
+    return options.rules.some((rule) => {
+        const matched = rule.codes?.includes(code) === true || rule.message?.test(message) === true;
+        if (!matched || rule.keep?.test(message) === true || (rule.severity !== undefined && rule.severity !== severity)) {
+            return false;
+        }
+        return rule.missing === undefined || rule.missing.every((name) => !options.hasAncestorEntry(path, name));
+    });
+}
+
+/**
+ * Returns the params without the diagnostics an agent gains nothing from, or undefined when nothing was
+ * dropped, so the caller can keep forwarding the server's own bytes. A publish for a URI that is not a
+ * local file is left alone.
+ */
+export function filterDiagnostics(
+    params: PublishedDiagnostics,
+    options: DiagnosticFilterOptions,
+): PublishedDiagnostics | undefined {
+    const uri = params.uri;
+    if (typeof uri !== "string" || !uri.startsWith("file:") || !Array.isArray(params.diagnostics)) {
+        return undefined;
+    }
+
+    let path: string;
+    try {
+        path = fileURLToPath(uri);
+    } catch {
+        return undefined;
+    }
+    const diagnostics = params.diagnostics as LspDiagnostic[];
+    const kept = diagnostics.filter((diagnostic) => !isNoise(diagnostic, path, options));
+    return kept.length === diagnostics.length ? undefined : {
+        ...params,
+        diagnostics: kept,
+    };
+}
+
+/** Whether `name` exists in `path`'s directory or any directory above it, which is how a resolver finds `node_modules`. */
+function ancestorEntryOnDisk(path: string, name: string): boolean {
+    for (let directory = dirname(path); ; directory = dirname(directory)) {
+        if (existsSync(join(directory, name))) {
+            return true;
+        }
+        if (dirname(directory) === directory) {
+            return false;
+        }
+    }
+}
+
+/**
+ * Decides when a server's `publishDiagnostics` reaches the client.
+ *
+ * Claude Code keeps every non-empty publish as pending until its next turn and never withdraws one,
+ * so a diagnostic that the server retracts a second later is still shown, and the model learns to
+ * call every diagnostic stale. The gate therefore holds a non-empty set for a file until its project
+ * (see `findProjectRoot`) has been quiet for `settleMs`, counted from the last client edit, synced
+ * disk change or republish for that file. A newer publish replaces the held one, an empty publish
+ * drops it, and a set whose file no longer exists is dropped, because a deleted worktree's files
+ * stay open in the server and it keeps republishing errors for them. A set held for `maxHoldMs` is
+ * forwarded regardless, so a project that never goes quiet still hears about a real error.
+ *
+ * Contract: only non-empty publishes for existing `file:` URIs are ever held. Everything else is
+ * returned at once, byte for byte, and `settleMs <= 0` turns holding off but keeps the deleted-file drop.
+ */
+export class DiagnosticGate {
+    private readonly deps: GateDeps;
+    private readonly settleMs: number;
+    private readonly maxHoldMs: number;
+    private readonly held: Map<string, HeldDiagnostics> = new Map();
+    private readonly activity: Map<string, number> = new Map();
+
+    public constructor(deps: GateDeps, settleMs: number, maxHoldMs: number) {
+        this.deps = deps;
+        this.settleMs = settleMs;
+        this.maxHoldMs = maxHoldMs;
+    }
+
+    public get size(): number {
+        return this.held.size;
+    }
+
+    /** Takes one server publish (`raw` is the whole frame) and returns the frames to forward now. */
+    public offer(raw: Buffer, params: PublishedDiagnostics): Buffer[] {
+        const uri = params.uri;
+        if (typeof uri !== "string" || !uri.startsWith("file:")) {
+            return [raw];
+        }
+        if (!Array.isArray(params.diagnostics) || params.diagnostics.length === 0) {
+            this.held.delete(uri);
+            return [raw];
+        }
+
+        let path: string;
+        try {
+            path = fileURLToPath(uri);
+        } catch {
+            return [raw];
+        }
+        if (!this.deps.fileExists(path)) {
+            this.held.delete(uri);
+            return [];
+        }
+        if (this.settleMs <= 0) {
+            return [raw];
+        }
+
+        // A copy: `raw` is a view into the parser's buffer, which would stay alive for as long as the set is held.
+        const now = this.deps.now();
+        this.held.set(uri, {
+            raw: Buffer.from(raw),
+            path,
+            project: this.deps.projectOf(path),
+            firstHeld: this.held.get(uri)?.firstHeld ?? now,
+            lastOffer: now,
+        });
+        return [];
+    }
+
+    /** Records an edit, a synced disk change or a watcher event for the file's project. */
+    public touch(uri: string): void {
+        if (!uri.startsWith("file:")) {
+            return;
+        }
+        try {
+            this.activity.set(this.deps.projectOf(fileURLToPath(uri)), this.deps.now());
+        } catch {
+            // A URI that is not a local path has no project to mark.
+        }
+    }
+
+    /** Returns the held frames whose project has gone quiet or whose hold ran out, and forgets them. */
+    public release(): Buffer[] {
+        const now = this.deps.now();
+        const frames: Buffer[] = [];
+        for (const [uri, held] of this.held) {
+            if (!this.deps.fileExists(held.path)) {
+                this.held.delete(uri);
+            } else if (now >= this.dueAt(held)) {
+                frames.push(held.raw);
+                this.held.delete(uri);
+            }
+        }
+        return frames;
+    }
+
+    /** Returns every held frame whose file still exists, oldest first, and forgets them all. */
+    public flush(): Buffer[] {
+        const frames: Buffer[] = [];
+        for (const held of this.held.values()) {
+            if (this.deps.fileExists(held.path)) {
+                frames.push(held.raw);
+            }
+        }
+        this.held.clear();
+        return frames;
+    }
+
+    /** Milliseconds until the earliest held set could be due; undefined when nothing is held. */
+    public nextWake(): number | undefined {
+        let earliest: number | undefined;
+        for (const held of this.held.values()) {
+            const due = this.dueAt(held);
+            earliest = earliest === undefined ? due : Math.min(earliest, due);
+        }
+        return earliest === undefined ? undefined : Math.max(0, earliest - this.deps.now());
+    }
+
+    private dueAt(held: HeldDiagnostics): number {
+        const quiet = Math.max(held.lastOffer, this.activity.get(held.project) ?? 0) + this.settleMs;
+        return Math.min(quiet, held.firstHeld + this.maxHoldMs);
+    }
+}
+
 /** Parsed command line: proxy flags, then the server command after `--`. */
 export interface ProxyOptions {
     watchRoot: boolean;
     extensions: string[];
+    settleMs: number;
+    maxHoldMs: number;
+    maxSeverity: number;
+    profiles: string[];
     command: string;
     args: string[];
 }
 
-/** Parses `[--watch-root] [--ext <.ext>]... -- <command> [args...]`; throws an Error naming the problem. */
+/** Largest delay a Node timer takes; a larger one is clamped to 1 ms and would spin the gate's timer. */
+const MAX_TIMER_MS: number = 2_147_483_647;
+
+function parseMilliseconds(flag: string, value: string | undefined): number {
+    if (value === undefined || !/^\d+$/.test(value) || Number(value) > MAX_TIMER_MS) {
+        throw new Error(`"${flag}" needs a whole number of milliseconds up to ${MAX_TIMER_MS}`);
+    }
+    return Number(value);
+}
+
+/**
+ * Parses `[--watch-root] [--ext <.ext>]... [--settle <ms>] [--max-hold <ms>] [--max-severity <1-4>]
+ * [--profile <name>]... -- <command> [args...]`; throws an Error naming the problem.
+ */
 export function parseProxyArgs(argv: string[]): ProxyOptions {
     const separator = argv.indexOf("--");
     if (separator === -1) {
@@ -664,6 +990,10 @@ export function parseProxyArgs(argv: string[]): ProxyOptions {
     }
 
     let watchRoot = false;
+    let settleMs = DEFAULT_SETTLE_MS;
+    let maxHoldMs = DEFAULT_MAX_HOLD_MS;
+    let maxSeverity = 4;
+    const profiles: string[] = [];
     const extensions: string[] = [];
     const flags = argv.slice(0, separator);
     for (let index = 0; index < flags.length; index++) {
@@ -676,12 +1006,40 @@ export function parseProxyArgs(argv: string[]): ProxyOptions {
             extensions.push(flags[++index]!);
             continue;
         }
+        if (flag === "--settle") {
+            settleMs = parseMilliseconds(flag, flags[++index]);
+            continue;
+        }
+        if (flag === "--max-hold") {
+            maxHoldMs = parseMilliseconds(flag, flags[++index]);
+            continue;
+        }
+        if (flag === "--max-severity") {
+            const value = flags[++index];
+            if (value === undefined || !/^[1-4]$/.test(value)) {
+                throw new Error("\"--max-severity\" needs 1 (errors), 2 (and warnings), 3 (and information) or 4 (everything)");
+            }
+            maxSeverity = Number(value);
+            continue;
+        }
+        if (flag === "--profile") {
+            const name = flags[++index];
+            if (name === undefined || !Object.hasOwn(NOISE_PROFILES, name)) {
+                throw new Error(`"--profile" needs one of: ${Object.keys(NOISE_PROFILES).join(", ")}`);
+            }
+            profiles.push(name);
+            continue;
+        }
         throw new Error(`unknown or incomplete option "${flag}"`);
     }
 
     return {
         watchRoot,
         extensions: extensions.length > 0 ? extensions : [".php"],
+        settleMs,
+        maxHoldMs,
+        maxSeverity,
+        profiles,
         command,
         args: argv.slice(separator + 2),
     };
@@ -731,15 +1089,69 @@ function diskDeps(log: OnceLogger): SweepDeps {
     };
 }
 
+/** Real clock and disk for the gate; a directory's project root is looked up once. */
+function diskGateDeps(): GateDeps {
+    const roots = new Map<string, string>();
+    return {
+        now: (): number => Date.now(),
+        fileExists: (path: string): boolean => existsSync(path),
+        projectOf: (path: string): string => {
+            const directory = dirname(path);
+            let root = roots.get(directory);
+            if (root === undefined) {
+                root = findProjectRoot(path, existsSync);
+                roots.set(directory, root);
+            }
+            return root;
+        },
+    };
+}
+
+// Both spellings parse to the same method name. sourcekit-lsp writes the escaped one (`\/`, as Foundation's
+// JSONEncoder does), and a search for the plain one alone would forward its diagnostics raw and at once.
+const PUBLISH_MARKERS: Buffer[] = [
+    Buffer.from("\"textDocument/publishDiagnostics\""),
+    Buffer.from("\"textDocument\\/publishDiagnostics\""),
+];
+
+/** A `textDocument/publishDiagnostics` notification as parsed from a server's body. */
+export interface PublishMessage {
+    method: "textDocument/publishDiagnostics";
+    params: PublishedDiagnostics;
+    [key: string]: unknown;
+}
+
 /**
- * Runs the proxy: `[--watch-root] [--ext .php]... -- <server command> [args...]`.
+ * The parsed `textDocument/publishDiagnostics` notification in a body, or undefined for any other
+ * message. Large responses never reach the JSON parser: the method name has to appear in the bytes
+ * first, and a body that is not JSON is simply forwarded untouched by the caller.
+ */
+export function publishMessage(body: Buffer): PublishMessage | undefined {
+    if (!PUBLISH_MARKERS.some((marker) => body.includes(marker))) {
+        return undefined;
+    }
+    try {
+        const message = JSON.parse(body.toString("utf8")) as ClientMessage;
+        return message.method === "textDocument/publishDiagnostics" && typeof message.params === "object" && message.params !== null
+            ? message as PublishMessage
+            : undefined;
+    } catch {
+        return undefined;
+    }
+}
+
+/**
+ * Runs the proxy: `[--watch-root] [--ext .php]... [--settle <ms>] [--max-hold <ms>] [--max-severity <1-4>]
+ * [--profile <name>]... -- <server command> [args...]`.
  *
  * Spawns the server and relays both directions. Client messages are forwarded byte for byte; before
  * each one, and 150 ms after any change in a directory holding an open document, the proxy writes
  * full-text didChange notifications for open documents whose disk text moved. With `--watch-root`
  * it also turns changes under the workspace root into batched `workspace/didChangeWatchedFiles`.
- * Server stdout and stderr pass through untouched; the proxy exits with the server's exit code, or 1
- * when the server dies on a signal or cannot be spawned, and 2 on a bad command line.
+ * Server output is forwarded byte for byte too, except `textDocument/publishDiagnostics`: diagnostics
+ * less severe than `--max-severity` or matched by a `--profile` are removed, and the gate drops sets
+ * for deleted files and holds the rest until the project goes quiet. Server stderr passes through untouched; the proxy exits with the server's exit code,
+ * or 1 when the server dies on a signal or cannot be spawned, and 2 on a bad command line.
  */
 export function runLspProxy(argv: string[]): void {
     let options: ProxyOptions;
@@ -748,7 +1160,7 @@ export function runLspProxy(argv: string[]): void {
     } catch (error) {
         process.stderr.write(
             `${LOG_PREFIX} ${errorMessage(error)}\n`
-            + "usage: lsp-proxy [--watch-root] [--ext .php]... -- <server command> [args...]\n",
+            + "usage: lsp-proxy [--watch-root] [--ext .php]... [--settle <ms>] [--max-hold <ms>] [--max-severity <1-4>] [--profile <name>]... -- <server command> [args...]\n",
         );
         process.exit(2);
     }
@@ -757,6 +1169,15 @@ export function runLspProxy(argv: string[]): void {
     const deps = diskDeps(log);
     const table = new DocumentTable();
     const parser = new FrameParser();
+    const serverParser = new FrameParser();
+    const gate = new DiagnosticGate(diskGateDeps(), options.settleMs, options.maxHoldMs);
+    const filterOptions: DiagnosticFilterOptions = {
+        maxSeverity: options.maxSeverity,
+        rules: options.profiles.flatMap((name) => NOISE_PROFILES[name] ?? []),
+        hasAncestorEntry: ancestorEntryOnDisk,
+    };
+    let gateTimer: NodeJS.Timeout | undefined;
+    let gateClosed = false;
     const server = spawn(options.command, options.args, {
         stdio: [
             "pipe",
@@ -792,7 +1213,11 @@ export function runLspProxy(argv: string[]): void {
         if (passthrough()) {
             return;
         }
-        for (const body of sweepDocuments(table, deps, sweepOptions)) {
+        const synced = {
+            ...sweepOptions,
+            onChange: (uri: string): void => gate.touch(uri),
+        };
+        for (const body of sweepDocuments(table, deps, synced)) {
             toServer(frameMessage(body));
         }
     };
@@ -877,7 +1302,9 @@ export function runLspProxy(argv: string[]): void {
         if (!isReportablePath(relative(root, path), options.extensions)) {
             return;
         }
-        batch.record(pathToFileURL(path).href, watchEventType(eventType, existsSync(path)));
+        const uri = pathToFileURL(path).href;
+        gate.touch(uri);
+        batch.record(uri, watchEventType(eventType, existsSync(path)));
         batchTimer ??= setTimeout(flushBatch, WATCH_BATCH_MS);
     };
 
@@ -945,6 +1372,10 @@ export function runLspProxy(argv: string[]): void {
             return;
         }
         table.apply(message);
+        const edited = editedUri(message);
+        if (edited !== undefined) {
+            gate.touch(edited);
+        }
         reconcileDirectoryWatchers();
 
         // 4. The root comes from initialize, but watching waits for initialized: a server must not get a
@@ -979,8 +1410,72 @@ export function runLspProxy(argv: string[]): void {
         server.stdin.end();
     });
 
-    server.stdout.pipe(process.stdout, {
-        end: false,
+    // A whole frame per write, like toServer, so a released diagnostic never lands inside a forwarded one.
+    const toClient = (bytes: Buffer): void => {
+        if (!process.stdout.write(bytes)) {
+            server.stdout.pause();
+        }
+    };
+    process.stdout.on("drain", () => server.stdout.resume());
+
+    // Called when the server's byte stream stops being whole frames (framing abandoned, or the stream
+    // ended): everything held is older than what follows and the stream is at a frame boundary now, so
+    // it goes out first, and nothing is held again, because a later write could land inside a frame.
+    const closeGate = (): void => {
+        gateClosed = true;
+        clearTimeout(gateTimer);
+        gateTimer = undefined;
+        for (const frame of gate.flush()) {
+            toClient(frame);
+        }
+    };
+
+    const armGate = (): void => {
+        clearTimeout(gateTimer);
+        gateTimer = undefined;
+        const wait = gate.nextWake();
+        if (wait === undefined || gateClosed) {
+            return;
+        }
+        gateTimer = setTimeout(() => {
+            gateTimer = undefined;
+            for (const frame of gate.release()) {
+                toClient(frame);
+            }
+            armGate();
+        }, wait);
+    };
+
+    server.stdout.on("data", (chunk: Buffer) => {
+        for (const event of serverParser.push(chunk)) {
+            if (event.kind === "raw") {
+                log("server-framing", `framing abandoned on server output, passing it through raw: ${serverParser.failure}`);
+                closeGate();
+                toClient(event.raw);
+                continue;
+            }
+            const published = publishMessage(event.body);
+            if (published === undefined) {
+                toClient(event.raw);
+                continue;
+            }
+            // Only a publish that lost diagnostics is re-serialized; every other one stays the server's own bytes.
+            const kept = filterDiagnostics(published.params, filterOptions);
+            const frame = kept === undefined
+                ? event.raw
+                : frameMessage(JSON.stringify({ ...published, params: kept }));
+            for (const out of gate.offer(frame, kept ?? published.params)) {
+                toClient(out);
+            }
+        }
+        armGate();
+    });
+    server.stdout.on("end", () => {
+        closeGate();
+        const rest = serverParser.drain();
+        if (rest.length > 0) {
+            toClient(rest);
+        }
     });
 
     // EPIPE here means the client has gone; with nobody to answer, the server is stopped and its exit
@@ -996,6 +1491,8 @@ export function runLspProxy(argv: string[]): void {
         }
         finished = true;
         stopWatching();
+        clearTimeout(gateTimer);
+        gateTimer = undefined;
         if (process.stdout.destroyed) {
             process.exit(code);
         }
