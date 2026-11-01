@@ -1,14 +1,14 @@
 ---
 name: init-project
-description: "Set up or audit a project's Claude Code files, permissions, lint hook and language server from one approved proposal."
-argument-hint: "[path] [--max-depth=N] [--dry-run] [--propose-only] [--no-local] [--force-overwrite] [--no-oracle]"
+description: "Set up or audit a project's Claude Code files, project documents, permissions, lint hook and language server from one approved proposal."
+argument-hint: "[path] [--max-depth=N] [--dry-run] [--propose-only] [--no-local] [--no-docs] [--force-overwrite] [--no-oracle]"
 effort: medium
 disable-model-invocation: true
 ---
 
 # /ac:init-project
 
-Investigates a project, then writes an optimized CLAUDE.md, optional CLAUDE.local.md, up to five path-scoped `.claude/rules/*.md` files, permission rules, the project settings from `${CLAUDE_PLUGIN_ROOT}/skills/claude-md-rules-creator/references/settings-wiring.md` that earn their keep, a lint or format hook that provably fires, and a language server that provably answers. Everything is one proposal approved once before anything is written, and the drafts pass one `ac:oracle` review. On a project that already has instruction files it audits them and the auto-memory line by line, keeps what the user decided and the code cannot show, and proposes cuts, moves, merges and memory cleanup as decisions. Drives `ac:claude-md-rules-creator` as the writing playbook.
+Investigates a project, then writes an optimized CLAUDE.md, optional CLAUDE.local.md, up to five path-scoped `.claude/rules/*.md` files, permission rules, the project settings from `${CLAUDE_PLUGIN_ROOT}/skills/claude-md-rules-creator/references/settings-wiring.md` that earn their keep, a lint or format hook that provably fires, and a language server that provably answers. Everything is one proposal approved once before anything is written, and the drafts pass one `ac:oracle` review. On a project that already has instruction files it audits them and the auto-memory line by line, keeps what the user decided and the code cannot show, and proposes cuts, moves, merges and memory cleanup as decisions. It also creates, repairs and brings up to date the project documents `PROJECT.md`, `ARCHITECTURE.md` and `DESIGN.md`, each through its own writer skill and only where that document's bar is met. Drives `ac:claude-md-rules-creator` as the writing playbook for the instruction files.
 
 Request: $ARGUMENTS
 
@@ -18,11 +18,11 @@ Do NOT call `EnterPlanMode` or `ExitPlanMode`; this command uses no plan mode.
 
 You are the `/ac:init-project` orchestrator, running on the main thread; the four discovery agents in Phase 1 and the Phase 3e reviewer are subagents you spawn.
 
-**CAN**: Use `Read`, `Write`, `Edit`, `Grep`, `Glob`, `Bash`, `LSP`, `AskUserQuestion`. Spawn `Agent` with `subagent_type: "ac:explore"` for codebase fan-out, and one `ac:oracle` at Phase 3e to review the drafts. Invoke the `ac:claude-md-rules-creator` skill at Phase 3 entry. Write `<target>.proposed` sidecar files when an existing target would be overwritten. Write one hook script under `.claude/hooks/` and merge its entry, plus the approved permission rules and the other Phase 4 settings keys, into the target project's `.claude/settings.json` or `.claude/settings.local.json` as the 2d proposal named (Phase 4). Merge one `enabledPlugins` key for a language server into the file the 2d proposal named (Phase 5).
+**CAN**: Use `Read`, `Write`, `Edit`, `Grep`, `Glob`, `Bash`, `LSP`, `AskUserQuestion`. Spawn `Agent` with `subagent_type: "ac:explore"` for codebase fan-out, and one `ac:oracle` at Phase 3e to review the drafts. Invoke the `ac:claude-md-rules-creator` skill at Phase 3 entry, and at 3h the writer skill of each project document the proposal approved (`ac:project-md-writer`, `ac:architecture-md-writer`, `ac:design-md-writer`). Write `<target>.proposed` sidecar files when an existing target would be overwritten. Write one hook script under `.claude/hooks/` and merge its entry, plus the approved permission rules and the other Phase 4 settings keys, into the target project's `.claude/settings.json` or `.claude/settings.local.json` as the 2d proposal named (Phase 4). Merge one `enabledPlugins` key for a language server into the file the 2d proposal named (Phase 5).
 
-**CANNOT**: Spawn `ac:librarian`, or `ac:oracle` anywhere but 3e. `ac:explore` cannot spawn anything; every discovery agent returns to this orchestrator before the next step. Author CLAUDE.md prose without first invoking `ac:claude-md-rules-creator`. Edit files outside the target project directory, with three exceptions: `~/.claude/<PROJECT_SLUG>-instructions.md` in 3c for sibling worktrees, the 3e scratch directory under `${TMPDIR:-/tmp}`, and the project's auto-memory directory in 3g, only for changes 2d approved. Delete or cut a fact from an existing file without the user's approval in 2e. The `enabledPlugins` key goes to `~/.claude/settings.json` only when the user moved it there through "Other" in 2d. Interview the user about MCP servers or about settings keys generally, or write any settings key outside the menu in `${CLAUDE_PLUGIN_ROOT}/skills/claude-md-rules-creator/references/settings-wiring.md`: `permissions.deny`, `permissions.allow`, `permissions.ask`, one `hooks.PostToolUse` entry, `enabledPlugins` for a language server, `worktree.symlinkDirectories` and `claudeMdExcludes`, each only when 2d named it. Never write the keys that file lists under "Never from a setup command": `permissions.defaultMode` in particular (a mode is the user's choice), and the model and effort keys, which override each person's own pick. Write anything to `.claude/settings.json` that the approved 2d proposal did not place there. Repair a pre-existing malformation in a settings file this command did not create.
+**CANNOT**: Spawn `ac:librarian`, or `ac:oracle` anywhere but 3e. `ac:explore` cannot spawn anything; every discovery agent returns to this orchestrator before the next step. Author CLAUDE.md prose without first invoking `ac:claude-md-rules-creator`. Write or change `PROJECT.md`, `ARCHITECTURE.md` or `DESIGN.md` without first invoking its writer skill, replace an existing one wholesale, or pick a palette or typeface for a `DESIGN.md` (a theme file or a chosen `ac:design-director` direction supplies it, otherwise the document is skipped). Edit files outside the target project directory, with three exceptions: `~/.claude/<PROJECT_SLUG>-instructions.md` in 3c for sibling worktrees, the 3e scratch directory under `${TMPDIR:-/tmp}`, and the project's auto-memory directory in 3g, only for changes 2d approved. Delete or cut a fact from an existing file without the user's approval in 2e. The `enabledPlugins` key goes to `~/.claude/settings.json` only when the user moved it there through "Other" in 2d. Interview the user about MCP servers or about settings keys generally, or write any settings key outside the menu in `${CLAUDE_PLUGIN_ROOT}/skills/claude-md-rules-creator/references/settings-wiring.md`: `permissions.deny`, `permissions.allow`, `permissions.ask`, one `hooks.PostToolUse` entry, `enabledPlugins` for a language server, `worktree.symlinkDirectories` and `claudeMdExcludes`, each only when 2d named it. Never write the keys that file lists under "Never from a setup command": `permissions.defaultMode` in particular (a mode is the user's choice), and the model and effort keys, which override each person's own pick. Write anything to `.claude/settings.json` that the approved 2d proposal did not place there. Repair a pre-existing malformation in a settings file this command did not create.
 
-**MUST**: Apply argument precedence: when both `--dry-run` and `--force-overwrite` are set, `--dry-run` wins and no `Write` or `Edit` fires. Spawn the four Phase 1 discovery agents in a single parallel block. Show the 2d proposal and take its approval before the first `Write`, `Edit` or settings merge. Invoke the writing skill exactly once at the very start of Phase 3. Run the skill's Pre-flight checklist before every `Write` (new file) or `Edit` (existing file), except the one-line rule repairs 2d approved as they are. Cap the root `CLAUDE.md` and rule files within the line budgets stated in Phase 3. Take a timestamped backup before every settings merge, and restore it when a post-write check fails.
+**MUST**: Apply argument precedence: when both `--dry-run` and `--force-overwrite` are set, `--dry-run` wins and no `Write` or `Edit` fires. Spawn the four Phase 1 discovery agents in a single parallel block. Unless `--no-docs`, settle the project documents in 2f and list them in the 2d proposal. Show the 2d proposal and take its approval before the first `Write`, `Edit` or settings merge. Invoke the writing skill exactly once at the very start of Phase 3. Run the skill's Pre-flight checklist before every `Write` (new file) or `Edit` (existing file), except the one-line rule repairs 2d approved as they are. Cap the root `CLAUDE.md` and rule files within the line budgets stated in Phase 3. Take a timestamped backup before every settings merge, and restore it when a post-write check fails.
 
 ### 0a. Parse arguments
 
@@ -32,9 +32,10 @@ You are the `/ac:init-project` orchestrator, running on the main thread; the fou
 4. `--no-local`: set `WRITE_LOCAL=false` if present; otherwise `WRITE_LOCAL=true`.
 5. `--force-overwrite`: set `FORCE_OVERWRITE=true` if present.
 6. `--no-oracle`: set `REVIEW=false` if present; otherwise `REVIEW=true`. It only skips the 3e review.
-7. `--propose-only`: set `PROPOSE_ONLY=true` if present. Nothing in the working tree or the memory directory changes: every instruction-file result goes to `<PATH_ARG>/.ac/init/proposed/<path relative to PATH_ARG>`, the memory plan to `.ac/init/proposed/memory-cleanup.md`, the settings changes to `.ac/init/proposed/settings.md`, with no Apply question. The 2d proposal warns that the proposed files will show in diffs when `.ac/` is not gitignored.
-8. Precedence rule: if `DRY_RUN` and `FORCE_OVERWRITE` are both true, set `FORCE_OVERWRITE=false` for the rest of the run. `PROPOSE_ONLY` also sets `FORCE_OVERWRITE=false`. `--dry-run` always wins; it prints intended writes and runs no command with a side effect.
-9. Derive `PROJECT_SLUG` from the basename of `PATH_ARG`: lowercase, replace runs of non-alphanumeric characters with a single hyphen, strip leading and trailing hyphens. Used in user-facing messages and the sibling-worktree stub filename.
+7. `--no-docs`: set `WRITE_DOCS=false` if present; otherwise `WRITE_DOCS=true`. It skips 2f and 3h, so `PROJECT.md`, `ARCHITECTURE.md` and `DESIGN.md` are neither inventoried for action nor touched.
+8. `--propose-only`: set `PROPOSE_ONLY=true` if present. Nothing in the working tree or the memory directory changes: every instruction-file result goes to `<PATH_ARG>/.ac/init/proposed/<path relative to PATH_ARG>`, the memory plan to `.ac/init/proposed/memory-cleanup.md`, the settings changes to `.ac/init/proposed/settings.md`, with no Apply question. The 2d proposal warns that the proposed files will show in diffs when `.ac/` is not gitignored.
+9. Precedence rule: if `DRY_RUN` and `FORCE_OVERWRITE` are both true, set `FORCE_OVERWRITE=false` for the rest of the run. `PROPOSE_ONLY` also sets `FORCE_OVERWRITE=false`. `--dry-run` always wins; it prints intended writes and runs no command with a side effect.
+10. Derive `PROJECT_SLUG` from the basename of `PATH_ARG`: lowercase, replace runs of non-alphanumeric characters with a single hyphen, strip leading and trailing hyphens. Used in user-facing messages and the sibling-worktree stub filename.
 
 ### 0b. Primer, then the existing-file branch
 
@@ -44,6 +45,7 @@ Then take the inventory of what already exists, with `Bash` only (`test -f`, `wc
 
 - instruction files: `<PATH_ARG>/CLAUDE.md`, `<PATH_ARG>/.claude/CLAUDE.md`, `<PATH_ARG>/CLAUDE.local.md`, `AGENTS.md`, every `CLAUDE.md` and `CLAUDE.local.md` below the root, tracked, untracked or gitignored (`find <PATH_ARG> \( -name node_modules -o -name vendor -o -name .git -o -name references \) -prune -o \( -name CLAUDE.md -o -name CLAUDE.local.md \) -print`), and every `.claude/rules/**/*.md`;
 - settings: `.claude/settings.json`, `.claude/settings.local.json`;
+- project documents (skip on `--no-docs`): `PROJECT.md`, `ARCHITECTURE.md` and `DESIGN.md` at the root and under `docs/`, plus `.planning/PROJECT.md` and `docs/architecture*`. For each `DESIGN.md`, `rg -q '^colors:'` tells its kind: a hit means YAML design tokens (the visual-identity file; a `primary` colour is required there), none means the old architecture home. Record them as `DOCS` with lines and bytes. They do not count toward `MODE`, which is decided by the instruction files alone; 2f settles them.
 - auto-memory: when a settings file sets `autoMemoryDirectory`, that directory. Otherwise `MEMORY_DIR = ~/.claude/projects/<key>/memory`, where `<key>` is the absolute path of the main worktree's root (`git -C <PATH_ARG> rev-parse --path-format=absolute --git-common-dir`, minus its trailing `/.git`; `PATH_ARG` itself outside git) with every character that is not a letter or a digit replaced by `-` (names over 200 characters are hashed, so for a very long path match the directory by its prefix with `ls ~/.claude/projects`). When no such directory exists, say so in the inventory rather than skipping the memory silently.
 
 Record each with its line and byte count as `EXISTING`, and its total as `EXISTING_BYTES`. When no instruction file exists, set `MODE=fresh` and ask nothing. Otherwise print the inventory as a short table (file, lines, bytes, `paths:` or not, and the per-file budget from the skill's principle 1 it is over) and ask before anything else:
@@ -78,6 +80,7 @@ PREFS = {
   hook: {kind, tools, target},        // kind: "lint" | "format" | "format+lint"; tools baked into the script
   permissions: {deny: [], deny_target, allow: [], allow_target},
   lsp: {plugin, marketplace},
+  docs: {project, architecture, design},  // each: {action: "write" | "audit-fix" | "move" | "leave" | "skip", evidence}
   skill_candidates: [],                // procedures from 2c and 1c, reported only
   audit: []                            // MODE=audit: one entry per 1c finding with its 2e decision
 }
@@ -199,6 +202,35 @@ For the auto-memory, treat each topic file as one item: OUTDATED and MERGE are p
 
 Write each answer into its `PREFS.audit` entry before the next call. A section the user did not approve stays exactly as it is.
 
+### 2f. Project documents (skip on `--no-docs`; runs after 2e, before 2d)
+
+Decide, per document, whether its writer skill runs. The writer owns the content; nothing in this command drafts a document. Take the evidence from the 0b inventory and the Phase 1 findings, and ask nothing a finding already answers.
+
+Read the rows top to bottom; the first match decides.
+
+| Document | State | Action |
+|---|---|---|
+| any | no code to describe | `skip` |
+| `.planning/PROJECT.md` | exists | `leave`: another tool manages it |
+| `DESIGN.md` | exists, describes architecture, and an `ARCHITECTURE.md` exists too | `leave` both and report the clash |
+| `DESIGN.md` | exists and describes architecture | `move`, run by `ac:architecture-md-writer`: it asks whether to `git mv` the file to `ARCHITECTURE.md`, then repairs it in place; the size bar does not apply to a file that exists. If the user declines, both files stay as they are and no `ARCHITECTURE.md` is written. `leave` under `MODE=leave` |
+| any | exists and is the right kind | `audit-fix`; `leave` under `MODE=leave` |
+| `PROJECT.md` | missing | `write`: what the project is for, its scope and its decisions are what the code cannot show, so the writer asks the user for them |
+| `ARCHITECTURE.md` | missing, bar met | `write` |
+| `ARCHITECTURE.md` | missing, below the bar | `skip`, with the numbers that failed it |
+| `DESIGN.md` | missing (or moved away), the project has a UI and a theme | `write`: the tokens come from the theme |
+| `DESIGN.md` | missing, a UI but no theme | `skip`: no direction exists yet, so the report names `ac:frontend-design` |
+
+The ARCHITECTURE.md bar is the "Decide first" test in `ac:architecture-md-writer`; this command only measures it. Take the source languages in Phase 1 agent 2's histogram (not Markdown, JSON, YAML, lockfiles or images) and run `git ls-files -z -- '*.<ext>' ':!:*lock*' ':!:dist/**' ':!:build/**' ':!:vendor/**' ':!:node_modules/**' | xargs -0 cat | wc -l` for each, leaving out any generated or built bundle you can see in the listing, then glance at the top-level directories. A project under the bar, with a handful of modules, gets no file.
+
+A UI is present when a manifest names a UI framework (React, Vue, Svelte, Angular, Next, Nuxt, `flutter` in `pubspec.yaml`), when the tree has SwiftUI imports, Blade views or HTML templates, or when stylesheets are tracked. A theme exists when `ac:design-md-writer` step 1 would find a source to derive tokens from; read that step rather than listing sources here.
+
+`MODE=leave` leaves every existing document alone and still creates a missing one that meets its bar. Under `audit` and `fresh` an existing document is audited and fixed in place: this command never replaces a document wholesale, because each holds the user's rationale, so "Start fresh" does not reach them.
+
+A `DESIGN.md` that is written or fixed also needs its `.claude/rules/ui.md` rule (the pointer, scoped with `paths:` to the view files). Add it to the 2c rule candidates now so it counts against the cap of five; when that makes six, ask "Which rules?" again.
+
+Write each decision, with its evidence, into `PREFS.docs`.
+
 ### 2d. One proposal, one approval
 
 Before any file is drafted, print everything the run would write as one list, then take one approval. Build it from the Phase 1 findings, the `PREFS` queue and the 2c placement, one bullet per item, each naming its target file:
@@ -211,6 +243,7 @@ Before any file is drafted, print everything the run would write as one list, th
 - **Restructure** (`MODE=audit`). Per existing file: the approved cuts, merges and moves as counts with the line ranges, the lines before and after, the rule files a move creates or extends with their globs, and the skill candidates the moves produced. Each result must sit inside its budget from the skill's principle 1, or the bullet says by how much it is over and why.
 - **Memory** (`MODE=audit`). The topic files to delete, to merge and to move, each with its one-line evidence, and the resulting `MEMORY.md` line count.
 - **Settings cleanup** (`MODE=audit`). Existing permission rules that no longer match anything (a `Read` deny for a path that is gone, an `allow` for a script the manifest no longer has) and exact duplicates, each to be removed only on approval here.
+- **Project documents** (omit on `--no-docs`). One line per document: its path, its state (missing, current, stale, wrong kind, below the bar), the action (`write`, `audit-fix`, `move`, `leave`, `skip`) and the evidence (the lines it was measured on, the theme file found, the numbers that failed the bar). Say that each action runs its writer skill in 3h, that a writer may ask a few questions about rationale the code cannot show, and which pointer line each adds to `CLAUDE.md` (or `AGENTS.md` when the project has no `CLAUDE.md`) and, for `DESIGN.md`, which `paths:` rule over the view files, counted against the cap of five new rules.
 - **Rule repairs.** Each existing rule agent 4 flagged for content above its frontmatter, with the one change: move that content to directly after the closing `---`. This is a correction of a silent loader failure, not a rewrite, so it applies under every `MODE`, `leave` included.
 - **Hook.** `PREFS.hook`: `format` when agent 3 found a formatter that rewrites in place, `lint` when it found only a reporter, `format+lint` as one script when it found both, with each resolved executable path, the exact pipe-test command string `hook-wiring.md` step 4 will run, the script path and the target file (`.claude/settings.local.json` by default: the committed file runs the script on every machine and in CI). Omit the bullet when no tool is installed on disk, and say so.
 - **Language server.** Run Phase 5 step 1 now, against the installed marketplace manifests, never from memory: match Phase 1 agent 2's extension histogram against their `extensionToLanguage` maps. One plugin per extension with its marketplace; when two legitimate candidates exist for one language, name both, and Phase 5 asks which. The key goes to `.claude/settings.local.json` by default, or to the shared file or `~/.claude/settings.json` when the user says so.
@@ -224,15 +257,15 @@ AskUserQuestion({
   header: "Proposal",
   question: "Does this setup look right? Nothing is written until you approve it.",
   options: [
-    {label: "Proceed", description: "Write everything listed above, each file through the 3f existing-file gate."},
-    {label: "Drop settings", description: "Instruction files and the language server; no permission rules, no hook and no project settings keys."},
+    {label: "Proceed", description: "Write everything listed above: each instruction file through the 3f existing-file gate, each project document fixed in place by its writer."},
+    {label: "Drop settings", description: "Instruction files, project documents and the language server; no permission rules, no hook and no project settings keys."},
     {label: "Drop the hook", description: "Everything except the hook."},
-    {label: "Instruction files only", description: "CLAUDE.md files and rules; no settings, no hook, no language server."}
+    {label: "Instruction files only", description: "CLAUDE.md files and rules; no settings, no hook, no language server, no project documents."}
   ]
 })
 ```
 
-No option carries `(Recommended)`. The tool adds an "Other" answer on its own, which is where a moved target file or a dropped rule arrives; apply it to the queue and print the changed bullets before continuing. Record the approved set in `PREFS`; Phases 3 to 5 act on that set and nothing outside it. Under `--dry-run`, print the proposal and skip the question.
+No option carries `(Recommended)`. The tool adds an "Other" answer on its own, which is where a moved target file, a dropped rule or a dropped project document arrives; apply it to the queue and print the changed bullets before continuing. Record the approved set in `PREFS`; Phases 3 to 5 act on that set and nothing outside it. Under `--dry-run`, print the proposal and skip the question.
 
 ## Phase 3: Draft and Write
 
@@ -270,7 +303,7 @@ Run the skill's Pre-flight checklist before writing. Length budget: the CLAUDE.l
 
 ### 3d. Draft up to five `.claude/rules/*.md`
 
-For each convention that took the rule branch in 2c, draft a focused rule file at `<PATH_ARG>/.claude/rules/<topic>.md` with `paths:` frontmatter per the path-scoped rule example in the skill's Draft the file step. Topic name follows the convention in the writing skill: lowercase, hyphen-separated, one focused subject.
+For each convention that took the rule branch in 2c, and for the `ui.md` rule 2f added for a `DESIGN.md`, draft a focused rule file at `<PATH_ARG>/.claude/rules/<topic>.md` with `paths:` frontmatter per the path-scoped rule example in the skill's Draft the file step. Topic name follows the convention in the writing skill: lowercase, hyphen-separated, one focused subject.
 
 Length budget per rule: the rule budget in principle 1. When a draft exceeds its target, cut it or split the topic before writing.
 
@@ -303,6 +336,17 @@ Under `PROPOSE_ONLY`, the `.gitignore` lines and the rule repairs go into `.ac/i
 ### 3g. Memory cleanup (`MODE=audit`, approved items only)
 
 Apply the approved memory items in `MEMORY_DIR`: fold a merged fact into its surviving topic file first, then delete the merged or outdated topic file, then rewrite `MEMORY.md` so every pointer names a file that exists and nothing points at a deleted one. A fact moved into CLAUDE.md or a rule was already written in 3b to 3d; delete its topic file only after that write landed. Under `PROPOSE_ONLY`, write the same plan to `<PATH_ARG>/.ac/init/proposed/memory-cleanup.md` (one line per item: file, action, evidence, and the rewritten `MEMORY.md` below it) and change nothing in `MEMORY_DIR`. Under `--dry-run`, print it.
+
+### 3h. Project documents (`WRITE_DOCS=true`, approved items only)
+
+Run after 3g, in this order: `PROJECT.md`, `ARCHITECTURE.md`, `DESIGN.md`. For each document whose approved action is neither `leave` nor `skip`, invoke its writer once with the Skill tool (`ac:project-md-writer`, `ac:architecture-md-writer`, `ac:design-md-writer`) and follow that skill's workflow in the mode the action names: `write`; `audit-fix`, which is its audit mode followed by the fixes below; or `move`, which `ac:architecture-md-writer` runs as its own question about `git mv` followed by an in-place repair, with a visual `DESIGN.md` written afterwards when 2f decided so. The memory-file gate lets the writes through because the skill was invoked, the budget hook stays silent in this session, and the writer's own size rule governs.
+
+- **Questions.** A writer asks the user only what the code cannot show, one question at a time (2a), after the 2d approval. It does not re-ask what Phase 2 settled.
+- **Fixes.** In `audit-fix`, apply directly a repair that only restores a fact: a cited path or symbol that moved, a lint error, a stale count. Put every finding that removes or rewrites the user's own rationale through one question per document (`Apply all <n>`, `Let me pick`, `Keep all`), as in 2e. Edit in place with one `Edit` per change, never with a wholesale `Write` over an existing document.
+- **Pointers.** The writer's last step adds a pointer line to the rules file. Add it to the `CLAUDE.md` that 3b wrote or edited (`AGENTS.md` only when the project has no `CLAUDE.md`), then check that file against its budget again. Under `MODE=leave` with a `CLAUDE.md` already in place, 3b did not touch it and neither does 3h: print the pointer lines in the report as not applied. The `ui.md` rule for a `DESIGN.md` was drafted in 3d, which satisfies the writer's pointer step, so `ac:claude-md-rules-creator` is not invoked a second time.
+- **Blocked.** A writer that cannot proceed (a `DESIGN.md` with neither a theme nor a direction, a run that cannot ask) writes nothing, and its open question goes to the report.
+
+Under `--dry-run`, print each document's path, action and evidence and run no writer. Under `PROPOSE_ONLY`, give each writer a target under `<PATH_ARG>/.ac/init/proposed/<relative path>`: the existing document copied there first, or for `write` the path the writer would have chosen. Put the pointer line in the proposed copy of the rules file, record a `move` as a planned `git mv` line in `settings.md`, skip the design writer's export step, and change nothing in the tree.
 
 ## Phase 4: Settings: Permission Rules and the Hook
 
@@ -374,6 +418,8 @@ For each line in a `.claude/rules/<topic>.md` file, check whether the same fact 
 
 1. Keep the version in the more specific scope. A path-scoped rule for `src/api/**` keeps the rule; the root file drops it, unless `MODE=leave`, where CLAUDE.md is not touched: drop the line from the rule instead and say so in the report.
 2. When the parent is more specific (the rule is a vague restatement), keep the parent and drop the child line.
+
+Check each project document written or changed in 3h against the root `CLAUDE.md` the same way: a fact that sits in both stays in the document and the `CLAUDE.md` line becomes a pointer; under `MODE=leave`, where `CLAUDE.md` is untouched, report it instead.
 
 Apply the dedupe pass by `Edit`ing the affected files. Run the pre-flight checklist again on any file the dedupe pass touched.
 

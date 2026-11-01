@@ -53,7 +53,7 @@ Then describe what you want. `/ac:install` is optional and interactive: it write
 - **A QA pass.** `/ac:qa` derives cases from the requirement and the diff, runs them against the live app, and fixes critical and high findings once.
 - **Idea to roadmap.** `/ac:product` runs a feasibility pass and an interview, then writes a PRD, a roadmap and one task file per bundle.
 - **UI with a direction instead of defaults.** `ac:frontend-design` has a read-only design director commit a look and a token plan before any component is written.
-- **Instruction files that stay small.** `/ac:init-project` audits `CLAUDE.md`, rules and auto-memory line by line; hooks hold each memory file to a size budget.
+- **Instruction files that stay small.** `/ac:init-project` audits `CLAUDE.md`, rules and auto-memory line by line, and creates or repairs `PROJECT.md`, `ARCHITECTURE.md` and `DESIGN.md` through their writer skills; hooks hold each memory file to a size budget.
 
 ## What makes it different
 
@@ -79,7 +79,7 @@ Plan-then-execute is a crowded category. Three things here are not common:
 
 | | Count | |
 |---|---:|---|
-| Skills | 18 | `ac:flow`, `ac:plan`, `ac:execute`, `ac:auto`, `ac:coordinate`, `ac:qa`, `ac:product`, `ac:frontend-design`, `ac:commit`, `ac:install`, `ac:init-project`, plus seven authoring and reference skills |
+| Skills | 19 | `ac:flow`, `ac:plan`, `ac:execute`, `ac:auto`, `ac:coordinate`, `ac:qa`, `ac:product`, `ac:frontend-design`, `ac:commit`, `ac:install`, `ac:init-project`, plus eight authoring and reference skills |
 | Agents | 13 | four advisory, four tiered workers, two reviewers, one verifier, one QA tester, one coordinator lane |
 | Hooks | 21 | seven `PreToolUse`, four `PostToolUse`, four `Stop`, three `SessionStart`, one each of `SubagentStop`, `SessionEnd` and `UserPromptSubmit` |
 | Output styles | 1 | `ac:concise`, opt-in and never forced |
@@ -107,7 +107,7 @@ The same workflow runs on [opencode](https://opencode.ai): eight commands, thirt
 | `ac:frontend-design` | Builds web, iOS-feel, Material-feel and Flutter UI from a committed direction and a token plan, with `ac:design-director` deciding the look, an optional Google Stitch branch, and a `DESIGN.md` visual-identity contract. |
 | `ac:architecture-md-writer` | Writes or audits an ARCHITECTURE.md for agents: codemap, boundaries, invariants with verify commands, data flows and a change guide. |
 | `/ac:install` | Writes your global `CLAUDE.md`, generates the `my-coding` and `my-language` skills, merges `settings.json` parity, and offers the opt-in `ac:concise` output style. `--upgrade` re-applies it after a plugin update and asks only what is new. |
-| `/ac:init-project` | Investigates a project with parallel agents, or audits an existing setup (every `CLAUDE.md`, rule and the auto-memory, line by line), shows one proposal, and on approval writes `CLAUDE.md` (importing an `AGENTS.md`), `CLAUDE.local.md`, path-scoped `.claude/rules/*.md`, secret-file deny and routine-command allow rules, and a lint or format hook and a language server, after one `ac:oracle` review of the drafts. `--propose-only` writes everything under `.ac/init/proposed/` and changes nothing else. |
+| `/ac:init-project` | Investigates a project with parallel agents, or audits an existing setup (every `CLAUDE.md`, rule and the auto-memory, line by line), shows one proposal, and on approval writes `CLAUDE.md` (importing an `AGENTS.md`), `CLAUDE.local.md`, path-scoped `.claude/rules/*.md`, secret-file deny and routine-command allow rules, and a lint or format hook and a language server, after one `ac:oracle` review of the drafts. It also writes, audits and fixes in place `PROJECT.md`, `ARCHITECTURE.md` and `DESIGN.md` through `ac:project-md-writer`, `ac:architecture-md-writer` and `ac:design-md-writer`, each only where its bar is met (`--no-docs` skips them). `--propose-only` writes everything under `.ac/init/proposed/` and changes nothing else. |
 | `/ac:commit` | Atomic commits with style detected from recent history, multi-file splitting and test pairing; also rebase, squash and history tracing on request. |
 
 | Agent | Model | Role |
