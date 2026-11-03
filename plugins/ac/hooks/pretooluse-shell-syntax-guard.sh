@@ -27,6 +27,13 @@
 # code and pass, as they did in the probe. A `$(...)` or a backtick span inside double quotes is code again, so
 # its quotes are honoured.
 #
+#   e. A foreground `sleep` of 25 seconds or more in a NON-first segment (after `;`, `&&`, `||`, `|`, `&` or a
+#      newline). Claude Code 2.1.317 blocks a leading `sleep N` itself but reads only the first segment, so
+#      `cmd; sleep 45` still holds the turn. Operands sum (`sleep 20 10`) and take s, m, h suffixes. Not denied: a
+#      leading sleep (denying twice would duplicate the message), a sleep inside an `until`/`while`/`for` body
+#      (Claude Code suggests that polling form), a backgrounded `sleep 60 &`, and one inside `$(...)` or backticks.
+#      `AC_SLEEP_GUARD=0` turns this rule off; the zsh rules above have no switch.
+#
 # Precision beats recall: a false deny costs every session a rewrite. A heredoc body is text whose quoting this
 # scan does not model, so the scan stops at the end of the line that opens one and the command passes. A `)` that
 # closes a case pattern inside `$(...)` is read as closing the substitution; a single-quoted `${(` after it, still
@@ -43,15 +50,20 @@ command -v perl >/dev/null 2>&1 || exit 0
 cmd="$(printf '%s' "$input" | jq -r 'select(.tool_name == "Bash") | .tool_input.command // empty' 2>/dev/null)" \
     || exit 0
 [ -n "$cmd" ] || exit 0
+# A sleep in a run_in_background call holds no turn, and Claude Code's own leading-sleep check skips it too.
+sleep_switch="${AC_SLEEP_GUARD:-1}"
+[ "$(printf '%s' "$input" | jq -r '.tool_input.run_in_background // false' 2>/dev/null)" = true ] && sleep_switch=0
 
 # 1. Scan the command as code. Frames: top level, a double-quoted span, a `$(...)` substitution, a `$((...))`
 #    arithmetic expansion, a backtick span.
 #    A match prints the construct and exits 0; a clean scan exits 1.
 construct="$(perl -e '
     my $s = shift // "";
+    my $sleep_on = (shift // "1") ne "0";
     my $n = length $s;
     my $i = 0;
     my $heredoc = 0;
+    my ($at_start, $lead, $seen, $loop, $group) = (1, 1, 0, 0, 0);
     my @frames = (["top", 0]);
     my ($sq, $dq, $bs, $bt) = (chr(39), chr(34), chr(92), chr(96));
     my $zsh = qr{\A\$\{[#!]?(?:\(|\$\{|[A-Za-z_]\w*\[\([A-Za-z]+(?:(.).*?\g{-1})?\)[^\]\s+\-*/%<>&|^)])};
@@ -116,6 +128,48 @@ construct="$(perl -e '
             next;
         }
 
+        if ($sleep_on && $kind eq "top") {
+            # A subshell or brace group is usually sent to the background as a whole ("( x; sleep 30; kill $p ) &"),
+            # so a sleep inside one is left alone.
+            if ($c eq "(" && ($i == 0 || substr($s, $i - 1, 1) !~ /[\$<>]/)) {
+                $group++;
+            } elsif ($c eq ")" && $group > 0) {
+                $group--;
+            } elsif ($at_start && $c eq "{" && substr($s, $i + 1, 1) =~ /[ \t\n]/) {
+                $group++;
+            } elsif ($at_start && $c eq "}" && $group > 0) {
+                $group--;
+            }
+            if ($c eq ";" || $c eq "|" || $c eq "\n" || ($c eq "&" && ($i == 0 || substr($s, $i - 1, 1) !~ /[<>]/))) {
+                $lead = 0 if $seen;
+                $at_start = 1;
+            } elsif ($at_start && $c ne "#" && $c !~ /[ \t]/) {
+                $at_start = 0;
+                $seen = 1;
+                my $rest = substr($s, $i);
+                if ($rest =~ /\A(?:until|while|for)(?=[\s;|&()]|\z)/) {
+                    $loop++;
+                } elsif ($rest =~ /\Adone(?=[\s;|&()]|\z)/) {
+                    $loop-- if $loop > 0;
+                } elsif (!$lead && !$loop && !$group
+                    && $rest =~ /\A(sleep((?:[ \t]+(?:\d+(?:\.\d*)?|\.\d+)[smh]?)+))[ \t]*(?=\z|[;|\n]|&&|(?<=[ \t])#)/) {
+                    my ($text, $operands) = ($1, $2);
+                    # "x; sleep 30 && y &" backgrounds the whole and-or list the sleep opens.
+                    my ($end) = substr($rest, length $text) =~ /([;\n]|(?<!&)&(?!&))/;
+                    my $total = 0;
+                    $operands = "" if defined $end && $end eq "&";
+                    for my $op (split " ", $operands) {
+                        $op =~ /\A([0-9.]+)([smh]?)\z/;
+                        $total += $1 * ($2 eq "m" ? 60 : $2 eq "h" ? 3600 : 1);
+                    }
+                    if ($total >= 25) {
+                        printf "SLEEP:%s|%g", $text, $total;
+                        exit 0;
+                    }
+                }
+            }
+        }
+
         if ($c eq "\$" && substr($s, $i + 1, 1) eq $sq) {
             $i += 2;
             while ($i < $n) {
@@ -170,10 +224,26 @@ construct="$(perl -e '
     }
 
     exit 1;
-' "$cmd" 2>/dev/null)" || exit 0
+' "$cmd" "$sleep_switch" 2>/dev/null)" || exit 0
 
 # 2. Deny with the construct and the rewrite, so the retry is one step.
 case "$construct" in
+    SLEEP:*)
+        found="${construct#SLEEP:}"
+        jq -n --arg text "${found%|*}" --arg secs "${found##*|}" '{
+    hookSpecificOutput: {
+        hookEventName: "PreToolUse",
+        permissionDecision: "deny",
+        permissionDecisionReason: (
+            "This command runs a foreground `" + $text + "` (" + $secs + " seconds) after another command. A long"
+            + " foreground sleep holds the turn and nothing else can happen while it runs. Run the job with"
+            + " `run_in_background` and wait for its completion notification, or, to wait for a condition, use the"
+            + " Monitor tool with an until-loop such as `until <check>; do sleep 5; done`."
+        )
+    }
+}'
+        exit 0
+        ;;
     PAREN:*)
         jq -n --arg construct "${construct#PAREN:}" '{
     hookSpecificOutput: {

@@ -397,6 +397,35 @@ test("a single-file shell replace is denied for the plan workers with the Edit r
     }
 });
 
+test("a single-file shell replace under the temp directory passes at once", () => {
+    const targets = [`${root}/x.txt`, "/tmp/x.txt", "/private/tmp/x.txt"];
+
+    for (const target of targets) {
+        const command = `sed -i 's/a/b/' ${target}`;
+
+        expect({ command, result: runEditHook(editPayload(command, "ac:plan-worker-junior", "s-tmp")) })
+            .toEqual({ command, result: silent });
+    }
+
+    // A trailing slash on TMPDIR is normalised, and the shell-expanded form is never judged at all.
+    expect(runEditHook(editPayload(`sed -i 's/a/b/' ${root}/x.txt`, "ac:plan-worker-junior", "s-tmp-slash"), { TMPDIR: `${root}/` }))
+        .toEqual(silent);
+    expect(runEditHook(editPayload(`sed -i 's/a/b/' "$TMPDIR/x.txt"`, "ac:plan-worker-junior", "s-tmp-var")))
+        .toEqual(silent);
+});
+
+test("a path that only starts like the temp directory is still denied, with the Read-first hint", () => {
+    for (const target of ["src/a.txt", "/tmpfoo/a.txt", `${root}-other/a.txt`, "/private/tmpfoo/a.txt"]) {
+        const reason = denyReason(runEditHook(editPayload(`sed -i 's/a/b/' ${target}`, "ac:plan-worker-junior", "s-notmp")));
+
+        expect({ target, readFirst: reason.includes("Read the file first") }).toEqual({ target, readFirst: true });
+    }
+});
+
+test("an edit with an unknown python target is denied even though TMPDIR is set", () => {
+    denyReason(runEditHook(editPayload(PYTHON_REPLACE, "ac:plan-worker-junior", "s-py-tmp")));
+});
+
 test("the identical command passes on its second attempt, and a new session is denied again", () => {
     const first = runEditHook(editPayload(PYTHON_REPLACE, "ac:plan-worker-junior", "s-a"));
     denyReason(first);

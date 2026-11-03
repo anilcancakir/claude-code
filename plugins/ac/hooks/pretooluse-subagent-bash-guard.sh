@@ -524,6 +524,13 @@ Replace FILE with $path and NEEDLE with the literal text. Widen the window only 
         EDIT)
             [ "$edit_scope" = 1 ] || continue
             [ "${AC_BASH_EDIT_GUARD:-1}" = 0 ] && continue
+            # A scratch file has no diff worth reviewing and no checks to keep in step; the deny only costs a turn.
+            case "$path" in /tmp/* | /private/tmp/*) continue ;; esac
+            tmp_root="${TMPDIR:-/tmp}"
+            tmp_root="${tmp_root%/}"
+            if [ -n "$tmp_root" ]; then
+                case "$path" in "$tmp_root"/*) continue ;; esac
+            fi
             case "$session_id" in '' | *[!A-Za-z0-9_-]*) continue ;; esac
             sum="$(printf '%s' "$cmd" | cksum 2>/dev/null | awk '{print $1 "-" $2}')"
             case "$sum" in [0-9]*-[0-9]*) ;; *) continue ;; esac
@@ -533,7 +540,7 @@ Replace FILE with $path and NEEDLE with the literal text. Widen the window only 
             [ -e "$marker" ] && continue
             { mkdir -p "$marker_dir" && : > "$marker"; } 2>/dev/null || continue
             [ "$path" = - ] && target="this file" || target="$path"
-            deny "ac subagent guard: make this replacement in $target with the Edit tool rather than a '$name' write. Edit shows the change as a diff, refuses to write over a file that changed since you read it, and keeps the checks that run after an edit in step; a shell write skips all three.
+            deny "ac subagent guard: make this replacement in $target with the Edit tool rather than a '$name' write. Edit shows the change as a diff, refuses to write over a file that changed since you read it, and keeps the checks that run after an edit in step; a shell write skips all three. Read the file first if you have not; the Edit tool requires it.
 
 If this writes a new file, an output elsewhere, or rewrites many files, send the same command again and it runs." ;;
     esac
