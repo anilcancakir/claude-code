@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.41.0] - 2026-11-04
+
+Changes from a real-usage audit of the 0.34 to 0.40 features (156 sessions, 24 October to 3 November), reviewed by `ac:oracle` before any was built.
+
+### Changed
+
+- `/ac:execute` keeps one marker per plan, `.ac/state/execute/<slug>.json`, instead of one checkout-wide `.ac/state/active-execution.json`, and the Stop guard one counter per plan beside it. A second run in the same checkout used to overwrite the first run's marker, file scope and stop budget. Every hook acts on the markers its own session owns (file scope is the union of their `wave_files`; the Stop guard names each plan still in flight), a run refuses to start only when the same plan is already running in another live session, and each run deletes only its own marker. The old path is gone; a run started before the update is not resumed by the hooks.
+- `session-start-plan-state.sh` reports each execute marker, saying whether this session owns it, and never a plan without one. It used to fall back to the first plan directory holding an unchecked step, which injected one abandoned plan (42 of 44 steps checked) 59 times into sessions that never ran it.
+- `posttooluse-cli-diagnostics.sh` no longer holds an edit. PHP gets `php -l` alone, one line when clean (`php -l: clean (syntax only)`); PHPStan is no longer run from the hook, because one file took about 20 seconds on a real Laravel project and the 15 second budget timed out edit after edit (workers and the final review still run it). `dart analyze` moved to a second, `asyncRewake` registration: it runs in the background and wakes Claude only when it finds issues, or once after such a report to say that disagreeing LSP diagnostics are stale; a clean run stays silent. Clean runs were 76% of the old hook's outputs and about three quarters of all the text the hooks injected.
+- `/ac:plan` stops asking what was always answered the same way over the latest 100 plans: `Proceed?` (49 of 49 Proceed) is gone, `TDD?` defaults to `tdd` when the project has tests (37 of 40) and `QA?` to the planner's own rule, both shown as one `Defaults:` line in the `Lock all?` question where they can still be changed; a verified `Premise failed?` refutation takes the recommended revision and is logged as not user-approved. The plan drops the sections nothing read (Tier Calibration, the Git context stub, an empty Cross-Project Observations, `n/a` convention lines), `Why this tier` is a rule token, and a step Description has a hard size cap because it is pasted into every worker briefing.
+- `/ac:execute` no longer asks `Execute?` (11 of 11 answered Execute), writes the conventions, guardrails and objective once to `briefing-common.md` instead of into every worker briefing, and keeps its report to Summary, Verification, Deferred and Notes (the dropped sections repeated the plan checkboxes, `git log` and `wisdom.md`).
+- `ac:claude-md-rules-creator` and `/ac:init-project` treat an index of `.claude/rules/` in CLAUDE.md (a table, a list, a pointer per rule) as duplicate context and remove it: Claude Code loads each rule itself.
+- The memory budget hooks (`posttooluse-memory-file-budget.sh`, `posttooluse-memory-index-budget.sh`) block a file once per session and then stay silent while it is no larger than at that block; they block again only when it grows past it. Their reason names a target of 90% of each cap. A rule file hovering a few bytes over its cap had been blocked nine times in a row. The MEMORY.md reason now says `line numbers over 150 bytes`, since the list is line numbers, not a count.
+- The shell-edit guard lets a one-file replace on a file under `${TMPDIR:-/tmp}`, `/tmp` or `/private/tmp` through, and its deny says to Read the file first.
+- The announce judge accepts a final paragraph that complies with a request to stop, pause or wait, and treats every item of a multi-part request as covered work: an "istersen ... yaparım" that leaves one of them undone continues the turn, unless that item was only to be investigated. In a replay of the owner's real prompts the main thread left two of four listed asks as such offers.
+- `ac:flow` sends `ac:explore` at `medium` depth by default and `thorough` only for a question that spans modules or naming conventions; half of all explore briefs were `thorough` at effort `high`. A flow run now records its fixes and re-spawns in `.ac/flow/<date>-<slug>/wisdom.md` and its review findings in `review-log.md`, in the execute record format.
+- `ac plan-stats` counts records without a tier (`untagged`) and reads `.ac/flow/` runs, keeping their records out of the tier shares. In depools 26 of 53 remediation lines named no tier (and only 23 named one; the rest are the documented `Step - -` form), so a tier change could not be judged from them; `/ac:execute` now checks its records for a tier before it closes.
+- The criteria schema of `/ac:auto` and `/ac:coordinate` keeps a `command` criterion read-only on the tree: a reset, clean, whole-tree checkout, recursive `rm` or force push is denied by the away guard, so a criterion built on one ended the verdict on `human_needed` for tooling reasons.
+
+### Added
+
+- `pretooluse-shell-syntax-guard.sh` denies a foreground `sleep` of 25 seconds or more that sits after the first segment of a command (`cmd; sleep 45`). Claude Code blocks a leading one itself and misses these; a sleep in a polling loop, in the background or under 25 seconds passes. A `run_in_background` call, a subshell or brace group, and an and-or list sent to the background with `&` are exempt as well. `AC_SLEEP_GUARD=0` turns it off.
+
+### Fixed
+
+- `posttooluse-memory-file-budget.sh` read the whole session transcript on every Write and Edit, of any file, to see whether `/ac:init-project` was running. On a 400 MB transcript under memory pressure that held each edit for over 13 seconds. It now reads it only when it is about to block. Both memory budget hooks also clear their per-session state when a shrinking Edit brings the file back under budget.
+
 ## [0.40.0] - 2026-11-03
 
 `ac-lsp` 0.4.0 ships with this release.

@@ -38084,7 +38084,7 @@ function errorMessage(error) {
 // package.json
 var package_default = {
   name: "@anilcancakir/ac-cli",
-  version: "0.40.0",
+  version: "0.41.0",
   description: "Companion CLI runtime for the ac Claude Code plugin. Serves the ac MCP tools, checks plans, prices runs and searches the local history archive.",
   private: true,
   type: "module",
@@ -38356,11 +38356,9 @@ var PLAN_SECTIONS = [
   "Codebase Conventions",
   "Reuse Map",
   "Work Objectives",
-  "Tier Calibration",
   "Execution Strategy",
   "Steps",
   "Risks Accepted",
-  "Cross-Project Observations",
   "Deferred Ideas"
 ];
 var STEPS_STUB = `<!-- Keep this shape and delete this stub once the real steps are written.
@@ -38382,9 +38380,9 @@ var STEPS_STUB = `<!-- Keep this shape and delete this stub once the real steps 
 - [ ] **Step 1**: <imperative title>
     - **Type**: code | infra | verification
     - **Tier**: quick | junior | junior-high | senior (omit when Type is verification)
-    - **Why this tier**: <rule-1-cross-layer | rule-2-context | rule-3-codebase-state | rule-4-detail | rule-5-criticality | rule-none, then a colon and one sentence> (omit when Type is verification)
+    - **Why this tier**: <rule token only: rule-1-cross-layer | rule-2-context | rule-3-codebase-state | rule-4-detail | rule-5-criticality | rule-none. rule-5-criticality adds ": before X, after Y" and rule-none adds ": the risk", see model-tiers.md> (omit when Type is verification)
     - **Files**: <absolute paths, one per line; for verification: "(no source edits; runs commands)">
-    - **Description**: <what to do and why, grounded in research. Stands alone: the worker sees this field and no other step, so name a path or a file:line rather than "Step 4's parser".>
+    - **Description**: <what to do and why, grounded in research. Hard cap 400 characters for quick, 450 for junior and junior-high, 800 for senior: it is pasted verbatim into every worker briefing. Stands alone: the worker sees this field and no other step, so name a path or a file:line rather than "Step 4's parser".>
     - **References**:
         - <file_path:line_number>, <pattern to follow>
     - **Commands**: <verification steps only: explicit command list, one per line>
@@ -38816,12 +38814,14 @@ function formatCheckResult(result) {
 
 // src/plan-stats.ts
 import { readdirSync, readFileSync as readFileSync2, statSync } from "node:fs";
-import { dirname as dirname2, join as join6 } from "node:path";
+import { basename as basename3, dirname as dirname2, join as join6 } from "node:path";
 var STEP_TIER = /^\s*(?:-\s+)?\*\*Tier\*\*:\s*([a-z-]+)/;
 var NOT_A_TIER = new Set(["n"]);
 var COMPLEXITY = /^\*\*Complexity\*\*:\s*([a-z]+)/;
 var CODEBASE_STATE = /^\*\*Codebase State\*\*:\s*([a-z]+)/;
 var TIER = "(quick|junior-high|junior|senior)";
+var RETRY_OPEN = /^\s*(?:-\s+)?\[RETRY\]/;
+var UNOWNED_REMEDIATION = /^\s*(?:-\s+)?\[REMEDIATION\]\s+Step\s+-\s+-:/;
 var RETRY_LINE = new RegExp(`^\\s*(?:-\\s+)?\\[RETRY\\]\\s+Step\\s+\\S+\\s+${TIER}:`);
 var REMEDIATION_LINE = new RegExp(`^\\s*(?:-\\s+)?\\[REMEDIATION\\](?:\\s+Step\\s+\\S+\\s+${TIER}:)?`);
 var REVIEW_LINE = /^Review:\s+(\S+)\s+CRITICAL\s+(\d+)\s+IMPORTANT\s+(\d+)\s+MINOR\s+(\d+)/;
@@ -38852,7 +38852,7 @@ function toSortedCounts(counts) {
   return [...counts.entries()].map(([name, count]) => ({ count, name })).sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
 }
 var SKIP_DIRS = new Set(["node_modules", ".git", "dist", "build", "vendor", "target", ".next"]);
-function findPlanFiles(root, out, depth) {
+function findCorpus(root, plans, flowRuns, depth) {
   if (depth > 6) {
     return;
   }
@@ -38873,12 +38873,20 @@ function findPlanFiles(root, out, depth) {
     } catch {
       continue;
     }
-    if (isDirectory) {
-      findPlanFiles(path, out, depth + 1);
+    if (isFlowRunDir(path)) {
+      if (isDirectory) {
+        flowRuns.push(path);
+      }
+    } else if (isDirectory) {
+      findCorpus(path, plans, flowRuns, depth + 1);
     } else if (entry === "plan.md" && isPlanPath(path)) {
-      out.push(path);
+      plans.push(path);
     }
   }
+}
+function isFlowRunDir(path) {
+  const parent = dirname2(path);
+  return basename3(parent) === "flow" && basename3(dirname2(parent)) === ".ac";
 }
 function isPlanPath(path) {
   if (path.includes(join6(".ac", "plans"))) {
@@ -38889,17 +38897,16 @@ function isPlanPath(path) {
 }
 function collectPlanStats(root, options = {}) {
   const files = [];
-  findPlanFiles(root, files, 0);
+  const flowDirs = [];
+  findCorpus(root, files, flowDirs, 0);
   const tiers = new Map;
   const executedTiers = new Map;
-  const retries = new Map;
   const complexity = new Map;
   const codebaseState = new Map;
   let plans = 0;
   let steps = 0;
   let executed = 0;
-  let remediations = 0;
-  const remediationTiers = new Map;
+  const records = { remediationTiers: new Map, remediations: 0, retries: new Map, untagged: 0 };
   const reviews = new Map;
   for (const file of files) {
     if (options.since !== undefined && modifiedOn(file) < options.since) {
@@ -38931,49 +38938,99 @@ function collectPlanStats(root, options = {}) {
     for (const tier of summary.tiers) {
       bump(executedTiers, tier);
     }
-    for (const line of wisdom.split(`
-`)) {
-      const retry = RETRY_LINE.exec(line);
-      if (retry?.[1] !== undefined) {
-        bump(retries, retry[1]);
-        continue;
-      }
-      const remediation = REMEDIATION_LINE.exec(line);
-      if (remediation !== null) {
-        remediations += 1;
-        if (remediation[1] !== undefined) {
-          bump(remediationTiers, remediation[1]);
-        }
-      }
+    tallyRecords(wisdom, records);
+    tallyReviews(readSibling(file, "review-log.md") ?? "", reviews);
+  }
+  const flowTally = { remediationTiers: new Map, remediations: 0, retries: new Map, untagged: 0 };
+  let flowRuns = 0;
+  let flowRecords = 0;
+  let flowUntagged = 0;
+  let flowReviews = 0;
+  for (const dir of flowDirs) {
+    const wisdom = readFileIfPresent(join6(dir, "wisdom.md"));
+    const reviewLog = readFileIfPresent(join6(dir, "review-log.md"));
+    if (wisdom === undefined && reviewLog === undefined) {
+      continue;
     }
-    for (const line of readSibling(file, "review-log.md")?.split(`
-`) ?? []) {
-      const review = REVIEW_LINE.exec(line);
-      if (review?.[1] === undefined) {
-        continue;
-      }
-      const totals = reviews.get(review[1]) ?? { critical: 0, important: 0, minor: 0, runs: 0 };
-      reviews.set(review[1], {
-        critical: totals.critical + Number(review[2]),
-        important: totals.important + Number(review[3]),
-        minor: totals.minor + Number(review[4]),
-        runs: totals.runs + 1
-      });
+    if (options.since !== undefined && latestModification(dir, ["wisdom.md", "review-log.md"]) < options.since) {
+      continue;
     }
+    flowRuns += 1;
+    const flow = tallyRecords(wisdom ?? "", flowTally);
+    flowRecords += flow.records;
+    flowUntagged += flow.untagged;
+    flowReviews += tallyReviews(reviewLog ?? "", reviews);
   }
   return {
     codebaseState: toSortedCounts(codebaseState),
     complexity: toSortedCounts(complexity),
     executed,
     executedTiers: toSortedCounts(executedTiers),
+    flowRecords,
+    flowRemediationTiers: toSortedCounts(flowTally.remediationTiers),
+    flowRetries: toSortedCounts(flowTally.retries),
+    flowReviews,
+    flowRuns,
+    flowUntagged,
     plans,
-    remediationTiers: toSortedCounts(remediationTiers),
-    remediations,
-    retries: toSortedCounts(retries),
+    remediationTiers: toSortedCounts(records.remediationTiers),
+    remediations: records.remediations,
+    retries: toSortedCounts(records.retries),
     reviews: [...reviews.entries()].map(([name, totals]) => ({ name, ...totals })).sort((a, b) => b.runs - a.runs || a.name.localeCompare(b.name)),
     steps,
-    tiers: toSortedCounts(tiers)
+    tiers: toSortedCounts(tiers),
+    untagged: records.untagged
   };
+}
+function tallyRecords(text, tally) {
+  let found = 0;
+  let untagged = 0;
+  for (const line of text.split(`
+`)) {
+    const retry = RETRY_LINE.exec(line);
+    if (retry?.[1] !== undefined) {
+      bump(tally.retries, retry[1]);
+      found += 1;
+      continue;
+    }
+    if (RETRY_OPEN.test(line)) {
+      untagged += 1;
+      found += 1;
+      continue;
+    }
+    const remediation = REMEDIATION_LINE.exec(line);
+    if (remediation === null) {
+      continue;
+    }
+    tally.remediations += 1;
+    found += 1;
+    if (remediation[1] !== undefined) {
+      bump(tally.remediationTiers, remediation[1]);
+    } else if (!UNOWNED_REMEDIATION.test(line)) {
+      untagged += 1;
+    }
+  }
+  tally.untagged += untagged;
+  return { records: found, untagged };
+}
+function tallyReviews(text, tally) {
+  let found = 0;
+  for (const line of text.split(`
+`)) {
+    const review = REVIEW_LINE.exec(line);
+    if (review?.[1] === undefined) {
+      continue;
+    }
+    const totals = tally.get(review[1]) ?? { critical: 0, important: 0, minor: 0, runs: 0 };
+    tally.set(review[1], {
+      critical: totals.critical + Number(review[2]),
+      important: totals.important + Number(review[3]),
+      minor: totals.minor + Number(review[4]),
+      runs: totals.runs + 1
+    });
+    found += 1;
+  }
+  return found;
 }
 function bump(counts, key) {
   counts.set(key, (counts.get(key) ?? 0) + 1);
@@ -38986,11 +39043,17 @@ function modifiedOn(path) {
   }
 }
 function readSibling(planPath, name) {
+  return readFileIfPresent(join6(dirname2(planPath), name));
+}
+function readFileIfPresent(path) {
   try {
-    return readFileSync2(join6(dirname2(planPath), name), "utf8");
+    return readFileSync2(path, "utf8");
   } catch {
     return;
   }
+}
+function latestModification(dir, names) {
+  return names.map((name) => modifiedOn(join6(dir, name))).reduce((latest, day) => day > latest ? day : latest, "");
 }
 function renderSection(title, entries, total) {
   if (entries.length === 0) {
@@ -39004,6 +39067,9 @@ function renderSection(title, entries, total) {
       return `  ${entry.name.padEnd(width)}  ${String(entry.count).padStart(5)}  ${share.toFixed(1)}%`;
     })
   ];
+}
+function formatCounts(entries) {
+  return entries.length === 0 ? "none" : entries.map((entry) => `${entry.name} ${entry.count}`).join(", ");
 }
 function renderPerStep(title, entries, stats) {
   if (entries.length === 0) {
@@ -39029,8 +39095,10 @@ function formatPlanStats(stats) {
     ...renderSection("Complexity:", stats.complexity, planTotal),
     ...renderSection("Codebase state:", stats.codebaseState, stateTotal)
   ];
-  if (stats.executed > 0) {
-    lines.push(`Executed plans (wisdom.md present): ${stats.executed}`, `Remediation lines: ${stats.remediations}`, ...renderPerStep("Remediations per tier (share of that tier's executed steps):", stats.remediationTiers, stats), ...renderPerStep("Retries per tier (rungs and terminal failures, share of that tier's executed steps):", stats.retries, stats));
+  if (stats.executed > 0 || stats.flowRuns > 0) {
+    lines.push(`Executed plans (wisdom.md present): ${stats.executed}`, `Remediation lines: ${stats.remediations}`, `Untagged records (no tier on a [REMEDIATION], malformed [RETRY]): ${stats.untagged}`, ...stats.flowRuns === 0 ? [] : [
+      `Flow runs (.ac/flow; records kept out of the tier shares, Review lines included): ${stats.flowRuns}` + `; ${stats.flowRecords} records (remediations ${formatCounts(stats.flowRemediationTiers)};` + ` retries ${formatCounts(stats.flowRetries)}), ${stats.flowUntagged} untagged,` + ` ${stats.flowReviews} Review lines`
+    ], ...renderPerStep("Remediations per tier (share of that tier's executed steps):", stats.remediationTiers, stats), ...renderPerStep("Retries per tier (rungs and terminal failures, share of that tier's executed steps):", stats.retries, stats));
   }
   if (stats.reviews.length > 0) {
     const width = stats.reviews.reduce((max, entry) => Math.max(max, entry.name.length), 0);
@@ -39046,7 +39114,7 @@ function formatPlanStats(stats) {
 
 // src/run-stats.ts
 import { existsSync as existsSync3, readdirSync as readdirSync2, readFileSync as readFileSync3 } from "node:fs";
-import { basename as basename3, dirname as dirname3, join as join7 } from "node:path";
+import { basename as basename4, dirname as dirname3, join as join7 } from "node:path";
 var ZERO_USAGE = {
   cacheRead: 0,
   cacheWrite1h: 0,
@@ -39213,7 +39281,7 @@ function readToolUses(raw) {
   }
   return out;
 }
-function formatCounts(entries, indent) {
+function formatCounts2(entries, indent) {
   const width = entries.reduce((max, entry) => Math.max(max, entry.name.length), 0);
   return entries.map((entry) => `${indent}${entry.name.padEnd(width)}  ${entry.count}`);
 }
@@ -39226,10 +39294,10 @@ function formatRunStats(stats, rollup = []) {
     `Peak context: ${stats.peakContext}`,
     `Compactions: ${stats.compactions}`,
     `Tool calls: ${stats.totalToolCalls}`,
-    ...formatCounts(stats.toolCalls, "  ")
+    ...formatCounts2(stats.toolCalls, "  ")
   ];
   if (stats.agentSpawns.length > 0) {
-    lines.push("Agent spawns:", ...formatCounts(stats.agentSpawns, "  "));
+    lines.push("Agent spawns:", ...formatCounts2(stats.agentSpawns, "  "));
   }
   if (rollup.length > 0) {
     lines.push("Subagent rollup (runs / avg turns / avg output / avg cache-read):");
@@ -39241,7 +39309,7 @@ function formatRunStats(stats, rollup = []) {
 `);
 }
 function computeAgentRollup(transcriptPath) {
-  const sessionId = basename3(transcriptPath).replace(/\.jsonl$/, "");
+  const sessionId = basename4(transcriptPath).replace(/\.jsonl$/, "");
   const subagentsDir = join7(dirname3(transcriptPath), sessionId, "subagents");
   let entries;
   try {
@@ -39590,7 +39658,7 @@ import {
   writeSync
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename as basename4, join as join9 } from "node:path";
+import { basename as basename5, join as join9 } from "node:path";
 var LEASE_KINDS = [
   "pid",
   "adb-emu",
@@ -40358,7 +40426,7 @@ function findClaudeAncestor(probe) {
     if (comm === undefined) {
       return;
     }
-    if (basename4(comm) === "claude") {
+    if (basename5(comm) === "claude") {
       return pid;
     }
     const parent = probe.ppid(pid);
@@ -40613,4 +40681,4 @@ function formatSyncReport(report) {
 }
 await program2.parseAsync(process.argv);
 
-//# debugId=5A605B6E5DE1BDBB64756E2164756E21
+//# debugId=4A2A9709F461CA6764756E2164756E21
