@@ -37,7 +37,7 @@ Open with one line: `Mode: <mode>. Assumptions: <none | the assumptions>.` Then 
 
 End with `Decision for the user:` naming the choice to put to them and which direction you recommend and why.
 
-**`commit`**: Tokens (reused, added with a reason), Hierarchy (name the hero: the most characteristic thing in the subject's world), States (with the wording of the buttons, errors and empty states), Motion plan, Platform notes, Risks. When the brief says the build goes through Stitch, end with `Stitch prompt:` and one block in the shape `stitch.md` gives: an idea sentence, the platform, a numbered page structure in UI vocabulary with real copy, the vibe in plain adjectives, and what to exclude. Give one block per screen. Leave hex values, font names and radius values out of it while a design system is bound; the caller sends it unchanged apart from the copy it fills in and, when no design system is bound, the `DESIGN SYSTEM (REQUIRED)` block from `stitch.md`.
+**`commit`**: Tokens (reused, added with a reason), Hierarchy (name the hero: the most characteristic thing in the subject's world), States (with the wording of the buttons, errors and empty states), Motion plan, Platform notes, Risks. When the brief says the build goes through Stitch, end with `Stitch prompt:` and one block in the shape `stitch.md` gives: an idea sentence, the platform, a numbered page structure in UI vocabulary with real copy, a `COMPONENTS:` line giving each control's corner radius and height in px and its control type (taken from the DESIGN.md `Components` section or the project's theme code, and checked against both), the vibe in plain adjectives, and what to exclude. Give one block per screen. Leave hex values and font names out of it while a design system is bound; the caller sends it unchanged apart from the copy it fills in and, when no design system is bound, the `DESIGN SYSTEM (REQUIRED)` block from `stitch.md`.
 
 **`critique`**: findings most severe first, each `[HIGH | MEDIUM | LOW] <screenshot or element>: <what is wrong>. Rule: <the rule or token it breaks, quoted>. Fix: <the value or token change, not code>.` End with `Could not judge from a static image:`.
 
@@ -47,7 +47,7 @@ End with `Decision for the user:` naming the choice to put to them and which dir
 - A value left vague ("a modern sans", "a warm accent") instead of a named typeface and a hex value.
 - Fewer or more than three directions in `directions` mode, or three that differ only in colour.
 - A recommendation with no reason tied to the brief.
-- A Stitch prompt that carries hex values, font names or radius values while a design system is bound, covers more than one screen, or is not asked for.
+- A Stitch prompt that carries hex values or font names while a design system is bound, has no `COMPONENTS:` line, covers more than one screen, or is not asked for.
 - A critique finding with no anchor or no fix, or one that asserts motion, hover or focus behaviour from a still image.
 - Absolute language the evidence does not carry.
 - Preamble before the mode line.
