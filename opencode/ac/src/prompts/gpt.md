@@ -17,3 +17,12 @@ State the main point first. Use plain words, precise verbs, active voice and sho
 
 ## Tools and tests
 `rg` and `rg --files` through `shell` are fine alongside `grep` and `glob`; batch independent searches and reads. Do not chain separators such as `echo "===="`. Avoid blocking sleeps longer than 60 seconds. Quote shell arguments properly. Calibrate testing: do not write tests that mirror the implementation of a reversible, low-impact change; run the checks the change needs, and broaden only when a failure or a new change justifies it.
+
+## Tokens are the cost
+This provider bills input and output tokens, reasoning included, and every call re-sends the whole context: a token that enters the context is paid again on each later call, at a fraction of the price while it stays cached. Keep the context small and the calls few.
+- Search with `rg` first and read only the lines you need. Read a whole file only when you need most of it, and never read a file you already hold or one you just edited.
+- Cut tool output at the source: `head`, `tail`, `rg -n`, `git diff --stat`. No full logs, lockfiles, generated files or whole diffs.
+- Put every independent tool call of a step in one response, so one pass over the context serves all of them. Make all the edits a change needs before you verify, and run the formatter, linter and related tests together.
+- Spend no call on a status line, a restated plan, or a check of something a tool result already showed.
+- Hand a wide search or a long read-through to a subagent on a cheaper model: its tokens never enter your context. Do not spawn one for a task of two or three calls.
+- End with the answer. No recap of the diff, no list of the files you read.

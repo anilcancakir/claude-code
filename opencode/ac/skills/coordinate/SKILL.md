@@ -73,14 +73,13 @@ whole remaining procedure: integrate, the 7a QA lane, the 7b gate and its away r
 because publishing is theirs to approve. An owner message saying they are back removes `away` from the marker; every
 `timed_out` choice is listed in the Phase 8 report.
 
-**RPM budget.** Every lane turn and every worker turn spends several requests of the rate limit the models share.
-Under the codefast preset all four providers sit in one group of 25 requests per minute, so lanes and their
-workers compete for it; the claude preset's Anthropic limit is separate. The budget is lanes times workers, and
-it is yours to keep: the plugin starts every lane you ask for. `ac_lane_start` returns the installed preset's cap
-as `max_lanes` (2 under the codefast preset, 3 under the claude preset, 1 under gpt-unlimited), and each lane runs
-at most `--max-workers` workers at once. The defaults are `--lanes 2` and `--max-workers 2`; the claude preset
-tolerates 3 and 3. Keep the bundles in `planning` or `executing` at or under the smaller of `--lanes` and
-`max_lanes`, counted from `state.json`, and dispatch the next one when a lane message frees a slot.
+**Request budget.** Every lane turn and every worker turn goes to one gateway and is billed in tokens against
+one balance. apimaster publishes no request limit for the key, so no rate-limit group is configured; a 429 is
+retried on a schedule. The budget is lanes times workers, and it is yours to keep: the plugin starts every lane you
+ask for. `ac_lane_start` returns the configured cap as `max_lanes` (2 in the shipped config), and each lane runs
+at most `--max-workers` workers at once. The defaults are `--lanes 2` and `--max-workers 2`. Keep the bundles in
+`planning` or `executing` at or under the smaller of `--lanes` and `max_lanes`, counted from `state.json`, and
+dispatch the next one when a lane message frees a slot.
 
 **A failed subagent moves down its model chain; it is not a question.** A subagent call that comes back with a provider failure (`Subagent failed (sessionID: ...)`, a `<subagent ... state="error">` message, an error such as `provider.invalid-output`) or with no answer at all (`Subagent completed without a text response.`, an empty report) failed on its model, not on the work. Recover by continuing the same child, not by a fresh spawn: call the `subagent` tool again with the same `agent`, `sessionID: "<the sessionID from the failure text>"` and the prompt `Your last turn stopped on a provider error. Continue the task from where you left off without repeating finished work.`, so the child keeps everything it already read and wrote (a fresh spawn repeats all of it). When it answered nothing or broke off mid-stream (`provider.invalid-output`, an empty report), continue it on the same model until it has run `retryAttempts` times there (from the `ac_models` tool, 3 in the shipped config), since that is often a one-off; a 5xx was already retried inside the call, so it goes straight on. Then call `ac_fallback_next({ tier: "<the agent name without ac/>", tried: [<every model this call ran on>], session_id: "<the sessionID from the failure text>", status: <the HTTP status, when the error carried one> })`, with `tried` starting at the agent's chain head from `ac_models` unless you set its model yourself, continue the same child with `model: "<the returned value>"` as well (the child switches to it and keeps its context), and give that model the same number of attempts. A rate limit was retried 10 times inside the call, and the plugin gives one model 30 across continuations: `wait:<seconds>` means that model has retries left, so wait that long with one `shell` `sleep` and continue the child on the same model with `tried` unchanged. The tool bounds those waits itself. Start a fresh spawn with the full prompt only when the continuation is refused (`Subagent session not found`, `is not a child of the current session`) or the child's context overflowed. Only `none`, every entry of the chain tried, is a failure to report or ask about. Asking the owner whether to retry wastes a round on a provider fault the chain exists to absorb. It covers the research agents, `ac/oracle` and `ac/auto-verifier`; a lane is not a subagent and keeps the lane rules.
 
@@ -164,7 +163,7 @@ Call `ac_session` first; it returns `session_id` and `root_session_id` as JSON. 
   plan in the brief's goal so the new lane can reuse it. Never run a lane's remaining steps or its review yourself:
   the bundle then ships without the plan, review and tests a lane gives it.
 
-Parse `--lanes N` (default 2) and `--max-workers N` (default 2, at most 5 and at most `maxParallel` from the `ac_models` tool, which is 2 under the gpt-unlimited preset; say so in one line when you cap it) from
+Parse `--lanes N` (default 2) and `--max-workers N` (default 2, at most 5 and at most `maxParallel` from the `ac_models` tool, 3 in the shipped config; say so in one line when you cap it) from
 `REQUEST` and strip them. An empty request ends here with one line asking for it.
 
 ## Phase 1: Setup
@@ -194,9 +193,9 @@ Heartbeat: slug, integration branch, lanes and workers.
 Spawn in one message, as the `plan` skill's Stage 1 does: up to 3 `ac/explore` (the surfaces the request touches,
 the project's build, test and bootstrap commands, the conventions) and up to 2 `ac/librarian` for anything outside
 the repository the request depends on, each a `subagent` call with `background: true`. When one group in the
-`groups` of the `ac_models` tool holds the provider of every chain head the cohort starts on (the codefast preset),
-cap the cohort at 3 `ac/explore` + 1 `ac/librarian`, as `plan` Stage 1d does: that group allows 25 requests per
-minute across all its models, and the lanes will need it next. Each brief carries CONTEXT, GOAL, DOWNSTREAM (a roadmap of bundles that
+`groups` of the `ac_models` tool holds the provider of every chain head the cohort starts on, cap the cohort at
+3 `ac/explore` + 1 `ac/librarian`, as `plan` Stage 1d does: that group's limit is shared across all its models, and
+the lanes will need it next. The shipped config declares no group, so the cap does not apply there. Each brief carries CONTEXT, GOAL, DOWNSTREAM (a roadmap of bundles that
 parallel lanes will plan in detail), REQUEST, DEPTH and BUDGET. End the turn with a wait status; each completion
 starts a turn. Append one `events.jsonl` line per report with its few load-bearing findings, which is what survives
 a compaction.

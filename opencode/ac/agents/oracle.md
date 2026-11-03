@@ -1,7 +1,7 @@
 ---
 description: "Read-only reviewer and advisor. Use this when a plan, diff, report or config change needs checking against its sources, or a stalled decision needs settling. Returns ranked findings."
 mode: subagent
-model: "anthropic/claude-opus-5-5#high"
+model: "apimaster/gpt-6.1-sol#high"
 color: "#a855f7"
 permissions:
   - action: skill

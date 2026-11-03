@@ -22,7 +22,7 @@ bun opencode/ac/scripts/install.ts
 
 The installer moves an existing `~/.config/opencode` aside once (`opencode.bak-v1-<stamp>`) and writes `opencode.jsonc`, `cli.json` and a first-run `AGENTS.md` with placeholders for you to fill. Re-running it replaces only `opencode.jsonc`, `cli.json` and the agents link, and copies the first two to `.bak-<stamp>` first.
 
-The default routing uses codefast.app endpoints (GLM, Kimi, DeepSeek, Qwen) with a Claude rung at the end of each chain. `--preset claude` puts Claude first through the built-in `anthropic` provider; `--preset gpt` and `--preset gpt-unlimited` route GPT through codefast. The web, docs and history tools come from the shared MCP server and need `KODIZM_MCP_TOKEN` in your environment.
+Every chain routes through one provider, apimaster.ai, which bills tokens: GPT-6.1 Sol for the Opus- and Sonnet-shaped tiers (`high` and `medium`), GPT-6 Luna for the Haiku-shaped ones, GPT-6 Astra as the second rung. It needs `APIMASTER_API_KEY` in your environment and in the shared service (`opencode service set env APIMASTER_API_KEY <value>`). A policy denies every other provider, so a connected Claude or OpenRouter account never serves a turn. The web, docs and history tools come from the shared MCP server and need `KODIZM_MCP_TOKEN` in your environment.
 
 ## Keeping it in step
 

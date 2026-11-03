@@ -1,7 +1,7 @@
 ---
 description: "Read-only code search agent for this repository. Use this when finding definitions, callers or usages needs more than about three queries or several naming conventions. Specify depth: quick, medium or thorough; add REUSE BIAS: to hunt for code to reuse. Returns file:line citations."
 mode: subagent
-model: "codefast-deepseek/deepseek-v4.1-flash-1017#low"
+model: "apimaster/gpt-6-luna#low"
 color: "#22c55e"
 permissions:
   - action: "*"

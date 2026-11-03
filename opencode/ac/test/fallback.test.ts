@@ -6,7 +6,7 @@ import { type RateLimitResume, registerFallback } from "../src/fallback.ts"
 import { createFakeCtx, type FakeCtx } from "./fake-ctx.ts"
 
 /**
- * Fixture chains, independent of config/models.jsonc, so a preset edit cannot break the fallback mechanics.
+ * Fixture chains, independent of config/models.jsonc, so a routing edit cannot break the fallback mechanics.
  */
 const MAIN = ["alpha/one#high", "beta/two#high", "gamma/three#high"]
 const WORKER = ["alpha/code", "beta/two#high", "gamma/three#high"]
@@ -786,18 +786,19 @@ describe("rate-limit edge cases", () => {
 })
 
 describe("an account that cannot serve requests", () => {
-    const SPEND_LIMIT = {
-        status: 400,
-        type: "provider.invalid-request",
-        message: "You have reached your specified API usage limits. You will regain access on 2026-11-01 at 00:00 UTC.",
+    const BILLING = { status: 402, type: "provider.quota", message: "billing", retryable: false }
+    const GATEWAY_QUOTA = {
+        status: 403,
+        type: "provider.auth",
+        message: "Yetersiz bakiye. Kalan bakiye: 0.000000 (insufficient_user_quota)",
         retryable: false,
     }
 
-    test("a spend limit, a billing error or a refused key switches at once and forces the retry", async () => {
+    test("a billing error, a refused key or a refused model switches at once and forces the retry", async () => {
         for (const failure of [
-            SPEND_LIMIT,
-            { status: 402, type: "provider.quota", message: "billing", retryable: false },
+            BILLING,
             { status: 401, type: "provider.auth", message: "invalid x-api-key", retryable: false },
+            GATEWAY_QUOTA,
         ]) {
             const fake = await setup()
 
@@ -815,12 +816,39 @@ describe("an account that cannot serve requests", () => {
             sessionID: "ses_worker",
             agent: "ac/plan-worker-junior",
             model: MAIN[0] as string,
-            ...SPEND_LIMIT,
+            ...BILLING,
         })
 
         expect(worker.decision).toEqual({ retry: false })
         expect(fake.calls.switchModel).toHaveLength(0)
-        expect(await fallbackNext(fake, { tier: "main", tried: [], status: 400 })).toBe(MAIN[1])
+        expect(await fallbackNext(fake, { tier: "main", tried: [], status: 402 })).toBe(MAIN[1])
+    })
+
+    test("a 403 cools the refused model only: a sibling on the same provider stays a candidate", async () => {
+        const chain = ["alpha/one#high", "alpha/code#high", "beta/two#high"]
+        const fake = await setup(
+            loadConfig({ env: {}, options: { models: { groups: {}, tiers: { main: chain } } } }),
+        )
+
+        const event = await retry(fake, { model: chain[0] as string, attempt: 2, ...GATEWAY_QUOTA })
+
+        expect(event.decision).toEqual({ retry: true, delay: 0 })
+        expect(fake.calls.switchModel.map((call) => call.model)).toEqual([modelRef(chain[1] as string)])
+        expect(await fallbackNext(fake, { tier: "main", tried: [chain[0] as string], status: 403 })).toBe(chain[1])
+    })
+
+    test("a 403 on a fallback rung leaves the head usable: the next user turn returns to it", async () => {
+        setSystemTime(new Date("2026-10-23T10:00:00Z"))
+        const chain = ["alpha/one#high", "alpha/code#high"]
+        const fake = await setup(loadConfig({ env: {}, options: { models: { groups: {}, tiers: { main: chain } } } }))
+
+        await retry(fake, { model: chain[0] as string, attempt: RETRY_CAP, status: 500 })
+        expect(fake.calls.switchModel.map((call) => call.model)).toEqual([modelRef(chain[1] as string)])
+        await retry(fake, { model: chain[1] as string, attempt: 2, ...GATEWAY_QUOTA })
+        setSystemTime(new Date("2026-10-23T10:00:31Z"))
+        await fake.fire.session("prompt", { sessionID: "ses_main" })
+
+        expect(fake.calls.switchModel.at(-1)?.model).toEqual(modelRef(chain[0] as string))
     })
 
     test("any other 400 is left to the host", async () => {

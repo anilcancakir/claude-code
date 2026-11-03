@@ -2,7 +2,7 @@
     // Global opencode v2 config for the ac port. scripts/install.ts renders it to ~/.config/opencode/opencode.jsonc,
     // replacing <repo> with this checkout. Secrets stay in the environment, referenced as {env:NAME}.
     "$schema": "https://opencode.ai/config.json",
-    "model": "codefast-glm/glm-5.3#high",
+    "model": "apimaster/gpt-6.1-sol#high",
     "default_agent": "build",
     "update": "notify",
     "snapshots": false,
@@ -10,12 +10,12 @@
     "websearch": false,
 
     "agents": {
-        "build": { "model": "codefast-glm/glm-5.3#high" },
+        "build": { "model": "apimaster/gpt-6.1-sol#high" },
         // The ac plugin owns planning and exploration (ac/plan, ac/explore); the stock agents would shadow them.
         "plan": { "disabled": true },
         "explore": { "disabled": true },
         "general": { "disabled": true },
-        "title": { "model": "codefast-qwen/qwen3.8-flash#low" }
+        "title": { "model": "apimaster/gpt-6-luna#low" }
     },
 
     // Last matching rule wins. These bind the built-in agents; a markdown agent gets them first and its own rules
@@ -28,18 +28,13 @@
         { "action": "read", "resource": "*.dev.vars", "effect": "ask" }
     ],
 
-    // Only the providers the ac chains route to may serve a turn. When a session's model briefly fails to resolve
+    // Only the one provider the ac chains route to may serve a turn. When a session's model briefly fails to resolve
     // (a config or plugin reload), opencode falls back to the first available model (core/src/model.ts:271-275);
-    // on 2026-10-23 that put three lane turns on a connected OpenRouter account. Last matching rule wins.
+    // on 2026-10-23 that put three lane turns on a connected OpenRouter account, and on 2026-10-24 on paid Opus.
+    // Last matching rule wins.
     "policies": [
         { "action": "provider.use", "resource": "*", "effect": "deny" },
-        { "action": "provider.use", "resource": "codefast-glm", "effect": "allow" },
-        { "action": "provider.use", "resource": "codefast-kimi", "effect": "allow" },
-        { "action": "provider.use", "resource": "codefast-deepseek", "effect": "allow" },
-        { "action": "provider.use", "resource": "codefast-qwen", "effect": "allow" },
-        { "action": "provider.use", "resource": "codefast-gpt", "effect": "allow" },
-        { "action": "provider.use", "resource": "codefast-gpt-unlimited", "effect": "allow" },
-        { "action": "provider.use", "resource": "anthropic", "effect": "allow" }
+        { "action": "provider.use", "resource": "apimaster", "effect": "allow" }
     ],
 
     // opencode reads AGENTS.md only; the project's Claude Code memory files ride in as configured instructions.
@@ -81,166 +76,56 @@
         { "package": "<repo>/opencode/ac" }
     ],
 
-    // codefast.app unlimited package: one OpenAI-compatible endpoint per model, one shared key.
-    // Variants are the reasoning efforts that config/models.jsonc chains select with #low, #high and #max.
+    // apimaster.ai, billed per token: each model at its list price per million input and output tokens (GET
+    // https://apimaster.ai/api/pricing on 2026-11-02, before the gateway's group ratio of 1.05). Cached input costs
+    // a twentieth of the input price on gpt-6.1-sol and a tenth on gpt-6-astra and gpt-6-luna. The same key also
+    // serves Claude, Gemini and open models; only the three GPT models the chains use are declared, and the policy
+    // above leaves every other provider off. The gateway lists the chat endpoint alone for them (/v1/responses
+    // failed for gpt-6.1-sol and gpt-6-astra), so the openai-compatible chat provider is the one declared; a shell
+    // tool turn ran on all three through opencode on 2026-11-02. A model the key has no balance for answers 403
+    // insufficient_user_quota, on which the fallback cools that model alone for 30 minutes (src/fallback.ts
+    // cooldownKey) while the other two stay usable. Effort is a body parameter and costs tokens, so only low, medium
+    // and high are declared: xhigh and max were not run against the gateway. Context and output limits are the
+    // ones another gateway listed for these models (apimaster publishes none), and 272K is the point where GPT
+    // pricing tiers up.
     "providers": {
-        "codefast-glm": {
-            "name": "CodeFast GLM",
+        "apimaster": {
+            "name": "APIMaster",
             "package": "aisdk:@ai-sdk/openai-compatible",
             "settings": {
-                "baseURL": "https://api.codefast.app/glm-53-unlimited-api/v1",
-                "apiKey": "{env:CODEFAST_API_KEY}"
+                "baseURL": "https://apimaster.ai/v1",
+                "apiKey": "{env:APIMASTER_API_KEY}"
             },
             "models": {
-                "glm-5.3": {
-                    "name": "GLM 5.3",
-                    "capabilities": {
-                        "tools": true,
-                        "input": ["text"],
-                        "output": ["text"],
-                        "reasoning": { "supported": true, "effort": ["low", "high", "max"] }
-                    },
-                    "limit": { "context": 256000, "output": 65536 },
-                    "variants": [
-                        { "id": "low", "body": { "reasoning_effort": "low" } },
-                        { "id": "high", "body": { "reasoning_effort": "high" } },
-                        { "id": "max", "body": { "reasoning_effort": "max" } }
-                    ]
-                }
-            }
-        },
-        "codefast-kimi": {
-            "name": "CodeFast Kimi",
-            "package": "aisdk:@ai-sdk/openai-compatible",
-            "settings": {
-                "baseURL": "https://api.codefast.app/kimi-k3-unlimited-api/v1",
-                "apiKey": "{env:CODEFAST_API_KEY}"
-            },
-            "models": {
-                "kimi-k3": {
-                    "name": "Kimi K3",
-                    "capabilities": {
-                        "tools": true,
-                        "input": ["text"],
-                        "output": ["text"],
-                        "reasoning": { "supported": true, "effort": ["low", "high", "max"] }
-                    },
-                    "limit": { "context": 256000, "output": 65536 },
-                    "variants": [
-                        { "id": "low", "body": { "reasoning_effort": "low" } },
-                        { "id": "high", "body": { "reasoning_effort": "high" } },
-                        { "id": "max", "body": { "reasoning_effort": "max" } }
-                    ]
-                }
-            }
-        },
-        "codefast-deepseek": {
-            "name": "CodeFast DeepSeek",
-            "package": "aisdk:@ai-sdk/openai-compatible",
-            "settings": {
-                "baseURL": "https://api.codefast.app/deepseek-v4-pro-unlimited-api/v1",
-                "apiKey": "{env:CODEFAST_API_KEY}"
-            },
-            "models": {
-                "deepseek-v4.1-flash-1017": {
-                    "name": "DeepSeek V4.1 Flash 1017",
-                    "capabilities": {
-                        "tools": true,
-                        "input": ["text"],
-                        "output": ["text"],
-                        "reasoning": { "supported": true, "effort": ["low", "high", "max"] }
-                    },
-                    "limit": { "context": 256000, "output": 65536 },
-                    "variants": [
-                        { "id": "low", "body": { "reasoning_effort": "low" } },
-                        { "id": "high", "body": { "reasoning_effort": "high" } },
-                        { "id": "max", "body": { "reasoning_effort": "max" } }
-                    ]
-                },
-                "deepseek-v4.1-flash": {
-                    "name": "DeepSeek V4.1 Flash",
-                    "capabilities": {
-                        "tools": true,
-                        "input": ["text"],
-                        "output": ["text"],
-                        "reasoning": { "supported": true, "effort": ["low", "high", "max"] }
-                    },
-                    "limit": { "context": 256000, "output": 65536 },
-                    "variants": [
-                        { "id": "low", "body": { "reasoning_effort": "low" } },
-                        { "id": "high", "body": { "reasoning_effort": "high" } },
-                        { "id": "max", "body": { "reasoning_effort": "max" } }
-                    ]
-                }
-            }
-        },
-        "codefast-qwen": {
-            "name": "CodeFast Qwen",
-            "package": "aisdk:@ai-sdk/openai-compatible",
-            "settings": {
-                "baseURL": "https://api.codefast.app/qwen-38-max-unlimited-api/v1",
-                "apiKey": "{env:CODEFAST_API_KEY}"
-            },
-            "models": {
-                "qwen3.8-flash": {
-                    "name": "Qwen 3.8 Flash",
-                    "capabilities": {
-                        "tools": true,
-                        "input": ["text"],
-                        "output": ["text"],
-                        "reasoning": { "supported": true, "effort": ["low", "high", "max"] }
-                    },
-                    "limit": { "context": 256000, "output": 65536 },
-                    "variants": [
-                        { "id": "low", "body": { "reasoning_effort": "low" } },
-                        { "id": "high", "body": { "reasoning_effort": "high" } },
-                        { "id": "max", "body": { "reasoning_effort": "max" } }
-                    ]
-                }
-            }
-        },
-
-        // codefast.app GPT packages, Responses API, same key. Inert until a package is active (the endpoints answer
-        // 403 NO_ACTIVE_PACKAGE / PAYG_DISABLED, which the fallback does not retry): no default chain routes here,
-        // config/presets/gpt*.jsonc do. The native Responses provider sends store: false and derives the reasoning
-        // variants from `effort`. Context is 272K per the codefast notes, the point where GPT pricing tiers up.
-        "codefast-gpt": {
-            "name": "CodeFast GPT",
-            "package": "@opencode/ai/providers/openai/responses",
-            "settings": {
-                "baseURL": "https://api.codefast.app/codex-api/v1",
-                "apiKey": "{env:CODEFAST_API_KEY}"
-            },
-            "models": {
-                "gpt-6-astra": {
-                    "name": "GPT-6 Astra",
-                    "capabilities": {
-                        "tools": true,
-                        "input": ["text", "image"],
-                        "output": ["text"],
-                        "reasoning": { "supported": true, "effort": ["low", "medium", "high", "xhigh", "max"] }
-                    },
-                    "limit": { "context": 272000, "output": 128000 }
-                },
                 "gpt-6.1-sol": {
                     "name": "GPT-6.1 Sol",
                     "capabilities": {
                         "tools": true,
                         "input": ["text", "image"],
                         "output": ["text"],
-                        "reasoning": { "supported": true, "effort": ["low", "medium", "high", "xhigh", "max"] }
+                        "reasoning": { "supported": true, "effort": ["low", "medium", "high"] }
                     },
-                    "limit": { "context": 272000, "output": 128000 }
+                    "limit": { "context": 272000, "output": 128000 },
+                    "variants": [
+                        { "id": "low", "body": { "reasoning_effort": "low" } },
+                        { "id": "medium", "body": { "reasoning_effort": "medium" } },
+                        { "id": "high", "body": { "reasoning_effort": "high" } }
+                    ]
                 },
-                "gpt-6-sol": {
-                    "name": "GPT-6 Sol",
+                "gpt-6-astra": {
+                    "name": "GPT-6 Astra",
                     "capabilities": {
                         "tools": true,
                         "input": ["text", "image"],
                         "output": ["text"],
-                        "reasoning": { "supported": true, "effort": ["low", "medium", "high", "xhigh", "max"] }
+                        "reasoning": { "supported": true, "effort": ["low", "medium", "high"] }
                     },
-                    "limit": { "context": 272000, "output": 128000 }
+                    "limit": { "context": 272000, "output": 128000 },
+                    "variants": [
+                        { "id": "low", "body": { "reasoning_effort": "low" } },
+                        { "id": "medium", "body": { "reasoning_effort": "medium" } },
+                        { "id": "high", "body": { "reasoning_effort": "high" } }
+                    ]
                 },
                 "gpt-6-luna": {
                     "name": "GPT-6 Luna",
@@ -248,60 +133,14 @@
                         "tools": true,
                         "input": ["text", "image"],
                         "output": ["text"],
-                        "reasoning": { "supported": true, "effort": ["low", "medium", "high", "xhigh", "max"] }
+                        "reasoning": { "supported": true, "effort": ["low", "medium", "high"] }
                     },
-                    "limit": { "context": 272000, "output": 128000 }
-                }
-            }
-        },
-        // The daily unlimited package: a separate endpoint and model set, at most 4 concurrent requests per user.
-        "codefast-gpt-unlimited": {
-            "name": "CodeFast GPT Unlimited",
-            "package": "@opencode/ai/providers/openai/responses",
-            "settings": {
-                "baseURL": "https://api.codefast.app/codex-unlimited-api/v1",
-                "apiKey": "{env:CODEFAST_API_KEY}"
-            },
-            "models": {
-                "gpt-6-astra": {
-                    "name": "GPT-6 Astra (unlimited)",
-                    "capabilities": {
-                        "tools": true,
-                        "input": ["text", "image"],
-                        "output": ["text"],
-                        "reasoning": { "supported": true, "effort": ["low", "medium", "high", "xhigh", "max"] }
-                    },
-                    "limit": { "context": 272000, "output": 128000 }
-                },
-                "gpt-5.6-sol": {
-                    "name": "GPT-5.6 Sol (unlimited)",
-                    "capabilities": {
-                        "tools": true,
-                        "input": ["text", "image"],
-                        "output": ["text"],
-                        "reasoning": { "supported": true, "effort": ["low", "medium", "high", "xhigh", "max"] }
-                    },
-                    "limit": { "context": 272000, "output": 128000 }
-                },
-                "gpt-5.6-terra": {
-                    "name": "GPT-5.6 Terra (unlimited)",
-                    "capabilities": {
-                        "tools": true,
-                        "input": ["text", "image"],
-                        "output": ["text"],
-                        "reasoning": { "supported": true, "effort": ["low", "medium", "high", "xhigh", "max"] }
-                    },
-                    "limit": { "context": 272000, "output": 128000 }
-                },
-                "gpt-5.6-luna": {
-                    "name": "GPT-5.6 Luna (unlimited)",
-                    "capabilities": {
-                        "tools": true,
-                        "input": ["text", "image"],
-                        "output": ["text"],
-                        "reasoning": { "supported": true, "effort": ["low", "medium", "high", "xhigh", "max"] }
-                    },
-                    "limit": { "context": 272000, "output": 128000 }
+                    "limit": { "context": 272000, "output": 128000 },
+                    "variants": [
+                        { "id": "low", "body": { "reasoning_effort": "low" } },
+                        { "id": "medium", "body": { "reasoning_effort": "medium" } },
+                        { "id": "high", "body": { "reasoning_effort": "high" } }
+                    ]
                 }
             }
         }

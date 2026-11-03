@@ -1,9 +1,8 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test"
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { fileURLToPath } from "node:url"
-import { loadConfig, type ModelRef, parseJsonc } from "../src/config.ts"
+import { loadConfig, type ModelRef } from "../src/config.ts"
 import { createFakeCtx } from "./fake-ctx.ts"
 
 const TIERS = [
@@ -23,44 +22,9 @@ const TIERS = [
     "auto-verifier",
 ]
 
-const OPUS = "anthropic/claude-opus-5-5"
-const SONNET = "anthropic/claude-sonnet-5-5"
-const HAIKU = "anthropic/claude-haiku-5-5"
-const CODEFAST = /^codefast-(glm\/glm-5\.3|kimi\/kimi-k3|deepseek\/deepseek-v4\.1-flash(-1017)?|qwen\/qwen3\.8-flash)#/
-
-/** The Claude rung per tier, following the Claude Code ac mapping of agent to model and effort. */
-const CLAUDE_RUNG: Record<string, ModelRef> = {
-    main: `${OPUS}#high`,
-    oracle: `${OPUS}#high`,
-    "plan-reviewer": `${OPUS}#medium`,
-    "design-director": `${OPUS}#medium`,
-    "plan-code-review": `${OPUS}#high`,
-    "plan-worker-senior": `${OPUS}#medium`,
-    "plan-worker-junior-high": `${SONNET}#high`,
-    "plan-worker-junior": `${SONNET}#high`,
-    "plan-worker-quick": `${HAIKU}#medium`,
-    explore: `${HAIKU}#medium`,
-    librarian: `${SONNET}#high`,
-    "qa-tester": `${SONNET}#high`,
-    lane: `${OPUS}#high`,
-    "auto-verifier": `${OPUS}#high`,
-}
-
-/** The two review gates and the design director: read-only advisors that lead with Opus and fall back to codefast. */
-const REVIEW_GATES = [
-    "oracle",
-    "plan-reviewer",
-    "design-director",
-]
-
-const PRESET_PATH = fileURLToPath(new URL("../config/presets/claude.jsonc", import.meta.url))
-
-interface Preset {
-    title: ModelRef
-    tiers: Record<string, ModelRef[]>
-}
-
-const claudePreset = (): Preset => parseJsonc(readFileSync(PRESET_PATH, "utf8"), PRESET_PATH) as Preset
+const SOL = "apimaster/gpt-6.1-sol"
+const ASTRA = "apimaster/gpt-6-astra"
+const LUNA = "apimaster/gpt-6-luna"
 
 let dir: string
 
@@ -73,69 +37,47 @@ afterEach(() => {
 })
 
 describe("loadConfig defaults", () => {
-    test("the review gates and the design director lead with Opus on the Claude API, then Kimi K3", () => {
-        const config = loadConfig({ env: {} })
-
-        for (const tier of REVIEW_GATES) {
-            expect(config.chain(tier)[0]).toBe(CLAUDE_RUNG[tier] as string)
-            expect(config.chain(tier)[1]).toStartWith("codefast-kimi/kimi-k3#")
-        }
-    })
-
-    test("every other chain runs the four codefast families, then one Claude rung outside the codefast group", () => {
+    test("apimaster is the one provider of every chain, on sol, astra and luna, never above high effort", () => {
         const config = loadConfig({ env: {} })
 
         for (const tier of TIERS) {
-            const chain = config.chain(tier)
-            const codefast = REVIEW_GATES.includes(tier) ? chain.slice(1) : chain.slice(0, -1)
-            for (const ref of codefast) expect(ref).toMatch(CODEFAST)
-            expect(chain).toContain(CLAUDE_RUNG[tier] as string)
+            for (const ref of config.chain(tier)) expect(ref).toMatch(/^apimaster\/(gpt-6\.1-sol|gpt-6-astra|gpt-6-luna)#(low|medium|high)$/)
         }
-        expect(Object.values(config.groups).flat()).not.toContain("anthropic")
+        expect(config.groups).toEqual({})
+        expect(config.rateLimits).toEqual({})
     })
 
-    test("every tier of the Balanced preset has a chain", () => {
+    test("every tier has two rungs and astra, five times the sol price, is never the first", () => {
         const config = loadConfig({ env: {} })
 
-        expect(config.chain("main")).toEqual([
-            "codefast-glm/glm-5.3#high",
-            "codefast-deepseek/deepseek-v4.1-flash-1017#high",
-            "codefast-kimi/kimi-k3#high",
-            "anthropic/claude-opus-5-5#high",
-        ])
-        expect(config.chain("plan-code-review")).toEqual([
-            "codefast-glm/glm-5.3#max",
-            "codefast-kimi/kimi-k3#high",
-            "codefast-deepseek/deepseek-v4.1-flash-1017#max",
-            "anthropic/claude-opus-5-5#high",
-        ])
-        expect(config.chain("plan-worker-quick")).toEqual([
-            "codefast-deepseek/deepseek-v4.1-flash-1017#low",
-            "codefast-qwen/qwen3.8-flash#low",
-            "codefast-deepseek/deepseek-v4.1-flash#low",
-            "anthropic/claude-haiku-5-5#medium",
-        ])
-        for (const tier of TIERS) expect(config.chain(tier).length).toBe(4)
+        for (const tier of TIERS) {
+            const [head, fallback] = config.chain(tier) as [ModelRef, ModelRef]
+            expect(config.chain(tier)).toHaveLength(2)
+            expect(head.startsWith(ASTRA)).toBe(false)
+            expect(fallback.split("#")[0]).not.toBe(head.split("#")[0])
+        }
+        expect(config.chain("main")).toEqual([`${SOL}#high`, `${ASTRA}#medium`])
+        expect(config.chain("explore")).toEqual([`${LUNA}#low`, `${SOL}#low`])
     })
 
-    test("chain heads per tier", () => {
+    test("chain heads per tier follow the Claude Code ac shapes: sol high, sol medium, luna", () => {
         const config = loadConfig({ env: {} })
 
         expect(Object.fromEntries(TIERS.map((tier) => [tier, config.chain(tier)[0]]))).toEqual({
-            main: "codefast-glm/glm-5.3#high",
-            oracle: "anthropic/claude-opus-5-5#high",
-            "plan-reviewer": "anthropic/claude-opus-5-5#medium",
-            "design-director": "anthropic/claude-opus-5-5#medium",
-            "plan-code-review": "codefast-glm/glm-5.3#max",
-            "plan-worker-senior": "codefast-glm/glm-5.3#max",
-            "plan-worker-junior-high": "codefast-deepseek/deepseek-v4.1-flash-1017#high",
-            "plan-worker-junior": "codefast-deepseek/deepseek-v4.1-flash-1017#high",
-            "plan-worker-quick": "codefast-deepseek/deepseek-v4.1-flash-1017#low",
-            explore: "codefast-deepseek/deepseek-v4.1-flash-1017#low",
-            librarian: "codefast-deepseek/deepseek-v4.1-flash-1017#high",
-            "qa-tester": "codefast-deepseek/deepseek-v4.1-flash-1017#high",
-            lane: "codefast-glm/glm-5.3#high",
-            "auto-verifier": "codefast-kimi/kimi-k3#max",
+            main: `${SOL}#high`,
+            oracle: `${SOL}#high`,
+            "plan-reviewer": `${SOL}#medium`,
+            "design-director": `${SOL}#medium`,
+            "plan-code-review": `${SOL}#high`,
+            "plan-worker-senior": `${SOL}#high`,
+            "plan-worker-junior-high": `${SOL}#medium`,
+            "plan-worker-junior": `${SOL}#medium`,
+            "plan-worker-quick": `${LUNA}#medium`,
+            explore: `${LUNA}#low`,
+            librarian: `${SOL}#medium`,
+            "qa-tester": `${SOL}#medium`,
+            lane: `${SOL}#medium`,
+            "auto-verifier": `${SOL}#high`,
         })
     })
 
@@ -151,7 +93,7 @@ describe("loadConfig defaults", () => {
         expect(config.retryOn).toEqual([429, 500, 502, 503, 504])
     })
 
-    test("rate limit policy: codefast endpoints share one group and a 429 is retried 30 times on the schedule", () => {
+    test("rate limit policy: no provider group, and a 429 is retried 30 times on the schedule", () => {
         const config = loadConfig({ env: {} })
 
         expect(config.rateLimitRetries).toBe(30)
@@ -170,15 +112,7 @@ describe("loadConfig defaults", () => {
             15_000,
         ])
         expect(config.rateLimitDelayMs(31)).toBe(15_000)
-        expect(config.groups).toEqual({
-            codefast: [
-                "codefast-glm",
-                "codefast-kimi",
-                "codefast-deepseek",
-                "codefast-qwen",
-            ],
-            "codefast-gpt-unlimited": ["codefast-gpt-unlimited"],
-        })
+        expect(config.groups).toEqual({})
     })
 
     test("an unknown tier throws instead of returning an empty chain", () => {
@@ -209,85 +143,6 @@ describe("loadConfig defaults", () => {
         expect(config.hasChain("main")).toBe(true)
         expect(config.hasChain("nope")).toBe(false)
         expect(config.hasChain("oracle")).toBe(false)
-    })
-})
-
-describe("claude preset", () => {
-    test("covers every tier, each chain led by its Claude rung and followed by codefast entries", () => {
-        const { tiers } = claudePreset()
-
-        expect(Object.keys(tiers).sort()).toEqual([...TIERS].sort())
-        for (const tier of TIERS) {
-            const chain = tiers[tier] as ModelRef[]
-            expect(chain[0]).toBe(CLAUDE_RUNG[tier] as string)
-            expect(chain.length).toBeGreaterThanOrEqual(3)
-            for (const ref of chain.slice(1)) expect(ref).toMatch(CODEFAST)
-        }
-    })
-
-    test("follows the Claude rung with the first two codefast entries of the default chain", () => {
-        const { tiers } = claudePreset()
-        const defaults = loadConfig({ env: {} })
-
-        for (const tier of TIERS) {
-            const codefast = defaults.chain(tier).filter((ref) => !ref.startsWith("anthropic/"))
-            expect(tiers[tier]?.slice(1)).toEqual(codefast.slice(0, 2))
-        }
-    })
-
-    test("loads as plugin options and replaces every default chain", () => {
-        const { tiers } = claudePreset()
-
-        const config = loadConfig({ env: {}, options: { models: { tiers } } })
-
-        for (const tier of TIERS) expect(config.chain(tier)).toEqual(tiers[tier] as ModelRef[])
-        expect(config.groups).toEqual(loadConfig({ env: {} }).groups)
-        expect(config.retryAttempts).toBe(3)
-    })
-
-    test("names a fast low-effort Claude title model", () => {
-        expect(claudePreset().title).toBe("anthropic/claude-haiku-5-5#low")
-    })
-})
-
-describe("gpt presets", () => {
-    const TEMPLATE_PATH = fileURLToPath(new URL("../templates/opencode.jsonc", import.meta.url))
-    const template = parseJsonc(readFileSync(TEMPLATE_PATH, "utf8"), TEMPLATE_PATH) as {
-        providers: Record<string, { models: Record<string, { capabilities: { reasoning: { effort: string[] } } }> }>
-    }
-    const preset = (name: string): Preset & { maxLanes?: number; maxParallel?: number } => {
-        const path = fileURLToPath(new URL(`../config/presets/${name}.jsonc`, import.meta.url))
-        return parseJsonc(readFileSync(path, "utf8"), path) as Preset
-    }
-
-    for (const [name, provider] of [["gpt", "codefast-gpt"], ["gpt-unlimited", "codefast-gpt-unlimited"]] as const) {
-        test(`${name}: every tier leads with two ${provider} entries, then its default chain head`, () => {
-            const { tiers } = preset(name)
-            const defaults = loadConfig({ env: {} })
-
-            expect(Object.keys(tiers).sort()).toEqual([...TIERS].sort())
-            for (const tier of TIERS) {
-                const chain = tiers[tier] as ModelRef[]
-                expect(chain.slice(0, 2).every((ref) => ref.startsWith(`${provider}/`))).toBe(true)
-                expect(chain[2]).toBe(defaults.chain(tier)[0] as string)
-            }
-        })
-
-        test(`${name}: every GPT entry and the title name a model and a variant the template declares`, () => {
-            const { tiers, title } = preset(name)
-            const refs = [title, ...Object.values(tiers).flat()].filter((ref) => ref.startsWith(`${provider}/`))
-
-            const undeclared = refs.filter((ref) => {
-                const [model, variant] = ref.slice(provider.length + 1).split("#") as [string, string]
-                const declared = template.providers[provider]?.models[model]
-                return !declared?.capabilities.reasoning.effort.includes(variant)
-            })
-            expect(undeclared).toEqual([])
-        })
-    }
-
-    test("gpt-unlimited stays within the endpoint's 4 concurrent requests: one lane, two workers", () => {
-        expect(preset("gpt-unlimited")).toMatchObject({ maxLanes: 1, maxParallel: 2 })
     })
 })
 

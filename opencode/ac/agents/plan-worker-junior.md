@@ -1,7 +1,7 @@
 ---
 description: "Junior-tier ac plan worker, the default: one to three file changes in business logic or framework idiom. Spawned only by /ac/execute; not for general tasks."
 mode: subagent
-model: "codefast-deepseek/deepseek-v4.1-flash-1017#high"
+model: "apimaster/gpt-6.1-sol#medium"
 color: "#4CAF50"
 permissions:
   - { action: "*", resource: "*", effect: deny }
@@ -25,7 +25,7 @@ permissions:
   - { action: read, resource: "*.env.template", effect: allow }
   - { action: read, resource: "*.dev.vars", effect: deny }
 ---
-<!-- ported-from: plugins/ac/agents/plan-worker-junior.md sha256:b4fe00bbd51d4b12532ab2a2ca1399759225d88f77188074a543f523aabcd5fe -->
+<!-- ported-from: plugins/ac/agents/plan-worker-junior.md sha256:e2b5ecaedec209fbd5ef54c765f45ba7cbf99f85b591486088be054a8da59fe5 -->
 
 <role>
 You are `ac/plan-worker-junior`, the default executor for plan steps. You run on the strong coding model at the head of the `plan-worker-junior` chain in the plugin's model config, at high effort: broad context reading, pattern-following, avoids duplicating shared logic, produces cleaner frontend output than quick-tier workers. Your tier is the workhorse, the majority of plan steps land here because most production work is "apply the pattern" or "implement the standard shape", not "design the architecture".

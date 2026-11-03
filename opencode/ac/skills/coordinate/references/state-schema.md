@@ -81,8 +81,8 @@ Top level:
 - `base_sha`: the commit the integration branch was cut from, fixed for the run.
 - `integration_branch`: `coord/<slug>`, the local branch bundles merge into.
 - `integration_head`: the integration branch tip; moves on every merge. It is the `onto=` value of a `REBASE` message and the `base_sha` of a new lane's `ac_lane_start`.
-- `max_lanes`: the most bundles the coordinator keeps in `planning` or `executing` at once: `--lanes` (default 2), lowered to the installed preset's cap when `ac_lane_start` reports a smaller `max_lanes` (2 under the codefast preset, 3 under the claude preset, 1 under gpt-unlimited). The plugin does not enforce it; the coordinator does, from this file.
-- `max_workers`: parallel workers per lane, passed to the lane as `--max-parallel`. Default 2 (SKILL.md, Phase 0); the claude preset tolerates 3.
+- `max_lanes`: the most bundles the coordinator keeps in `planning` or `executing` at once: `--lanes` (default 2), lowered to the configured cap when `ac_lane_start` reports a smaller `max_lanes` (2 in the shipped config). The plugin does not enforce it; the coordinator does, from this file.
+- `max_workers`: parallel workers per lane, passed to the lane as `--max-parallel`. Default 2 (SKILL.md, Phase 0).
 - `tdd_mode`: the test mode the owner picked under `TDD?` at the `Roadmap?` lock, one of `tdd`, `tests-after`, `none`, or `ask` (each lane asks its own). Every lane brief carries it as `tdd:`. Absent on a run locked before the field existed, which reads as `ask`.
 - `bundles`: the bundle list, shape below.
 - `owner_queue`: bundle ids whose DECISIONS or BLOCKED block still waits on the owner, in arrival order. The coordinator drains it into one batched question round instead of one prompt per lane.

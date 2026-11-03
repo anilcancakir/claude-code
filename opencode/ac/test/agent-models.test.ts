@@ -3,7 +3,7 @@ import { loadConfig } from "../src/config.ts"
 import { registerAgentModels } from "../src/agent-models.ts"
 import { createFakeCtx, type FakeAgent, type FakeCtx } from "./fake-ctx.ts"
 
-/** Fixture chains, independent of config/models.jsonc, so a preset edit cannot break the mapping mechanics. */
+/** Fixture chains, independent of config/models.jsonc, so a routing edit cannot break the mapping mechanics. */
 const TIERS = {
     "plan-worker-junior": { replace: ["anthropic/claude-sonnet-5-5#high", "codefast-glm/glm-5.3#high"] },
     oracle: { replace: ["openrouter/anthropic/claude-opus-5-5"] },

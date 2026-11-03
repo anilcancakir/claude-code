@@ -1,7 +1,7 @@
 ---
 description: "Read-only research agent for anything outside this repository: library behaviour, API contracts, framework idioms, OSS code, official docs. Specify depth: quick, medium or thorough. Returns URL citations with snippets; code in this repository is ac/explore."
 mode: subagent
-model: "codefast-deepseek/deepseek-v4.1-flash-1017#high"
+model: "apimaster/gpt-6.1-sol#medium"
 color: "#3b82f6"
 permissions:
   - action: skill

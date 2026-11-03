@@ -1,7 +1,7 @@
 ---
 description: "Completion gate for one /ac/auto run: checks the frozen criteria and returns a verdict. Spawned only by /ac/auto; not for general tasks."
 mode: subagent
-model: "codefast-kimi/kimi-k3#max"
+model: "apimaster/gpt-6.1-sol#high"
 color: "#00BCD4"
 permissions:
   - { action: "*", resource: "*", effect: deny }

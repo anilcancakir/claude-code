@@ -2,7 +2,7 @@
 name: execute
 description: "Run an approved ac plan to completion, wave by wave, with cost-tiered workers, per-wave verification and a final review. Loaded by /ac/execute; the request carries a plan slug or path plus flags."
 ---
-<!-- ported-from: plugins/ac/skills/execute/SKILL.md sha256:2f4525aca45ac3b3a04e09df2caac2455f44c96e6b280543a854f4f684361ee3 -->
+<!-- ported-from: plugins/ac/skills/execute/SKILL.md sha256:d8fa763c1a79b77476c2b41f02e54b3492b7cb64820333e093537321d8d2290d -->
 
 # /ac/execute
 
@@ -119,7 +119,7 @@ Nothing to load and no task list to register (see Progress surface). Begin at Ph
 
 - Strip `--auto` if present: `AUTO_MODE = true`, per the `<auto_mode>` policy: auto-resolve the flow gates, halt only on BLOCKER classes.
 - Strip `--lane` if present: `LANE_MODE = true`. Set by the `ac/lane` agent that `/ac/coordinate` dispatches. Implies `AUTO_MODE = true`, `NO_QA = true` (parallel lanes would collide on dev-server ports) and no push at 4a.
-- Strip `--max-parallel N` if present: `MAX_PARALLEL = N`, the cap on workers running at once within a wave (2c). Without the flag, `MAX_PARALLEL` is `maxParallel` from the `ac_models` tool (1c), 3 in the shipped config: the codefast chain heads all sit in one rate-limit group of 25 requests per minute, and each worker turn spends several requests, so a wider wave mostly waits on 429s.
+- Strip `--max-parallel N` if present: `MAX_PARALLEL = N`, the cap on workers running at once within a wave (2c). Without the flag, `MAX_PARALLEL` is `maxParallel` from the `ac_models` tool (1c), 3 in the shipped config: a conservative default, since the gateway's concurrency limit is unknown and each worker turn spends several requests and a share of the key's balance.
 - Strip `--no-oracle` if present: `NO_ORACLE = true`. Skips the `ac/oracle` spawn at 3b.
 - Strip `--no-qa` if present: `NO_QA = true`. Skips the Phase 3e QA pass whatever the plan's `**QA**` line says.
 - Strip `--no-checkpoint-commits` if present: `NO_CHECKPOINT_COMMITS = true`. Disables wave-after commits; Phase 4 final commit still runs.
@@ -151,7 +151,7 @@ zero in flat-style plans.
 
 Call the `ac_models` tool once here and hold each tier's chain, plus the `oracle` and `plan-code-review` chains for
 Phase 3, its `groups` and its `maxParallel`. Read the routing from the tool, never from `config/models.jsonc`, which
-an installed preset (`install.ts --preset claude`) overrides through the plugin options.
+the plugin options of an install can override.
 The head of a chain is the agent's own `model`, written as `provider/model#variant`, so an attempt that omits
 `model` runs on it; the entries after it are what `ac_fallback_next` walks at 2e.
 

@@ -130,17 +130,22 @@ const FAILURE_MEMORY = 200
 const ROOT = "root"
 
 /**
- * A provider account that cannot serve any request for a while: out of credit, over a spend limit, or a refused key.
- * The host types the first and last (`provider.quota` for a 402 or a billing code, `provider.auth` for 401 and 403,
- * ai/src/provider-error.ts:265-274), but Anthropic reports a spend limit as a 400 `invalid_request_error` whose message
- * starts "You have reached your specified API usage limits" (platform.claude.com/docs/en/api/rate-limits.md), and its
- * low-credit message (not in those docs) is matched as well. None of them is retryable, so the hook switches at once.
+ * A provider account that cannot serve a request for a while: out of credit or a refused key. The host types them
+ * (`provider.quota` for a 402 or a billing code, `provider.auth` for 401 and 403, ai/src/provider-error.ts:265-274).
+ * None is retryable, so the hook switches at once.
  */
-const ACCOUNT_LIMIT_TEXT = /reached your specified (?:workspace )?API usage limits|credit balance is too low/i
-
 function accountUnavailable(error: StructuredError): boolean {
-    if (error.type === "provider.quota" || error.type === "provider.auth" || error.status === 402) return true
-    return error.status === 400 && ACCOUNT_LIMIT_TEXT.test(error.message)
+    return error.type === "provider.quota" || error.type === "provider.auth" || error.status === 402
+}
+
+/**
+ * A 403 refuses the model that answered it, not the account: apimaster answers 403 `insufficient_user_quota` for a
+ * model the balance cannot pay while the other models on the same key still serve (measured 2026-11-02). Only a 401
+ * or a 402 takes the whole provider off the chains; a 403 cools that model alone, so the sibling on the same provider
+ * stays a candidate and a main session can still return to its head.
+ */
+function cooldownKey(error: StructuredError, model: PlainModel): string {
+    return error.status === 403 ? `model:${modelKey(model)}` : `provider:${providerOf(model)}`
 }
 
 /** A throttle, typed by the host whether or not the failure carried an HTTP status (to-session-error.ts:35, :105). */
@@ -344,13 +349,14 @@ export async function registerFallback(
         const status = event.error.status
         const tier = AGENT_TIERS[event.agent]
 
-        // 0. An account that cannot serve anything is skipped by every session until a top-up or a new key could
-        //    have landed. The host does not retry it, so a session this module owns switches and retries at once,
+        // 0. An account that cannot serve anything (a 403: the refused model) is skipped by every session until a
+        //    top-up or a new key could have landed. The host does not retry it, so a session this module owns switches and retries at once,
         //    and a worker fails so that ac_fallback_next, which now skips the provider, names the next entry.
         if (accountUnavailable(event.error)) {
-            coolDown(`provider:${providerOf(event.model)}`, ACCOUNT_COOLDOWN_MS)
+            const scope = cooldownKey(event.error, event.model)
+            coolDown(scope, ACCOUNT_COOLDOWN_MS)
             const reason = `${event.error.type}: ${event.error.message}`
-            log("info", `ac fallback: ${event.model.providerID} unavailable (${reason})`)
+            log("info", `ac fallback: ${scope.replace(":", " ")} unavailable (${reason})`)
             const account = { status, rateLimited: false }
             if (tier !== undefined && (await switchDown(event.sessionID, tier, event.model, account, event.attempt))) {
                 event.decision = { retry: true, delay: 0 }
@@ -511,8 +517,8 @@ export async function registerFallback(
     follow().catch((cause: unknown) => log("error", "ac fallback: event stream ended", cause))
 
     await ctx.tool.transform((editor) => {
-        // The skills read routing from here, not from config/models.jsonc: an installed preset replaces those chains
-        // through the plugin options, and only the plugin sees the merged result.
+        // The skills read routing from here, not from config/models.jsonc: plugin options can replace those chains,
+        // and only the plugin sees the merged result.
         editor.add({
             name: "ac_models",
             // A direct tool, not a Code Mode one: an agent whose permissions deny `execute` (a lane, every ac

@@ -1,7 +1,7 @@
 ---
 description: "Post-implementation review of an executed ac plan's diff; returns findings, no verdict. Spawned only by /ac/execute; not for general tasks."
 mode: subagent
-model: "codefast-glm/glm-5.3#max"
+model: "apimaster/gpt-6.1-sol#high"
 color: "#ef4444"
 permissions:
   - action: skill

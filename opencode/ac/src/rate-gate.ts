@@ -1,13 +1,13 @@
 import type { Plugin } from "@opencode/plugin"
 import type { ModelConfig } from "./config.ts"
 
-/** The window a group's `rateLimits` entry counts request starts over; codefast reports `rpm_window_seconds: 60`. */
+/** The window a group's `rateLimits` entry counts request starts over: requests per minute. */
 const WINDOW_MS = 60_000
 
 /**
  * Request starts of one rate-limit group, spread over a rolling window. Every lane, worker and main session of every
- * project sends through the one background service, and that whole service shares one limit (codefast answers with
- * `rate_limit_scope: "group:unlimited"`, `rpm_limit: 25`), so a gate per plugin instance would not hold it.
+ * project sends through the one background service, and that whole service shares one provider limit, so a gate per
+ * plugin instance would not hold it. The shipped config declares no limit, so no gate is registered.
  */
 export class Gate {
     private readonly starts: number[] = []

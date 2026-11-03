@@ -1,7 +1,7 @@
 ---
 description: "Advisory review of one ac plan file before execution; returns findings, no verdict. Spawned only by /ac/plan; not for general tasks."
 mode: subagent
-model: "anthropic/claude-opus-5-5#medium"
+model: "apimaster/gpt-6.1-sol#medium"
 color: "#eab308"
 permissions:
   - action: skill

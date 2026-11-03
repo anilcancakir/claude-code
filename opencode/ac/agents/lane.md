@@ -2,7 +2,7 @@
 description: "Worktree lane that drives one roadmap bundle through the plan and execute skills for the /ac/coordinate coordinator. Started only by the coordinator's ac_lane_start; not for general tasks."
 mode: subagent
 hidden: true
-model: "codefast-glm/glm-5.3#high"
+model: "apimaster/gpt-6.1-sol#medium"
 color: "#FF9800"
 permissions:
   - { action: "*", resource: "*", effect: deny }

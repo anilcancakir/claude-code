@@ -296,7 +296,9 @@ describe("prompt files", () => {
     test("stay inside their size budget", () => {
         expect(prompt("core").length).toBeLessThanOrEqual(6200)
         for (const overlay of OVERLAYS) {
-            expect(overlayFile(overlay).length).toBeLessThanOrEqual(2700)
+            // The gpt overlay also carries the token-economy section. apimaster bills the prefix as cached input on
+            // every call, so the section stays only as long as the context it trims pays back.
+            expect(overlayFile(overlay).length).toBeLessThanOrEqual(overlay === "gpt" ? 3800 : 2700)
         }
     })
 })

@@ -43,18 +43,33 @@ describe("rate gate", () => {
             },
         })
 
-        await registerRateGate(fake.ctx, loadConfig({ env: {} }))
+        const limited = loadConfig({
+            env: {},
+            options: { models: { groups: { acme: ["acme-a", "acme-b"], other: ["other-a"] }, rateLimits: { acme: 10 } } },
+        })
+        await registerRateGate(fake.ctx, limited)
 
         expect(registered).toEqual([
-            { name: "http.request", providerID: "codefast-glm" },
-            { name: "http.request", providerID: "codefast-kimi" },
-            { name: "http.request", providerID: "codefast-deepseek" },
-            { name: "http.request", providerID: "codefast-qwen" },
+            { name: "http.request", providerID: "acme-a" },
+            { name: "http.request", providerID: "acme-b" },
         ])
     })
 
-    test("the shipped config paces codefast one below its 25 requests per minute", () => {
-        expect(loadConfig({ env: {} }).rateLimits).toEqual({ codefast: 24 })
+    test("the shipped config paces nothing: apimaster publishes no request limit for the key", async () => {
+        const fake = createFakeCtx()
+        const registered: string[] = []
+        Object.assign(fake.ctx.session, {
+            hook: async (name: string) => {
+                registered.push(name)
+                return { dispose: async () => {} }
+            },
+        })
+        const shipped = loadConfig({ env: {} })
+
+        await registerRateGate(fake.ctx, shipped)
+
+        expect(shipped.rateLimits).toEqual({})
+        expect(registered).toEqual([])
     })
 
     test("a second gateOf with another limit retunes the live gate", () => {

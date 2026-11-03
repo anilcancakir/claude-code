@@ -245,10 +245,10 @@ Counts policy:
   lines, and no Stage 1 oracle; the coordinator's budget prices a planning lane at this cap, which replaces the
   shared-rate-limit cap below.
 - Shared rate limit: call the `ac_models` tool once; when one group in its `groups` holds the provider of every
-  chain head the cohort starts on (`explore`, `librarian`, `oracle`; the codefast preset), cap the cohort at
-  3 `ac/explore` + 1 `ac/librarian` plus the optional oracle, in place of the floors above. That group allows 25
-  requests per minute across all its models, so a wider cohort waits on 429s. The chains' last rungs sit outside it
-  and only catch failures, so they do not lift the cap.
+  chain head the cohort starts on (`explore`, `librarian`, `oracle`), cap the cohort at
+  3 `ac/explore` + 1 `ac/librarian` plus the optional oracle, in place of the floors above. That group's limit is
+  shared across all its models, so a wider cohort waits on 429s. The shipped config declares no group (apimaster
+  publishes no request limit for the key), so the floors apply as written.
 
 Every brief carries a `DEPTH` and a `BUDGET`, or the agent searches wider than the angle needs. The reuse angle is
 one dedicated brief, not a clause added to the others. Issue all spawns in one assistant message, each a `subagent`

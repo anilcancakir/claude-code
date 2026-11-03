@@ -4,29 +4,23 @@ This port keeps the benchmark and cost evidence inline; the Claude Code source m
 
 # Model Tier Reference
 
-Routing table used for tier assignment in `/ac/plan` Stage 5 and consumed by the execute skill's Phase 1c. The models come from the ac routing preset at `/Users/anilcan/Code/claude-code/opencode/ac/config/models.jsonc`: each tier maps to an ordered fallback chain of `provider/model#variant`, the first entry is the primary, and the rest are tried in order when the one before it fails. The routing the plugin runs on is the source of truth; the tables below are a snapshot of the default preset taken on 2026-10-23, so call the `ac_models` tool when an exact model id decides something (an installed preset replaces the file's chains).
+Routing table used for tier assignment in `/ac/plan` Stage 5 and consumed by the execute skill's Phase 1c. The models come from the ac routing config at `/Users/anilcan/Code/claude-code/opencode/ac/config/models.jsonc`: each tier maps to an ordered fallback chain of `provider/model#variant`, the first entry is the primary, and the rest are tried in order when the one before it fails. The routing the plugin runs on is the source of truth; the tables below are a snapshot taken on 2026-11-02, so call the `ac_models` tool when an exact model id decides something.
 
 ## Model shapes
 
-The preset splits the work by model shape across four model families on the codefast endpoints, and ends every other chain with one Claude rung on the built-in `anthropic` provider; the two review gates lead with it:
+One provider, `apimaster` (apimaster.ai, billed per token), serves every chain, with three GPT models. Effort costs tokens, so no chain goes above `high`:
 
 | Model | Shape | Tiers it carries as primary | Role |
 |---|---|---|---|
-| GLM-5.3 (`codefast-glm/glm-5.3`) | Opus-shaped builder | `senior` (variant `max`), plus the main session, `plan-code-review` and the coordinate `lane` (variant `high`) | Agentic coder trained against a Claude Code shaped harness (ZCode): cross-layer work, architecture, migrations, long-horizon changes where correctness depends on reasoning about behaviour. Reviews the workers' diff because it is a different family from them. |
-| Kimi K3 (`codefast-kimi/kimi-k3`) | independent reviewer | the coordinate `auto-verifier` (variant `max`), and the first codefast rung of `oracle` (`max`) and `plan-reviewer` (`high`) | A different family from whoever produced the artifact (main GLM, so the verifier and the review fallbacks Kimi), so review is a second eye rather than the author re-reading itself. The slowest model in the preset, acceptable because reviews are rare. |
-| DeepSeek V4.1 Flash 1017 (`codefast-deepseek/deepseek-v4.1-flash-1017`) | Sonnet- and Haiku-shaped workhorse | `junior` and `junior-high` (variant `high`), `quick` and `explore` (variant `low`), plus `librarian` and `qa-tester` | Artificial Analysis Intelligence Index 45 (tied with GLM-5.3; Kimi K3 44, Qwen3.8 Flash 40), speed class 4/4 against GLM 3/4, Qwen 2/4, Kimi 1/4; operator test 12/12. Standard implementation, pattern application, mechanical edits and fan-out search. Its sibling `deepseek-v4.1-flash` is the last rung of the fast chains. |
-| Qwen 3.8 Flash (`codefast-qwen/qwen3.8-flash`) | fast fallback | session titles | Second rung of the fast chains and last codefast rung of the junior, librarian and qa-tester chains. |
-| Claude 5.5 (`anthropic/claude-opus-5-5`, `claude-sonnet-5-5`, `claude-haiku-5-5`) | review gates, and the out-of-group last fallback | `oracle` (`high`) and `plan-reviewer` (`medium`) in the default preset, every other tier's last rung; every tier under the `claude` preset | Tier-matched as in the Claude Code ac plugin: Opus for main, oracle and plan-code-review (`high`) and plan-reviewer and senior (`medium`); Sonnet at `high` for junior, junior-high, librarian and qa-tester; Haiku at `medium` for quick and explore. Paid per token through an API key, so it is the rung of last resort. |
+| GPT-6.1 Sol (`apimaster/gpt-6.1-sol`) | Opus- and Sonnet-shaped | `high`: `senior`, `plan-code-review`, `oracle`, the main session and the coordinate `auto-verifier`; `medium`: `junior`, `junior-high`, `plan-reviewer`, `design-director`, `librarian`, `qa-tester` and the coordinate `lane` | Coding Agent Index 54.1 at max effort (Astra 54.7 at five times the price); on the Intelligence Index it scores 50 at `high` and 46 at `medium`, the latter above Sonnet 5.5 at the `high` Claude Code gives it (41). Standard implementation, review, and cross-layer work. |
+| GPT-6 Luna (`apimaster/gpt-6-luna`) | Haiku-shaped | `quick` (`medium`), `explore` (`low`), session titles (`low`) | A twentieth of the sol price. Weak at terminal work (Terminal-Bench 4.0: 15.7 against 30.8 for Haiku 5.5) but ahead of Haiku on code question answering (SWE-Atlas-QnA 38.2 against 33.9), which is what `explore` does. |
+| GPT-6 Astra (`apimaster/gpt-6-astra`) | fallback only | second rung of every chain except `quick` and `explore` | Five times the sol price for half a point on the Coding Agent Index, so it is never a first rung: it catches a model-level failure of sol one effort step down (`medium` for the `high` tiers, `low` for the `medium` ones). |
 
-The codefast rungs sit inside one shared rate-limit group. A 5xx or malformed output moves to the next rung after `retryAttempts`; a 429 is retried on the same model through the `rateLimitBackoff` schedule (30 retries, about 4 minutes) before the chain moves on in order. The Claude rung is last, so only a codefast outage or a 429 that outlasts every codefast rung reaches it, except in the two review gates, which lead with it.
-
-The `claude` preset (`/Users/anilcan/Code/claude-code/opencode/ac/config/presets/claude.jsonc`, applied with `bun scripts/install.ts --preset claude`) inverts the order: each chain leads with its Claude model and falls back to the first two codefast entries of the default chain. Re-running the installer without `--preset` restores the default.
-
-Two GPT presets need an active codefast Codex package: `gpt` (`config/presets/gpt.jsonc`, codex-api, counted per request with a model multiplier) leads with `codefast-gpt/gpt-6-astra` for oracle, plan-code-review and auto-verifier, `gpt-6.1-sol` for main, senior, plan-reviewer and lane, `gpt-6-sol` for the workhorse tiers and `gpt-6-luna` for quick, explore and librarian; `gpt-unlimited` (`config/presets/gpt-unlimited.jsonc`, the daily unlimited endpoint, at most 4 concurrent requests) does the same with `gpt-6-astra` and the `gpt-5.6` sol, terra and luna models and caps `maxLanes` at 1 and `maxParallel` at 2. Each GPT chain falls back to a second GPT entry, then to the head of its default codefast chain. Plans read the installed routing through the `ac_models` tool, never this table.
+A 5xx or malformed output moves to the next rung after `retryAttempts`; a 429 is retried on the same model through the `rateLimitBackoff` schedule (30 retries, about 4 minutes) before the chain moves on in order. `quick` and `explore` fall back to `gpt-6.1-sol#low`. A model the key's balance cannot pay for answers 403 `insufficient_user_quota`, on which the plugin cools that model alone for 30 minutes and the chain moves to its next rung, so run one tiny call per chain model before a long run. Plans read the installed routing through the `ac_models` tool, never this table.
 
 ## Variant
 
-A variant (`low`, `medium`, `high`, `max`) is the reasoning-effort lever inside one model, and it is fixed per agent: the plugin sets each `ac/*` agent's model to the first entry of its tier chain, variant included, whichever preset is installed (the frontmatter `model` matches the default preset's head). The plan does not set a variant per step, and the planner leaves the `subagent` tool's `model` parameter unset on every spawn it makes (research, oracle, reviewer), so each agent runs on its configured model.
+A variant (`low`, `medium`, `high`) is the reasoning-effort lever inside one model, and it is fixed per agent: the plugin sets each `ac/*` agent's model to the first entry of its tier chain, variant included (the frontmatter `model` matches the chain head). The plan does not set a variant per step, and the planner leaves the `subagent` tool's `model` parameter unset on every spawn it makes (research, oracle, reviewer), so each agent runs on its configured model.
 
 Moving between models on failure belongs to the execute skill, not to the plan: when a worker fails on a provider error, execute takes the next entry of that tier's chain and re-spawns the worker on it, and only a failure attributed to the work itself escalates one tier. A variant bump is a within-model lever and cannot substitute for the gap between model shapes, which is why the tier decision below picks a worker rather than a variant.
 
@@ -66,18 +60,18 @@ Apply to every step, not just the first.
 
 Those are real reasons to reach for a higher tier, and inventing an attribution to a rule that does not fit is worse than admitting the gap. So when a step sits at the borderline of `junior` for a reason no numbered rule covers, write `rule-none: <one sentence naming the actual risk>` and assign **`junior-high`**, not `senior`.
 
-Routing the residual to `junior-high` is deliberate: it is cheaper and faster than `senior` per step and marks the step as borderline within the Sonnet-shaped workers (both junior tiers run DeepSeek V4.1 Flash 1017 at `high`, so the tier is a signal, not a stronger worker), so an unmodelled risk parks somewhere proportionate instead of defaulting to the most expensive tier in the ladder. `senior` stays reserved for what the numbered rules actually name. If one family keeps recurring under `rule-none`, that is the signal to add a rule rather than to keep paying for the ambiguity.
+Routing the residual to `junior-high` is deliberate: it is cheaper and faster than `senior` per step and marks the step as borderline within the Sonnet-shaped workers (both junior tiers run GPT-6.1 Sol at `medium`, so the tier is a signal, not a stronger worker), so an unmodelled risk parks somewhere proportionate instead of defaulting to the most expensive tier in the ladder. `senior` stays reserved for what the numbered rules actually name. If one family keeps recurring under `rule-none`, that is the signal to add a rule rather than to keep paying for the ambiguity.
 
 ## Tier-to-worker routing (used by the execute skill)
 
 | Tier | Worker subagent | Primary model | Fallback chain, in order |
 |---|---|---|---|
-| `quick` | `ac/plan-worker-quick` | `codefast-deepseek/deepseek-v4.1-flash-1017#low` | `codefast-qwen/qwen3.8-flash#low`, `codefast-deepseek/deepseek-v4.1-flash#low`, `anthropic/claude-haiku-5-5#medium` |
-| `junior` | `ac/plan-worker-junior` | `codefast-deepseek/deepseek-v4.1-flash-1017#high` | `codefast-glm/glm-5.3#high`, `codefast-qwen/qwen3.8-flash#high`, `anthropic/claude-sonnet-5-5#high` |
-| `junior-high` | `ac/plan-worker-junior-high` | `codefast-deepseek/deepseek-v4.1-flash-1017#high` | `codefast-glm/glm-5.3#high`, `codefast-qwen/qwen3.8-flash#high`, `anthropic/claude-sonnet-5-5#high` |
-| `senior` | `ac/plan-worker-senior` | `codefast-glm/glm-5.3#max` | `codefast-deepseek/deepseek-v4.1-flash-1017#max`, `codefast-kimi/kimi-k3#high`, `anthropic/claude-opus-5-5#medium` |
+| `quick` | `ac/plan-worker-quick` | `apimaster/gpt-6-luna#medium` | `apimaster/gpt-6.1-sol#low` |
+| `junior` | `ac/plan-worker-junior` | `apimaster/gpt-6.1-sol#medium` | `apimaster/gpt-6-astra#low` |
+| `junior-high` | `ac/plan-worker-junior-high` | `apimaster/gpt-6.1-sol#medium` | `apimaster/gpt-6-astra#low` |
+| `senior` | `ac/plan-worker-senior` | `apimaster/gpt-6.1-sol#high` | `apimaster/gpt-6-astra#medium` |
 
-The ladder is monotonic in cost and latency. `quick` runs the workhorse model at `low`. `junior` and `junior-high` run the same model at the same variant, so junior-high costs more per step only because heavier steps are routed there, not because it is a different worker. `senior` runs the Opus-shaped model at `max`, the slowest and most expensive rung, and it is the price of every unnecessary escalation, so plan around it. No per-step cost has been measured on these models yet; re-measure once a few dozen runs per tier exist rather than carrying numbers over from another harness.
+The ladder is monotonic in cost. `quick` runs luna, a twentieth of sol's price. `junior` and `junior-high` run the same model at the same variant (sol at `medium`), so junior-high costs more per step only because heavier steps are routed there, not because it is a different worker. `senior` runs sol at `high`, which spends more reasoning tokens per step and is the price of every unnecessary escalation, so plan around it. No per-step cost has been measured in this harness yet; re-measure once a few dozen runs per tier exist rather than carrying numbers over from another harness.
 
 Prefer `junior-high` over `senior` for work that is heavier than junior but not cross-layer. `junior-high` is sourced from rules 1 through 3: borderline coupling, borderline contextual work, and codebase-state escalation. It is where "this is heavier than junior but not cross-layer" goes. With both junior tiers on the same model and variant it adds no effort; it stays as the borderline signal until a measurement decides otherwise.
 
@@ -93,13 +87,13 @@ Two agents sit outside the plan ladder because no plan step is ever assigned to 
 
 | Tier | Agent | Primary model | Fallback chain, in order | Why |
 |---|---|---|---|---|
-| `lane` | `ac/lane` | `codefast-glm/glm-5.3#high` | `codefast-kimi/kimi-k3#high`, `codefast-deepseek/deepseek-v4.1-flash-1017#high`, `anthropic/claude-opus-5-5#high` | A lane runs one bundle's plan and execute skills inside a worktree, which is the main session's job, so it takes the main chain's builder. |
-| `auto-verifier` | `ac/auto-verifier` | `codefast-kimi/kimi-k3#max` | `codefast-glm/glm-5.3#max`, `codefast-deepseek/deepseek-v4.1-flash-1017#max`, `anthropic/claude-opus-5-5#high` | The verifier judges finished work against frozen criteria, so it takes the independent reviewer family first, as the oracle does. |
+| `lane` | `ac/lane` | `apimaster/gpt-6.1-sol#medium` | `apimaster/gpt-6-astra#low` | A lane runs one bundle's plan and execute skills inside a worktree, which is the main session's job. It is Sonnet-shaped in the Claude Code plugin and keeps that shape here: sol at `medium`. |
+| `auto-verifier` | `ac/auto-verifier` | `apimaster/gpt-6.1-sol#high` | `apimaster/gpt-6-astra#medium` | The verifier judges finished work against frozen criteria, so it takes the strongest first rung at `high`, as the oracle does. |
 
-Under the `claude` preset both chains lead with `anthropic/claude-opus-5-5#high`, followed by the first codefast entries of the default chain. The preset also raises `maxLanes` from 2 to 3: codefast shares one 25 requests per minute limit across its four providers, and every lane runs its own workers, so two lanes is what that limit carries, while Claude's per-account limit is separate.
+`maxLanes` is 2 and `maxParallel` is 3: apimaster publishes no request limit for the key, so lanes are capped by caution and by the balance, not by a rate-limit group, and every lane runs its own workers.
 
 ## Sources
 
-- ac routing preset (tier chains, variants, retry and cooldown settings): `/Users/anilcan/Code/claude-code/opencode/ac/config/models.jsonc`
-- Claude preset (Claude-first chains, title model): `/Users/anilcan/Code/claude-code/opencode/ac/config/presets/claude.jsonc`
-- Worker agent definitions (frontmatter `model` is the default preset's chain head; `src/agent-models.ts` applies the installed preset's): `/Users/anilcan/Code/claude-code/opencode/ac/agents/plan-worker-*.md`
+- ac routing config (tier chains, variants, retry and cooldown settings): `/Users/anilcan/Code/claude-code/opencode/ac/config/models.jsonc`
+- Provider and model declarations (apimaster, effort variants): `/Users/anilcan/Code/claude-code/opencode/ac/templates/opencode.jsonc`
+- Worker agent definitions (frontmatter `model` is the head of the tier chain, which `src/agent-models.ts` also applies): `/Users/anilcan/Code/claude-code/opencode/ac/agents/plan-worker-*.md`

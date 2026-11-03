@@ -1,7 +1,7 @@
 ---
 description: "Fresh-context QA engineer for one /ac/qa run: derives cases from the requirement and the diff, runs them against the live app, and reports findings with evidence. Spawned only by the qa skill; not for general tasks."
 mode: subagent
-model: "codefast-deepseek/deepseek-v4.1-flash-1017#high"
+model: "apimaster/gpt-6.1-sol#medium"
 color: "#a855f7"
 permissions:
   - action: "*"
