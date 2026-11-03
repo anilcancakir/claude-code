@@ -3,7 +3,8 @@
 import { spawn } from "node:child_process";
 import { existsSync, readFileSync, statSync, watch } from "node:fs";
 import { readdir } from "node:fs/promises";
-import { dirname, join, relative, sep } from "node:path";
+import { homedir } from "node:os";
+import { basename, dirname, isAbsolute, join, relative, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 var MAX_HEADER_BYTES = 64 * 1024;
 var MAX_BODY_BYTES = 64 * 1024 * 1024;
@@ -168,6 +169,7 @@ class DocumentTable {
         this.documents.set(uri, {
           uri,
           path: filePathOf(uri),
+          languageId: String(textDocument.languageId ?? ""),
           text: String(textDocument.text ?? ""),
           version: Number(textDocument.version ?? 0),
           stamp: undefined
@@ -277,11 +279,16 @@ var IGNORED_SEGMENTS = new Set([
   ".dart_tool",
   "build",
   "storage",
-  ".idea"
+  ".idea",
+  ".worktrees"
 ]);
 var IGNORED_SEQUENCES = [
   [
     ".claude",
+    "worktrees"
+  ],
+  [
+    ".ac",
     "worktrees"
   ],
   [
@@ -457,6 +464,20 @@ function resolveWorkspaceRoot(params, cwd) {
   }
   return cwd;
 }
+function rootAtProject(params, cwd, exists, home = homedir()) {
+  const root = resolveWorkspaceRoot(params, cwd);
+  const project = projectOfDirectory(root, exists);
+  if (project === root || project === home || project === dirname(project)) {
+    return;
+  }
+  const uri = pathToFileURL(project).href;
+  return {
+    ...params,
+    rootUri: uri,
+    rootPath: project,
+    workspaceFolders: [{ uri, name: basename(project) }]
+  };
+}
 var DEFAULT_SETTLE_MS = 6000;
 var DEFAULT_MAX_HOLD_MS = 300000;
 function findProjectRoot(path, exists) {
@@ -472,6 +493,9 @@ function findProjectRoot(path, exists) {
     directory = parent;
   }
 }
+function projectOfDirectory(directory, exists) {
+  return findProjectRoot(join(directory, "_"), exists);
+}
 var NOISE_PROFILES = {
   php: [
     {
@@ -479,6 +503,10 @@ var NOISE_PROFILES = {
       requires: ["composer.json"],
       missing: ["vendor"],
       withinProject: true
+    },
+    {
+      codes: ["P1009", "P1010", "P1011", "P1012", "P1013", "P1014"],
+      foreignProject: true
     }
   ],
   typescript: [
@@ -498,6 +526,15 @@ var NOISE_PROFILES = {
     }
   ]
 };
+function isForeignProject(path, options) {
+  const workspace = options.workspaceProject;
+  const project = options.projectOf(path);
+  if (workspace === undefined || project === workspace || !options.hasAncestorEntry(join(project, "_"), ".git", project)) {
+    return false;
+  }
+  const inside = relative(workspace, project);
+  return inside.startsWith("..") || isAbsolute(inside) || isIgnoredPath(inside);
+}
 function isNoise(diagnostic, path, options) {
   const severity = typeof diagnostic.severity === "number" ? diagnostic.severity : 1;
   if (severity > options.maxSeverity) {
@@ -508,6 +545,9 @@ function isNoise(diagnostic, path, options) {
   return options.rules.some((rule) => {
     const matched = rule.codes?.includes(code) === true || rule.message?.test(message) === true;
     if (!matched || rule.keep?.test(message) === true) {
+      return false;
+    }
+    if (rule.foreignProject === true && !isForeignProject(path, options)) {
       return false;
     }
     const ceiling = rule.withinProject === true ? options.projectOf(path) : undefined;
@@ -683,10 +723,12 @@ function parseProxyArgs(argv) {
     throw new Error('missing server command after "--"');
   }
   let watchRoot = false;
+  let gitRoot = false;
   let settleMs = DEFAULT_SETTLE_MS;
   let maxHoldMs = DEFAULT_MAX_HOLD_MS;
   let maxSeverity = 4;
   let busy;
+  let idleMs;
   const profiles = [];
   const extensions = [];
   const flags = argv.slice(0, separator);
@@ -694,6 +736,10 @@ function parseProxyArgs(argv) {
     const flag = flags[index];
     if (flag === "--watch-root") {
       watchRoot = true;
+      continue;
+    }
+    if (flag === "--git-root") {
+      gitRoot = true;
       continue;
     }
     if (flag === "--ext" && flags[index + 1] !== undefined) {
@@ -732,16 +778,23 @@ function parseProxyArgs(argv) {
       busy = { start: match[1], end: match[2] };
       continue;
     }
+    if (flag === "--idle") {
+      const ms = parseMilliseconds(flag, flags[++index]);
+      idleMs = ms > 0 ? ms : undefined;
+      continue;
+    }
     throw new Error(`unknown or incomplete option "${flag}"`);
   }
   return {
     watchRoot,
+    gitRoot,
     extensions: extensions.length > 0 ? extensions : [".php"],
     settleMs,
     maxHoldMs,
     maxSeverity,
     profiles,
     busy,
+    idleMs,
     command,
     args: argv.slice(separator + 2)
   };
@@ -817,13 +870,15 @@ function publishMessage(body) {
     return;
   }
 }
+var SHUTDOWN_GRACE_MS = 5000;
+var TERMINATE_GRACE_MS = 3000;
 function runLspProxy(argv) {
   let options;
   try {
     options = parseProxyArgs(argv);
   } catch (error) {
     process.stderr.write(`${LOG_PREFIX} ${errorMessage(error)}
-` + `usage: lsp-proxy [--watch-root] [--ext .php]... [--settle <ms>] [--max-hold <ms>] [--max-severity <1-4>] [--profile <name>]... [--busy <start>,<end>] -- <server command> [args...]
+` + `usage: lsp-proxy [--watch-root] [--git-root] [--ext .php]... [--settle <ms>] [--max-hold <ms>] [--max-severity <1-4>] [--profile <name>]... [--busy <start>,<end>] [--idle <ms>] -- <server command> [args...]
 `);
     process.exit(2);
   }
@@ -831,7 +886,8 @@ function runLspProxy(argv) {
   const deps = diskDeps(log);
   const table = new DocumentTable;
   const parser = new FrameParser;
-  const serverParser = new FrameParser;
+  let server;
+  let serverParser = new FrameParser;
   const gateDeps = diskGateDeps();
   const gate = new DiagnosticGate(gateDeps, options.settleMs, options.maxHoldMs);
   const filterOptions = {
@@ -843,13 +899,22 @@ function runLspProxy(argv) {
   const busyEdge = options.busy === undefined ? undefined : createBusyReader(options.busy);
   let gateTimer;
   let gateClosed = false;
-  const server = spawn(options.command, options.args, {
-    stdio: [
-      "pipe",
-      "pipe",
-      "inherit"
-    ]
-  });
+  const idleMs = options.idleMs ?? 0;
+  const tracksIdle = idleMs > 0;
+  let state = "running";
+  let idleTimer;
+  let killTimer;
+  let serverBusy = false;
+  let clientEnded = false;
+  const clientRequests = new Set;
+  const serverRequests = new Set;
+  const queued = [];
+  let initializeParams;
+  let initializedFrame;
+  let configurationFrame;
+  let proxyRequests = 0;
+  let initializeId;
+  let shutdownId;
   const directoryWatchers = new Map;
   const directoryTimers = new Map;
   let directoryWatchDisabled = false;
@@ -864,8 +929,6 @@ function runLspProxy(argv) {
       process.stdin.pause();
     }
   };
-  server.stdin.on("drain", () => process.stdin.resume());
-  server.stdin.on("error", (error) => log("server-stdin", `writing to the server failed: ${errorMessage(error)}`));
   const writeSweep = (sweepOptions) => {
     if (passthrough()) {
       return;
@@ -874,7 +937,11 @@ function runLspProxy(argv) {
       ...sweepOptions,
       onChange: (uri) => gate.touch(uri)
     };
-    for (const body of sweepDocuments(table, deps, synced)) {
+    const bodies = sweepDocuments(table, deps, synced);
+    if (state !== "running") {
+      return;
+    }
+    for (const body of bodies) {
       toServer(frameMessage(body));
     }
   };
@@ -935,7 +1002,7 @@ function runLspProxy(argv) {
   const flushBatch = () => {
     batchTimer = undefined;
     const changes = batch.take();
-    if (changes.length === 0 || passthrough()) {
+    if (changes.length === 0 || passthrough() || state !== "running") {
       return;
     }
     toServer(frameMessage(JSON.stringify({
@@ -990,17 +1057,146 @@ function runLspProxy(argv) {
     clearTimeout(batchTimer);
     batchTimer = undefined;
   };
-  const handleMessage = (raw, body) => {
-    let message;
+  const parseClientBody = (body) => {
     try {
-      message = JSON.parse(body.toString("utf8"));
+      return JSON.parse(body.toString("utf8"));
     } catch (error) {
       log("json", `forwarding a client body that is not JSON untracked: ${errorMessage(error)}`);
+      return;
     }
+  };
+  const canIdleStop = () => tracksIdle && state === "running" && initializedFrame !== undefined && !passthrough() && serverParser.failure === undefined;
+  const restartIdleClock = () => {
+    clearTimeout(idleTimer);
+    idleTimer = undefined;
+    if (canIdleStop()) {
+      idleTimer = setTimeout(stopWhenIdle, idleMs);
+    }
+  };
+  const stopWhenIdle = () => {
+    idleTimer = undefined;
+    if (!canIdleStop()) {
+      return;
+    }
+    if (clientRequests.size > 0 || serverRequests.size > 0 || serverBusy || gateTimer !== undefined) {
+      idleTimer = setTimeout(stopWhenIdle, idleMs);
+      return;
+    }
+    stopServer();
+  };
+  const proxyRequestId = (method) => `ac-lsp-proxy:${method}:${++proxyRequests}`;
+  const stopServer = () => {
+    state = "stopping";
+    log("idle-stop", `stopping the language server after ${idleMs} ms without client messages`);
+    shutdownId = proxyRequestId("shutdown");
+    toServer(frameMessage(JSON.stringify({
+      jsonrpc: "2.0",
+      id: shutdownId,
+      method: "shutdown"
+    })));
+    const child = server;
+    killTimer = setTimeout(() => {
+      child.kill("SIGTERM");
+      killTimer = setTimeout(() => child.kill("SIGKILL"), TERMINATE_GRACE_MS);
+    }, SHUTDOWN_GRACE_MS);
+  };
+  const restartServer = () => {
+    state = "starting";
+    log("restart", "restarting the language server for a client message");
+    startServer();
+    initializeId = proxyRequestId("initialize");
+    toServer(frameMessage(JSON.stringify({
+      jsonrpc: "2.0",
+      id: initializeId,
+      method: "initialize",
+      params: initializeParams
+    })));
+  };
+  const replaySession = () => {
+    state = "running";
+    toServer(initializedFrame);
+    if (configurationFrame !== undefined) {
+      toServer(configurationFrame);
+    }
+    sweepDocuments(table, deps, {
+      onChange: (uri) => gate.touch(uri)
+    });
+    for (const document of table.all()) {
+      toServer(frameMessage(JSON.stringify({
+        jsonrpc: "2.0",
+        method: "textDocument/didOpen",
+        params: {
+          textDocument: {
+            uri: document.uri,
+            languageId: document.languageId,
+            version: document.version,
+            text: document.text
+          }
+        }
+      })));
+    }
+    for (const entry of queued.splice(0)) {
+      acceptClient(entry.event, entry.message);
+    }
+    if (clientEnded) {
+      server.stdin.end();
+    }
+    restartIdleClock();
+  };
+  const serverStopped = () => {
+    clearTimeout(killTimer);
+    killTimer = undefined;
+    state = "stopped";
+    shutdownId = undefined;
+    clientRequests.clear();
+    serverRequests.clear();
+    clearTimeout(gateTimer);
+    gateTimer = undefined;
+    gate.flush();
+    gate.setBusy(false);
+    serverBusy = false;
+    process.stdin.resume();
+    if (clientEnded) {
+      finish(0);
+      return;
+    }
+    for (const entry of queued.splice(0)) {
+      acceptClient(entry.event, entry.message);
+    }
+  };
+  const recordSession = (raw, message) => {
+    if (message.id !== undefined && message.method === undefined) {
+      serverRequests.delete(message.id);
+    } else if (message.id !== undefined) {
+      clientRequests.add(message.id);
+    }
+    if (message.method === "initialize") {
+      initializeParams = message.params;
+    } else if (message.method === "initialized") {
+      initializedFrame = Buffer.from(raw);
+    } else if (message.method === "workspace/didChangeConfiguration") {
+      configurationFrame = Buffer.from(raw);
+    }
+  };
+  const handleMessage = (raw, message) => {
     writeSweep({
       skipUri: message === undefined ? undefined : syncedUri(message)
     });
+    if (message?.method === "initialize") {
+      const rerooted = options.gitRoot ? rootAtProject(message.params, process.cwd(), existsSync) : undefined;
+      if (rerooted !== undefined) {
+        message.params = rerooted;
+        raw = frameMessage(JSON.stringify(message));
+      }
+      filterOptions.workspaceProject = projectOfDirectory(resolveWorkspaceRoot(message.params, process.cwd()), existsSync);
+    }
     toServer(raw);
+    if (tracksIdle) {
+      if (message !== undefined) {
+        recordSession(raw, message);
+      }
+      restartIdleClock();
+    }
     if (message === undefined) {
       return;
     }
@@ -1020,19 +1216,67 @@ function runLspProxy(argv) {
       pendingRoot = undefined;
     }
   };
+  const relayClient = (event, message) => {
+    if (event.kind === "raw") {
+      log("framing", `framing abandoned, passing client bytes through raw: ${parser.failure}`);
+      stopWatching();
+      toServer(event.raw);
+      return;
+    }
+    handleMessage(event.raw, message);
+  };
+  const acceptClient = (event, message) => {
+    if (state === "running") {
+      relayClient(event, message);
+      return;
+    }
+    if (state === "starting" && message?.method === undefined && serverRequests.has(message?.id)) {
+      relayClient(event, message);
+      return;
+    }
+    if (state !== "stopped") {
+      queued.push({
+        event,
+        message
+      });
+      return;
+    }
+    if (message?.method === "shutdown" && message.id !== undefined) {
+      toClient(frameMessage(JSON.stringify({
+        jsonrpc: "2.0",
+        id: message.id,
+        result: null
+      })));
+      return;
+    }
+    if (message?.method === "exit") {
+      finish(0);
+      return;
+    }
+    if (message?.method === "$/cancelRequest" || message?.id !== undefined && message.method === undefined) {
+      return;
+    }
+    queued.push({
+      event,
+      message
+    });
+    restartServer();
+  };
   process.stdin.on("data", (chunk) => {
     for (const event of parser.push(chunk)) {
-      if (event.kind === "raw") {
-        log("framing", `framing abandoned, passing client bytes through raw: ${parser.failure}`);
-        stopWatching();
-        toServer(event.raw);
-        continue;
-      }
-      handleMessage(event.raw, event.body);
+      acceptClient(event, event.kind === "message" ? parseClientBody(event.body) : undefined);
     }
   });
   process.stdin.on("end", () => {
     const rest = parser.drain();
+    if (state === "stopped") {
+      finish(0);
+      return;
+    }
+    if (state !== "running") {
+      clientEnded = true;
+      return;
+    }
     if (rest.length > 0) {
       toServer(rest);
     }
@@ -1067,7 +1311,39 @@ function runLspProxy(argv) {
       armGate();
     }, wait);
   };
-  server.stdout.on("data", (chunk) => {
+  const consumeServerMessage = (body) => {
+    let message;
+    try {
+      message = JSON.parse(body.toString("utf8"));
+    } catch {
+      return false;
+    }
+    const id = message?.id;
+    if (id === undefined) {
+      return false;
+    }
+    if (message?.method !== undefined) {
+      serverRequests.add(id);
+      return false;
+    }
+    if (id === initializeId) {
+      initializeId = undefined;
+      replaySession();
+      return true;
+    }
+    if (id === shutdownId) {
+      shutdownId = undefined;
+      toServer(frameMessage(JSON.stringify({
+        jsonrpc: "2.0",
+        method: "exit"
+      })));
+      server.stdin.end();
+      return true;
+    }
+    clientRequests.delete(id);
+    return false;
+  };
+  const readServer = (chunk) => {
     for (const event of serverParser.push(chunk)) {
       if (event.kind === "raw") {
         log("server-framing", `framing abandoned on server output, passing it through raw: ${serverParser.failure}`);
@@ -1075,11 +1351,15 @@ function runLspProxy(argv) {
         toClient(event.raw);
         continue;
       }
+      if (tracksIdle && consumeServerMessage(event.body)) {
+        continue;
+      }
       const published = publishMessage(event.body);
       if (published === undefined) {
         const edge = busyEdge?.(event.body);
         if (edge !== undefined) {
           gate.setBusy(edge === "start");
+          serverBusy = edge === "start";
         }
         toClient(event.raw);
         continue;
@@ -1091,17 +1371,63 @@ function runLspProxy(argv) {
       }
     }
     armGate();
-  });
-  server.stdout.on("end", () => {
+  };
+  const endServerOutput = () => {
+    if (state === "stopping") {
+      return;
+    }
     closeGate();
     const rest = serverParser.drain();
     if (rest.length > 0) {
       toClient(rest);
     }
-  });
+  };
+  const serverClosed = (code) => {
+    if (state === "stopping") {
+      serverStopped();
+      return;
+    }
+    if (state === "starting") {
+      log("restart-failed", "the restarted language server exited before answering initialize");
+      finish(1);
+      return;
+    }
+    finish(code ?? 1);
+  };
+  const startServer = () => {
+    server = spawn(options.command, options.args, {
+      stdio: [
+        "pipe",
+        "pipe",
+        "inherit"
+      ]
+    });
+    serverParser = new FrameParser;
+    server.stdin.on("drain", () => process.stdin.resume());
+    server.stdin.on("error", (error) => {
+      log("server-stdin", `writing to the server failed: ${errorMessage(error)}`);
+    });
+    server.stdout.on("data", readServer);
+    server.stdout.on("end", endServerOutput);
+    server.on("error", (error) => {
+      log("spawn", `server process failed: ${errorMessage(error)}`);
+      finish(1);
+    });
+    server.on("close", serverClosed);
+  };
+  const terminate = (signal) => {
+    if (state === "stopped") {
+      finish(0);
+      return;
+    }
+    server.kill(signal);
+    if (state === "stopping") {
+      finish(0);
+    }
+  };
   process.stdout.on("error", (error) => {
     log("stdout", `writing to the client failed, stopping the server: ${errorMessage(error)}`);
-    server.kill("SIGTERM");
+    terminate("SIGTERM");
   });
   const finish = (code) => {
     if (finished) {
@@ -1116,14 +1442,10 @@ function runLspProxy(argv) {
     }
     process.stdout.write("", () => process.exit(code));
   };
-  server.on("error", (error) => {
-    log("spawn", `server process failed: ${errorMessage(error)}`);
-    finish(1);
-  });
-  server.on("close", (code) => finish(code ?? 1));
+  startServer();
   for (const signal of ["SIGTERM", "SIGINT"]) {
     process.on(signal, () => {
-      server.kill(signal);
+      terminate(signal);
     });
   }
 }

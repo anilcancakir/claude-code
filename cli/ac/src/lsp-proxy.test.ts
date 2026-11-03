@@ -12,7 +12,7 @@ import { spawn } from "node:child_process";
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { FileStamp, FrameEvent, SweepDeps } from "./lsp-proxy.ts";
 import {
@@ -39,6 +39,7 @@ import {
     parseProxyArgs,
     publishMessage,
     resolveWorkspaceRoot,
+    rootAtProject,
     sweepDocuments,
     syncedUri,
     watchEventType,
@@ -382,6 +383,9 @@ describe("watched files", () => {
         expect(isIgnoredPath("vendor/laravel")).toBe(false);
         expect(isIgnoredPath(".claude/worktrees")).toBe(true);
         expect(isIgnoredPath(".claude")).toBe(false);
+        expect(isIgnoredPath(".ac/worktrees/lane/app")).toBe(true);
+        expect(isIgnoredPath(".ac/plans")).toBe(false);
+        expect(isIgnoredPath(".worktrees/feature/app")).toBe(true);
         expect(isIgnoredPath("app/node_modules")).toBe(true);
         expect(isIgnoredPath("app")).toBe(false);
     });
@@ -496,6 +500,7 @@ describe("parseProxyArgs", () => {
     test("reads flags before the separator and the server command after it", () => {
         expect(parseProxyArgs(["--watch-root", "--ext", ".php", "--ext", ".inc", "--", "srv", "--stdio"])).toEqual({
             watchRoot: true,
+            gitRoot: false,
             extensions: [".php", ".inc"],
             settleMs: DEFAULT_SETTLE_MS,
             maxHoldMs: DEFAULT_MAX_HOLD_MS,
@@ -530,6 +535,7 @@ describe("parseProxyArgs", () => {
     test("defaults to no root watch and the .php extension", () => {
         expect(parseProxyArgs(["--", "dart", "language-server"])).toEqual({
             watchRoot: false,
+            gitRoot: false,
             extensions: [".php"],
             settleMs: DEFAULT_SETTLE_MS,
             maxHoldMs: DEFAULT_MAX_HOLD_MS,
@@ -556,6 +562,49 @@ describe("parseProxyArgs", () => {
         expect(() => parseProxyArgs(["--max-hold", "-5", "--", "dart"])).toThrow();
         expect(() => parseProxyArgs(["--max-hold", "2147483648", "--", "dart"])).toThrow();
         expect(parseProxyArgs(["--max-hold", "2147483647", "--", "dart"]).maxHoldMs).toBe(2147483647);
+    });
+
+    test("reads the idle time, treats zero as off and rejects a bad duration", () => {
+        expect(parseProxyArgs(["--idle", "600000", "--", "srv"]).idleMs).toBe(600000);
+        expect(parseProxyArgs(["--idle", "0", "--", "srv"]).idleMs).toBeUndefined();
+        expect(parseProxyArgs(["--", "srv"]).idleMs).toBeUndefined();
+        expect(() => parseProxyArgs(["--idle", "--", "srv"])).toThrow();
+        expect(() => parseProxyArgs(["--idle", "soon", "--", "srv"])).toThrow();
+        expect(() => parseProxyArgs(["--idle", "-5", "--", "srv"])).toThrow();
+        expect(() => parseProxyArgs(["--idle", "2147483648", "--", "srv"])).toThrow();
+    });
+
+    test("reads the git-root switch", () => {
+        expect(parseProxyArgs(["--git-root", "--", "srv"]).gitRoot).toBe(true);
+    });
+});
+
+describe("rootAtProject", () => {
+    const present = new Set(["/repo/.git", "/repo/.claude/worktrees/lane/.git"]);
+    const exists = (path: string): boolean => present.has(path);
+
+    test("re-roots a package or plan directory at the project that holds it", () => {
+        const params = { processId: 7, rootUri: "file:///repo/packages/gateway", workspaceFolders: [{ uri: "file:///repo/packages/gateway", name: "gateway" }] };
+        expect(rootAtProject(params, "/elsewhere", exists)).toEqual({
+            processId: 7,
+            rootUri: "file:///repo",
+            rootPath: "/repo",
+            workspaceFolders: [{ uri: "file:///repo", name: "repo" }],
+        });
+        expect(rootAtProject({ rootUri: "file:///repo/.claude/worktrees/lane/.ac/plans/x" }, "/", exists)?.rootUri)
+            .toBe("file:///repo/.claude/worktrees/lane");
+    });
+
+    test("leaves a project root and a directory outside any project alone", () => {
+        expect(rootAtProject({ rootUri: "file:///repo" }, "/", exists)).toBeUndefined();
+        expect(rootAtProject({ rootUri: "file:///home/me" }, "/", exists)).toBeUndefined();
+        expect(rootAtProject({}, "/repo/backend", exists)?.rootUri).toBe("file:///repo");
+    });
+
+    test("never re-roots at the home directory or the filesystem root", () => {
+        const home = (path: string): boolean => path === "/home/me/.git";
+        expect(rootAtProject({ rootUri: "file:///home/me/scratch/php" }, "/", home, "/home/me")).toBeUndefined();
+        expect(rootAtProject({ rootUri: "file:///scratch/php" }, "/", (path) => path === "/.git", "/home/me")).toBeUndefined();
     });
 });
 
@@ -684,6 +733,70 @@ describe("filterDiagnostics", () => {
         installed.add("vendor");
         expect(filterDiagnostics(params, options(4, ["php"]))).toBeUndefined();
         installed.clear();
+    });
+
+    test("php profile drops undefined-symbol errors on a file outside the server's project", () => {
+        const projectOf = (path: string): string => path.startsWith("/repo/.claude/worktrees/wt/") ? "/repo/.claude/worktrees/wt" : "/repo";
+        const params = (path: string) => ({ uri: pathToFileURL(path).href, diagnostics: [
+            diagnostic("Undefined type 'Tests\\TestCase'.", "P1009"),
+            diagnostic("Expected type 'int'. Found 'string'.", "P1006"),
+        ] });
+        const filter = (path: string, workspaceProject: string | undefined) => filterDiagnostics(params(path), {
+            ...options(4, ["php"]),
+            projectOf,
+            workspaceProject,
+        });
+        installed.add("composer.json");
+        installed.add("vendor");
+        installed.add(".git");
+
+        expect(messages(filter("/repo/.claude/worktrees/wt/tests/A.php", "/repo"))).toEqual(["Expected type 'int'. Found 'string'."]);
+        // The server's own project, or a root not known yet, keeps the error.
+        expect(filter("/repo/tests/A.php", "/repo")).toBeUndefined();
+        expect(filter("/repo/.claude/worktrees/wt/tests/A.php", "/repo/.claude/worktrees/wt")).toBeUndefined();
+        expect(filter("/repo/.claude/worktrees/wt/tests/A.php", undefined)).toBeUndefined();
+        installed.clear();
+    });
+
+    test("php profile treats only an unindexed git project as foreign, on a real disk", () => {
+        const scratch = realpathSync(mkdtempSync(join(tmpdir(), "ac-lsp-foreign-")));
+        try {
+            const put = (path: string): void => {
+                mkdirSync(join(scratch, path, ".."), { recursive: true });
+                writeFileSync(join(scratch, path), "");
+            };
+            put("plain/composer.json");
+            put("plain/vendor/autoload.php");
+            put("plain/app/Models/User.php");
+            put("repo/.git/HEAD");
+            put("repo/packages/nested/.git/HEAD");
+            put("repo/packages/nested/src/A.php");
+            put("repo/.ac/worktrees/lane/.git");
+            put("repo/.ac/worktrees/lane/src/B.php");
+            put("sibling/.git");
+            put("sibling/src/C.php");
+            const projectOf = (path: string): string => findProjectRoot(path, existsSync);
+            const filter = (relativePath: string, workspace: string) => filterDiagnostics(
+                { uri: pathToFileURL(join(scratch, relativePath)).href, diagnostics: [diagnostic("Undefined type 'X'.", "P1009")] },
+                {
+                    maxSeverity: 4,
+                    rules: [{ codes: ["P1009"], foreignProject: true }],
+                    hasAncestorEntry: ancestorEntryOnDisk,
+                    projectOf,
+                    workspaceProject: join(scratch, workspace),
+                },
+            );
+
+            // An unversioned project: every subdirectory is part of the root, so the error stays.
+            expect(filter("plain/app/Models/User.php", "plain")).toBeUndefined();
+            // A nested repository the index walks into stays checked.
+            expect(filter("repo/packages/nested/src/A.php", "repo")).toBeUndefined();
+            // A worktree under an excluded directory and a checkout beside the root are foreign.
+            expect(filter("repo/.ac/worktrees/lane/src/B.php", "repo")?.diagnostics).toEqual([]);
+            expect(filter("sibling/src/C.php", "repo")?.diagnostics).toEqual([]);
+        } finally {
+            rmSync(scratch, { recursive: true, force: true });
+        }
     });
 
     test("php profile counts only the worktree's own vendor, not the checkout above it", () => {
@@ -978,15 +1091,34 @@ describe("proxy process", () => {
         exitCode(): Promise<number | null>;
     }
 
-    function startProxy(flags: string[]): Harness {
+    /**
+     * `lifecycle` makes the fake server log a `{"started": <pid>}` line when it starts, answer initialize
+     * and shutdown, and exit 0 on exit, as the idle stop and restart need; without it the server answers nothing.
+     */
+    function startProxy(flags: string[], lifecycle: boolean = false): Harness {
         const scratch = realpathSync(mkdtempSync(join(tmpdir(), "ac-lsp-proxy-")));
         const workspace = join(scratch, "ws");
         const logPath = join(scratch, "server.log");
         const fakeServer = join(scratch, "fake-server.ts");
         Bun.spawnSync(["mkdir", "-p", workspace]);
+        const lifecycleLines = lifecycle ? [
+            `appendFileSync(process.argv[2], JSON.stringify({ started: process.pid }) + "\\n");`,
+            `const answers = { initialize: { capabilities: {} }, shutdown: null };`,
+            `const answer = (message) => {`,
+            `    if (message.method === "exit") {`,
+            `        process.stdout.write("", () => process.exit(0));`,
+            `    } else if (message.id !== undefined && Object.hasOwn(answers, message.method)) {`,
+            `        const reply = { jsonrpc: "2.0", id: message.id, result: answers[message.method] };`,
+            `        process.stdout.write(frameMessage(JSON.stringify(reply)));`,
+            `    }`,
+            `};`,
+        ] : [
+            `const answer = () => {};`,
+        ];
         writeFileSync(fakeServer, [
             `import { appendFileSync } from "node:fs";`,
             `import { frameMessage, FrameParser } from ${JSON.stringify(proxyModule)};`,
+            ...lifecycleLines,
             `const parser = new FrameParser();`,
             `process.stdin.on("data", (chunk) => {`,
             `    for (const event of parser.push(chunk)) {`,
@@ -1002,6 +1134,8 @@ describe("proxy process", () => {
             `                process.stdout.write(message.params.bytes);`,
             `            } else if (message.method === "test/exit") {`,
             `                process.stdout.write("", () => process.exit(0));`,
+            `            } else {`,
+            `                answer(message);`,
             `            }`,
             `        }`,
             `    }`,
@@ -1153,6 +1287,23 @@ describe("proxy process", () => {
         expect(changes.map((change) => change.uri)).toContain(pathToFileURL(file).href);
         const accepted: number[] = [FileChangeType.Created, FileChangeType.Changed];
         expect(accepted).toContain(changes[0]!.type);
+    });
+
+    test("--git-root forwards initialize re-rooted at the project and keeps the rest of the params", async () => {
+        const harness = startProxy(["--git-root"]);
+        mkdirSync(join(harness.workspace, ".git"));
+        mkdirSync(join(harness.workspace, "packages", "gateway"), { recursive: true });
+        const rootUri = pathToFileURL(join(harness.workspace, "packages", "gateway")).href;
+
+        harness.send({ id: 1, method: "initialize", params: { rootUri, capabilities: { x: 1 } } });
+        const [initialize] = await harness.waitFor((messages) => messages.length === 1);
+        expect(initialize!.id).toBe(1);
+        expect(initialize!.params).toEqual({
+            rootUri: pathToFileURL(harness.workspace).href,
+            rootPath: harness.workspace,
+            workspaceFolders: [{ uri: pathToFileURL(harness.workspace).href, name: basename(harness.workspace) }],
+            capabilities: { x: 1 },
+        });
     });
 
     function publish(uri: string, messages: string[]): object {
@@ -1428,5 +1579,157 @@ describe("proxy process", () => {
         const raw = harness.logged().slice(1).map((message) => message.raw).join("");
         expect(raw).toBe("Broken-Header\r\n\r\ntail");
         expect(methods(harness.logged()).filter((method) => method !== undefined)).toEqual(["textDocument/didOpen"]);
+    });
+
+    function startups(messages: Record<string, unknown>[]): number {
+        return messages.filter((message) => message.started !== undefined).length;
+    }
+
+    function initializeSession(harness: Harness, params: object = { capabilities: {} }): void {
+        harness.send({ id: 1, method: "initialize", params });
+        harness.send({ method: "initialized", params: {} });
+    }
+
+    async function untilAnswered(harness: Harness, id: unknown): Promise<Record<string, unknown> | undefined> {
+        const deadline = Date.now() + 3000;
+        for (;;) {
+            const answer = harness.toClient().find((message) => message.id === id && message.method === undefined);
+            if (answer !== undefined || Date.now() > deadline) {
+                return answer;
+            }
+            await Bun.sleep(20);
+        }
+    }
+
+    test("--idle shuts an idle server down with shutdown then exit, and the proxy stays", async () => {
+        const harness = startProxy(["--idle", "200"], true);
+        initializeSession(harness);
+
+        const messages = await harness.waitFor((all) => methods(all).includes("exit"));
+        expect(startups(messages)).toBe(1);
+        expect(methods(messages.slice(1))).toEqual(["initialize", "initialized", "shutdown", "exit"]);
+        expect(String(messages[3]!.id)).toStartWith("ac-lsp-proxy:shutdown:");
+
+        await Bun.sleep(400);
+        expect(harness.proxy.exitCode).toBeNull();
+        // The client sees the answer to its own initialize and nothing of the proxy's shutdown.
+        expect(harness.toClient()).toEqual([{ jsonrpc: "2.0", id: 1, result: { capabilities: {} } }]);
+    });
+
+    test("--idle restarts the server on the next client message and replays the session before it", async () => {
+        const harness = startProxy(["--idle", "200"], true);
+        const file = join(harness.workspace, "main.dart");
+        const uri = pathToFileURL(file).href;
+        writeFileSync(file, "a\n");
+        const initializeParams = { rootUri: pathToFileURL(harness.workspace).href, capabilities: { textDocument: {} } };
+        const settings = { settings: { dart: { lineLength: 100 } } };
+
+        initializeSession(harness, initializeParams);
+        harness.send({ method: "workspace/didChangeConfiguration", params: { settings: { dart: {} } } });
+        harness.send({ method: "workspace/didChangeConfiguration", params: settings });
+        harness.send({ method: "textDocument/didOpen", params: { textDocument: {
+            uri,
+            languageId: "dart",
+            version: 1,
+            text: "a\n",
+        } } });
+        await harness.waitFor((all) => methods(all).includes("exit"));
+
+        // Changed while no server runs: the stopped server is written nothing, and the replay carries the text.
+        writeFileSync(file, "b\n");
+        await Bun.sleep(400);
+        harness.send({ id: 7, method: "textDocument/hover", params: {
+            textDocument: { uri },
+            position: { line: 0, character: 0 },
+        } });
+
+        const messages = await harness.waitFor((all) => methods(all).includes("textDocument/hover"));
+        expect(startups(messages)).toBe(2);
+        const restart = messages.findIndex((message, index) => index > 0 && message.started !== undefined);
+        expect(methods(messages.slice(restart - 2, restart))).toEqual(["shutdown", "exit"]);
+
+        const replay = messages.slice(restart + 1);
+        expect(methods(replay)).toEqual([
+            "initialize",
+            "initialized",
+            "workspace/didChangeConfiguration",
+            "textDocument/didOpen",
+            "textDocument/hover",
+        ]);
+        expect(String(replay[0]!.id)).toStartWith("ac-lsp-proxy:initialize:");
+        expect(replay[0]!.params).toEqual(initializeParams);
+        expect(replay[2]!.params).toEqual(settings);
+        expect(replay[3]!.params).toEqual({ textDocument: { uri, languageId: "dart", version: 2, text: "b\n" } });
+        expect(replay[4]!.id).toBe(7);
+
+        // The replayed initialize is answered to the proxy alone.
+        await Bun.sleep(200);
+        expect(harness.toClient().map((message) => message.id)).toEqual([1]);
+    });
+
+    test("--idle never stops a server that owes the client an answer or awaits one", async () => {
+        const harness = startProxy(["--idle", "200"], true);
+        initializeSession(harness);
+        harness.send({ id: 2, method: "textDocument/hover", params: {
+            textDocument: { uri: "file:///nowhere.dart" },
+            position: { line: 0, character: 0 },
+        } });
+        await Bun.sleep(700);
+        expect(methods(harness.logged())).not.toContain("shutdown");
+
+        harness.emit({ id: 2, result: null });
+        await harness.waitFor((all) => methods(all).includes("exit"));
+
+        // The emit restarts the server, which then asks the client something.
+        harness.emit({ id: "server-1", method: "workspace/configuration", params: { items: [] } });
+        expect(await untilAnswered(harness, 2)).toEqual({ jsonrpc: "2.0", id: 2, result: null });
+        const deadline = Date.now() + 3000;
+        while (!harness.toClient().some((message) => message.id === "server-1") && Date.now() < deadline) {
+            await Bun.sleep(20);
+        }
+        await Bun.sleep(700);
+        expect(methods(harness.logged()).filter((method) => method === "shutdown")).toHaveLength(1);
+
+        harness.send({ id: "server-1", result: [] });
+        const messages = await harness.waitFor((all) => {
+            return methods(all).filter((method) => method === "exit").length === 2;
+        });
+        expect(startups(messages)).toBe(2);
+    });
+
+    test("--idle answers a shutdown itself while no server runs, and exit ends the proxy with 0", async () => {
+        const harness = startProxy(["--idle", "200"], true);
+        initializeSession(harness);
+        await harness.waitFor((all) => methods(all).includes("exit"));
+
+        harness.send({ id: 5, method: "shutdown" });
+        expect(await untilAnswered(harness, 5)).toEqual({ jsonrpc: "2.0", id: 5, result: null });
+
+        const exit = harness.exitCode();
+        harness.send({ method: "exit" });
+        expect(await exit).toBe(0);
+        expect(startups(harness.logged())).toBe(1);
+    });
+
+    test("--idle ends the proxy with 0 when the client's input ends while no server runs", async () => {
+        const harness = startProxy(["--idle", "200"], true);
+        initializeSession(harness);
+        await harness.waitFor((all) => methods(all).includes("exit"));
+
+        const exit = harness.exitCode();
+        harness.proxy.stdin.end();
+        expect(await exit).toBe(0);
+        expect(startups(harness.logged())).toBe(1);
+    });
+
+    test("--idle still ends the proxy when the server exits on its own", async () => {
+        const harness = startProxy(["--idle", "60000"], true);
+        initializeSession(harness);
+        await harness.waitFor((all) => methods(all).includes("initialized"));
+
+        const exit = harness.exitCode();
+        harness.send({ method: "test/exit", params: {} });
+        expect(await exit).toBe(0);
+        expect(methods(harness.logged())).not.toContain("shutdown");
     });
 });

@@ -4,12 +4,15 @@
         "args": [
             "${CLAUDE_PLUGIN_ROOT}/bin/lsp-proxy.js",
             "--watch-root",
+            "--git-root",
             "--ext",
             ".php",
             "--ext",
             ".phtml",
             "--max-severity",
             "2",
+            "--idle",
+            "600000",
             "--profile",
             "php",
             "--busy",
@@ -38,6 +41,8 @@
                         "**/.history/**",
                         "**/vendor/**/vendor/**",
                         "**/.claude/worktrees/**",
+                        "**/.ac/worktrees/**",
+                        "**/.worktrees/**",
                         "**/build/**"
                     ]
                 },
@@ -53,6 +58,8 @@
             "${CLAUDE_PLUGIN_ROOT}/bin/lsp-proxy.js",
             "--max-severity",
             "2",
+            "--idle",
+            "600000",
             "--",
             "dart",
             "language-server",
@@ -69,6 +76,8 @@
             "${CLAUDE_PLUGIN_ROOT}/bin/lsp-proxy.js",
             "--max-severity",
             "2",
+            "--idle",
+            "600000",
             "--profile",
             "typescript",
             "--",
@@ -103,6 +112,8 @@
             "${CLAUDE_PLUGIN_ROOT}/bin/lsp-proxy.js",
             "--max-severity",
             "2",
+            "--idle",
+            "600000",
             "--",
             "pyrefly",
             "lsp"
@@ -136,6 +147,8 @@
             "${CLAUDE_PLUGIN_ROOT}/bin/lsp-proxy.js",
             "--max-severity",
             "2",
+            "--idle",
+            "600000",
             "--",
             "gopls"
         ],
@@ -194,6 +207,8 @@
             "${CLAUDE_PLUGIN_ROOT}/bin/lsp-proxy.js",
             "--max-severity",
             "2",
+            "--idle",
+            "600000",
             "--profile",
             "swift",
             "--",
@@ -210,6 +225,8 @@
             "${CLAUDE_PLUGIN_ROOT}/bin/lsp-proxy.js",
             "--max-severity",
             "2",
+            "--idle",
+            "600000",
             "--",
             "superhtml",
             "lsp",
@@ -220,62 +237,5 @@
             ".htm": "html"
         },
         "startupTimeout": 15000
-    },
-    "sass": {
-        "command": "node",
-        "args": [
-            "${CLAUDE_PLUGIN_ROOT}/bin/lsp-proxy.js",
-            "--max-severity",
-            "2",
-            "--",
-            "some-sass-language-server",
-            "--stdio"
-        ],
-        "extensionToLanguage": {
-            ".css": "css",
-            ".scss": "scss",
-            ".sass": "sass"
-        },
-        "settings": {
-            "somesass": {
-                "css": {
-                    "diagnostics": {
-                        "lint": {
-                            "unknownProperties": "ignore",
-                            "unknownAtRules": "ignore",
-                            "vendorPrefix": "ignore",
-                            "emptyRules": "ignore",
-                            "fontFaceProperties": "ignore",
-                            "propertyIgnoredDueToDisplay": "ignore"
-                        }
-                    }
-                },
-                "scss": {
-                    "diagnostics": {
-                        "lint": {
-                            "unknownProperties": "ignore",
-                            "unknownAtRules": "ignore",
-                            "vendorPrefix": "ignore",
-                            "emptyRules": "ignore",
-                            "fontFaceProperties": "ignore",
-                            "propertyIgnoredDueToDisplay": "ignore"
-                        }
-                    }
-                },
-                "sass": {
-                    "diagnostics": {
-                        "lint": {
-                            "unknownProperties": "ignore",
-                            "unknownAtRules": "ignore",
-                            "vendorPrefix": "ignore",
-                            "emptyRules": "ignore",
-                            "fontFaceProperties": "ignore",
-                            "propertyIgnoredDueToDisplay": "ignore"
-                        }
-                    }
-                }
-            }
-        },
-        "startupTimeout": 30000
     }
 }

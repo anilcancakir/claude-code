@@ -1,8 +1,11 @@
 import { spawn } from "node:child_process";
+import type { ChildProcessByStdio } from "node:child_process";
 import { existsSync, readFileSync, statSync, watch } from "node:fs";
 import type { Dirent, FSWatcher, Stats } from "node:fs";
 import { readdir } from "node:fs/promises";
-import { dirname, join, relative, sep } from "node:path";
+import { homedir } from "node:os";
+import { basename, dirname, isAbsolute, join, relative, sep } from "node:path";
+import type { Readable, Writable } from "node:stream";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 /** Largest header block accepted before the parser gives up on framing, in bytes. */
@@ -228,6 +231,8 @@ export interface FileStamp {
 export interface TrackedDocument {
     uri: string;
     path: string | undefined;
+    /** As the client's didOpen named it, so a restarted server can be sent the same didOpen. */
+    languageId: string;
     text: string;
     version: number;
     stamp: FileStamp | undefined;
@@ -260,6 +265,7 @@ export class DocumentTable {
                 this.documents.set(uri, {
                     uri,
                     path: filePathOf(uri),
+                    languageId: String(textDocument.languageId ?? ""),
                     text: String(textDocument.text ?? ""),
                     version: Number(textDocument.version ?? 0),
                     stamp: undefined,
@@ -425,12 +431,17 @@ const IGNORED_SEGMENTS: ReadonlySet<string> = new Set([
     "build",
     "storage",
     ".idea",
+    ".worktrees",
 ]);
 
 /** Adjacent segment pairs that are ignored; `vendor/composer` is regenerated wholesale by every install. */
 const IGNORED_SEQUENCES: readonly (readonly [string, string])[] = [
     [
         ".claude",
+        "worktrees",
+    ],
+    [
+        ".ac",
         "worktrees",
     ],
     [
@@ -659,6 +670,28 @@ export function resolveWorkspaceRoot(params: any, cwd: string): string {
     return cwd;
 }
 
+/**
+ * The `initialize` params re-rooted at the project that holds their workspace root (see `findProjectRoot`),
+ * or undefined when the root already is one or has no `.git` above it. Claude Code roots a server at the
+ * session's working directory, which drifts into a package or a plan directory after a `cd`: a server
+ * rooted there indexes that subtree alone and reports the rest of the application as undefined. A
+ * repository at `home` (a dotfiles checkout) is never a root: it would index the whole home directory.
+ */
+export function rootAtProject(params: any, cwd: string, exists: (path: string) => boolean, home: string = homedir()): any {
+    const root = resolveWorkspaceRoot(params, cwd);
+    const project = projectOfDirectory(root, exists);
+    if (project === root || project === home || project === dirname(project)) {
+        return undefined;
+    }
+    const uri = pathToFileURL(project).href;
+    return {
+        ...params,
+        rootUri: uri,
+        rootPath: project,
+        workspaceFolders: [{ uri, name: basename(project) }],
+    };
+}
+
 /** Quiet time a project needs before its held diagnostics are forwarded, in ms. */
 export const DEFAULT_SETTLE_MS: number = 6000;
 
@@ -705,6 +738,11 @@ export function findProjectRoot(path: string, exists: (path: string) => boolean)
     }
 }
 
+/** `findProjectRoot` for a directory rather than a file: the directory itself counts. */
+export function projectOfDirectory(directory: string, exists: (path: string) => boolean): string {
+    return findProjectRoot(join(directory, "_"), exists);
+}
+
 /** One kind of diagnostic that costs an agent tokens and tells it nothing about its code. */
 export interface NoiseRule {
     /** A diagnostic is matched by its code (compared as text), by its message, or by either. */
@@ -721,6 +759,12 @@ export interface NoiseRule {
      * A server rooted at a worktree never sees the checkout above it, so that checkout's `vendor` must not count.
      */
     withinProject?: boolean;
+    /**
+     * The rule applies only to a file outside the project the server is rooted in, such as a worktree
+     * opened from the main checkout: the server indexed the other project, so every symbol the file's own
+     * tree defines is unknown to it.
+     */
+    foreignProject?: boolean;
 }
 
 /**
@@ -734,12 +778,18 @@ export const NOISE_PROFILES: Readonly<Record<string, readonly NoiseRule[]>> = {
     // P1013 method, P1014 property. A project without composer.json has no dependencies to miss, so there
     // these stay real errors. Only the worktree's own tree counts: the main checkout above it has a vendor,
     // but a server rooted at the worktree cannot see it.
+    // The same codes on a file outside the server's project (a worktree under .claude/worktrees, .ac/worktrees
+    // or beside the checkout): the index holds the other project, so the worktree's own classes are undefined.
     php: [
         {
             codes: ["P1009", "P1010", "P1011", "P1012", "P1013", "P1014"],
             requires: ["composer.json"],
             missing: ["vendor"],
             withinProject: true,
+        },
+        {
+            codes: ["P1009", "P1010", "P1011", "P1012", "P1013", "P1014"],
+            foreignProject: true,
         },
     ],
     // tsserver: every bare import and every Node global is an error until a node_modules exists above
@@ -777,12 +827,29 @@ export interface DiagnosticFilterOptions {
     hasAncestorEntry(path: string, name: string, ceiling?: string): boolean;
     /** The project root of `path` (see `findProjectRoot`). */
     projectOf(path: string): string;
+    /** The project the server is rooted in, once `initialize` has named it; `foreignProject` rules wait for it. */
+    workspaceProject?: string;
 }
 
 interface LspDiagnostic {
     severity?: unknown;
     code?: unknown;
     message?: unknown;
+}
+
+/**
+ * Whether `path` belongs to a git project the server has not indexed: one outside the server's project, or
+ * inside it under a directory the index skips (`isIgnoredPath`, the worktree directories). A directory with
+ * no `.git` is part of whatever holds it, and a nested repository the index walks into is indexed.
+ */
+function isForeignProject(path: string, options: DiagnosticFilterOptions): boolean {
+    const workspace = options.workspaceProject;
+    const project = options.projectOf(path);
+    if (workspace === undefined || project === workspace || !options.hasAncestorEntry(join(project, "_"), ".git", project)) {
+        return false;
+    }
+    const inside = relative(workspace, project);
+    return inside.startsWith("..") || isAbsolute(inside) || isIgnoredPath(inside);
 }
 
 function isNoise(diagnostic: LspDiagnostic, path: string, options: DiagnosticFilterOptions): boolean {
@@ -796,6 +863,9 @@ function isNoise(diagnostic: LspDiagnostic, path: string, options: DiagnosticFil
     return options.rules.some((rule) => {
         const matched = rule.codes?.includes(code) === true || rule.message?.test(message) === true;
         if (!matched || rule.keep?.test(message) === true) {
+            return false;
+        }
+        if (rule.foreignProject === true && !isForeignProject(path, options)) {
             return false;
         }
         const ceiling = rule.withinProject === true ? options.projectOf(path) : undefined;
@@ -994,6 +1064,8 @@ export class DiagnosticGate {
 /** Parsed command line: proxy flags, then the server command after `--`. */
 export interface ProxyOptions {
     watchRoot: boolean;
+    /** Re-root `initialize` at the project holding the client's root (see `rootAtProject`). */
+    gitRoot: boolean;
     extensions: string[];
     settleMs: number;
     maxHoldMs: number;
@@ -1001,6 +1073,8 @@ export interface ProxyOptions {
     profiles: string[];
     /** Notification methods with which the server says it started and finished indexing. */
     busy?: BusyMethods;
+    /** Quiet time after which the server is stopped until the next client message; undefined when off. */
+    idleMs?: number;
     command: string;
     args: string[];
 }
@@ -1046,8 +1120,9 @@ function parseMilliseconds(flag: string, value: string | undefined): number {
 }
 
 /**
- * Parses `[--watch-root] [--ext <.ext>]... [--settle <ms>] [--max-hold <ms>] [--max-severity <1-4>]
- * [--profile <name>]... [--busy <start>,<end>] -- <command> [args...]`; throws an Error naming the problem.
+ * Parses `[--watch-root] [--git-root] [--ext <.ext>]... [--settle <ms>] [--max-hold <ms>] [--max-severity <1-4>]
+ * [--profile <name>]... [--busy <start>,<end>] [--idle <ms>] -- <command> [args...]`; throws an Error naming
+ * the problem. `--idle 0` is the same as no `--idle`.
  */
 export function parseProxyArgs(argv: string[]): ProxyOptions {
     const separator = argv.indexOf("--");
@@ -1060,10 +1135,12 @@ export function parseProxyArgs(argv: string[]): ProxyOptions {
     }
 
     let watchRoot = false;
+    let gitRoot = false;
     let settleMs = DEFAULT_SETTLE_MS;
     let maxHoldMs = DEFAULT_MAX_HOLD_MS;
     let maxSeverity = 4;
     let busy: BusyMethods | undefined;
+    let idleMs: number | undefined;
     const profiles: string[] = [];
     const extensions: string[] = [];
     const flags = argv.slice(0, separator);
@@ -1071,6 +1148,10 @@ export function parseProxyArgs(argv: string[]): ProxyOptions {
         const flag = flags[index];
         if (flag === "--watch-root") {
             watchRoot = true;
+            continue;
+        }
+        if (flag === "--git-root") {
+            gitRoot = true;
             continue;
         }
         if (flag === "--ext" && flags[index + 1] !== undefined) {
@@ -1109,17 +1190,24 @@ export function parseProxyArgs(argv: string[]): ProxyOptions {
             busy = { start: match[1]!, end: match[2]! };
             continue;
         }
+        if (flag === "--idle") {
+            const ms = parseMilliseconds(flag, flags[++index]);
+            idleMs = ms > 0 ? ms : undefined;
+            continue;
+        }
         throw new Error(`unknown or incomplete option "${flag}"`);
     }
 
     return {
         watchRoot,
+        gitRoot,
         extensions: extensions.length > 0 ? extensions : [".php"],
         settleMs,
         maxHoldMs,
         maxSeverity,
         profiles,
         busy,
+        idleMs,
         command,
         args: argv.slice(separator + 2),
     };
@@ -1220,9 +1308,20 @@ export function publishMessage(body: Buffer): PublishMessage | undefined {
     }
 }
 
+/** Where the server child is in an idle stop and restart; always `running` without `--idle`. */
+type ServerState = "running" | "stopping" | "stopped" | "starting";
+
+type ServerProcess = ChildProcessByStdio<Writable, Readable, null>;
+
+/** How long a stopping server gets to exit after `shutdown` before SIGTERM, in ms. */
+const SHUTDOWN_GRACE_MS: number = 5000;
+
+/** How long a stopping server gets after SIGTERM before SIGKILL, in ms. */
+const TERMINATE_GRACE_MS: number = 3000;
+
 /**
- * Runs the proxy: `[--watch-root] [--ext .php]... [--settle <ms>] [--max-hold <ms>] [--max-severity <1-4>]
- * [--profile <name>]... [--busy <start>,<end>] -- <server command> [args...]`.
+ * Runs the proxy: `[--watch-root] [--git-root] [--ext .php]... [--settle <ms>] [--max-hold <ms>] [--max-severity <1-4>]
+ * [--profile <name>]... [--busy <start>,<end>] [--idle <ms>] -- <server command> [args...]`.
  *
  * Spawns the server and relays both directions. Client messages are forwarded byte for byte; before
  * each one, and 150 ms after any change in a directory holding an open document, the proxy writes
@@ -1232,6 +1331,12 @@ export function publishMessage(body: Buffer): PublishMessage | undefined {
  * less severe than `--max-severity` or matched by a `--profile` are removed, and the gate drops sets
  * for deleted files and holds the rest until the project goes quiet. Server stderr passes through untouched; the proxy exits with the server's exit code,
  * or 1 when the server dies on a signal or cannot be spawned, and 2 on a bad command line.
+ *
+ * With `--idle`, a server that has had no client message for that long, owes no answer and is not busy
+ * is shut down while the proxy stays: Claude Code never restarts a server that exits cleanly, so the
+ * next client message starts a new one, which is sent the stored initialize, initialized, configuration
+ * and a didOpen per open document before the queued messages. While no server runs, a client shutdown
+ * is answered by the proxy and exit, stdin end or a signal end the proxy with 0.
  */
 export function runLspProxy(argv: string[]): void {
     let options: ProxyOptions;
@@ -1240,7 +1345,7 @@ export function runLspProxy(argv: string[]): void {
     } catch (error) {
         process.stderr.write(
             `${LOG_PREFIX} ${errorMessage(error)}\n`
-            + "usage: lsp-proxy [--watch-root] [--ext .php]... [--settle <ms>] [--max-hold <ms>] [--max-severity <1-4>] [--profile <name>]... [--busy <start>,<end>] -- <server command> [args...]\n",
+            + "usage: lsp-proxy [--watch-root] [--git-root] [--ext .php]... [--settle <ms>] [--max-hold <ms>] [--max-severity <1-4>] [--profile <name>]... [--busy <start>,<end>] [--idle <ms>] -- <server command> [args...]\n",
         );
         process.exit(2);
     }
@@ -1249,7 +1354,9 @@ export function runLspProxy(argv: string[]): void {
     const deps = diskDeps(log);
     const table = new DocumentTable();
     const parser = new FrameParser();
-    const serverParser = new FrameParser();
+    // One server and one parser per child: a parser's failure is sticky and a restarted server starts a fresh stream.
+    let server: ServerProcess;
+    let serverParser = new FrameParser();
     const gateDeps = diskGateDeps();
     const gate = new DiagnosticGate(gateDeps, options.settleMs, options.maxHoldMs);
     const filterOptions: DiagnosticFilterOptions = {
@@ -1261,13 +1368,26 @@ export function runLspProxy(argv: string[]): void {
     const busyEdge = options.busy === undefined ? undefined : createBusyReader(options.busy);
     let gateTimer: NodeJS.Timeout | undefined;
     let gateClosed = false;
-    const server = spawn(options.command, options.args, {
-        stdio: [
-            "pipe",
-            "pipe",
-            "inherit",
-        ],
-    });
+
+    const idleMs = options.idleMs ?? 0;
+    const tracksIdle = idleMs > 0;
+    let state: ServerState = "running";
+    let idleTimer: NodeJS.Timeout | undefined;
+    let killTimer: NodeJS.Timeout | undefined;
+    let serverBusy = false;
+    let clientEnded = false;
+    // Ids the other side has yet to answer; a server is never stopped while either set holds one.
+    const clientRequests = new Set<unknown>();
+    const serverRequests = new Set<unknown>();
+    const queued: { event: FrameEvent; message: ClientMessage | undefined }[] = [];
+    // What Claude Code told the server once and will never repeat to a restarted one.
+    let initializeParams: unknown;
+    let initializedFrame: Buffer | undefined;
+    let configurationFrame: Buffer | undefined;
+    // String ids cannot collide with Claude Code's numeric ones; replies to them never reach the client.
+    let proxyRequests = 0;
+    let initializeId: string | undefined;
+    let shutdownId: string | undefined;
 
     const directoryWatchers = new Map<string, FSWatcher>();
     const directoryTimers = new Map<string, NodeJS.Timeout>();
@@ -1289,9 +1409,8 @@ export function runLspProxy(argv: string[]): void {
             process.stdin.pause();
         }
     };
-    server.stdin.on("drain", () => process.stdin.resume());
-    server.stdin.on("error", (error) => log("server-stdin", `writing to the server failed: ${errorMessage(error)}`));
 
+    // Without a running server the table still follows the disk, and the restart's didOpen carries the text.
     const writeSweep = (sweepOptions: SweepOptions): void => {
         if (passthrough()) {
             return;
@@ -1300,7 +1419,11 @@ export function runLspProxy(argv: string[]): void {
             ...sweepOptions,
             onChange: (uri: string): void => gate.touch(uri),
         };
-        for (const body of sweepDocuments(table, deps, synced)) {
+        const bodies = sweepDocuments(table, deps, synced);
+        if (state !== "running") {
+            return;
+        }
+        for (const body of bodies) {
             toServer(frameMessage(body));
         }
     };
@@ -1369,7 +1492,8 @@ export function runLspProxy(argv: string[]): void {
     const flushBatch = (): void => {
         batchTimer = undefined;
         const changes = batch.take();
-        if (changes.length === 0 || passthrough()) {
+        // A restarted server reads the disk itself, so a batch with no server to take it is dropped.
+        if (changes.length === 0 || passthrough() || state !== "running") {
             return;
         }
         toServer(frameMessage(JSON.stringify({
@@ -1434,21 +1558,176 @@ export function runLspProxy(argv: string[]): void {
         batchTimer = undefined;
     };
 
-    const handleMessage = (raw: Buffer, body: Buffer): void => {
-        let message: ClientMessage | undefined;
+    const parseClientBody = (body: Buffer): ClientMessage | undefined => {
         try {
-            message = JSON.parse(body.toString("utf8")) as ClientMessage;
+            return JSON.parse(body.toString("utf8")) as ClientMessage;
         } catch (error) {
             log("json", `forwarding a client body that is not JSON untracked: ${errorMessage(error)}`);
+            return undefined;
+        }
+    };
+
+    const canIdleStop = (): boolean => tracksIdle
+        && state === "running"
+        && initializedFrame !== undefined
+        && !passthrough()
+        && serverParser.failure === undefined;
+
+    const restartIdleClock = (): void => {
+        clearTimeout(idleTimer);
+        idleTimer = undefined;
+        if (canIdleStop()) {
+            idleTimer = setTimeout(stopWhenIdle, idleMs);
+        }
+    };
+
+    const stopWhenIdle = (): void => {
+        idleTimer = undefined;
+        if (!canIdleStop()) {
+            return;
+        }
+        // A held diagnostic set waits for its release, which would otherwise be lost with the server.
+        if (clientRequests.size > 0 || serverRequests.size > 0 || serverBusy || gateTimer !== undefined) {
+            idleTimer = setTimeout(stopWhenIdle, idleMs);
+            return;
+        }
+        stopServer();
+    };
+
+    const proxyRequestId = (method: string): string => `ac-lsp-proxy:${method}:${++proxyRequests}`;
+
+    // The proxy stays: Claude Code never restarts a server whose process exits cleanly, so only the child goes.
+    const stopServer = (): void => {
+        state = "stopping";
+        log("idle-stop", `stopping the language server after ${idleMs} ms without client messages`);
+        shutdownId = proxyRequestId("shutdown");
+        toServer(frameMessage(JSON.stringify({
+            jsonrpc: "2.0",
+            id: shutdownId,
+            method: "shutdown",
+        })));
+        const child = server;
+        killTimer = setTimeout(() => {
+            child.kill("SIGTERM");
+            killTimer = setTimeout(() => child.kill("SIGKILL"), TERMINATE_GRACE_MS);
+        }, SHUTDOWN_GRACE_MS);
+    };
+
+    const restartServer = (): void => {
+        state = "starting";
+        log("restart", "restarting the language server for a client message");
+        startServer();
+        // The specification allows nothing else to reach the server until it has answered initialize.
+        initializeId = proxyRequestId("initialize");
+        toServer(frameMessage(JSON.stringify({
+            jsonrpc: "2.0",
+            id: initializeId,
+            method: "initialize",
+            params: initializeParams,
+        })));
+    };
+
+    // Claude Code keeps its own open-file list and never sends didOpen twice, so the proxy replays the session.
+    const replaySession = (): void => {
+        state = "running";
+        toServer(initializedFrame!);
+        if (configurationFrame !== undefined) {
+            toServer(configurationFrame);
         }
 
+        // Disk first: each didOpen then carries the current text under a version no lower than the old server saw.
+        sweepDocuments(table, deps, {
+            onChange: (uri: string): void => gate.touch(uri),
+        });
+        for (const document of table.all()) {
+            toServer(frameMessage(JSON.stringify({
+                jsonrpc: "2.0",
+                method: "textDocument/didOpen",
+                params: {
+                    textDocument: {
+                        uri: document.uri,
+                        languageId: document.languageId,
+                        version: document.version,
+                        text: document.text,
+                    },
+                },
+            })));
+        }
+
+        for (const entry of queued.splice(0)) {
+            acceptClient(entry.event, entry.message);
+        }
+        if (clientEnded) {
+            server.stdin.end();
+        }
+        restartIdleClock();
+    };
+
+    const serverStopped = (): void => {
+        clearTimeout(killTimer);
+        killTimer = undefined;
+        state = "stopped";
+        shutdownId = undefined;
+        clientRequests.clear();
+        serverRequests.clear();
+
+        // The next server republishes what it still finds and has not started indexing, so nothing held survives.
+        clearTimeout(gateTimer);
+        gateTimer = undefined;
+        gate.flush();
+        gate.setBusy(false);
+        serverBusy = false;
+
+        // A write the old server never drained may have paused the client.
+        process.stdin.resume();
+        if (clientEnded) {
+            finish(0);
+            return;
+        }
+        for (const entry of queued.splice(0)) {
+            acceptClient(entry.event, entry.message);
+        }
+    };
+
+    const recordSession = (raw: Buffer, message: ClientMessage): void => {
+        if (message.id !== undefined && message.method === undefined) {
+            serverRequests.delete(message.id);
+        } else if (message.id !== undefined) {
+            clientRequests.add(message.id);
+        }
+        // Copies: `raw` is a view into the parser's buffer, which would otherwise stay alive for the session.
+        if (message.method === "initialize") {
+            initializeParams = message.params;
+        } else if (message.method === "initialized") {
+            initializedFrame = Buffer.from(raw);
+        } else if (message.method === "workspace/didChangeConfiguration") {
+            configurationFrame = Buffer.from(raw);
+        }
+    };
+
+    const handleMessage = (raw: Buffer, message: ClientMessage | undefined): void => {
         // 1. Sync the server before it sees the message, so a hover or diagnostics pull reads current text.
         writeSweep({
             skipUri: message === undefined ? undefined : syncedUri(message),
         });
 
-        // 2. Forward the client's own bytes untouched.
+        // 2. Forward the client's own bytes untouched, except an initialize re-rooted by --git-root; only a
+        //    client message counts as activity.
+        if (message?.method === "initialize") {
+            const rerooted = options.gitRoot ? rootAtProject(message.params, process.cwd(), existsSync) : undefined;
+            if (rerooted !== undefined) {
+                message.params = rerooted;
+                raw = frameMessage(JSON.stringify(message));
+            }
+            filterOptions.workspaceProject = projectOfDirectory(resolveWorkspaceRoot(message.params, process.cwd()), existsSync);
+        }
         toServer(raw);
+        if (tracksIdle) {
+            if (message !== undefined) {
+                recordSession(raw, message);
+            }
+            restartIdleClock();
+        }
 
         // 3. Track what the client just told the server, then cover any new or emptied directory.
         if (message === undefined) {
@@ -1474,19 +1753,73 @@ export function runLspProxy(argv: string[]): void {
         }
     };
 
+    const relayClient = (event: FrameEvent, message: ClientMessage | undefined): void => {
+        if (event.kind === "raw") {
+            log("framing", `framing abandoned, passing client bytes through raw: ${parser.failure}`);
+            stopWatching();
+            toServer(event.raw);
+            return;
+        }
+        handleMessage(event.raw, message);
+    };
+
+    const acceptClient = (event: FrameEvent, message: ClientMessage | undefined): void => {
+        if (state === "running") {
+            relayClient(event, message);
+            return;
+        }
+        // A reply is neither a request nor a notification, so the new server may have it before initialize is done.
+        if (state === "starting" && message?.method === undefined && serverRequests.has(message?.id)) {
+            relayClient(event, message);
+            return;
+        }
+        if (state !== "stopped") {
+            queued.push({
+                event,
+                message,
+            });
+            return;
+        }
+
+        // Stopped: ending the session needs no server, and a cancel or a reply has nobody left to reach.
+        if (message?.method === "shutdown" && message.id !== undefined) {
+            toClient(frameMessage(JSON.stringify({
+                jsonrpc: "2.0",
+                id: message.id,
+                result: null,
+            })));
+            return;
+        }
+        if (message?.method === "exit") {
+            finish(0);
+            return;
+        }
+        if (message?.method === "$/cancelRequest" || (message?.id !== undefined && message.method === undefined)) {
+            return;
+        }
+        queued.push({
+            event,
+            message,
+        });
+        restartServer();
+    };
+
     process.stdin.on("data", (chunk: Buffer) => {
         for (const event of parser.push(chunk)) {
-            if (event.kind === "raw") {
-                log("framing", `framing abandoned, passing client bytes through raw: ${parser.failure}`);
-                stopWatching();
-                toServer(event.raw);
-                continue;
-            }
-            handleMessage(event.raw, event.body);
+            acceptClient(event, event.kind === "message" ? parseClientBody(event.body) : undefined);
         }
     });
     process.stdin.on("end", () => {
         const rest = parser.drain();
+        if (state === "stopped") {
+            finish(0);
+            return;
+        }
+        // The tail of an incomplete frame means nothing to a server that has yet to be (re)started.
+        if (state !== "running") {
+            clientEnded = true;
+            return;
+        }
         if (rest.length > 0) {
             toServer(rest);
         }
@@ -1529,7 +1862,43 @@ export function runLspProxy(argv: string[]): void {
         }, wait);
     };
 
-    server.stdout.on("data", (chunk: Buffer) => {
+    // Tracks request ids for the idle stop; returns true for a reply to the proxy's own request, which the
+    // client never asked for and must not see.
+    const consumeServerMessage = (body: Buffer): boolean => {
+        let message: ClientMessage | null;
+        try {
+            message = JSON.parse(body.toString("utf8")) as ClientMessage | null;
+        } catch {
+            // Not JSON: forwarded untouched like any other body the proxy does not read.
+            return false;
+        }
+        const id = message?.id;
+        if (id === undefined) {
+            return false;
+        }
+        if (message?.method !== undefined) {
+            serverRequests.add(id);
+            return false;
+        }
+        if (id === initializeId) {
+            initializeId = undefined;
+            replaySession();
+            return true;
+        }
+        if (id === shutdownId) {
+            shutdownId = undefined;
+            toServer(frameMessage(JSON.stringify({
+                jsonrpc: "2.0",
+                method: "exit",
+            })));
+            server.stdin.end();
+            return true;
+        }
+        clientRequests.delete(id);
+        return false;
+    };
+
+    const readServer = (chunk: Buffer): void => {
         for (const event of serverParser.push(chunk)) {
             if (event.kind === "raw") {
                 log("server-framing", `framing abandoned on server output, passing it through raw: ${serverParser.failure}`);
@@ -1537,11 +1906,15 @@ export function runLspProxy(argv: string[]): void {
                 toClient(event.raw);
                 continue;
             }
+            if (tracksIdle && consumeServerMessage(event.body)) {
+                continue;
+            }
             const published = publishMessage(event.body);
             if (published === undefined) {
                 const edge = busyEdge?.(event.body);
                 if (edge !== undefined) {
                     gate.setBusy(edge === "start");
+                    serverBusy = edge === "start";
                 }
                 toClient(event.raw);
                 continue;
@@ -1556,20 +1929,74 @@ export function runLspProxy(argv: string[]): void {
             }
         }
         armGate();
-    });
-    server.stdout.on("end", () => {
+    };
+
+    // A server being stopped ends its output too, but the gate stays open for the next one; the tail of
+    // a frame it never finished is dropped with it.
+    const endServerOutput = (): void => {
+        if (state === "stopping") {
+            return;
+        }
         closeGate();
         const rest = serverParser.drain();
         if (rest.length > 0) {
             toClient(rest);
         }
-    });
+    };
+
+    // Exits are by the server's own code while one runs; a stopping or stopped server is not the session ending.
+    const serverClosed = (code: number | null): void => {
+        if (state === "stopping") {
+            serverStopped();
+            return;
+        }
+        if (state === "starting") {
+            log("restart-failed", "the restarted language server exited before answering initialize");
+            finish(1);
+            return;
+        }
+        finish(code ?? 1);
+    };
+
+    const startServer = (): void => {
+        server = spawn(options.command, options.args, {
+            stdio: [
+                "pipe",
+                "pipe",
+                "inherit",
+            ],
+        });
+        serverParser = new FrameParser();
+        server.stdin.on("drain", () => process.stdin.resume());
+        server.stdin.on("error", (error) => {
+            log("server-stdin", `writing to the server failed: ${errorMessage(error)}`);
+        });
+        server.stdout.on("data", readServer);
+        server.stdout.on("end", endServerOutput);
+        server.on("error", (error) => {
+            log("spawn", `server process failed: ${errorMessage(error)}`);
+            finish(1);
+        });
+        server.on("close", serverClosed);
+    };
+
+    // With no server left to stop, the proxy itself is all that remains to end.
+    const terminate = (signal: NodeJS.Signals): void => {
+        if (state === "stopped") {
+            finish(0);
+            return;
+        }
+        server.kill(signal);
+        if (state === "stopping") {
+            finish(0);
+        }
+    };
 
     // EPIPE here means the client has gone; with nobody to answer, the server is stopped and its exit
     // ends the proxy, instead of an uncaught stream error doing so.
     process.stdout.on("error", (error) => {
         log("stdout", `writing to the client failed, stopping the server: ${errorMessage(error)}`);
-        server.kill("SIGTERM");
+        terminate("SIGTERM");
     });
 
     const finish = (code: number): void => {
@@ -1587,15 +2014,11 @@ export function runLspProxy(argv: string[]): void {
         process.stdout.write("", () => process.exit(code));
     };
 
-    server.on("error", (error) => {
-        log("spawn", `server process failed: ${errorMessage(error)}`);
-        finish(1);
-    });
-    server.on("close", (code) => finish(code ?? 1));
+    startServer();
 
     for (const signal of ["SIGTERM", "SIGINT"] as const) {
         process.on(signal, () => {
-            server.kill(signal);
+            terminate(signal);
         });
     }
 }

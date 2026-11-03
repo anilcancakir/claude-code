@@ -91,7 +91,7 @@ Plan-then-execute is a crowded category. Three things here are not common:
 
 ## Also on opencode
 
-The same workflow runs on [opencode](https://opencode.ai): eight commands, thirteen agents and thirteen skills, a diagnostics block after every edit, model chains that move a failed child down a list of fallbacks, and the same away-run guards. It is a hand-kept port, each file stamped with a hash of its Claude Code source so a change on one side cannot pass CI without the other. Install and presets are in [`opencode/ac/README.md`](opencode/ac/README.md).
+The same workflow runs on [opencode](https://opencode.ai): eight commands, thirteen agents and thirteen skills, a diagnostics block after every edit, model chains that move a failed child down a list of fallbacks, and the same away-run guards. It is a hand-kept port, each file stamped with a hash of its Claude Code source so a change on one side cannot pass CI without the other. Install is in [`opencode/ac/README.md`](opencode/ac/README.md).
 
 ## Reference
 
@@ -130,7 +130,7 @@ Eight further skills write and audit the files Claude reads: `ac:skill-creator`,
 
 ## Also in this marketplace
 
-`ac-lsp` runs language servers for Dart, PHP, TypeScript and JavaScript, Python, Go, Swift, HTML, CSS, SCSS and Sass through a small proxy that keeps each server in step with the disk and drops the hints and missing-dependency errors an agent cannot act on. Claude Code tells a language server only about its own Edit and Write changes, so without it an edit from Bash, git, a formatter or another session leaves the server analysing old content. Intelephense also skips `build/` and `.claude/worktrees/`, so indexing finishes in Flutter monorepos. Disable the stock plugins for those languages first (the list is in the plugin README), then `/plugin install ac-lsp@ac`; [`plugins/ac-lsp/README.md`](plugins/ac-lsp/README.md) has the details and the per-project override.
+`ac-lsp` runs language servers for Dart, PHP, TypeScript and JavaScript, Python, Go, Swift and HTML through a small proxy that keeps each server in step with the disk, drops the hints and missing-dependency errors an agent cannot act on, and stops a server that has been idle for ten minutes until it is needed again. Claude Code tells a language server only about its own Edit and Write changes, so without it an edit from Bash, git, a formatter or another session leaves the server analysing old content. Intelephense also skips `build/` and `.claude/worktrees/`, so indexing finishes in Flutter monorepos. Disable the stock plugins for those languages first (the list is in the plugin README), then `/plugin install ac-lsp@ac`; [`plugins/ac-lsp/README.md`](plugins/ac-lsp/README.md) has the details and the per-project override.
 
 ## Repository layout
 
