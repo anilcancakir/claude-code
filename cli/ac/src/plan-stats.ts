@@ -1,5 +1,5 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import type { NameCount } from "./run-stats.ts";
 
 /** What one plan file contributes to the corpus rollup. */
@@ -28,6 +28,23 @@ export interface PlanStats {
     readonly remediationTiers: readonly NameCount[];
     /** Findings per reviewer, summed over the `Review:` lines of every `review-log.md`. */
     readonly reviews: readonly ReviewTotals[];
+    /** Records that cannot be attributed to a tier: a `[REMEDIATION]` without one, or a `[RETRY]` that is malformed. */
+    readonly untagged: number;
+    /**
+     * `.ac/flow/<run>/` directories holding a `wisdom.md` or a `review-log.md`. Their `Review:` lines are in
+     * `reviews`; their records are counted only in the `flow*` fields, because a flow slice is in no tier denominator.
+     */
+    readonly flowRuns: number;
+    /** `[RETRY]` and `[REMEDIATION]` lines read from flow runs, tagged or not. */
+    readonly flowRecords: number;
+    /** Flow `[REMEDIATION]` lines per tier. */
+    readonly flowRemediationTiers: readonly NameCount[];
+    /** Flow `[RETRY]` lines per tier. */
+    readonly flowRetries: readonly NameCount[];
+    /** Flow records that name no tier. */
+    readonly flowUntagged: number;
+    /** `Review:` lines read from flow runs. */
+    readonly flowReviews: number;
 }
 
 /** One reviewer's findings across every review run it took part in. */
@@ -62,6 +79,9 @@ const CODEBASE_STATE = /^\*\*Codebase State\*\*:\s*([a-z]+)/;
 // STEP_TIER: a wisdom line that mentions a tag mid-sentence is prose, not a record.
 // Only the four tier names count as a tier: older free-form lines read "Step 4 bridge: ...".
 const TIER = "(quick|junior-high|junior|senior)";
+const RETRY_OPEN = /^\s*(?:-\s+)?\[RETRY\]/;
+// `Step - -` is the documented form for a fix no step owns (execute SKILL.md, Layer B), so it is tagged.
+const UNOWNED_REMEDIATION = /^\s*(?:-\s+)?\[REMEDIATION\]\s+Step\s+-\s+-:/;
 const RETRY_LINE = new RegExp(`^\\s*(?:-\\s+)?\\[RETRY\\]\\s+Step\\s+\\S+\\s+${TIER}:`);
 const REMEDIATION_LINE = new RegExp(`^\\s*(?:-\\s+)?\\[REMEDIATION\\](?:\\s+Step\\s+\\S+\\s+${TIER}:)?`);
 const REVIEW_LINE = /^Review:\s+(\S+)\s+CRITICAL\s+(\d+)\s+IMPORTANT\s+(\d+)\s+MINOR\s+(\d+)/;
@@ -104,8 +124,11 @@ function toSortedCounts(counts: Map<string, number>): NameCount[] {
 // Directories that never hold a plan and are expensive to descend into.
 const SKIP_DIRS = new Set(["node_modules", ".git", "dist", "build", "vendor", "target", ".next"]);
 
-/** Collects every plan file under a root, at any nesting depth, matching the `.ac/plans` layout. */
-function findPlanFiles(root: string, out: string[], depth: number): void {
+/**
+ * Collects every plan file under a root, at any nesting depth, matching the `.ac/plans` layout, and every
+ * `.ac/flow/<run>` directory, which `/ac:flow` writes instead of a plan.
+ */
+function findCorpus(root: string, plans: string[], flowRuns: string[], depth: number): void {
     if (depth > 6) {
         return;
     }
@@ -129,12 +152,21 @@ function findPlanFiles(root: string, out: string[], depth: number): void {
             // A symlink to nowhere, or a file removed mid-walk. Neither is worth failing the scan.
             continue;
         }
-        if (isDirectory) {
-            findPlanFiles(path, out, depth + 1);
+        if (isFlowRunDir(path)) {
+            if (isDirectory) {
+                flowRuns.push(path);
+            }
+        } else if (isDirectory) {
+            findCorpus(path, plans, flowRuns, depth + 1);
         } else if (entry === "plan.md" && isPlanPath(path)) {
-            out.push(path);
+            plans.push(path);
         }
     }
+}
+
+function isFlowRunDir(path: string): boolean {
+    const parent = dirname(path);
+    return basename(parent) === "flow" && basename(dirname(parent)) === ".ac";
 }
 
 function isPlanPath(path: string): boolean {
@@ -153,19 +185,18 @@ function isPlanPath(path: string): boolean {
  */
 export function collectPlanStats(root: string, options: PlanStatsOptions = {}): PlanStats {
     const files: string[] = [];
-    findPlanFiles(root, files, 0);
+    const flowDirs: string[] = [];
+    findCorpus(root, files, flowDirs, 0);
 
     const tiers = new Map<string, number>();
     const executedTiers = new Map<string, number>();
-    const retries = new Map<string, number>();
     const complexity = new Map<string, number>();
     const codebaseState = new Map<string, number>();
     let plans = 0;
     let steps = 0;
     let executed = 0;
-    let remediations = 0;
-    const remediationTiers = new Map<string, number>();
-    const reviews = new Map<string, { runs: number; critical: number; important: number; minor: number }>();
+    const records: RecordTally = { remediationTiers: new Map(), remediations: 0, retries: new Map(), untagged: 0 };
+    const reviews: ReviewTally = new Map();
 
     for (const file of files) {
         if (options.since !== undefined && modifiedOn(file) < options.since) {
@@ -198,34 +229,30 @@ export function collectPlanStats(root: string, options: PlanStatsOptions = {}): 
         for (const tier of summary.tiers) {
             bump(executedTiers, tier);
         }
-        for (const line of wisdom.split("\n")) {
-            const retry = RETRY_LINE.exec(line);
-            if (retry?.[1] !== undefined) {
-                bump(retries, retry[1]);
-                continue;
-            }
-            const remediation = REMEDIATION_LINE.exec(line);
-            if (remediation !== null) {
-                remediations += 1;
-                if (remediation[1] !== undefined) {
-                    bump(remediationTiers, remediation[1]);
-                }
-            }
-        }
+        tallyRecords(wisdom, records);
+        tallyReviews(readSibling(file, "review-log.md") ?? "", reviews);
+    }
 
-        for (const line of readSibling(file, "review-log.md")?.split("\n") ?? []) {
-            const review = REVIEW_LINE.exec(line);
-            if (review?.[1] === undefined) {
-                continue;
-            }
-            const totals = reviews.get(review[1]) ?? { critical: 0, important: 0, minor: 0, runs: 0 };
-            reviews.set(review[1], {
-                critical: totals.critical + Number(review[2]),
-                important: totals.important + Number(review[3]),
-                minor: totals.minor + Number(review[4]),
-                runs: totals.runs + 1,
-            });
+    const flowTally: RecordTally = { remediationTiers: new Map(), remediations: 0, retries: new Map(), untagged: 0 };
+    let flowRuns = 0;
+    let flowRecords = 0;
+    let flowUntagged = 0;
+    let flowReviews = 0;
+    for (const dir of flowDirs) {
+        const wisdom = readFileIfPresent(join(dir, "wisdom.md"));
+        const reviewLog = readFileIfPresent(join(dir, "review-log.md"));
+        if (wisdom === undefined && reviewLog === undefined) {
+            continue;
         }
+        if (options.since !== undefined && latestModification(dir, ["wisdom.md", "review-log.md"]) < options.since) {
+            continue;
+        }
+        flowRuns += 1;
+        // A flow run has no plan, so its slices are in no tier denominator: its records stay out of the shares.
+        const flow = tallyRecords(wisdom ?? "", flowTally);
+        flowRecords += flow.records;
+        flowUntagged += flow.untagged;
+        flowReviews += tallyReviews(reviewLog ?? "", reviews);
     }
 
     return {
@@ -233,16 +260,84 @@ export function collectPlanStats(root: string, options: PlanStatsOptions = {}): 
         complexity: toSortedCounts(complexity),
         executed,
         executedTiers: toSortedCounts(executedTiers),
+        flowRecords,
+        flowRemediationTiers: toSortedCounts(flowTally.remediationTiers),
+        flowRetries: toSortedCounts(flowTally.retries),
+        flowReviews,
+        flowRuns,
+        flowUntagged,
         plans,
-        remediationTiers: toSortedCounts(remediationTiers),
-        remediations,
-        retries: toSortedCounts(retries),
+        remediationTiers: toSortedCounts(records.remediationTiers),
+        remediations: records.remediations,
+        retries: toSortedCounts(records.retries),
         reviews: [...reviews.entries()]
             .map(([name, totals]): ReviewTotals => ({ name, ...totals }))
             .sort((a, b) => (b.runs - a.runs) || a.name.localeCompare(b.name)),
         steps,
         tiers: toSortedCounts(tiers),
+        untagged: records.untagged,
     };
+}
+
+interface RecordTally {
+    remediations: number;
+    untagged: number;
+    readonly retries: Map<string, number>;
+    readonly remediationTiers: Map<string, number>;
+}
+
+type ReviewTally = Map<string, { runs: number; critical: number; important: number; minor: number }>;
+
+/** Adds one wisdom file's `[RETRY]` and `[REMEDIATION]` records to the tally; returns what this file contributed. */
+function tallyRecords(text: string, tally: RecordTally): { records: number; untagged: number } {
+    let found = 0;
+    let untagged = 0;
+    for (const line of text.split("\n")) {
+        const retry = RETRY_LINE.exec(line);
+        if (retry?.[1] !== undefined) {
+            bump(tally.retries, retry[1]);
+            found += 1;
+            continue;
+        }
+        if (RETRY_OPEN.test(line)) {
+            untagged += 1;
+            found += 1;
+            continue;
+        }
+        const remediation = REMEDIATION_LINE.exec(line);
+        if (remediation === null) {
+            continue;
+        }
+        tally.remediations += 1;
+        found += 1;
+        if (remediation[1] !== undefined) {
+            bump(tally.remediationTiers, remediation[1]);
+        } else if (!UNOWNED_REMEDIATION.test(line)) {
+            untagged += 1;
+        }
+    }
+    tally.untagged += untagged;
+    return { records: found, untagged };
+}
+
+/** Adds one review log's `Review:` lines to the tally; returns how many it held. */
+function tallyReviews(text: string, tally: ReviewTally): number {
+    let found = 0;
+    for (const line of text.split("\n")) {
+        const review = REVIEW_LINE.exec(line);
+        if (review?.[1] === undefined) {
+            continue;
+        }
+        const totals = tally.get(review[1]) ?? { critical: 0, important: 0, minor: 0, runs: 0 };
+        tally.set(review[1], {
+            critical: totals.critical + Number(review[2]),
+            important: totals.important + Number(review[3]),
+            minor: totals.minor + Number(review[4]),
+            runs: totals.runs + 1,
+        });
+        found += 1;
+    }
+    return found;
 }
 
 function bump(counts: Map<string, number>, key: string): void {
@@ -258,12 +353,20 @@ function modifiedOn(path: string): string {
 }
 
 function readSibling(planPath: string, name: string): string | undefined {
+    return readFileIfPresent(join(dirname(planPath), name));
+}
+
+function readFileIfPresent(path: string): string | undefined {
     try {
-        return readFileSync(join(dirname(planPath), name), "utf8");
+        return readFileSync(path, "utf8");
     } catch {
         // No wisdom file means the plan never reached an execute wave; that is the "not executed" answer.
         return undefined;
     }
+}
+
+function latestModification(dir: string, names: readonly string[]): string {
+    return names.map((name) => modifiedOn(join(dir, name))).reduce((latest, day) => (day > latest ? day : latest), "");
 }
 
 function renderSection(title: string, entries: readonly NameCount[], total: number): string[] {
@@ -278,6 +381,10 @@ function renderSection(title: string, entries: readonly NameCount[], total: numb
             return `  ${entry.name.padEnd(width)}  ${String(entry.count).padStart(5)}  ${share.toFixed(1)}%`;
         }),
     ];
+}
+
+function formatCounts(entries: readonly NameCount[]): string {
+    return entries.length === 0 ? "none" : entries.map((entry) => `${entry.name} ${entry.count}`).join(", ");
 }
 
 function renderPerStep(title: string, entries: readonly NameCount[], stats: PlanStats): string[] {
@@ -307,10 +414,19 @@ export function formatPlanStats(stats: PlanStats): string {
         ...renderSection("Codebase state:", stats.codebaseState, stateTotal),
     ];
 
-    if (stats.executed > 0) {
+    if (stats.executed > 0 || stats.flowRuns > 0) {
         lines.push(
             `Executed plans (wisdom.md present): ${stats.executed}`,
             `Remediation lines: ${stats.remediations}`,
+            `Untagged records (no tier on a [REMEDIATION], malformed [RETRY]): ${stats.untagged}`,
+            ...(stats.flowRuns === 0
+                ? []
+                : [
+                    `Flow runs (.ac/flow; records kept out of the tier shares, Review lines included): ${stats.flowRuns}`
+                        + `; ${stats.flowRecords} records (remediations ${formatCounts(stats.flowRemediationTiers)};`
+                        + ` retries ${formatCounts(stats.flowRetries)}), ${stats.flowUntagged} untagged,`
+                        + ` ${stats.flowReviews} Review lines`,
+                ]),
             ...renderPerStep(
                 "Remediations per tier (share of that tier's executed steps):",
                 stats.remediationTiers,

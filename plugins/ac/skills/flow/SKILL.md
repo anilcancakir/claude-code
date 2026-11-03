@@ -39,7 +39,7 @@ DOWNSTREAM: how you will use the result
 REQUEST: what to return, the format, what to skip
 ```
 
-`DEPTH` and `BUDGET` are required: an agent cannot apply a depth you did not send, and a blank field returns the thin default pass. For `ac:explore` also pass the Agent tool's `effort` from `DEPTH` (`quick` is `"low"`, `medium` is `"medium"`, `thorough` is `"high"`), unless `CLAUDE_CODE_EFFORT_LEVEL` is set. `ac:librarian` takes none. `ac:librarian` does not read CLAUDE.md, so anything the user told you to leave out of research goes into its brief.
+`DEPTH` and `BUDGET` are required: an agent cannot apply a depth you did not send, and a blank field returns the thin default pass. For `ac:explore` make `medium` the default `DEPTH`, and use `thorough` only for a question that spans modules or several naming conventions; also pass the Agent tool's `effort` from `DEPTH` (`quick` is `"low"`, `medium` is `"medium"`, `thorough` is `"high"`), unless `CLAUDE_CODE_EFFORT_LEVEL` is set. `ac:librarian` takes none. `ac:librarian` does not read CLAUDE.md, so anything the user told you to leave out of research goes into its brief.
 
 ## 3. Interview
 
@@ -64,6 +64,7 @@ L: write the slice table in your reply; it is also the progress list. Mark a row
 - Dispatch each ready wave (slices whose `After` is met, files disjoint) as `ac:plan-worker-<tier>` calls, at most three at once, with the brief from `${CLAUDE_SKILL_DIR}/references/worker-brief.md`. Fill every section; a worker never opens anything you did not put in the brief.
 - After a wave: compare `git diff --stat` with the slice file lists. A hunk no worker claimed, or a file outside a list, is yours to fix or revert. Then run, once for the wave and in parallel, the per-file checks on the wave's touched files, their related tests and one project-wide static analysis; never the full suite here (`${CLAUDE_PLUGIN_ROOT}/references/verification.md`).
 - Fix remediation yourself. Re-spawn a worker only for a `[BRIEFING GAP]` (repair the brief) or a tier mismatch (one tier up).
+- Records: after each wave, append to `.ac/flow/<YYYY-MM-DD>-<short-slug>/wisdom.md` (create it on the first record; the slug is fixed for the run): `[REMEDIATION] Step <slice#> <tier>: <what you fixed>` for each fix you made to a worker's output, and `[RETRY] Step <slice#> <tier>: rung <n>, <cause>` for each re-spawn, with the tier of the worker that failed. Write nothing when there was none. `ac plan-stats` reads these lines to compare what each tier costs in fixes.
 
 ## 5. Verify
 
@@ -71,7 +72,7 @@ Hold the result to the success check from phase 1: the changed files clean by th
 
 ## 6. Review
 
-Start the full test suite and the repo-wide lint with `run_in_background: true`, whether or not an oracle runs; both must be green before you report, and a failure there is a finding like the oracle's. One `ac:oracle`, in the same message, when the change crosses more than one file or is hard to reverse; a single-file M skips it. Send the diff and the claims it rests on: the success check, the interview decisions, the research sources. Fix what it confirms and say which findings you left and why.
+Start the full test suite and the repo-wide lint with `run_in_background: true`, whether or not an oracle runs; both must be green before you report, and a failure there is a finding like the oracle's. One `ac:oracle`, in the same message, when the change crosses more than one file or is hard to reverse; a single-file M skips it. Send the diff and the claims it rests on: the success check, the interview decisions, the research sources. Fix what it confirms and say which findings you left and why. Append one line per reviewer that ran to `review-log.md` in the run directory from phase 4 (create the directory now when no record went there): `Review: ac:oracle CRITICAL <n> IMPORTANT <n> MINOR <n>`, counting the findings it returned.
 
 ## 7. Report
 

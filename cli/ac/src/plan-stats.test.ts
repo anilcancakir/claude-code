@@ -242,4 +242,84 @@ describe("execution outcomes", () => {
         expect(collectPlanStats(root, { since: "2026-10-01" }).plans).toBe(1);
         expect(collectPlanStats(root).plans).toBe(2);
     });
+
+    test("counts untagged remediation lines and malformed retry lines, and names the count in the text", () => {
+        const root = freshRoot();
+        const planPath = writePlan(root, "alpha", "one", plan);
+        writeFileSync(join(planPath, "..", "wisdom.md"), [
+            "- [REMEDIATION] Step 2 junior: tagged fix",
+            "- [REMEDIATION] Step 3: no tier",
+            "- [RETRY] Step 2 junior: rung 1, tagged",
+            "- [RETRY] Step 2: rung 1, no tier",
+            "- [RETRY] rung 2, no step either",
+            "- [REMEDIATION] Step - -: a fix no step owns is tagged",
+            "- A plain line naming [RETRY] mid-sentence is prose",
+        ].join("\n"));
+
+        const stats = collectPlanStats(root);
+
+        expect(stats.remediations).toBe(3);
+        expect(stats.retries).toEqual([{ count: 1, name: "junior" }]);
+        expect(stats.untagged).toBe(3);
+        expect(formatPlanStats(stats)).toContain("Untagged records (no tier on a [REMEDIATION], malformed [RETRY]): 3");
+    });
+});
+
+describe("flow runs", () => {
+    function writeFlowRun(root: string, run: string, files: Record<string, string>): void {
+        const dir = join(root, "app", ".ac", "flow", run);
+        mkdirSync(dir, { recursive: true });
+        for (const [name, body] of Object.entries(files)) {
+            writeFileSync(join(dir, name), body);
+        }
+    }
+
+    test("keeps a flow run's records out of the tier shares, adds its Review lines, and reports the flow part", () => {
+        const root = freshRoot();
+        writeFlowRun(root, "2026-11-03-demo", {
+            "review-log.md": "Review: ac:oracle CRITICAL 1 IMPORTANT 2 MINOR 3\n",
+            "wisdom.md": [
+                "## Wave 1",
+                "[REMEDIATION] Step 2 junior-high: restored a dropped import",
+                "[RETRY] Step 1 junior: rung 1, missed the null branch",
+                "[REMEDIATION] Step 3: no tier",
+            ].join("\n"),
+        });
+        writeFlowRun(root, "2026-11-03-notes-only", { "notes.md": "[REMEDIATION] Step 1 junior: not a flow record file" });
+
+        const stats = collectPlanStats(root);
+
+        expect(stats.plans).toBe(0);
+        expect(stats.flowRuns).toBe(1);
+        expect(stats.flowRecords).toBe(3);
+        expect(stats.flowUntagged).toBe(1);
+        expect(stats.flowReviews).toBe(1);
+        expect(stats.flowRemediationTiers).toEqual([{ count: 1, name: "junior-high" }]);
+        expect(stats.flowRetries).toEqual([{ count: 1, name: "junior" }]);
+        expect(stats.remediations).toBe(0);
+        expect(stats.remediationTiers).toEqual([]);
+        expect(stats.retries).toEqual([]);
+        expect(stats.untagged).toBe(0);
+        expect(stats.reviews).toEqual([{ critical: 1, important: 2, minor: 3, name: "ac:oracle", runs: 1 }]);
+
+        const text = formatPlanStats(stats);
+        expect(text).toContain("Flow runs (.ac/flow; records kept out of the tier shares, Review lines included): 1");
+        expect(text).toContain("3 records (remediations junior-high 1; retries junior 1), 1 untagged, 1 Review lines");
+    });
+
+    test("a flow run with only a review-log counts, and flow totals sit beside a plan's", () => {
+        const root = freshRoot();
+        const planPath = writePlan(root, "app", "one", "## Steps\n- [x] **Step 1**: a\n    - **Tier**: senior\n");
+        writeFileSync(join(planPath, "..", "wisdom.md"), "- [RETRY] Step 1 senior: terminal, red\n");
+        writeFlowRun(root, "2026-11-03-review-only", {
+            "review-log.md": "Review: ac:oracle CRITICAL 0 IMPORTANT 1 MINOR 0\n",
+        });
+
+        const stats = collectPlanStats(root);
+
+        expect(stats.flowRuns).toBe(1);
+        expect(stats.flowRecords).toBe(0);
+        expect(stats.retries).toEqual([{ count: 1, name: "senior" }]);
+        expect(stats.reviews).toEqual([{ critical: 0, important: 1, minor: 0, name: "ac:oracle", runs: 1 }]);
+    });
 });
