@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -32,14 +32,26 @@ const ENV_KEYS = [
 ];
 
 let root: string;
+let stateDir: string;
+let savedTmpdir: string | undefined;
 
 beforeEach(() => {
     root = mkdtempSync(join(tmpdir(), "ac-memory-file-budget-"));
     mkdirSync(join(root, ".claude", "rules"), { recursive: true });
+    // The hook keeps its hysteresis state under TMPDIR, so each test gets a private one.
+    savedTmpdir = process.env.TMPDIR;
+    stateDir = mkdtempSync(join(tmpdir(), "ac-memory-file-budget-state-"));
+    process.env.TMPDIR = stateDir;
 });
 
 afterEach(() => {
+    if (savedTmpdir === undefined) {
+        delete process.env.TMPDIR;
+    } else {
+        process.env.TMPDIR = savedTmpdir;
+    }
     rmSync(root, { recursive: true, force: true });
+    rmSync(stateDir, { recursive: true, force: true });
 });
 
 interface HookResult {
@@ -63,10 +75,11 @@ function runHook(stdin: string, env: Record<string, string> = {}): HookResult {
     };
 }
 
-function payload(filePath: string): string {
+function payload(filePath: string, sessionId?: string): string {
     return JSON.stringify({
         hook_event_name: "PostToolUse",
         tool_name: "Write",
+        ...(sessionId === undefined ? {} : { session_id: sessionId }),
         tool_input: {
             file_path: filePath,
         },
@@ -259,6 +272,92 @@ test("init-project drafts and sessions are left to the init proposal", () => {
     const withInit = JSON.stringify({ ...JSON.parse(payload(file)), transcript_path: transcript });
 
     expect(runHook(withInit)).toEqual(SILENT);
+});
+
+test("the first over-budget write of a session blocks and keeps its state under TMPDIR", () => {
+    const file = create("CLAUDE.md", rows(130));
+
+    expect(blockReason(runHook(payload(file, "sess-a")).stdout)).toContain("130/120 lines");
+    expect(readdirSync(stateDir).filter((name) => name.startsWith("ac-memory-budget-sess-a-"))).toHaveLength(1);
+    expect(readdirSync(root)).not.toContain(".ac");
+});
+
+test("a second write at the same or a smaller size in the same session is silent", () => {
+    const file = create("CLAUDE.md", rows(130));
+    blockReason(runHook(payload(file, "sess-a")).stdout);
+
+    expect(runHook(payload(file, "sess-a"))).toEqual(SILENT);
+
+    writeFileSync(file, rows(125));
+    expect(runHook(payload(file, "sess-a"))).toEqual(SILENT);
+});
+
+test("a second write that grows past the stored size blocks again", () => {
+    const file = create("CLAUDE.md", rows(130));
+    blockReason(runHook(payload(file, "sess-a")).stdout);
+
+    writeFileSync(file, rows(131));
+    expect(blockReason(runHook(payload(file, "sess-a")).stdout)).toContain("131/120 lines");
+
+    // The stored size moved up with the block, so 131 is now the silent ceiling.
+    expect(runHook(payload(file, "sess-a"))).toEqual(SILENT);
+});
+
+test("a write that is smaller in lines but larger in bytes blocks again", () => {
+    const file = create("CLAUDE.md", rows(130));
+    blockReason(runHook(payload(file, "sess-a")).stdout);
+
+    writeFileSync(file, rows(125, 40));
+    expect(blockReason(runHook(payload(file, "sess-a")).stdout)).toContain("125/120 lines, 5125/12288 bytes");
+});
+
+test("a different session id blocks the same file", () => {
+    const file = create("CLAUDE.md", rows(130));
+    blockReason(runHook(payload(file, "sess-a")).stdout);
+
+    expect(blockReason(runHook(payload(file, "sess-b")).stdout)).toContain("130/120 lines");
+});
+
+test("another file in the same session has its own state", () => {
+    const first = create("CLAUDE.md", rows(130));
+    const second = create(".claude/rules/a.md", rows(130));
+    blockReason(runHook(payload(first, "sess-a")).stdout);
+
+    expect(blockReason(runHook(payload(second, "sess-a")).stdout)).toContain("130/120 lines");
+});
+
+test("getting under budget clears the state, so a later regrowth blocks", () => {
+    const file = create("CLAUDE.md", rows(130));
+    blockReason(runHook(payload(file, "sess-a")).stdout);
+
+    writeFileSync(file, rows(100));
+    expect(runHook(payload(file, "sess-a"))).toEqual(SILENT);
+    expect(readdirSync(stateDir).filter((name) => name.startsWith("ac-memory-budget-"))).toHaveLength(0);
+
+    // 125 is below the 130 stored at the first block, so only a cleared state lets this block.
+    writeFileSync(file, rows(125));
+    expect(blockReason(runHook(payload(file, "sess-a")).stdout)).toContain("125/120 lines");
+});
+
+test("without a session id every over-budget write blocks", () => {
+    const file = create("CLAUDE.md", rows(130));
+
+    blockReason(runHook(payload(file)).stdout);
+    blockReason(runHook(payload(file)).stdout);
+    expect(readdirSync(stateDir)).toHaveLength(0);
+});
+
+test("the block reason asks for consolidation to about 90% of the cap", () => {
+    expect(blockReason(runHook(payload(create("CLAUDE.md", rows(130)))).stdout)).toContain(
+        "aim for at most 108 lines / 11059 bytes",
+    );
+    expect(blockReason(runHook(payload(create("CLAUDE.local.md", rows(70)))).stdout)).toContain(
+        "aim for at most 54 lines / 5529 bytes",
+    );
+    // PROJECT.md has no byte budget, so only the line target is stated.
+    const project = blockReason(runHook(payload(create("PROJECT.md", rows(160)))).stdout);
+    expect(project).toContain("aim for at most 135 lines");
+    expect(project).not.toContain("135 lines /");
 });
 
 test("an init-project marker quoted in a tool result does not silence the budget", () => {

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -20,16 +20,28 @@ const HOOK = join(
 
 let root: string;
 let index: string;
+let stateDir: string;
+let savedTmpdir: string | undefined;
 
 beforeEach(() => {
     // The auto-memory layout: <config dir>/projects/<project>/memory/MEMORY.md.
-    root = mkdtempSync(join(tmpdir(), "ac-memory-budget-"));
+    root = mkdtempSync(join(tmpdir(), "ac-memory-index-budget-"));
     mkdirSync(join(root, "projects", "-Users-me-app", "memory"), { recursive: true });
     index = join(root, "projects", "-Users-me-app", "memory", "MEMORY.md");
+    // The hook keeps its hysteresis state under TMPDIR, so each test gets a private one.
+    savedTmpdir = process.env.TMPDIR;
+    stateDir = mkdtempSync(join(tmpdir(), "ac-memory-index-budget-state-"));
+    process.env.TMPDIR = stateDir;
 });
 
 afterEach(() => {
+    if (savedTmpdir === undefined) {
+        delete process.env.TMPDIR;
+    } else {
+        process.env.TMPDIR = savedTmpdir;
+    }
     rmSync(root, { recursive: true, force: true });
+    rmSync(stateDir, { recursive: true, force: true });
 });
 
 interface HookResult {
@@ -57,10 +69,11 @@ function runHook(stdin: string, env: Record<string, string> = {}): HookResult {
     };
 }
 
-function payload(filePath: string): string {
+function payload(filePath: string, sessionId?: string): string {
     return JSON.stringify({
         hook_event_name: "PostToolUse",
         tool_name: "Write",
+        ...(sessionId === undefined ? {} : { session_id: sessionId }),
         tool_input: {
             file_path: filePath,
         },
@@ -129,7 +142,7 @@ test("line length is measured in bytes, so Turkish letters count twice", () => {
     // 80 two-byte letters are 80 characters but 160 bytes.
     writeFileSync(index, `- [a](a.md) - ok\n- [b](b.md) - ${"ş".repeat(80)}\n`);
 
-    expect(blockReason(runHook(payload(index)).stdout)).toContain("lines over 150 bytes: 2");
+    expect(blockReason(runHook(payload(index)).stdout)).toContain("line numbers over 150 bytes: 2");
 });
 
 test("an env override tightens a limit", () => {
@@ -273,6 +286,125 @@ test("a MEMORY.md write keeps its own budget and reason", () => {
 
     expect(reason).toContain("MEMORY.md is over its budget (81/80 lines");
     expect(reason).toContain("_index-<theme>.md");
+});
+
+const SILENT: HookResult = { exitCode: 0, stdout: "" };
+
+// The hysteresis contract is the same for a topic note and for MEMORY.md; only the file, the
+// over-budget content, the size the model later settles at and the 90% target differ.
+const hysteresisCases: Array<{
+    name: string;
+    path: () => string;
+    over: () => string;
+    measured: string;
+    growth: () => string;
+    grownMeasured: string;
+    shrunk: () => string;
+    holding: () => string;
+    holdingMeasured: string;
+    target: string;
+}> = [
+    {
+        name: "a topic note",
+        path: () => note("a.md"),
+        over: () => facts(60),
+        measured: "60/40 lines",
+        growth: () => facts(61),
+        grownMeasured: "61/40 lines",
+        shrunk: () => facts(20),
+        holding: () => facts(50),
+        holdingMeasured: "50/40 lines",
+        target: "aim for at most 36 lines / 2764 bytes",
+    },
+    {
+        name: "MEMORY.md",
+        path: () => index,
+        over: () => pointers(90),
+        measured: "90/80 lines",
+        growth: () => pointers(91),
+        grownMeasured: "91/80 lines",
+        shrunk: () => pointers(20),
+        holding: () => pointers(85),
+        holdingMeasured: "85/80 lines",
+        target: "aim for at most 72 lines / 9216 bytes",
+    },
+];
+
+for (const scenario of hysteresisCases) {
+    test(`${scenario.name}: the first over-budget write blocks and keeps its state under TMPDIR`, () => {
+        const file = scenario.path();
+        writeFileSync(file, scenario.over());
+
+        expect(blockReason(runHook(payload(file, "sess-a")).stdout)).toContain(scenario.measured);
+        expect(readdirSync(stateDir).filter((name) => name.startsWith("ac-memory-budget-sess-a-"))).toHaveLength(1);
+    });
+
+    test(`${scenario.name}: a second write at the same or a smaller size in the same session is silent`, () => {
+        const file = scenario.path();
+        writeFileSync(file, scenario.over());
+        blockReason(runHook(payload(file, "sess-a")).stdout);
+
+        expect(runHook(payload(file, "sess-a"))).toEqual(SILENT);
+
+        writeFileSync(file, scenario.holding());
+        expect(runHook(payload(file, "sess-a"))).toEqual(SILENT);
+    });
+
+    test(`${scenario.name}: a second write that grows past the stored size blocks again`, () => {
+        const file = scenario.path();
+        writeFileSync(file, scenario.over());
+        blockReason(runHook(payload(file, "sess-a")).stdout);
+
+        writeFileSync(file, scenario.growth());
+        expect(blockReason(runHook(payload(file, "sess-a")).stdout)).toContain(scenario.grownMeasured);
+        expect(runHook(payload(file, "sess-a"))).toEqual(SILENT);
+    });
+
+    test(`${scenario.name}: a different session id blocks the same file`, () => {
+        const file = scenario.path();
+        writeFileSync(file, scenario.over());
+        blockReason(runHook(payload(file, "sess-a")).stdout);
+
+        expect(blockReason(runHook(payload(file, "sess-b")).stdout)).toContain(scenario.measured);
+    });
+
+    test(`${scenario.name}: getting under budget clears the state, so a later regrowth blocks`, () => {
+        const file = scenario.path();
+        writeFileSync(file, scenario.over());
+        blockReason(runHook(payload(file, "sess-a")).stdout);
+
+        writeFileSync(file, scenario.shrunk());
+        expect(runHook(payload(file, "sess-a"))).toEqual(SILENT);
+        expect(readdirSync(stateDir).filter((name) => name.startsWith("ac-memory-budget-"))).toHaveLength(0);
+
+        // The holding size is below the one stored at the first block, so only a cleared state blocks it.
+        writeFileSync(file, scenario.holding());
+        expect(blockReason(runHook(payload(file, "sess-a")).stdout)).toContain(scenario.holdingMeasured);
+    });
+
+    test(`${scenario.name}: without a session id every over-budget write blocks`, () => {
+        const file = scenario.path();
+        writeFileSync(file, scenario.over());
+
+        blockReason(runHook(payload(file)).stdout);
+        blockReason(runHook(payload(file)).stdout);
+        expect(readdirSync(stateDir)).toHaveLength(0);
+    });
+
+    test(`${scenario.name}: the block reason asks for consolidation to about 90% of the cap`, () => {
+        const file = scenario.path();
+        writeFileSync(file, scenario.over());
+
+        expect(blockReason(runHook(payload(file)).stdout)).toContain(scenario.target);
+    });
+}
+
+test("a note and MEMORY.md of the same session keep separate state", () => {
+    writeFileSync(note("a.md"), facts(60));
+    writeFileSync(index, pointers(90));
+    blockReason(runHook(payload(note("a.md"), "sess-a")).stdout);
+
+    expect(blockReason(runHook(payload(index, "sess-a")).stdout)).toContain("90/80 lines");
 });
 
 test("a note env override tightens each ceiling", () => {

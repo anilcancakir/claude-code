@@ -26,6 +26,10 @@
 # file already over budget is not blocked on every trim or one-line repair; on drafts under
 # .ac/init/proposed/ or an ac-init scratch directory; and in a session running /ac:init-project, whose
 # own 2d proposal decides what stays and already reports any overage.
+#
+# Hysteresis: within one session a file that is still over budget is blocked again only when it is
+# larger (lines or bytes) than at its last block, and the reason asks for about 90% of the cap. State
+# is one file per session and path under ${TMPDIR:-/tmp}, removed once the file is within budget.
 
 set -u
 
@@ -56,14 +60,6 @@ grew="$(printf '%s' "$input" | jq -r '
     if .tool_name == "Edit" then ((.tool_input.new_string // "") | length) > ((.tool_input.old_string // "") | length)
     elif .tool_name == "MultiEdit" then ([.tool_input.edits[]? | (.new_string // "" | length) - (.old_string // "" | length)] | add // 0) > 0
     else true end' 2>/dev/null)" || grew=true
-[ "$grew" = "false" ] && exit 0
-
-transcript="$(printf '%s' "$input" | jq -r '.transcript_path // empty' 2>/dev/null)"
-if [ -n "$transcript" ] && [ -r "$transcript" ] \
-    && grep -F '"role":"user","content":"<command-' "$transcript" 2>/dev/null \
-        | grep -q -E '"role":"user","content":"<command-(message>|name>/)ac:init-project</command-'; then
-    exit 0
-fi
 
 # 1. Pick the budget for the file; every other write passes untouched.
 case "$file" in
@@ -120,7 +116,43 @@ bytes="$(wc -c < "$file" | tr -d ' ')" || exit 0
 over=""
 [ "$max_lines" -gt 0 ] && [ "$lines" -gt "$max_lines" ] && over=1
 [ "$max_bytes" -gt 0 ] && [ "$bytes" -gt "$max_bytes" ] && over=1
-[ -n "$over" ] || exit 0
+
+# 2b. Hysteresis. A file hovering just over its cap used to be blocked on every edit even while the
+#     model was shrinking it. State is keyed by session and path under TMPDIR (never the user's
+#     repository) and holds the lines and bytes measured at the last block; with no session id there
+#     is no state and every over-budget write blocks.
+state=""
+sid="$(printf '%s' "$input" | jq -r '.session_id // empty' 2>/dev/null | tr -cd 'A-Za-z0-9_-')"
+if [ -n "$sid" ]; then
+    state="${TMPDIR:-/tmp}/ac-memory-budget-${sid}-$(printf '%s' "$file" | cksum | awk '{ print $1 }')"
+fi
+
+if [ -z "$over" ]; then
+    [ -n "$state" ] && rm -f "$state" 2>/dev/null
+    exit 0
+fi
+# Measured before this exit so a shrinking Edit that brings the file under budget still clears the state.
+[ "$grew" = "false" ] && exit 0
+
+if [ -n "$state" ] && [ -f "$state" ]; then
+    prev="$(cat "$state" 2>/dev/null)"
+    prev_lines="${prev%% *}"
+    prev_bytes="${prev##* }"
+    case "${prev_lines}${prev_bytes}" in
+        '' | *[!0-9]*) ;;
+        *) [ "$lines" -le "$prev_lines" ] && [ "$bytes" -le "$prev_bytes" ] && exit 0 ;;
+    esac
+fi
+
+# /ac:init-project rewrites these files on purpose. The transcript of a long session runs to hundreds of MB, so
+# it is read only here, about to block, never on the ordinary write (a 400 MB grep held every Edit for 13 s).
+transcript="$(printf '%s' "$input" | jq -r '.transcript_path // empty' 2>/dev/null)"
+if [ -n "$transcript" ] && [ -r "$transcript" ] \
+    && grep -F '"role":"user","content":"<command-' "$transcript" 2>/dev/null \
+        | grep -q -E '"role":"user","content":"<command-(message>|name>/)ac:init-project</command-'; then
+    exit 0
+fi
+[ -n "$state" ] && { printf '%s %s\n' "$lines" "$bytes" > "$state" 2>/dev/null; }
 
 # 3. Over budget: say exactly what to fix and how, without deleting anything.
 if [ "$max_lines" -gt 0 ]; then
@@ -141,6 +173,12 @@ reason="${reason} duplicates of the root CLAUDE.md or another rule), move file-s
 reason="${reason} .claude/rules file scoped with paths:, and move long reference material into a doc the file"
 reason="${reason} points at. A rule file records invariants, not a change history: drop dated narratives and"
 reason="${reason} incident logs. Do not delete a fact you have not moved."
+
+# Aim below the cap so the file keeps headroom instead of hovering just under it.
+target=""
+[ "$max_lines" -gt 0 ] && target="$((max_lines * 9 / 10)) lines"
+[ "$max_bytes" -gt 0 ] && target="${target:+${target} / }$((max_bytes * 9 / 10)) bytes"
+[ -n "$target" ] && reason="${reason} Consolidate to about 90% of the cap so the file has headroom: aim for at most ${target}."
 
 jq -n --arg reason "$reason" '{decision: "block", reason: $reason}' 2>/dev/null
 exit 0

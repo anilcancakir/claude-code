@@ -26,6 +26,10 @@
 # the repository. Past the two NOTE limits the block reason tells Claude to condense it to one
 # durable fact. Only a write that grew the file counts: an Edit or MultiEdit whose new text is not
 # longer than the old one passes, so an already-long note can be trimmed or repaired.
+#
+# Hysteresis: within one session a file that is still over budget is blocked again only when it is
+# larger (lines or bytes) than at its last block, and every reason asks for about 90% of the cap.
+# State is one file per session and path under ${TMPDIR:-/tmp}, removed once the file is within budget.
 
 set -u
 
@@ -35,6 +39,31 @@ limit() {
         '' | *[!0-9]*) printf '%s' "$2" ;;
         *) printf '%s' "$1" ;;
     esac
+}
+
+# Hysteresis, so a file hovering just over its cap is not blocked on every edit while the model
+# shrinks it. $state is keyed by session and path under TMPDIR (never the user's repository) and
+# holds the lines and bytes measured at the last block; empty when the payload has no session id,
+# in which case every over-budget write blocks.
+
+# Succeeds when lines $1 and bytes $2 are both at or below the last block's.
+no_larger() {
+    [ -n "$state" ] && [ -f "$state" ] || return 1
+    prev="$(cat "$state" 2>/dev/null)"
+    prev_lines="${prev%% *}"
+    prev_bytes="${prev##* }"
+    case "${prev_lines}${prev_bytes}" in
+        '' | *[!0-9]*) return 1 ;;
+    esac
+    [ "$1" -le "$prev_lines" ] && [ "$2" -le "$prev_bytes" ]
+}
+
+# Prints "N lines / M bytes" at 90% of the caps $1 and $2, leaving out a cap that is off.
+headroom() {
+    out=""
+    [ "$1" -gt 0 ] && out="$(($1 * 9 / 10)) lines"
+    [ "$2" -gt 0 ] && out="${out:+${out} / }$(($2 * 9 / 10)) bytes"
+    printf '%s' "$out"
 }
 
 max_lines="$(limit "${AC_MEMORY_INDEX_MAX_LINES:-}" 80)"
@@ -71,6 +100,12 @@ proj="${file%/memory/*}"
 case "${proj##*/projects/}" in */*) exit 0 ;; esac
 [ -f "$file" ] || exit 0
 
+state=""
+sid="$(printf '%s' "$input" | jq -r '.session_id // empty' 2>/dev/null | tr -cd 'A-Za-z0-9_-')"
+if [ -n "$sid" ]; then
+    state="${TMPDIR:-/tmp}/ac-memory-budget-${sid}-$(printf '%s' "$file" | cksum | awk '{ print $1 }')"
+fi
+
 # 1b. A topic note: block only a write that grew it, so an already-long note can be trimmed or
 #     repaired without being blocked on every touch. An Edit or MultiEdit that removed at least as
 #     much as it added did not grow the file; a Write always counts.
@@ -79,7 +114,6 @@ if [ "${note:-}" = 1 ]; then
         if .tool_name == "Edit" then ((.tool_input.new_string // "") | length) > ((.tool_input.old_string // "") | length)
         elif .tool_name == "MultiEdit" then ([.tool_input.edits[]? | (.new_string // "" | length) - (.old_string // "" | length)] | add // 0) > 0
         else true end' 2>/dev/null)" || grew=true
-    [ "$grew" = "false" ] && exit 0
 
     lines="$(awk 'END { print NR }' "$file" 2>/dev/null)" || exit 0
     bytes="$(wc -c < "$file" | tr -d ' ')" || exit 0
@@ -87,7 +121,14 @@ if [ "${note:-}" = 1 ]; then
     over=""
     [ "$note_max_lines" -gt 0 ] && [ "$lines" -gt "$note_max_lines" ] && over=1
     [ "$note_max_bytes" -gt 0 ] && [ "$bytes" -gt "$note_max_bytes" ] && over=1
-    [ -n "$over" ] || exit 0
+    if [ -z "$over" ]; then
+        [ -n "$state" ] && rm -f "$state" 2>/dev/null
+        exit 0
+    fi
+    # Measured before this exit so a shrinking Edit that brings the note under budget still clears the state.
+    [ "$grew" = "false" ] && exit 0
+    no_larger "$lines" "$bytes" && exit 0
+    [ -n "$state" ] && { printf '%s %s\n' "$lines" "$bytes" > "$state" 2>/dev/null; }
 
     reason="${file##*/} is over the memory note budget (${lines}/${note_max_lines} lines,"
     reason="${reason} ${bytes}/${note_max_bytes} bytes): ${file}."
@@ -97,6 +138,8 @@ if [ "${note:-}" = 1 ]; then
     reason="${reason} document in the repository and leave the note pointing at it. If an existing note already"
     reason="${reason} covers the topic, fold this one into it instead of adding another. The MEMORY.md line for"
     reason="${reason} the note stays one short hook. Never delete a note whose facts you have not carried over."
+    target="$(headroom "$note_max_lines" "$note_max_bytes")"
+    [ -n "$target" ] && reason="${reason} Condense to about 90% of the cap so the note has headroom: aim for at most ${target}."
 
     jq -n --arg reason "$reason" '{decision: "block", reason: $reason}' 2>/dev/null
     exit 0
@@ -118,11 +161,16 @@ over=""
 [ "$max_lines" -gt 0 ] && [ "$lines" -gt "$max_lines" ] && over=1
 [ "$max_bytes" -gt 0 ] && [ "$bytes" -gt "$max_bytes" ] && over=1
 [ -n "$long" ] && over=1
-[ -n "$over" ] || exit 0
+if [ -z "$over" ]; then
+    [ -n "$state" ] && rm -f "$state" 2>/dev/null
+    exit 0
+fi
+no_larger "$lines" "$bytes" && exit 0
+[ -n "$state" ] && { printf '%s %s\n' "$lines" "$bytes" > "$state" 2>/dev/null; }
 
 # 3. Over budget: say exactly what to fix and how, without deleting anything.
 reason="MEMORY.md is over its budget (${lines}/${max_lines} lines, ${bytes}/${max_bytes} bytes"
-[ -n "$long" ] && reason="${reason}; lines over ${max_line_bytes} bytes: ${long}"
+[ -n "$long" ] && reason="${reason}; line numbers over ${max_line_bytes} bytes: ${long}"
 reason="${reason}): ${file}."
 reason="${reason} Consolidate it now, before continuing. Shorten each pointer to one hook of at most"
 reason="${reason} ${max_line_bytes} bytes (non-ASCII letters count as two); merge pointers to duplicate or"
@@ -132,6 +180,8 @@ reason="${reason} directory, with frontmatter (name, description listing its key
 reason="${reason} reference), leaving one line in MEMORY.md that names the theme and its keywords. New"
 reason="${reason} memories on a theme that has a sub-index go into that sub-index. Never delete a topic file"
 reason="${reason} whose facts you have not carried over."
+target="$(headroom "$max_lines" "$max_bytes")"
+[ -n "$target" ] && reason="${reason} Consolidate to about 90% of the cap so the index has headroom: aim for at most ${target}."
 
 jq -n --arg reason "$reason" '{decision: "block", reason: $reason}' 2>/dev/null
 exit 0
