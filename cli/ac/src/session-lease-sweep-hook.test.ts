@@ -12,6 +12,7 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { TEST_RUNNER_PATTERNS } from "./lease.ts";
 
 // The hook is a shell script under the plugin, but CI only runs `bun test` here, so this is where
 // its contract is pinned: SessionEnd returns inside the 1.5 s budget and the detached sweep stops
@@ -248,6 +249,72 @@ function fakeNodePath(): { path: string; marker: string } {
         marker,
     };
 }
+
+/** fakeNodePath plus awk and a `ps` that prints `rows` (`ppid etime command`), so the reap pre-check sees them. */
+function fakeProcessPath(rows: string[]): { path: string; marker: string } {
+    const fake = fakeNodePath();
+    symlinkSync(Bun.which("awk") as string, join(fake.path, "awk"));
+    writeFileSync(join(fake.path, "ps"), `#!/bin/sh\ncat <<'ROWS'\n${rows.join("\n")}\nROWS\n`, { mode: 0o700 });
+    return fake;
+}
+
+const STOP = JSON.stringify({ hook_event_name: "Stop", session_id: "t1" });
+
+test("Stop starts the reap only for an orphaned test runner past the minimum age", () => {
+    const old = fakeProcessPath(["    1 45:10 /opt/flutter/bin/cache/artifacts/engine/darwin-x64/flutter_tester --x"]);
+    expect(runHook(STOP, { PATH: old.path }).exitCode).toBe(0);
+    expect(readFileSync(old.marker, "utf8")).toContain("lease reap --detach");
+    rmSync(join(scratch, "fake-bin"), { recursive: true });
+    rmSync(old.marker);
+
+    const misses = fakeProcessPath([
+        "    1 12:00 /opt/flutter/bin/cache/artifacts/engine/darwin-x64/flutter_tester --x",
+        "  812 2-01:00:00 php vendor/bin/phpunit",
+        "    1 3:00:00 /usr/local/bin/claude -p fix the failing playwright test",
+        "    1 3:00:00 php artisan horizon",
+    ]);
+    const result = runHook(STOP, { PATH: misses.path });
+    expect(result).toMatchObject({ exitCode: 0, stdout: "", stderr: "" });
+    expect(existsSync(misses.marker)).toBe(false);
+});
+
+test("the hook's awk pre-check matches exactly what TEST_RUNNER_PATTERNS matches", () => {
+    const script = readFileSync(HOOK, "utf8");
+    const awkRegex = /if \(command !~ \/(.+)\/\) next/.exec(script)?.[1];
+    expect(awkRegex).toBeDefined();
+    const commands = [
+        "/opt/flutter/bin/cache/artifacts/engine/darwin-x64/flutter_tester --enable-checked-mode",
+        "/opt/flutter/bin/cache/dart-sdk/bin/dart --packages=x /opt/flutter/bin/cache/flutter_tools.snapshot test --no-color",
+        "/opt/flutter/bin/cache/dart-sdk/bin/dart test test/a_test.dart",
+        "dart test",
+        "php artisan test --parallel",
+        "/opt/homebrew/bin/php -d memory_limit=-1 artisan test",
+        "php vendor/bin/phpunit --filter Foo",
+        "vendor/bin/pest",
+        "php8.5 /app/vendor/bin/paratest -p4",
+        "php /app/vendor/brianium/paratest/bin/phpunit-wrapper.php",
+        "/Users/me/.bun/bin/bun test src/a.test.ts",
+        "node /app/node_modules/.bin/vitest run",
+        "node --max-old-space-size=4096 /app/node_modules/jest/bin/jest.js --ci",
+        "node /app/node_modules/.bin/playwright test",
+        "/usr/local/bin/claude -p fix the failing playwright test",
+        "opencode run php artisan test",
+        "/bin/zsh -c php artisan test",
+        "php artisan serve --port=8001",
+        "php artisan horizon:work redis",
+        "node /x/plugins/ac-lsp/bin/lsp-proxy.js -- intelephense --stdio",
+        "/usr/bin/majestic-jester",
+        "xdart test",
+        "php artisan testing",
+    ];
+    const expected = commands.map((command) => TEST_RUNNER_PATTERNS.some((pattern) => pattern.test(command)));
+    const awk = Bun.spawnSync(["awk", `{ print ($0 ~ /${awkRegex}/) ? 1 : 0 }`], { stdin: Buffer.from(`${commands.join("\n")}\n`) });
+    const actual = awk.stdout.toString().trim().split("\n").map((line) => line === "1");
+
+    expect(actual).toEqual(expected);
+    expect(expected.slice(0, 14).every(Boolean)).toBe(true);
+    expect(expected.slice(14).some(Boolean)).toBe(false);
+});
 
 test("SessionEnd without the session's lease file in either store exits 0 without starting node", () => {
     const fake = fakeNodePath();

@@ -18,10 +18,12 @@ import {
     addLease,
     defaultLeaseDeps,
     LeaseError,
+    reapOrphans,
     releaseLeases,
     sweepLeases,
+    TEST_RUNNER_PATTERNS,
 } from "./lease.ts";
-import type { LeaseDeps, ProcessProbe, RunOutcome } from "./lease.ts";
+import type { LeaseDeps, ProcessEntry, ProcessProbe, RunOutcome } from "./lease.ts";
 
 const INDEX = new URL("./index.ts", import.meta.url).pathname;
 const ORIGINAL_TMPDIR = process.env.TMPDIR;
@@ -1156,4 +1158,251 @@ test("the CLI registers lease release and removes the matching entry", () => {
     expect(result.exitCode).toBe(0);
     expect(result.stdout.toString()).toContain("released 1");
     expect(existsSync(leaseFile())).toBe(false);
+});
+
+const FLUTTER_TESTER = "/opt/flutter/bin/cache/artifacts/engine/darwin-x64/flutter_tester --run-forever test.dart";
+const OWN_UID = 501;
+const HOUR = 3_600;
+
+function orphan(overrides: Partial<ProcessEntry> = {}): ProcessEntry {
+    return {
+        pid: 4242,
+        ppid: 1,
+        uid: OWN_UID,
+        elapsedSeconds: 20 * HOUR,
+        command: FLUTTER_TESTER,
+        ...overrides,
+    };
+}
+
+/** Reap deps: a fixed process table, a recording kill, no grace wait, and a probe that says every pid is gone. */
+function reapDeps(
+    processes: ProcessEntry[],
+    overrides: Partial<LeaseDeps> = {},
+): { deps: LeaseDeps; kills: [number, string][]; relaunches: string[][] } {
+    const kills: [number, string][] = [];
+    const { deps, relaunches } = testDeps({
+        uid: OWN_UID,
+        listProcesses: () => processes,
+        kill: (target: number, signal: NodeJS.Signals): void => {
+            kills.push([target, signal]);
+        },
+        sleep: async (): Promise<void> => {},
+        ...overrides,
+    });
+    deps.probe = {
+        ...deps.probe,
+        command: (): string | undefined => undefined,
+    };
+    return {
+        deps,
+        kills,
+        relaunches,
+    };
+}
+
+test("reap stops an orphaned flutter_tester older than min-age with SIGTERM", async () => {
+    const { deps, kills } = reapDeps([orphan()]);
+
+    const report = await reapOrphans({}, deps);
+
+    expect(kills).toEqual([[4242, "SIGTERM"]]);
+    expect(report.outcomes).toEqual([
+        {
+            pid: 4242,
+            elapsedSeconds: 20 * HOUR,
+            command: FLUTTER_TESTER,
+            status: "stopped",
+            detail: "SIGTERM",
+        },
+    ]);
+});
+
+test("reap sends SIGKILL to an orphan that is still the same process after the grace period", async () => {
+    const { deps, kills } = reapDeps([orphan()]);
+    deps.probe = {
+        ...deps.probe,
+        command: (): string => `  ${FLUTTER_TESTER}`,
+    };
+
+    const report = await reapOrphans({}, deps);
+
+    expect(kills).toEqual([
+        [4242, "SIGTERM"],
+        [4242, "SIGKILL"],
+    ]);
+    expect(report.outcomes[0]).toMatchObject({
+        status: "stopped",
+        detail: "SIGTERM, then SIGKILL after 5s",
+    });
+});
+
+test("reap never SIGKILLs a pid whose command line changed during the grace period", async () => {
+    const { deps, kills } = reapDeps([orphan()]);
+    deps.probe = {
+        ...deps.probe,
+        command: (): string => "/usr/bin/vim notes.md",
+    };
+
+    await reapOrphans({}, deps);
+
+    expect(kills).toEqual([[4242, "SIGTERM"]]);
+});
+
+test("reap leaves a matching process with a live parent, a younger orphan and another user's orphan alone", async () => {
+    const { deps, kills } = reapDeps([
+        orphan({
+            pid: 10,
+            ppid: 777,
+        }),
+        orphan({
+            pid: 11,
+            elapsedSeconds: 599,
+        }),
+        orphan({
+            pid: 12,
+            uid: OWN_UID + 1,
+        }),
+    ]);
+
+    const report = await reapOrphans({}, deps);
+
+    expect(report.outcomes).toEqual([]);
+    expect(kills).toEqual([]);
+});
+
+test("reap honours --min-age in either direction", async () => {
+    const young = orphan({ elapsedSeconds: 120 });
+
+    const strict = reapDeps([young]);
+    await reapOrphans({}, strict.deps);
+    expect(strict.kills).toEqual([]);
+
+    const loose = reapDeps([young]);
+    await reapOrphans({ minAge: "60" }, loose.deps);
+    expect(loose.kills).toEqual([[4242, "SIGTERM"]]);
+});
+
+test("reap leaves dev servers, workers and an LSP proxy alone", async () => {
+    const commands = [
+        "php artisan horizon",
+        "php artisan serve --port=8000",
+        "php artisan queue:work",
+        "node /Users/me/plugins/ac-lsp/bin/lsp-proxy.js",
+        "/usr/bin/flutter run -d chrome",
+        "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+        "/opt/flutter/bin/cache/dart-sdk/bin/dart pub get",
+    ];
+    const { deps, kills } = reapDeps(commands.map((command, index) => orphan({
+        pid: 100 + index,
+        command,
+    })));
+
+    const report = await reapOrphans({}, deps);
+
+    expect(report.outcomes).toEqual([]);
+    expect(kills).toEqual([]);
+});
+
+test("reap matches every test-runner family", () => {
+    const runners = [
+        FLUTTER_TESTER,
+        "/opt/flutter/bin/cache/dart-sdk/bin/dart --packages=x /opt/flutter/bin/cache/artifacts/flutter_tools.snapshot test --no-color",
+        "/opt/flutter/bin/cache/dart-sdk/bin/dart test test/a_test.dart",
+        "php artisan test --parallel",
+        "php vendor/bin/phpunit --filter Foo",
+        "php vendor/bin/pest",
+        "php vendor/bin/paratest -p4",
+        "php /app/vendor/brianium/paratest/bin/phpunit-wrapper.php",
+        "/Users/me/.bun/bin/bun test src/a.test.ts",
+        "node /app/node_modules/.bin/vitest run",
+        "node /app/node_modules/jest/bin/jest.js --ci",
+        "node /app/node_modules/.bin/playwright test",
+    ];
+
+    const unmatched = runners.filter((command) => !TEST_RUNNER_PATTERNS.some((pattern) => pattern.test(command)));
+
+    expect(unmatched).toEqual([]);
+});
+
+test("reap --dry-run lists candidates without signalling", async () => {
+    const { deps, kills } = reapDeps([orphan()]);
+
+    const report = await reapOrphans({ dryRun: true }, deps);
+
+    expect(kills).toEqual([]);
+    expect(report.outcomes).toMatchObject([
+        {
+            pid: 4242,
+            status: "skipped",
+            detail: "dry run",
+        },
+    ]);
+});
+
+test("reap counts ESRCH as stopped and reports any other kill error as failed", async () => {
+    const { deps } = reapDeps(
+        [
+            orphan({ pid: 20 }),
+            orphan({ pid: 21 }),
+        ],
+        {
+            kill: (target: number): void => {
+                throw Object.assign(
+                    new Error(target === 20 ? "no such process" : "operation not permitted"),
+                    { code: target === 20 ? "ESRCH" : "EPERM" },
+                );
+            },
+        },
+    );
+
+    const report = await reapOrphans({}, deps);
+
+    expect(report.outcomes.map(({ pid, status }) => [pid, status])).toEqual([
+        [21, "failed"],
+        [20, "stopped"],
+    ]);
+    expect(report.outcomes[0]?.detail).toContain("operation not permitted");
+});
+
+test("reap --detach relaunches itself without --detach and signals nothing", async () => {
+    const { deps, kills, relaunches } = reapDeps([orphan()]);
+
+    const report = await reapOrphans(
+        {
+            detach: true,
+            minAge: "900",
+            dryRun: true,
+        },
+        deps,
+    );
+
+    expect(report.detached).toBe(true);
+    expect(kills).toEqual([]);
+    expect(relaunches).toEqual([
+        [
+            "lease",
+            "reap",
+            "--min-age",
+            "900",
+            "--dry-run",
+        ],
+    ]);
+});
+
+test("reap rejects a --min-age that is not a whole number of seconds", async () => {
+    const { deps } = reapDeps([orphan()]);
+
+    await expect(reapOrphans({ minAge: "-5" }, deps)).rejects.toThrow(LeaseError);
+    await expect(reapOrphans({ minAge: "ten" }, deps)).rejects.toThrow("--min-age");
+});
+
+test("the default process listing parses this process with its uid and a small elapsed time", () => {
+    const entry = defaultLeaseDeps().listProcesses().find((row) => row.pid === process.pid);
+
+    expect(entry).toBeDefined();
+    expect(entry?.uid).toBe(process.getuid?.());
+    expect(entry?.ppid).toBe(process.ppid);
+    expect(entry?.elapsedSeconds).toBeLessThan(HOUR);
+    expect(entry?.command).toContain("bun");
 });

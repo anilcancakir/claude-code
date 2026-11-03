@@ -12,6 +12,7 @@ import {
     defaultLeaseDeps,
     leaseFilePath,
     LeaseError,
+    reapOrphans,
     releaseLeases,
     sweepLeases,
 } from "./lease.ts";
@@ -305,6 +306,40 @@ lease
             }
             if (report.malformed > 0) {
                 process.stderr.write(`ignored ${report.malformed} malformed lease line(s)\n`);
+            }
+        } catch (error) {
+            if (!(error instanceof LeaseError)) {
+                throw error;
+            }
+            process.stderr.write(`${error.message}\n`);
+            process.exitCode = 1;
+        }
+    });
+
+interface LeaseReapOpts {
+    readonly minAge?: string;
+    readonly dryRun?: boolean;
+    readonly detach?: boolean;
+}
+
+lease
+    .command("reap")
+    .description(
+        "Stop test runners (flutter_tester, flutter test, dart test, phpunit, pest, paratest, bun test, "
+            + "vitest, jest, playwright test) that a killed or timed-out test command left orphaned: "
+            + "owned by you, reparented to launchd (ppid 1) and at least --min-age seconds old. "
+            + "SIGTERM, then SIGKILL after a grace period.",
+    )
+    .option("--min-age <seconds>", "Only stop orphans at least this old (default 1800).")
+    .option("--dry-run", "List the orphans without stopping them.")
+    .option("--detach", "Relaunch the reap detached and exit at once (a Stop hook must not wait).")
+    .action(async (opts: LeaseReapOpts): Promise<void> => {
+        try {
+            const report = await reapOrphans(opts, defaultLeaseDeps());
+            for (const outcome of report.outcomes) {
+                process.stdout.write(
+                    `${outcome.status} pid ${outcome.pid} (${outcome.elapsedSeconds}s): ${outcome.detail}: ${outcome.command}\n`,
+                );
             }
         } catch (error) {
             if (!(error instanceof LeaseError)) {

@@ -39607,6 +39607,22 @@ var PW_SESSION_PATTERN = /^[A-Za-z0-9._-]{1,64}$/;
 var SESSION_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 var PID_PATTERN = /^[1-9][0-9]*$/;
 var STOP_TIMEOUT_MILLIS = 1e4;
+var REAP_DEFAULT_MIN_AGE_SECONDS = 1800;
+var REAP_GRACE_MILLIS = 5000;
+var SECONDS_PATTERN = /^[0-9]+$/;
+var ETIME_PATTERN = /^(?:(?:(\d+)-)?(\d+):)?(\d+):(\d+)$/;
+var PS_ROW_PATTERN = /^\s*(\d+)\s+(\d+)\s+(\d+)\s+(\S+)\s+(.+)$/;
+var TEST_RUNNER_PATTERNS = [
+  /^[^ ]*\/flutter_tester( |$)/,
+  /^[^ ]*\/dart(aotruntime)?( +-[^ ]+)* +[^ ]*flutter_tools\.snapshot +test( |$)/,
+  /^([^ ]*\/)?dart +test( |$)/,
+  /^([^ ]*\/)?php[^ \/]*( +[^ ]+)* +artisan +test( |$)/,
+  /^(([^ ]*\/)?php[^ \/]*( +[^ ]+)* +)?([^ ]*\/)?vendor\/bin\/(phpunit|pest|paratest)( |$)/,
+  /^([^ ]*\/)?php[^ \/]*( +[^ ]+)* +[^ ]*paratest\/bin\/phpunit-wrapper/,
+  /^([^ ]*\/)?bun +test( |$)/,
+  /^(([^ ]*\/)?node( +-[^ ]+)* +)?[^ ]*\/(vitest|jest)(\.m?js)?( |$)/,
+  /^(([^ ]*\/)?node( +-[^ ]+)* +)?([^ ]*\/)?playwright +test( |$)/
+];
 var NO_TTY = new Set([
   "??",
   "?"
@@ -39639,7 +39655,10 @@ function defaultLeaseDeps() {
       process.kill(target, signal);
     },
     spawnDetached: relaunchDetached,
-    now: () => new Date
+    now: () => new Date,
+    uid: currentUid(),
+    listProcesses: psList,
+    sleep: (millis) => new Promise((resolve) => setTimeout(resolve, millis))
   };
 }
 function addLease(input, deps) {
@@ -39740,6 +39759,75 @@ async function sweepLeases(input, deps) {
     }
   }
   return report;
+}
+async function reapOrphans(input, deps) {
+  const report = {
+    outcomes: [],
+    detached: false
+  };
+  if (input.minAge !== undefined && !SECONDS_PATTERN.test(input.minAge)) {
+    throw new LeaseError(`--min-age must be a whole number of seconds, got ${input.minAge}`);
+  }
+  const minAge = input.minAge === undefined ? REAP_DEFAULT_MIN_AGE_SECONDS : Number(input.minAge);
+  if (input.detach === true) {
+    deps.spawnDetached([
+      "lease",
+      "reap",
+      "--min-age",
+      String(minAge),
+      ...input.dryRun === true ? ["--dry-run"] : []
+    ]);
+    report.detached = true;
+    return report;
+  }
+  const candidates = deps.listProcesses().filter((entry) => entry.ppid === 1 && entry.uid === deps.uid && entry.elapsedSeconds >= minAge && TEST_RUNNER_PATTERNS.some((pattern) => pattern.test(entry.command)));
+  const outcomeOf = (entry, status, detail) => ({
+    pid: entry.pid,
+    elapsedSeconds: entry.elapsedSeconds,
+    command: entry.command,
+    status,
+    detail
+  });
+  if (input.dryRun === true) {
+    report.outcomes = candidates.map((entry) => outcomeOf(entry, "skipped", "dry run"));
+    return report;
+  }
+  const signalled = [];
+  for (const entry of candidates) {
+    const error = signalOrphan(entry.pid, "SIGTERM", deps);
+    if (error !== undefined) {
+      report.outcomes.push(outcomeOf(entry, "failed", error));
+    } else {
+      signalled.push(entry);
+    }
+  }
+  if (signalled.length === 0) {
+    return report;
+  }
+  await deps.sleep(REAP_GRACE_MILLIS);
+  for (const entry of signalled) {
+    if (deps.probe.command(entry.pid)?.trim() !== entry.command) {
+      report.outcomes.push(outcomeOf(entry, "stopped", "SIGTERM"));
+      continue;
+    }
+    const error = signalOrphan(entry.pid, "SIGKILL", deps);
+    report.outcomes.push(error === undefined ? outcomeOf(entry, "stopped", `SIGTERM, then SIGKILL after ${REAP_GRACE_MILLIS / 1000}s`) : outcomeOf(entry, "failed", error));
+  }
+  return report;
+}
+function signalOrphan(pid, signal, deps) {
+  try {
+    deps.kill(pid, signal);
+    return;
+  } catch (error) {
+    if (isErrno(error, "ESRCH")) {
+      return;
+    }
+    if (error instanceof Error && typeof error.code === "string") {
+      return `${signal} to pid ${pid}: ${error.message}`;
+    }
+    throw error;
+  }
 }
 function parseTarget(input) {
   switch (input.kind) {
@@ -40207,6 +40295,34 @@ function captureArgv(file, args) {
   });
   return result.status === 0 ? result.stdout : undefined;
 }
+function psList() {
+  const text = captureArgv("ps", [
+    "-axww",
+    "-o",
+    "pid=,ppid=,uid=,etime=,command="
+  ]);
+  if (text === undefined) {
+    throw new LeaseError("cannot list processes: ps failed");
+  }
+  const entries = [];
+  for (const line of text.split(`
+`)) {
+    const row = PS_ROW_PATTERN.exec(line);
+    const elapsed = ETIME_PATTERN.exec(row?.[4] ?? "");
+    if (row === null || elapsed === null) {
+      continue;
+    }
+    const [, days, hours, minutes, seconds] = elapsed;
+    entries.push({
+      pid: Number(row[1]),
+      ppid: Number(row[2]),
+      uid: Number(row[3]),
+      elapsedSeconds: Number(days ?? 0) * 86400 + Number(hours ?? 0) * 3600 + Number(minutes) * 60 + Number(seconds),
+      command: (row[5] ?? "").trim()
+    });
+  }
+  return entries;
+}
 function psProbe() {
   const field = (pid, name, wide = false) => {
     const result = spawnSync("ps", [
@@ -40397,6 +40513,22 @@ lease.command("sweep").description("Stop what a Claude session leased, in both t
     process.exitCode = 1;
   }
 });
+lease.command("reap").description("Stop test runners (flutter_tester, flutter test, dart test, phpunit, pest, paratest, bun test, " + "vitest, jest, playwright test) that a killed or timed-out test command left orphaned: " + "owned by you, reparented to launchd (ppid 1) and at least --min-age seconds old. " + "SIGTERM, then SIGKILL after a grace period.").option("--min-age <seconds>", "Only stop orphans at least this old (default 1800).").option("--dry-run", "List the orphans without stopping them.").option("--detach", "Relaunch the reap detached and exit at once (a Stop hook must not wait).").action(async (opts) => {
+  try {
+    const report = await reapOrphans(opts, defaultLeaseDeps());
+    for (const outcome of report.outcomes) {
+      process.stdout.write(`${outcome.status} pid ${outcome.pid} (${outcome.elapsedSeconds}s): ${outcome.detail}: ${outcome.command}
+`);
+    }
+  } catch (error) {
+    if (!(error instanceof LeaseError)) {
+      throw error;
+    }
+    process.stderr.write(`${error.message}
+`);
+    process.exitCode = 1;
+  }
+});
 var history = program2.command("history").description("Debugging and warming surface for the local Claude Code history archive that backs the " + "search-history MCP tool.");
 history.command("index").description("Build or refresh the history archive from ~/.claude/projects (or CLAUDE_CONFIG_DIR) and " + "print the sync report. A cold build costs roughly 21s; a warm no-change pass is near-instant.").action(async () => {
   const store = await openHistoryStore();
@@ -40481,4 +40613,4 @@ function formatSyncReport(report) {
 }
 await program2.parseAsync(process.argv);
 
-//# debugId=832067369F30504264756E2164756E21
+//# debugId=C97EDB63796016F564756E2164756E21

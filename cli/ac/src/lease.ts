@@ -69,6 +69,22 @@ export interface LeaseSweepInput {
     detach?: boolean;
 }
 
+/** Raw `lease reap` options, unvalidated. `minAge` is seconds and defaults to `REAP_DEFAULT_MIN_AGE_SECONDS`. */
+export interface LeaseReapInput {
+    minAge?: string;
+    dryRun?: boolean;
+    detach?: boolean;
+}
+
+/** One row of `ps -axww -o pid=,ppid=,uid=,etime=,command=`. */
+export interface ProcessEntry {
+    pid: number;
+    ppid: number;
+    uid: number;
+    elapsedSeconds: number;
+    command: string;
+}
+
 /** Each probe returns undefined when the pid is gone, which is how `ps` reports it (no output, exit 1). */
 export interface ProcessProbe {
     lstart(pid: number): string | undefined;
@@ -105,6 +121,11 @@ export interface LeaseDeps {
     /** Starts `ac <argv>` in a new session with no stdio and returns without waiting for it. */
     spawnDetached: (argv: string[]) => void;
     now: () => Date;
+    /** The invoking user; `reap` signals only processes this uid owns. */
+    uid: number;
+    /** Every process on the host. Throws LeaseError when `ps` cannot be run. */
+    listProcesses: () => ProcessEntry[];
+    sleep: (millis: number) => Promise<void>;
 }
 
 export type SweepStatus = "stopped" | "skipped" | "failed";
@@ -128,6 +149,20 @@ export interface SweepReport {
     detached: boolean;
 }
 
+/** `skipped` with a "dry run" detail is a listed candidate that was not signalled. */
+export interface ReapOutcome {
+    pid: number;
+    elapsedSeconds: number;
+    command: string;
+    status: SweepStatus;
+    detail: string;
+}
+
+export interface ReapReport {
+    outcomes: ReapOutcome[];
+    detached: boolean;
+}
+
 /** Invalid input or an unsafe lease store. The CLI prints the message as one stderr line and exits 1. */
 export class LeaseError extends Error {
     override name = "LeaseError";
@@ -140,6 +175,40 @@ const PW_SESSION_PATTERN = /^[A-Za-z0-9._-]{1,64}$/;
 const SESSION_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 const PID_PATTERN = /^[1-9][0-9]*$/;
 const STOP_TIMEOUT_MILLIS = 10_000;
+/**
+ * Long enough for a suite someone started on purpose with `nohup` to finish (the leftovers that motivated
+ * the reaper were 16 to 21 hours old), short enough that none outlives an afternoon.
+ */
+const REAP_DEFAULT_MIN_AGE_SECONDS = 1800;
+/** How long a SIGTERMed orphan gets to exit before SIGKILL. */
+const REAP_GRACE_MILLIS = 5_000;
+const SECONDS_PATTERN = /^[0-9]+$/;
+/** `ps -o etime=`: `[[dd-]hh:]mm:ss`. */
+const ETIME_PATTERN = /^(?:(?:(\d+)-)?(\d+):)?(\d+):(\d+)$/;
+const PS_ROW_PATTERN = /^\s*(\d+)\s+(\d+)\s+(\d+)\s+(\S+)\s+(.+)$/;
+/**
+ * Command lines of test runners a killed or timed-out test command leaves behind, matched against
+ * the whole command line. One family per runner: the Flutter engine's test binary and its `flutter
+ * test` driver, `dart test`, PHP (artisan, phpunit, pest, paratest and its per-worker script), and
+ * the JS runners (bun, vitest, jest, playwright). Dev servers and workers (`artisan serve`,
+ * `horizon`, `queue:work`), emulators, browsers and LSP servers are deliberately absent: they are
+ * meant to run for hours, and reaping one would be a bug.
+ *
+ * Each pattern is anchored at the executable, optionally behind its interpreter and that interpreter's
+ * flags, so a command that merely mentions a runner (`claude -p "fix the playwright test"`) never matches.
+ * Only `[^ ]` and ` +` are used, because `session-lease-sweep.sh` runs the same expressions in BSD awk.
+ */
+export const TEST_RUNNER_PATTERNS: readonly RegExp[] = [
+    /^[^ ]*\/flutter_tester( |$)/,
+    /^[^ ]*\/dart(aotruntime)?( +-[^ ]+)* +[^ ]*flutter_tools\.snapshot +test( |$)/,
+    /^([^ ]*\/)?dart +test( |$)/,
+    /^([^ ]*\/)?php[^ \/]*( +[^ ]+)* +artisan +test( |$)/,
+    /^(([^ ]*\/)?php[^ \/]*( +[^ ]+)* +)?([^ ]*\/)?vendor\/bin\/(phpunit|pest|paratest)( |$)/,
+    /^([^ ]*\/)?php[^ \/]*( +[^ ]+)* +[^ ]*paratest\/bin\/phpunit-wrapper/,
+    /^([^ ]*\/)?bun +test( |$)/,
+    /^(([^ ]*\/)?node( +-[^ ]+)* +)?[^ ]*\/(vitest|jest)(\.m?js)?( |$)/,
+    /^(([^ ]*\/)?node( +-[^ ]+)* +)?([^ ]*\/)?playwright +test( |$)/,
+];
 /** What `ps -o tty=` prints for a process with no controlling terminal: macOS, Linux, and an empty column. */
 const NO_TTY = new Set([
     "??",
@@ -175,6 +244,9 @@ export function defaultLeaseDeps(): LeaseDeps {
         },
         spawnDetached: relaunchDetached,
         now: () => new Date(),
+        uid: currentUid(),
+        listProcesses: psList,
+        sleep: (millis: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, millis)),
     };
 }
 
@@ -342,6 +414,108 @@ export async function sweepLeases(input: LeaseSweepInput, deps: LeaseDeps): Prom
     }
 
     return report;
+}
+
+/**
+ * Stops test runners orphaned by a killed or timed-out test command: owned by the invoking user,
+ * reparented to launchd (ppid 1), matching `TEST_RUNNER_PATTERNS` and running for at least `minAge`
+ * seconds. Each gets SIGTERM, and SIGKILL once after a shared grace period if it is still the same
+ * process. A process that is gone before a signal counts as stopped. `dryRun` lists the candidates
+ * without signalling; `detach` relaunches the reap in the background and returns at once, because a
+ * Stop hook must not wait for it.
+ *
+ * @throws LeaseError on a `minAge` that is not a whole number of seconds, or when `ps` cannot run.
+ */
+export async function reapOrphans(input: LeaseReapInput, deps: LeaseDeps): Promise<ReapReport> {
+    const report: ReapReport = {
+        outcomes: [],
+        detached: false,
+    };
+
+    // 1. A bad age would silently widen the set of processes signalled, so it fails before anything runs.
+    if (input.minAge !== undefined && !SECONDS_PATTERN.test(input.minAge)) {
+        throw new LeaseError(`--min-age must be a whole number of seconds, got ${input.minAge}`);
+    }
+    const minAge = input.minAge === undefined ? REAP_DEFAULT_MIN_AGE_SECONDS : Number(input.minAge);
+
+    // 2. Hand the real work to a detached child and return inside the hook.
+    if (input.detach === true) {
+        deps.spawnDetached([
+            "lease",
+            "reap",
+            "--min-age",
+            String(minAge),
+            ...(input.dryRun === true ? ["--dry-run"] : []),
+        ]);
+        report.detached = true;
+        return report;
+    }
+
+    // 3. Only an orphan of this user, past the age floor, with a known test-runner command line.
+    const candidates = deps.listProcesses().filter((entry) => (
+        entry.ppid === 1
+        && entry.uid === deps.uid
+        && entry.elapsedSeconds >= minAge
+        && TEST_RUNNER_PATTERNS.some((pattern) => pattern.test(entry.command))
+    ));
+    const outcomeOf = (entry: ProcessEntry, status: SweepStatus, detail: string): ReapOutcome => ({
+        pid: entry.pid,
+        elapsedSeconds: entry.elapsedSeconds,
+        command: entry.command,
+        status,
+        detail,
+    });
+    if (input.dryRun === true) {
+        report.outcomes = candidates.map((entry) => outcomeOf(entry, "skipped", "dry run"));
+        return report;
+    }
+
+    // 4. SIGTERM every candidate first, so the grace period is paid once, not once per process.
+    const signalled: ProcessEntry[] = [];
+    for (const entry of candidates) {
+        const error = signalOrphan(entry.pid, "SIGTERM", deps);
+        if (error !== undefined) {
+            report.outcomes.push(outcomeOf(entry, "failed", error));
+        } else {
+            signalled.push(entry);
+        }
+    }
+    if (signalled.length === 0) {
+        return report;
+    }
+
+    // 5. SIGKILL what ignored SIGTERM. The command line is compared again so a reused pid is never killed.
+    await deps.sleep(REAP_GRACE_MILLIS);
+    for (const entry of signalled) {
+        if (deps.probe.command(entry.pid)?.trim() !== entry.command) {
+            report.outcomes.push(outcomeOf(entry, "stopped", "SIGTERM"));
+            continue;
+        }
+        const error = signalOrphan(entry.pid, "SIGKILL", deps);
+        report.outcomes.push(
+            error === undefined
+                ? outcomeOf(entry, "stopped", `SIGTERM, then SIGKILL after ${REAP_GRACE_MILLIS / 1000}s`)
+                : outcomeOf(entry, "failed", error),
+        );
+    }
+
+    return report;
+}
+
+/** Sends `signal`; undefined when it was delivered or the process was already gone, else the error text. */
+function signalOrphan(pid: number, signal: NodeJS.Signals, deps: LeaseDeps): string | undefined {
+    try {
+        deps.kill(pid, signal);
+        return undefined;
+    } catch (error) {
+        if (isErrno(error, "ESRCH")) {
+            return undefined;
+        }
+        if (error instanceof Error && typeof (error as NodeJS.ErrnoException).code === "string") {
+            return `${signal} to pid ${pid}: ${error.message}`;
+        }
+        throw error;
+    }
 }
 
 type Target =
@@ -924,6 +1098,41 @@ function captureArgv(file: string, args: string[]): string | undefined {
         timeout: STOP_TIMEOUT_MILLIS,
     });
     return result.status === 0 ? result.stdout : undefined;
+}
+
+/** Unparseable rows are dropped: `ps` prints nothing else, so a non-matching line is not a process. */
+function psList(): ProcessEntry[] {
+    const text = captureArgv(
+        "ps",
+        [
+            "-axww",
+            "-o",
+            "pid=,ppid=,uid=,etime=,command=",
+        ],
+    );
+    if (text === undefined) {
+        throw new LeaseError("cannot list processes: ps failed");
+    }
+    const entries: ProcessEntry[] = [];
+    for (const line of text.split("\n")) {
+        const row = PS_ROW_PATTERN.exec(line);
+        const elapsed = ETIME_PATTERN.exec(row?.[4] ?? "");
+        if (row === null || elapsed === null) {
+            continue;
+        }
+        const [, days, hours, minutes, seconds] = elapsed;
+        entries.push({
+            pid: Number(row[1]),
+            ppid: Number(row[2]),
+            uid: Number(row[3]),
+            elapsedSeconds: Number(days ?? 0) * 86_400
+                + Number(hours ?? 0) * 3_600
+                + Number(minutes) * 60
+                + Number(seconds),
+            command: (row[5] ?? "").trim(),
+        });
+    }
+    return entries;
 }
 
 function psProbe(): ProcessProbe {
