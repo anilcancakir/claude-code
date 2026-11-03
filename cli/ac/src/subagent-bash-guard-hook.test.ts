@@ -415,10 +415,19 @@ test("a single-file shell replace under the temp directory passes at once", () =
 });
 
 test("a path that only starts like the temp directory is still denied, with the Read-first hint", () => {
-    for (const target of ["src/a.txt", "/tmpfoo/a.txt", `${root}-other/a.txt`, "/private/tmpfoo/a.txt"]) {
-        const reason = denyReason(runEditHook(editPayload(`sed -i 's/a/b/' ${target}`, "ac:plan-worker-junior", "s-notmp")));
+    // TMPDIR is pinned outside /tmp, fresh per run: on Linux the test root itself sits under /tmp, which is exempt
+    // on its own, and the guard keeps its retry markers under TMPDIR.
+    const tempRoot = mkdtempSync("/var/tmp/ac-guard-tmpdir-");
+    try {
+        for (const target of ["src/a.txt", "/tmpfoo/a.txt", `${tempRoot}-other/a.txt`, "/private/tmpfoo/a.txt"]) {
+            const reason = denyReason(
+                runEditHook(editPayload(`sed -i 's/a/b/' ${target}`, "ac:plan-worker-junior", "s-notmp"), { TMPDIR: tempRoot }),
+            );
 
-        expect({ target, readFirst: reason.includes("Read the file first") }).toEqual({ target, readFirst: true });
+            expect({ target, readFirst: reason.includes("Read the file first") }).toEqual({ target, readFirst: true });
+        }
+    } finally {
+        rmSync(tempRoot, { recursive: true, force: true });
     }
 });
 
