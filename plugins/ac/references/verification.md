@@ -25,7 +25,7 @@ Use the project's own scripts (`composer`, `package.json`, `Makefile`, CLAUDE.md
 | Ecosystem | Touched files | Related tests | Parallel | Project-wide (orchestrator only) |
 |---|---|---|---|---|
 | Laravel, PHP | `vendor/bin/pint --test <files>`; `php -l <file>`; `vendor/bin/phpstan analyse --no-progress <files>` | `vendor/bin/pest <test file>`, `--filter=<name>`; `php artisan test <file>` | `--parallel --processes=N` (Pest, `artisan test` with paratest); Pint `--parallel` 1.23+ | `vendor/bin/phpstan analyse --no-progress`; `vendor/bin/pint --test` |
-| Dart, Flutter | `dart format -o none --set-exit-if-changed <files>`; `dart analyze <files>` | `flutter test test/<x>_test.dart`, `--plain-name <name>` (map `lib/x.dart` to `test/x_test.dart`; Flutter has no related-tests selector) | `flutter test -j <n>` | `flutter analyze` or `dart analyze` |
+| Dart, Flutter | `dart format -o none --set-exit-if-changed <files>`; `dart analyze --fatal-infos <files>` | `flutter test test/<x>_test.dart`, `--plain-name <name>` (map `lib/x.dart` to `test/x_test.dart`; Flutter has no related-tests selector) | `flutter test -j <n>` | `flutter analyze` or `dart analyze --fatal-infos` |
 | TypeScript, JS | `eslint --cache --max-warnings 0 <files>` (drop `--cache` with type-aware rules); `prettier --check <files>`; `biome check <files>` | `vitest related --run <src files>`; `jest --findRelatedTests <files>`; `bun test ./<file>` | Vitest and Jest run files in parallel by default; `bun test --parallel` | `tsc -b` or `tsc --noEmit -p <tsconfig>`; there is no per-file type check |
 
 Caveats: Pest `--dirty` picks changed test files, not the tests of changed source. A PHPStan run on a path list starts with a cold result cache, and reports only errors in the listed files. Vitest `related` follows static imports only.
@@ -43,7 +43,7 @@ So before you act on a diagnostic, and before you call one stale, run the CLI an
 | PHP without PHPStan | `php -l <file>` | syntax only: it cannot confirm or refute a type or symbol diagnostic, so read the code the diagnostic names |
 | TypeScript | none per file | a worker trusts the LSP on files it changed with Edit or Write (the client syncs those) and leaves everything else to the orchestrator's one `tsc` |
 
-The CLI reports it: it is real, fix it. The CLI is clean and covers that kind of diagnostic: it is stale, say so in one line and move on. Never dismiss a diagnostic as an old index without that run. After every Write or Edit on a `.dart` or `.php` file, the `ac` PostToolUse hook already runs this check and puts the result next to the tool result; read that line before you reach for the CLI yourself.
+The CLI reports it: it is real, fix it. The CLI is clean and covers that kind of diagnostic: it is stale, say so in one line and move on. Never dismiss a diagnostic as an old index without that run. After a Write or Edit on a `.dart` or `.php` file on the main thread, the `ac` PostToolUse hook already runs this check and puts the result next to the tool result; read that line before you reach for the CLI yourself. It does not run inside a subagent, and it skips a run when another check holds the machine-wide slot or the project is paused after a timeout, so a worker, or a main thread with no such line, runs the analyzer itself.
 
 ## Writing tests that stay fast and CI-safe
 

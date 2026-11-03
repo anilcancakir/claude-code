@@ -1,4 +1,4 @@
-<!-- ported-from: plugins/ac/references/verification.md sha256:1531823df54ae00f3daa9c94f7598fcd0f5547a492206b3413c309743f002b43 -->
+<!-- ported-from: plugins/ac/references/verification.md sha256:efea992e175b9e5577961325ad787371d4711f3c405145b18336553ee3d678cd -->
 # Verification: scope, commands, diagnostics, fast tests
 
 Shared by the plan workers, `ac/execute` and `ac/qa`. A full lint and test suite can take minutes on a real project, and running it after every step multiplies that by the step count while proving nothing a narrower run does not. So each layer checks what it changed, and the whole project is checked once, in the background, while the final review runs.
@@ -26,7 +26,7 @@ Use the project's own scripts (`composer`, `package.json`, `Makefile`, AGENTS.md
 | Ecosystem | Touched files | Related tests | Parallel | Project-wide (orchestrator only) |
 |---|---|---|---|---|
 | Laravel, PHP | `vendor/bin/pint --test <files>`; `php -l <file>`; `vendor/bin/phpstan analyse --no-progress <files>` | `vendor/bin/pest <test file>`, `--filter=<name>`; `php artisan test <file>` | `--parallel --processes=N` (Pest, `artisan test` with paratest); Pint `--parallel` 1.23+ | `vendor/bin/phpstan analyse --no-progress`; `vendor/bin/pint --test` |
-| Dart, Flutter | `dart format -o none --set-exit-if-changed <files>`; `dart analyze <files>` | `flutter test test/<x>_test.dart`, `--plain-name <name>` (map `lib/x.dart` to `test/x_test.dart`; Flutter has no related-tests selector) | `flutter test -j <n>` | `flutter analyze` or `dart analyze` |
+| Dart, Flutter | `dart format -o none --set-exit-if-changed <files>`; `dart analyze --fatal-infos <files>` | `flutter test test/<x>_test.dart`, `--plain-name <name>` (map `lib/x.dart` to `test/x_test.dart`; Flutter has no related-tests selector) | `flutter test -j <n>` | `flutter analyze` or `dart analyze --fatal-infos` |
 | TypeScript, JS | `eslint --cache --max-warnings 0 <files>` (drop `--cache` with type-aware rules); `prettier --check <files>`; `biome check <files>` | `vitest related --run <src files>`; `jest --findRelatedTests <files>`; `bun test ./<file>` | Vitest and Jest run files in parallel by default; `bun test --parallel` | `tsc -b` or `tsc --noEmit -p <tsconfig>`; there is no per-file type check |
 
 Caveats: Pest `--dirty` picks changed test files, not the tests of changed source. A PHPStan run on a path list starts with a cold result cache, and reports only errors in the listed files. Vitest `related` follows static imports only.

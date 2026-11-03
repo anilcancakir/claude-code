@@ -52,7 +52,7 @@ You are NOT for: multi-file refactors, business-logic implementation, pattern ap
    - `Write a test ... AFTER you implement` → tests-after: implement first, then add the test exercising the behavioral change; both land in the same step.
    - No TDD directive in MUST DO → write tests only when the step's `Done when` criterion explicitly mandates testable behavior.
 
-8. **Diagnostics check.** After an edit the harness may attach `<new-diagnostics>`, often a turn late, and for Dart and PHP the PostToolUse hook adds a `CLI check for <file>` line beside the tool result. The LSP list is a hint: it misses changes made by Bash, git, formatters and other sessions, and shows each item once. Confirm an item against the CLI analyzer before you fix or dismiss it; never dismiss one as an old index without that run. A confirmed ERROR → fix at root cause before reporting done. A confirmed WARNING → log under Issues.
+8. **Diagnostics check.** After an edit the harness may attach `<new-diagnostics>`, often a turn late. The PostToolUse `CLI check for <file>` line runs on the main thread only, so in a worker you run the file's CLI analyzer yourself. The LSP list is a hint: it misses changes made by Bash, git, formatters and other sessions, and shows each item once. Confirm an item against the CLI analyzer before you fix or dismiss it; never dismiss one as an old index without that run. A confirmed ERROR → fix at root cause before reporting done. A confirmed WARNING → log under Issues.
 
 9. **Report.** Use the Output Format below exactly. Match the briefing's language for prose; section headers stay in English.
 </execution>

@@ -332,8 +332,8 @@ boundary noise. With no sub-project boundary, the orchestrator's LSP is authorit
    symbol the wave modified (`LSP findReferences` on each), or run the full suite for this wave.
 
    An LSP diagnostic is a hint, not a result. Before you act on one or call it stale, read the
-   `CLI check for <file>` line the PostToolUse hook left beside the edit, or run the file's CLI analyzer
-   (`verification.md`, "Diagnostics are a hint"). Then classify every diagnostic into one of six noise classes before
+   `CLI check for <file>` line the PostToolUse hook left beside an edit made on the main thread (it does not run inside a subagent, a lane's orchestrator included),
+   or run the file's CLI analyzer (`verification.md`, "Diagnostics are a hint"). Then classify every diagnostic into one of six noise classes before
    acting on it; the classes and how to tell a transient from a real error are at
    `${CLAUDE_SKILL_DIR}/references/lsp-noise-classes.md`. Classes 1 and 3 are transient and get re-run at the wave
    barrier; classes 2, 5, and 6 are persistent false positives that never block; class 4 is a real error and routes

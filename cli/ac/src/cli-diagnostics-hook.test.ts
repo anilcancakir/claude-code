@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -8,7 +8,10 @@ import { fileURLToPath } from "node:url";
 // dart nor php. Fake analyzers on the front of PATH stand in for them, so this pins the contract:
 // silent for anything that is not a Dart or PHP file with a project around it, an additionalContext
 // verdict per tool otherwise (clean, or the issue lines capped at 20), a readable timeout message,
-// never `decision: block`, and always exit 0.
+// never `decision: block`, and always exit 0. It also pins what keeps the hook light when sessions run
+// in parallel: main thread only, one dart or phpstan run at a time per machine, a back-off after a
+// timeout, and no process left behind by a timeout or a normal exit. TMPDIR points into the fixture so
+// the slot and back-off files never touch the machine's.
 const HOOK = join(
     dirname(fileURLToPath(import.meta.url)),
     "..",
@@ -27,6 +30,7 @@ const CURRENT = "These are current; fix them or say why not.";
 
 let root: string;
 let fakeBin: string;
+let scratch: string;
 let dartFile: string;
 let phpFile: string;
 
@@ -52,6 +56,8 @@ beforeEach(() => {
     fakeBin = join(root, "bin");
     fakeTool(join(fakeBin, "dart"), "DART");
     fakeTool(join(fakeBin, "php"), "PHP");
+    scratch = join(root, "tmp");
+    mkdirSync(scratch);
 
     mkdirSync(join(root, "app", "lib"), { recursive: true });
     dartFile = join(root, "app", "lib", "main.dart");
@@ -77,8 +83,12 @@ function runHook(stdin: string, env: Record<string, string> = {}): HookResult {
         env: {
             ...process.env,
             PATH: `${fakeBin}:${process.env.PATH ?? ""}`,
+            TMPDIR: scratch,
             AC_CLI_DIAGNOSTICS: "",
             AC_CLI_DIAGNOSTICS_TIMEOUT: "",
+            AC_CLI_DIAGNOSTICS_WAIT: "",
+            AC_CLI_DIAGNOSTICS_BACKOFF: "",
+            AC_CLI_DIAGNOSTICS_SUBAGENTS: "",
             ...env,
         },
     });
@@ -89,13 +99,14 @@ function runHook(stdin: string, env: Record<string, string> = {}): HookResult {
     };
 }
 
-function payload(filePath: string): string {
+function payload(filePath: string, extra: Record<string, string> = {}): string {
     return JSON.stringify({
         hook_event_name: "PostToolUse",
         tool_name: "Edit",
         tool_input: {
             file_path: filePath,
         },
+        ...extra,
     });
 }
 
@@ -113,6 +124,44 @@ function context(result: HookResult): string {
 
 function withDartProject(): void {
     writeFileSync(join(root, "app", "pubspec.yaml"), "name: app\n");
+    mkdirSync(join(root, "app", ".dart_tool"));
+    writeFileSync(join(root, "app", ".dart_tool", "package_config.json"), "{}\n");
+}
+
+// A fake dart that leaves a background sleeper in its process group, then either hangs or exits.
+function dartWithSleeper(pidFile: string, then: "hang" | "exit"): void {
+    const path = join(fakeBin, "dart");
+    writeFileSync(
+        path,
+        ["#!/bin/sh", `sleep 60 &`, `echo $! > "${pidFile}"`, then === "hang" ? "exec sleep 60" : "exit 0", ""].join("\n"),
+    );
+    chmodSync(path, 0o755);
+}
+
+function alive(pid: number): boolean {
+    try {
+        process.kill(pid, 0);
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+// The sweep runs inside the hook, but the kernel reaps the victim a moment later.
+function gone(pid: number): boolean {
+    for (let i = 0; i < 20; i++) {
+        if (!alive(pid)) return true;
+        Bun.sleepSync(100);
+    }
+    return false;
+}
+
+function takeSlot(name: string, pid: number): string {
+    const lock = join(scratch, `ac-cli-diagnostics-${name}.lock`);
+    mkdirSync(lock);
+    writeFileSync(join(lock, "pid"), String(pid));
+
+    return lock;
 }
 
 function withComposer(): void {
@@ -242,4 +291,197 @@ test("a tool that outlives the timeout is reported as timed out", () => {
 test("an unparseable payload fails open", () => {
     expect(runHook("not json")).toEqual({ exitCode: 0, stdout: "" });
     expect(runHook("")).toEqual({ exitCode: 0, stdout: "" });
+});
+
+test("a subagent payload passes silently unless AC_CLI_DIAGNOSTICS_SUBAGENTS=1", () => {
+    withDartProject();
+    const worker = payload(dartFile, { agent_id: "a1b2c3", agent_type: "ac:plan-worker-junior" });
+
+    expect(runHook(worker)).toEqual({ exitCode: 0, stdout: "" });
+
+    const text = context(runHook(worker, { AC_CLI_DIAGNOSTICS_SUBAGENTS: "1" }));
+    expect(text).toContain("dart analyze --fatal-infos: clean");
+});
+
+test("a Dart file whose packages are not resolved passes silently", () => {
+    withDartProject();
+    rmSync(join(root, "app", ".dart_tool"), { recursive: true });
+
+    expect(runHook(payload(dartFile))).toEqual({ exitCode: 0, stdout: "" });
+});
+
+test("a nested worktree does not borrow the main checkout's resolved packages", () => {
+    const main = join(root, "main");
+    mkdirSync(join(main, ".git"), { recursive: true });
+    mkdirSync(join(main, ".dart_tool"));
+    writeFileSync(join(main, ".dart_tool", "package_config.json"), "{}\n");
+    writeFileSync(join(main, "pubspec.yaml"), "name: main\n");
+
+    const tree = join(main, ".claude", "worktrees", "w");
+    mkdirSync(join(tree, "lib"), { recursive: true });
+    writeFileSync(join(tree, ".git"), "gitdir: ../../../.git/worktrees/w\n");
+    writeFileSync(join(tree, "pubspec.yaml"), "name: w\n");
+    const edited = join(tree, "lib", "a.dart");
+    writeFileSync(edited, "void main() {}\n");
+
+    expect(runHook(payload(edited), { FAKE_DART_OUT: "No issues found!" })).toEqual({ exitCode: 0, stdout: "" });
+
+    mkdirSync(join(tree, ".dart_tool"));
+    writeFileSync(join(tree, ".dart_tool", "package_config.json"), "{}\n");
+
+    const text = context(runHook(payload(edited), { FAKE_DART_OUT: "No issues found!" }));
+    expect(text).toContain("dart analyze --fatal-infos: clean");
+});
+
+test("a pub workspace member finds the config at the workspace root inside the same checkout", () => {
+    const ws = join(root, "ws");
+    mkdirSync(join(ws, ".git"), { recursive: true });
+    mkdirSync(join(ws, ".dart_tool"));
+    writeFileSync(join(ws, ".dart_tool", "package_config.json"), "{}\n");
+    const member = join(ws, "packages", "m");
+    mkdirSync(join(member, "lib"), { recursive: true });
+    writeFileSync(join(member, "pubspec.yaml"), "name: m\nresolution: workspace\n");
+    const edited = join(member, "lib", "m.dart");
+    writeFileSync(edited, "void main() {}\n");
+
+    const text = context(runHook(payload(edited), { FAKE_DART_OUT: "No issues found!" }));
+    expect(text).toContain("dart analyze --fatal-infos: clean");
+});
+
+test("a package that is not a workspace member does not borrow its parent package's resolved config", () => {
+    withDartProject();
+    const example = join(root, "app", "example");
+    mkdirSync(join(example, "lib"), { recursive: true });
+    writeFileSync(join(example, "pubspec.yaml"), "name: example\n");
+    const edited = join(example, "lib", "main.dart");
+    writeFileSync(edited, "void main() {}\n");
+
+    expect(runHook(payload(edited), { FAKE_DART_OUT: "No issues found!" })).toEqual({ exitCode: 0, stdout: "" });
+});
+
+test("the hook resolves its runner from a relative invocation path", () => {
+    withDartProject();
+    const result = Bun.spawnSync(["sh", "hooks/posttooluse-cli-diagnostics.sh"], {
+        cwd: join(dirname(HOOK), ".."),
+        stdin: Buffer.from(payload(dartFile)),
+        env: { ...process.env, PATH: `${fakeBin}:${process.env.PATH ?? ""}`, TMPDIR: scratch, FAKE_DART_OUT: "No issues found!" },
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout.toString()).toContain("dart analyze --fatal-infos: clean");
+});
+
+test("a zero-padded number in a knob does not abort the hook", () => {
+    withDartProject();
+
+    const text = context(
+        runHook(payload(dartFile), {
+            AC_CLI_DIAGNOSTICS_TIMEOUT: "09",
+            AC_CLI_DIAGNOSTICS_WAIT: "00",
+            AC_CLI_DIAGNOSTICS_BACKOFF: "010",
+            FAKE_DART_OUT: "No issues found!",
+        }),
+    );
+
+    expect(text).toContain("dart analyze --fatal-infos: clean");
+});
+
+test("a held slot makes the run skip with a note instead of waiting or claiming a verdict", () => {
+    withDartProject();
+    const lock = takeSlot("dart", process.pid);
+
+    const text = context(runHook(payload(dartFile), { AC_CLI_DIAGNOSTICS_WAIT: "0", FAKE_DART_OUT: "No issues found!" }));
+
+    expect(text).toContain("dart analyze --fatal-infos: skipped, another check holds the machine-wide slot");
+    expect(text).not.toContain("clean");
+    expect(text).not.toContain(STALE);
+    expect(existsSync(lock)).toBe(true);
+});
+
+test("a slot whose owner is gone is taken over and given back", () => {
+    withDartProject();
+    const dead = Bun.spawnSync(["sh", "-c", "exit 0"]);
+    const lock = takeSlot("dart", dead.pid ?? 999999);
+
+    const text = context(runHook(payload(dartFile), { AC_CLI_DIAGNOSTICS_WAIT: "0", FAKE_DART_OUT: "No issues found!" }));
+
+    expect(text).toContain("dart analyze --fatal-infos: clean");
+    expect(existsSync(lock)).toBe(false);
+});
+
+test("the slot is given back after a run and after a timeout", () => {
+    withDartProject();
+    const lock = join(scratch, "ac-cli-diagnostics-dart.lock");
+
+    runHook(payload(dartFile));
+    expect(existsSync(lock)).toBe(false);
+
+    runHook(payload(dartFile), { FAKE_DART_SLEEP: "5", AC_CLI_DIAGNOSTICS_TIMEOUT: "1" });
+    expect(existsSync(lock)).toBe(false);
+});
+
+test("phpstan skips on a held slot but php -l still answers", () => {
+    withComposer();
+    fakeTool(join(root, "site", "vendor", "bin", "phpstan"), "PHPSTAN");
+    takeSlot("phpstan", process.pid);
+
+    const text = context(runHook(payload(phpFile), { AC_CLI_DIAGNOSTICS_WAIT: "0", FAKE_PHPSTAN_CODE: "1" }));
+
+    expect(text).toContain("php -l: clean");
+    expect(text).toContain("vendor/bin/phpstan analyse: skipped, another check holds the machine-wide slot");
+    expect(text).not.toContain(STALE);
+});
+
+test("a timeout pauses the project, and the next edit passes silently until the pause is over", () => {
+    withDartProject();
+
+    const first = context(runHook(payload(dartFile), { FAKE_DART_SLEEP: "5", AC_CLI_DIAGNOSTICS_TIMEOUT: "1" }));
+    expect(first).toContain("timed out after 1s");
+    expect(first).toContain("Checks of this project are paused for 180s.");
+
+    expect(runHook(payload(dartFile), { FAKE_DART_OUT: "No issues found!" })).toEqual({ exitCode: 0, stdout: "" });
+
+    const afterPause = context(runHook(payload(dartFile), { AC_CLI_DIAGNOSTICS_BACKOFF: "0", FAKE_DART_OUT: "No issues found!" }));
+    expect(afterPause).toContain("dart analyze --fatal-infos: clean");
+});
+
+test("a clean run lifts the pause", () => {
+    withDartProject();
+
+    runHook(payload(dartFile), { FAKE_DART_SLEEP: "5", AC_CLI_DIAGNOSTICS_TIMEOUT: "1" });
+    expect(runHook(payload(dartFile), { FAKE_DART_OUT: "No issues found!" }).stdout).toBe("");
+
+    // BACKOFF=0 ignores the pause for this run; the clean result it produces must retire the marker.
+    const forced = context(runHook(payload(dartFile), { AC_CLI_DIAGNOSTICS_BACKOFF: "0", FAKE_DART_OUT: "No issues found!" }));
+    expect(forced).toContain("dart analyze --fatal-infos: clean");
+
+    const after = context(runHook(payload(dartFile), { FAKE_DART_OUT: "No issues found!" }));
+    expect(after).toContain("dart analyze --fatal-infos: clean");
+});
+
+test("a timeout ends the tool's helper process too, and returns without waiting for it", () => {
+    withDartProject();
+    const pidFile = join(root, "helper.pid");
+    dartWithSleeper(pidFile, "hang");
+
+    const started = Date.now();
+    const text = context(runHook(payload(dartFile), { AC_CLI_DIAGNOSTICS_TIMEOUT: "1" }));
+
+    expect(text).toContain("timed out after 1s");
+    expect(Date.now() - started).toBeLessThan(15000);
+    expect(gone(Number(readFileSync(pidFile, "utf8")))).toBe(true);
+});
+
+test("a helper the tool left behind after a normal exit is ended too", () => {
+    withDartProject();
+    const pidFile = join(root, "helper.pid");
+    dartWithSleeper(pidFile, "exit");
+
+    const started = Date.now();
+    const text = context(runHook(payload(dartFile)));
+
+    // Without the sweep the helper holds the output pipe open and the hook waits out its 60 s sleep.
+    expect(Date.now() - started).toBeLessThan(15000);
+    expect(text).toContain("dart analyze --fatal-infos: clean");
+    expect(gone(Number(readFileSync(pidFile, "utf8")))).toBe(true);
 });
