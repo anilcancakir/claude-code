@@ -1,4 +1,4 @@
-<!-- ported-from: plugins/ac/references/verification.md sha256:efea992e175b9e5577961325ad787371d4711f3c405145b18336553ee3d678cd -->
+<!-- ported-from: plugins/ac/references/verification.md sha256:e99f1715df0547a49cb27cfb0ad9ad2d48239d99853cf93f5a96ec418a2736b7 -->
 # Verification: scope, commands, diagnostics, fast tests
 
 Shared by the plan workers, `ac/execute` and `ac/qa`. A full lint and test suite can take minutes on a real project, and running it after every step multiplies that by the step count while proving nothing a narrower run does not. So each layer checks what it changed, and the whole project is checked once, in the background, while the final review runs.

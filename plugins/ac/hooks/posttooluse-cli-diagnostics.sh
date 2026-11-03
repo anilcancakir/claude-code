@@ -5,21 +5,34 @@
 # didChangeWatchedFiles, so a change from Bash, git, a formatter or another session never reaches the
 # language server. It also delivers diagnostics a turn late and shows each one once, so what the model
 # reads is often stale in both directions (anthropics/claude-code #93321, #76870, #85225, #100569).
-# After a Write, Edit or MultiEdit of a .dart or .php file this hook runs the command-line analyzer
-# on that one file and hands the result to Claude as additionalContext in the same turn: dart analyze
-# --fatal-infos for Dart (most flutter_lints rules are info level, and dart exits 0 on infos without
-# the flag); php -l for PHP, plus phpstan when the nearest composer.json directory ships
-# vendor/bin/phpstan. php -l checks syntax only, so without phpstan the hook says so instead of
-# calling a type or symbol diagnostic stale. It informs and never blocks, prints nothing for any other file, and fails open
-# on a missing tool, an unreadable payload or a timeout it cannot report.
+# After a Write, Edit or MultiEdit this hook runs the command-line analyzer on that one file. No check holds
+# the edit for seconds, so the script has two modes, one registration each in hooks.json:
+#
+#   (no argument)  sync mode, PHP only: php -l, a verdict of about 0.3 s handed to Claude as
+#                  additionalContext on stdout in the same turn, exit 0. A clean run is one short line
+#                  marked "(syntax only)", since php -l cannot judge types or symbols. phpstan is not run:
+#                  on a real Laravel project it took 20 s and timed out edit after edit. A .dart file exits 0
+#                  at once.
+#   --async        background mode, Dart only, registered with asyncRewake: the host runs it without
+#                  blocking the tool and wakes the model only on exit 2, with what the hook wrote to stderr
+#                  as the reminder; any other exit is silent. dart analyze --fatal-infos runs (most
+#                  flutter_lints rules are info level, and dart exits 0 on infos without the flag). Issues:
+#                  the report goes to stderr, stdout stays empty, exit 2. The first clean run after a report
+#                  with issues for the same file in the same session: one line saying LSP diagnostics that
+#                  disagree are stale, exit 2. Anything else (clean, timeout, busy slot, skip, any failure)
+#                  exits 0 with no output, so the model is never woken for nothing. A .php file exits 0 at
+#                  once.
+#
+# Both modes inform and never block, print nothing for any other file, and fail open on a missing tool, an
+# unreadable payload or a timeout.
 #
 # It is built to stay out of the way when several sessions work at once. A cold `dart analyze` starts an
 # analysis server of 500 to 700 MB, and in a fresh git worktree that run often outlives any sensible limit
 # (in the author's transcripts the timeouts cluster in `.claude/worktrees`). So:
 #   - it runs on the main thread only. A subagent worker already runs the file's analyzer itself before it
 #     reports done (references/verification.md), so a hook run per edit doubled the work;
-#   - dart analyze and phpstan each run one at a time on the machine, whatever the number of sessions: a
-#     run that cannot get the slot within the wait says so and skips;
+#   - dart analyze runs one at a time on the machine, whatever the number of sessions: a run that cannot get
+#     the slot within the wait gives up quietly;
 #   - a run that times out puts its project root on a back-off, because the next run would be just as cold;
 #   - a Dart file whose package has no resolved packages is skipped, as in a worktree before `pub get`: the
 #     package's own .dart_tool/package_config.json is required, or for a pub workspace member (`resolution:
@@ -32,19 +45,23 @@
 #     timeout kill walks the process tree, so the usual way a hook dies is covered.
 #
 # Cost measured on the author's machine on 2026-10-31: dart analyze <file> about 1.5 s, php -l about
-# 0.2 s; phpstan depends on the project.
+# 0.2 s.
 #
 # Knobs, read from the environment (settings.json `env` reaches hooks):
 #   AC_CLI_DIAGNOSTICS=0           turns the hook off
-#   AC_CLI_DIAGNOSTICS_TIMEOUT     seconds each tool may run, default 15, at most 20; 0 or not a whole number:
+#   AC_CLI_DIAGNOSTICS_TIMEOUT     seconds the tool may run, default 15, at most 20; 0 or not a whole number:
 #                                  default (a zero limit would mean no limit and let the hook timeout kill it).
-#                                  The cap keeps php -l, the slot wait and phpstan inside the 60 s registration
-#   AC_CLI_DIAGNOSTICS_WAIT        seconds to wait for the dart or phpstan slot, default 5, at most 10; 0 never
-#                                  waits
+#                                  The cap keeps the slot wait and dart analyze inside the 60 s async
+#                                  registration; in sync mode (php -l) it is capped at 8 to stay inside the
+#                                  10 s sync registration
+#   AC_CLI_DIAGNOSTICS_WAIT        seconds to wait for the dart slot, default 5, at most 10; 0 never waits
 #   AC_CLI_DIAGNOSTICS_BACKOFF     seconds a project is left alone after a timeout, default 180; 0 never
 #   AC_CLI_DIAGNOSTICS_SUBAGENTS=1 runs the hook inside subagents too
 
 set -u
+
+mode=sync
+[ "${1:-}" = "--async" ] && mode=async
 
 # Echo $1 when it is a whole number, otherwise the default in $2. Leading zeros go: shell arithmetic reads
 # 09 as a bad octal number and would abort the hook.
@@ -62,6 +79,8 @@ limit() {
 secs="$(limit "${AC_CLI_DIAGNOSTICS_TIMEOUT:-}" 15)"
 [ "$secs" -gt 0 ] || secs=15
 [ "$secs" -le 20 ] || secs=20
+# php -l runs inside the 10 s sync registration; stop it first so the timeout note still reaches the model.
+[ "$mode" = sync ] && [ "$secs" -gt 8 ] && secs=8
 wait_secs="$(limit "${AC_CLI_DIAGNOSTICS_WAIT:-}" 5)"
 [ "$wait_secs" -le 10 ] || wait_secs=10
 backoff="$(limit "${AC_CLI_DIAGNOSTICS_BACKOFF:-}" 180)"
@@ -83,6 +102,12 @@ fi
 file="$(printf '%s' "$input" | jq -r '.tool_input.file_path // empty' 2>/dev/null)" || exit 0
 [ -n "$file" ] || exit 0
 [ -f "$file" ] || exit 0
+# Each mode owns one language: sync is PHP's php -l, async is Dart's dart analyze.
+case "$mode:$file" in
+    sync:*.php | async:*.dart) ;;
+    *) exit 0 ;;
+esac
+session="$(printf '%s' "$input" | jq -r '.session_id // empty' 2>/dev/null)" || exit 0
 
 # Print the nearest directory at or above $1 that holds a file named $2; fail when there is none.
 find_up() {
@@ -126,12 +151,17 @@ nl='
 ctx="CLI check for ${file}:"
 clean_all=1
 found_issues=0
-# 1 once a tool that checks types and symbols ran; php -l alone leaves it at 0.
-semantic=0
 
 state="${TMPDIR:-/tmp}"
 state="${state%/}"
 held=""
+
+# Marker that this session's last report for this file had issues; empty without a session id, so a clean run
+# then never prints the stale note.
+issues_marker=""
+if [ -n "$session" ]; then
+    issues_marker="$state/ac-cli-diagnostics-issues-$(printf '%s' "$session" | cksum | cut -d' ' -f1)-$(printf '%s' "$file" | cksum | cut -d' ' -f1)"
+fi
 
 # Give the slot back, but only while it still names this hook: a slot reaped as stale and taken by another
 # hook is not ours to delete. Safe to call twice.
@@ -209,9 +239,6 @@ heavy() {
 report() {
     if [ "$status" -eq 142 ]; then
         ctx="${ctx}${nl}$1: timed out after ${secs}s; run it yourself before trusting or dismissing an LSP diagnostic on this file"
-        if [ "$backoff" -gt 0 ] && [ "${2:-}" = "heavy" ]; then
-            ctx="${ctx}${nl}Checks of this project are paused for ${backoff}s."
-        fi
         clean_all=0
         return
     fi
@@ -235,53 +262,46 @@ report() {
     [ "$total" -gt 20 ] && ctx="${ctx}${nl}... ($((total - 20)) more)"
 }
 
-# Say that tool $1 did not run because another check holds the slot.
-busy() {
-    ctx="${ctx}${nl}$1: skipped, another check holds the machine-wide slot; run it yourself if you need ground truth for this file"
-    clean_all=0
-}
+# 1. Run the mode's analyzer. A Dart run that cannot produce a verdict (no dart, no pubspec, packages not
+# resolved, slot taken, project paused) leaves the model alone: the async mode never wakes it for nothing.
+if [ "$mode" = "async" ]; then
+    command -v dart >/dev/null 2>&1 || exit 0
+    root="$(find_up "$(dirname "$file")" pubspec.yaml)" || exit 0
+    dart_resolved "$root" || exit 0
+    heavy dart "$root" dart analyze --fatal-infos "$file"
+    [ $? -eq 0 ] || exit 0
+    # A timeout is not a verdict either; it only starts the back-off.
+    [ "$status" -ne 142 ] || exit 0
+    report "dart analyze --fatal-infos"
 
-# 1. Pick the branch by extension; anything else is not ours.
-case "$file" in
-    *.dart)
-        command -v dart >/dev/null 2>&1 || exit 0
-        root="$(find_up "$(dirname "$file")" pubspec.yaml)" || exit 0
-        dart_resolved "$root" || exit 0
-        heavy dart "$root" dart analyze --fatal-infos "$file"
-        case $? in
-            0) report "dart analyze --fatal-infos" heavy ;;
-            1) busy "dart analyze --fatal-infos" ;;
-            *) exit 0 ;;
-        esac
-        semantic=1
-        ;;
-    *.php)
-        command -v php >/dev/null 2>&1 || exit 0
-        run "$(dirname "$file")" php -l "$file"
-        report "php -l"
-        # phpstan only where the project installed it; a global one would judge by the wrong config.
-        root="$(find_up "$(dirname "$file")" composer.json)"
-        if [ -n "$root" ] && [ -x "$root/vendor/bin/phpstan" ]; then
-            heavy phpstan "$root" vendor/bin/phpstan analyse --no-progress --error-format=raw "$file"
-            case $? in
-                0)
-                    report "vendor/bin/phpstan analyse" heavy
-                    semantic=1
-                    ;;
-                1) busy "vendor/bin/phpstan analyse" ;;
-            esac
-        fi
-        ;;
-    *) exit 0 ;;
-esac
+    # 2a. Issues wake the model with the report on stderr (exit 2 is the rewake signal; stdout stays empty).
+    # The marker lets the first clean run after them say the LSP list is stale.
+    if [ "$found_issues" -eq 1 ]; then
+        [ -z "$issues_marker" ] || : >"$issues_marker" 2>/dev/null
+        printf '%s\n%s\n' "$ctx" "These are current; fix them or say why not." >&2
+        exit 2
+    fi
 
-# 2. Say what the verdicts mean for the LSP's version of the file.
+    # 2b. A clean run is worth a wake only right after such a report, when the LSP list is likely to lag the
+    # fix; any other clean run is silent.
+    if [ -n "$issues_marker" ] && [ -f "$issues_marker" ]; then
+        rm -f "$issues_marker"
+        printf '%s. %s\n' "$(printf '%s' "$ctx" | tr '\n' ' ')" "LSP diagnostics on this file that disagree with this are stale." >&2
+        exit 2
+    fi
+    exit 0
+fi
+
+command -v php >/dev/null 2>&1 || exit 0
+run "$(dirname "$file")" php -l "$file"
+report "php -l"
+
+# 2. A clean run is a single short line. php -l sees syntax only; say so, so the line is not read as refuting
+# a type diagnostic.
 if [ "$found_issues" -eq 1 ]; then
     ctx="${ctx}${nl}These are current; fix them or say why not."
-elif [ "$clean_all" -eq 1 ] && [ "$semantic" -eq 1 ]; then
-    ctx="${ctx}${nl}LSP diagnostics on this file that disagree with this are stale."
 elif [ "$clean_all" -eq 1 ]; then
-    ctx="${ctx}${nl}php -l checks syntax only; it cannot confirm or refute a type or symbol diagnostic, so read the code such a diagnostic names before you fix or dismiss it."
+    ctx="$(printf '%s' "$ctx" | tr '\n' ' ') (syntax only)"
 fi
 
 jq -n --arg ctx "$ctx" '{hookSpecificOutput: {hookEventName: "PostToolUse", additionalContext: $ctx}}' 2>/dev/null

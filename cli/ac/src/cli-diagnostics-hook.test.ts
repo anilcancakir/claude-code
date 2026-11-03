@@ -5,13 +5,14 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 // The hook is a shell script under the plugin, but CI only runs `bun test` here, and CI has neither
-// dart nor php. Fake analyzers on the front of PATH stand in for them, so this pins the contract:
-// silent for anything that is not a Dart or PHP file with a project around it, an additionalContext
-// verdict per tool otherwise (clean, or the issue lines capped at 20), a readable timeout message,
-// never `decision: block`, and always exit 0. It also pins what keeps the hook light when sessions run
-// in parallel: main thread only, one dart or phpstan run at a time per machine, a back-off after a
-// timeout, and no process left behind by a timeout or a normal exit. TMPDIR points into the fixture so
-// the slot and back-off files never touch the machine's.
+// dart nor php. Fake analyzers on the front of PATH stand in for them, so this pins the contract of both
+// modes. Sync mode (no argument) handles PHP only: `php -l` as additionalContext on stdout, exit 0, and
+// never phpstan. Async mode (`--async`, registered with asyncRewake) handles Dart only: it stays silent
+// and exits 0 unless dart analyze finds issues or the first clean run follows a report with issues, and
+// then it writes the report to stderr, leaves stdout empty and exits 2 so the host wakes the model. It
+// also pins what keeps the Dart run light when sessions work in parallel: main thread only, one dart run
+// at a time per machine, a back-off after a timeout, and no process left behind by a timeout or a normal
+// exit. TMPDIR points into the fixture so the slot and back-off files never touch the machine's.
 const HOOK = join(
     dirname(fileURLToPath(import.meta.url)),
     "..",
@@ -24,9 +25,10 @@ const HOOK = join(
 );
 
 const STALE = "LSP diagnostics on this file that disagree with this are stale.";
-const SYNTAX_ONLY =
-    "php -l checks syntax only; it cannot confirm or refute a type or symbol diagnostic, so read the code such a diagnostic names before you fix or dismiss it.";
+const SYNTAX_ONLY = "php -l: clean (syntax only)";
 const CURRENT = "These are current; fix them or say why not.";
+const DART_ISSUES = { FAKE_DART_OUT: "  error - main.dart:1:1 - Undefined name 'x'", FAKE_DART_CODE: "3" };
+const DART_CLEAN = { FAKE_DART_OUT: "No issues found!" };
 
 let root: string;
 let fakeBin: string;
@@ -77,8 +79,12 @@ interface HookResult {
     stdout: string;
 }
 
-function runHook(stdin: string, env: Record<string, string> = {}): HookResult {
-    const result = Bun.spawnSync(["sh", HOOK], {
+interface AsyncResult extends HookResult {
+    stderr: string;
+}
+
+function spawnHook(stdin: string, env: Record<string, string>, args: string[]): AsyncResult {
+    const result = Bun.spawnSync(["sh", HOOK, ...args], {
         stdin: Buffer.from(stdin),
         env: {
             ...process.env,
@@ -96,7 +102,20 @@ function runHook(stdin: string, env: Record<string, string> = {}): HookResult {
     return {
         exitCode: result.exitCode,
         stdout: result.stdout.toString(),
+        stderr: result.stderr.toString(),
     };
+}
+
+// Sync mode: the registration without an argument.
+function runHook(stdin: string, env: Record<string, string> = {}): HookResult {
+    const { exitCode, stdout } = spawnHook(stdin, env, []);
+
+    return { exitCode, stdout };
+}
+
+// Async mode: the asyncRewake registration.
+function runAsync(stdin: string, env: Record<string, string> = {}): AsyncResult {
+    return spawnHook(stdin, env, ["--async"]);
 }
 
 function payload(filePath: string, extra: Record<string, string> = {}): string {
@@ -121,6 +140,16 @@ function context(result: HookResult): string {
 
     return output.hookSpecificOutput?.additionalContext ?? "";
 }
+
+// An async run that woke the model: exit 2, the report on stderr, nothing on stdout.
+function wake(result: AsyncResult): string {
+    expect(result.exitCode).toBe(2);
+    expect(result.stdout).toBe("");
+
+    return result.stderr.trimEnd();
+}
+
+const SILENT: AsyncResult = { exitCode: 0, stdout: "", stderr: "" };
 
 function withDartProject(): void {
     writeFileSync(join(root, "app", "pubspec.yaml"), "name: app\n");
@@ -164,53 +193,152 @@ function takeSlot(name: string, pid: number): string {
     return lock;
 }
 
-function withComposer(): void {
+// A phpstan that records every call; sync mode must never make one.
+function withPhpstanSpy(): string {
     writeFileSync(join(root, "site", "composer.json"), "{}\n");
+    const ran = join(root, "phpstan-ran");
+    const path = join(root, "site", "vendor", "bin", "phpstan");
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, ["#!/bin/sh", `echo called >> "${ran}"`, "echo 'Thing.php:3:Call to undefined method'", "exit 1", ""].join("\n"));
+    chmodSync(path, 0o755);
+
+    return ran;
 }
+
+// ---- sync mode: PHP only, php -l only ----
 
 test("a file that is neither Dart nor PHP passes silently", () => {
     const other = join(root, "app", "notes.md");
     writeFileSync(other, "# notes\n");
 
     expect(runHook(payload(other))).toEqual({ exitCode: 0, stdout: "" });
+    expect(runAsync(payload(other))).toEqual(SILENT);
 });
 
-test("AC_CLI_DIAGNOSTICS=0 turns the hook off", () => {
+test("AC_CLI_DIAGNOSTICS=0 turns the hook off in both modes", () => {
     withDartProject();
 
-    expect(runHook(payload(dartFile), { AC_CLI_DIAGNOSTICS: "0" })).toEqual({ exitCode: 0, stdout: "" });
-});
-
-test("a Dart file with no pubspec.yaml above it passes silently", () => {
-    expect(runHook(payload(dartFile))).toEqual({ exitCode: 0, stdout: "" });
+    expect(runHook(payload(phpFile), { AC_CLI_DIAGNOSTICS: "0", FAKE_PHP_CODE: "255", FAKE_PHP_OUT: "boom" })).toEqual({
+        exitCode: 0,
+        stdout: "",
+    });
+    expect(runAsync(payload(dartFile), { AC_CLI_DIAGNOSTICS: "0", ...DART_ISSUES })).toEqual(SILENT);
 });
 
 test("a missing file passes silently", () => {
     withDartProject();
 
-    expect(runHook(payload(join(root, "app", "lib", "gone.dart")))).toEqual({ exitCode: 0, stdout: "" });
+    expect(runHook(payload(join(root, "site", "src", "Gone.php")))).toEqual({ exitCode: 0, stdout: "" });
+    expect(runAsync(payload(join(root, "app", "lib", "gone.dart")), DART_ISSUES)).toEqual(SILENT);
 });
 
-test("a clean Dart run says so and calls stale LSP diagnostics stale", () => {
+test("sync mode on a Dart file prints nothing and never runs dart", () => {
     withDartProject();
 
-    const text = context(runHook(payload(dartFile), { FAKE_DART_OUT: "Analyzing main.dart...\nNo issues found!" }));
-
-    expect(text).toStartWith(`CLI check for ${dartFile}:`);
-    expect(text).toContain("dart analyze --fatal-infos: clean");
-    expect(text).toEndWith(STALE);
+    expect(runHook(payload(dartFile, { session_id: "s1" }), DART_ISSUES)).toEqual({ exitCode: 0, stdout: "" });
+    expect(existsSync(join(scratch, "ac-cli-diagnostics-dart.lock"))).toBe(false);
 });
 
-test("a Dart run with issues lists them without the progress line and ends on the current sentence", () => {
-    withDartProject();
+test("sync mode on PHP runs php -l only, even where vendor/bin/phpstan sits next to composer.json", () => {
+    const ran = withPhpstanSpy();
+
+    const text = context(runHook(payload(phpFile, { session_id: "s1" })));
+
+    expect(text).toBe(`CLI check for ${phpFile}: ${SYNTAX_ONLY}`);
+    expect(text).not.toContain("phpstan");
+    expect(existsSync(ran)).toBe(false);
+});
+
+test("a php -l syntax error is reported synchronously and phpstan stays unused", () => {
+    const ran = withPhpstanSpy();
 
     const text = context(
-        runHook(payload(dartFile), {
+        runHook(payload(phpFile), {
+            FAKE_PHP_OUT: "PHP Parse error: syntax error, unexpected end of file in Thing.php on line 3",
+            FAKE_PHP_CODE: "255",
+        }),
+    );
+
+    expect(text).toStartWith(`CLI check for ${phpFile}:`);
+    expect(text).toContain("php -l: 1 issue line");
+    expect(text).toContain("syntax error, unexpected end of file");
+    expect(text).toEndWith(CURRENT);
+    expect(existsSync(ran)).toBe(false);
+});
+
+test("a php -l only fix does not call LSP diagnostics stale, since php -l cannot judge types", () => {
+    const edit = payload(phpFile, { session_id: "s1" });
+
+    runHook(edit, { FAKE_PHP_OUT: "PHP Parse error: syntax error in Thing.php on line 3", FAKE_PHP_CODE: "255" });
+    const text = context(runHook(edit));
+
+    expect(text).toBe(`CLI check for ${phpFile}: ${SYNTAX_ONLY}`);
+});
+
+test("a php -l that outlives the timeout is reported as timed out", () => {
+    const text = context(runHook(payload(phpFile), { FAKE_PHP_SLEEP: "5", AC_CLI_DIAGNOSTICS_TIMEOUT: "1" }));
+
+    expect(text).toContain(
+        "php -l: timed out after 1s; run it yourself before trusting or dismissing an LSP diagnostic on this file",
+    );
+});
+
+test("sync mode: an unparseable payload fails open", () => {
+    expect(runHook("not json")).toEqual({ exitCode: 0, stdout: "" });
+    expect(runHook("")).toEqual({ exitCode: 0, stdout: "" });
+});
+
+test("sync mode: a subagent payload passes silently unless AC_CLI_DIAGNOSTICS_SUBAGENTS=1", () => {
+    const worker = payload(phpFile, { agent_id: "a1b2c3", agent_type: "ac:plan-worker-junior" });
+
+    expect(runHook(worker)).toEqual({ exitCode: 0, stdout: "" });
+
+    const text = context(runHook(worker, { AC_CLI_DIAGNOSTICS_SUBAGENTS: "1" }));
+    expect(text).toContain("php -l: clean");
+});
+
+test("a zero-padded number in a knob does not abort the sync hook", () => {
+    const text = context(
+        runHook(payload(phpFile), {
+            AC_CLI_DIAGNOSTICS_TIMEOUT: "09",
+            AC_CLI_DIAGNOSTICS_WAIT: "00",
+            AC_CLI_DIAGNOSTICS_BACKOFF: "010",
+        }),
+    );
+
+    expect(text).toContain("php -l: clean");
+});
+
+test("the hook resolves its runner from a relative invocation path", () => {
+    const result = Bun.spawnSync(["sh", "hooks/posttooluse-cli-diagnostics.sh"], {
+        cwd: join(dirname(HOOK), ".."),
+        stdin: Buffer.from(payload(phpFile)),
+        env: { ...process.env, PATH: `${fakeBin}:${process.env.PATH ?? ""}`, TMPDIR: scratch },
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout.toString()).toContain("php -l: clean");
+});
+
+// ---- async mode: Dart only, wakes the model through exit 2 ----
+
+test("async mode on PHP exits silently, syntax error or not", () => {
+    expect(runAsync(payload(phpFile, { session_id: "s1" }), { FAKE_PHP_OUT: "boom", FAKE_PHP_CODE: "255" })).toEqual(
+        SILENT,
+    );
+});
+
+test("async mode with Dart issues writes the report to stderr, nothing to stdout, and exits 2", () => {
+    withDartProject();
+
+    const text = wake(
+        runAsync(payload(dartFile, { session_id: "s1" }), {
             FAKE_DART_OUT: "Analyzing main.dart...\n\n  error - main.dart:1:1 - Undefined name 'x'\n  info - main.dart:2:1 - Unused",
             FAKE_DART_CODE: "3",
         }),
     );
 
+    expect(text).toStartWith(`CLI check for ${dartFile}:`);
     expect(text).toContain("dart analyze --fatal-infos: 2 issue lines");
     expect(text).toContain("Undefined name 'x'");
     expect(text).not.toContain("Analyzing");
@@ -222,7 +350,7 @@ test("output over 20 issue lines is truncated with a count of the rest", () => {
     withDartProject();
     const lines = Array.from({ length: 25 }, (_, i) => `  error - main.dart:${i + 1}:1 - problem ${i + 1}`);
 
-    const text = context(runHook(payload(dartFile), { FAKE_DART_OUT: lines.join("\n"), FAKE_DART_CODE: "3" }));
+    const text = wake(runAsync(payload(dartFile), { FAKE_DART_OUT: lines.join("\n"), FAKE_DART_CODE: "3" }));
 
     expect(text).toContain("dart analyze --fatal-infos: 25 issue lines");
     expect(text).toContain("problem 20");
@@ -230,84 +358,140 @@ test("output over 20 issue lines is truncated with a count of the rest", () => {
     expect(text).toContain("... (5 more)");
 });
 
-test("a php -l syntax error is reported", () => {
-    const text = context(
-        runHook(payload(phpFile), {
-            FAKE_PHP_OUT: "PHP Parse error: syntax error, unexpected end of file in Thing.php on line 3",
-            FAKE_PHP_CODE: "255",
-        }),
-    );
+test("a clean Dart run with no earlier report exits 0 without a word", () => {
+    withDartProject();
 
-    expect(text).toContain("php -l: 1 issue line");
-    expect(text).toContain("syntax error, unexpected end of file");
-    expect(text).toEndWith(CURRENT);
+    expect(runAsync(payload(dartFile, { session_id: "s1" }), DART_CLEAN)).toEqual(SILENT);
 });
 
-test("phpstan runs only when vendor/bin/phpstan sits next to composer.json", () => {
-    withComposer();
-    const env = { FAKE_PHPSTAN_OUT: "Thing.php:3:Call to undefined method", FAKE_PHPSTAN_CODE: "1" };
+test("the first clean run after a report with issues wakes the model once with the stale line", () => {
+    withDartProject();
+    const edit = payload(dartFile, { session_id: "s1" });
 
-    const without = context(runHook(payload(phpFile), env));
-    expect(without).toContain("php -l: clean");
-    expect(without).not.toContain("phpstan");
-    expect(without).toEndWith(SYNTAX_ONLY);
+    expect(wake(runAsync(edit, DART_ISSUES))).toEndWith(CURRENT);
 
-    fakeTool(join(root, "site", "vendor", "bin", "phpstan"), "PHPSTAN");
+    const fixed = wake(runAsync(edit, DART_CLEAN));
+    expect(fixed).toBe(`CLI check for ${dartFile}: dart analyze --fatal-infos: clean. ${STALE}`);
 
-    const withStan = context(runHook(payload(phpFile), env));
-    expect(withStan).toContain("php -l: clean");
-    expect(withStan).toContain("vendor/bin/phpstan analyse: 1 issue line");
-    expect(withStan).toContain("Call to undefined method");
-    expect(withStan).toEndWith(CURRENT);
+    expect(runAsync(edit, DART_CLEAN)).toEqual(SILENT);
 });
 
-test("a clean phpstan run makes the verdict semantic and drops its configuration note", () => {
-    withComposer();
-    fakeTool(join(root, "site", "vendor", "bin", "phpstan"), "PHPSTAN");
+test("issues in one session do not make a clean run in another session wake the model", () => {
+    withDartProject();
 
-    const text = context(
-        runHook(payload(phpFile), {
-            FAKE_PHPSTAN_OUT: "Note: Using configuration file /tmp/phpstan.neon.",
-            FAKE_PHPSTAN_CODE: "0",
-            AC_CLI_DIAGNOSTICS_TIMEOUT: "0",
-        }),
-    );
-    expect(text).toContain("vendor/bin/phpstan analyse: clean");
-    expect(text).not.toContain("Note: Using configuration file");
+    wake(runAsync(payload(dartFile, { session_id: "A" }), DART_ISSUES));
+
+    expect(runAsync(payload(dartFile, { session_id: "B" }), DART_CLEAN)).toEqual(SILENT);
+});
+
+test("without a session id issues still wake the model but a clean run never does", () => {
+    withDartProject();
+
+    wake(runAsync(payload(dartFile), DART_ISSUES));
+
+    expect(runAsync(payload(dartFile), DART_CLEAN)).toEqual(SILENT);
+});
+
+test("a timeout between an issues report and a clean run keeps the stale line for the clean run", () => {
+    withDartProject();
+    const edit = payload(dartFile, { session_id: "s1" });
+
+    wake(runAsync(edit, DART_ISSUES));
+    expect(runAsync(edit, { FAKE_DART_SLEEP: "5", AC_CLI_DIAGNOSTICS_TIMEOUT: "1" })).toEqual(SILENT);
+
+    const text = wake(runAsync(edit, { AC_CLI_DIAGNOSTICS_BACKOFF: "0", ...DART_CLEAN }));
     expect(text).toEndWith(STALE);
 });
 
-test("a tool that outlives the timeout is reported as timed out", () => {
+test("a tool that outlives the timeout exits 0 silently", () => {
     withDartProject();
 
-    const text = context(runHook(payload(dartFile), { FAKE_DART_SLEEP: "5", AC_CLI_DIAGNOSTICS_TIMEOUT: "1" }));
-
-    expect(text).toContain(
-        "dart analyze --fatal-infos: timed out after 1s; run it yourself before trusting or dismissing an LSP diagnostic on this file",
+    expect(runAsync(payload(dartFile, { session_id: "s1" }), { FAKE_DART_SLEEP: "5", AC_CLI_DIAGNOSTICS_TIMEOUT: "1" })).toEqual(
+        SILENT,
     );
-    expect(text).not.toContain(STALE);
 });
 
-test("an unparseable payload fails open", () => {
-    expect(runHook("not json")).toEqual({ exitCode: 0, stdout: "" });
-    expect(runHook("")).toEqual({ exitCode: 0, stdout: "" });
+test("a held slot exits 0 silently and stays held", () => {
+    withDartProject();
+    const lock = takeSlot("dart", process.pid);
+
+    expect(runAsync(payload(dartFile, { session_id: "s1" }), { AC_CLI_DIAGNOSTICS_WAIT: "0", ...DART_ISSUES })).toEqual(
+        SILENT,
+    );
+    expect(existsSync(lock)).toBe(true);
 });
 
-test("a subagent payload passes silently unless AC_CLI_DIAGNOSTICS_SUBAGENTS=1", () => {
+test("a slot whose owner is gone is taken over and given back", () => {
+    withDartProject();
+    const dead = Bun.spawnSync(["sh", "-c", "exit 0"]);
+    const lock = takeSlot("dart", dead.pid ?? 999999);
+
+    const text = wake(runAsync(payload(dartFile), { AC_CLI_DIAGNOSTICS_WAIT: "0", ...DART_ISSUES }));
+
+    expect(text).toContain("dart analyze --fatal-infos: 1 issue line");
+    expect(existsSync(lock)).toBe(false);
+});
+
+test("the slot is given back after a run and after a timeout", () => {
+    withDartProject();
+    const lock = join(scratch, "ac-cli-diagnostics-dart.lock");
+
+    runAsync(payload(dartFile));
+    expect(existsSync(lock)).toBe(false);
+
+    runAsync(payload(dartFile), { FAKE_DART_SLEEP: "5", AC_CLI_DIAGNOSTICS_TIMEOUT: "1" });
+    expect(existsSync(lock)).toBe(false);
+});
+
+test("a timeout pauses the project, and the next edit passes silently until the pause is over", () => {
+    withDartProject();
+
+    expect(runAsync(payload(dartFile), { FAKE_DART_SLEEP: "5", AC_CLI_DIAGNOSTICS_TIMEOUT: "1" })).toEqual(SILENT);
+
+    // Issues would wake the model, so a silent exit here proves the paused project was not analysed.
+    expect(runAsync(payload(dartFile), DART_ISSUES)).toEqual(SILENT);
+
+    const afterPause = wake(runAsync(payload(dartFile), { AC_CLI_DIAGNOSTICS_BACKOFF: "0", ...DART_ISSUES }));
+    expect(afterPause).toContain("dart analyze --fatal-infos: 1 issue line");
+});
+
+test("a clean run lifts the pause", () => {
+    withDartProject();
+
+    runAsync(payload(dartFile), { FAKE_DART_SLEEP: "5", AC_CLI_DIAGNOSTICS_TIMEOUT: "1" });
+    expect(runAsync(payload(dartFile), DART_ISSUES)).toEqual(SILENT);
+
+    // BACKOFF=0 ignores the pause for this run; the clean result it produces must retire the marker.
+    expect(runAsync(payload(dartFile), { AC_CLI_DIAGNOSTICS_BACKOFF: "0", ...DART_CLEAN })).toEqual(SILENT);
+
+    expect(wake(runAsync(payload(dartFile), DART_ISSUES))).toContain("dart analyze --fatal-infos: 1 issue line");
+});
+
+test("async mode: an unparseable payload fails open", () => {
+    expect(runAsync("not json")).toEqual(SILENT);
+    expect(runAsync("")).toEqual(SILENT);
+});
+
+test("async mode: a subagent payload passes silently unless AC_CLI_DIAGNOSTICS_SUBAGENTS=1", () => {
     withDartProject();
     const worker = payload(dartFile, { agent_id: "a1b2c3", agent_type: "ac:plan-worker-junior" });
 
-    expect(runHook(worker)).toEqual({ exitCode: 0, stdout: "" });
+    expect(runAsync(worker, DART_ISSUES)).toEqual(SILENT);
 
-    const text = context(runHook(worker, { AC_CLI_DIAGNOSTICS_SUBAGENTS: "1" }));
-    expect(text).toContain("dart analyze --fatal-infos: clean");
+    expect(wake(runAsync(worker, { AC_CLI_DIAGNOSTICS_SUBAGENTS: "1", ...DART_ISSUES }))).toContain(
+        "dart analyze --fatal-infos: 1 issue line",
+    );
+});
+
+test("a Dart file with no pubspec.yaml above it passes silently", () => {
+    expect(runAsync(payload(dartFile), DART_ISSUES)).toEqual(SILENT);
 });
 
 test("a Dart file whose packages are not resolved passes silently", () => {
     withDartProject();
     rmSync(join(root, "app", ".dart_tool"), { recursive: true });
 
-    expect(runHook(payload(dartFile))).toEqual({ exitCode: 0, stdout: "" });
+    expect(runAsync(payload(dartFile), DART_ISSUES)).toEqual(SILENT);
 });
 
 test("a nested worktree does not borrow the main checkout's resolved packages", () => {
@@ -324,13 +508,12 @@ test("a nested worktree does not borrow the main checkout's resolved packages", 
     const edited = join(tree, "lib", "a.dart");
     writeFileSync(edited, "void main() {}\n");
 
-    expect(runHook(payload(edited), { FAKE_DART_OUT: "No issues found!" })).toEqual({ exitCode: 0, stdout: "" });
+    expect(runAsync(payload(edited), DART_ISSUES)).toEqual(SILENT);
 
     mkdirSync(join(tree, ".dart_tool"));
     writeFileSync(join(tree, ".dart_tool", "package_config.json"), "{}\n");
 
-    const text = context(runHook(payload(edited), { FAKE_DART_OUT: "No issues found!" }));
-    expect(text).toContain("dart analyze --fatal-infos: clean");
+    expect(wake(runAsync(payload(edited), DART_ISSUES))).toContain("dart analyze --fatal-infos: 1 issue line");
 });
 
 test("a pub workspace member finds the config at the workspace root inside the same checkout", () => {
@@ -344,8 +527,7 @@ test("a pub workspace member finds the config at the workspace root inside the s
     const edited = join(member, "lib", "m.dart");
     writeFileSync(edited, "void main() {}\n");
 
-    const text = context(runHook(payload(edited), { FAKE_DART_OUT: "No issues found!" }));
-    expect(text).toContain("dart analyze --fatal-infos: clean");
+    expect(wake(runAsync(payload(edited), DART_ISSUES))).toContain("dart analyze --fatal-infos: 1 issue line");
 });
 
 test("a package that is not a workspace member does not borrow its parent package's resolved config", () => {
@@ -356,107 +538,35 @@ test("a package that is not a workspace member does not borrow its parent packag
     const edited = join(example, "lib", "main.dart");
     writeFileSync(edited, "void main() {}\n");
 
-    expect(runHook(payload(edited), { FAKE_DART_OUT: "No issues found!" })).toEqual({ exitCode: 0, stdout: "" });
+    expect(runAsync(payload(edited), DART_ISSUES)).toEqual(SILENT);
 });
 
-test("the hook resolves its runner from a relative invocation path", () => {
+test("the async hook resolves its runner from a relative invocation path", () => {
     withDartProject();
-    const result = Bun.spawnSync(["sh", "hooks/posttooluse-cli-diagnostics.sh"], {
+    const result = Bun.spawnSync(["sh", "hooks/posttooluse-cli-diagnostics.sh", "--async"], {
         cwd: join(dirname(HOOK), ".."),
         stdin: Buffer.from(payload(dartFile)),
-        env: { ...process.env, PATH: `${fakeBin}:${process.env.PATH ?? ""}`, TMPDIR: scratch, FAKE_DART_OUT: "No issues found!" },
+        env: { ...process.env, PATH: `${fakeBin}:${process.env.PATH ?? ""}`, TMPDIR: scratch, ...DART_ISSUES },
     });
 
-    expect(result.exitCode).toBe(0);
-    expect(result.stdout.toString()).toContain("dart analyze --fatal-infos: clean");
+    expect(result.exitCode).toBe(2);
+    expect(result.stdout.toString()).toBe("");
+    expect(result.stderr.toString()).toContain("dart analyze --fatal-infos: 1 issue line");
 });
 
-test("a zero-padded number in a knob does not abort the hook", () => {
+test("a zero-padded number in a knob does not abort the async hook", () => {
     withDartProject();
 
-    const text = context(
-        runHook(payload(dartFile), {
+    const text = wake(
+        runAsync(payload(dartFile), {
             AC_CLI_DIAGNOSTICS_TIMEOUT: "09",
             AC_CLI_DIAGNOSTICS_WAIT: "00",
             AC_CLI_DIAGNOSTICS_BACKOFF: "010",
-            FAKE_DART_OUT: "No issues found!",
+            ...DART_ISSUES,
         }),
     );
 
-    expect(text).toContain("dart analyze --fatal-infos: clean");
-});
-
-test("a held slot makes the run skip with a note instead of waiting or claiming a verdict", () => {
-    withDartProject();
-    const lock = takeSlot("dart", process.pid);
-
-    const text = context(runHook(payload(dartFile), { AC_CLI_DIAGNOSTICS_WAIT: "0", FAKE_DART_OUT: "No issues found!" }));
-
-    expect(text).toContain("dart analyze --fatal-infos: skipped, another check holds the machine-wide slot");
-    expect(text).not.toContain("clean");
-    expect(text).not.toContain(STALE);
-    expect(existsSync(lock)).toBe(true);
-});
-
-test("a slot whose owner is gone is taken over and given back", () => {
-    withDartProject();
-    const dead = Bun.spawnSync(["sh", "-c", "exit 0"]);
-    const lock = takeSlot("dart", dead.pid ?? 999999);
-
-    const text = context(runHook(payload(dartFile), { AC_CLI_DIAGNOSTICS_WAIT: "0", FAKE_DART_OUT: "No issues found!" }));
-
-    expect(text).toContain("dart analyze --fatal-infos: clean");
-    expect(existsSync(lock)).toBe(false);
-});
-
-test("the slot is given back after a run and after a timeout", () => {
-    withDartProject();
-    const lock = join(scratch, "ac-cli-diagnostics-dart.lock");
-
-    runHook(payload(dartFile));
-    expect(existsSync(lock)).toBe(false);
-
-    runHook(payload(dartFile), { FAKE_DART_SLEEP: "5", AC_CLI_DIAGNOSTICS_TIMEOUT: "1" });
-    expect(existsSync(lock)).toBe(false);
-});
-
-test("phpstan skips on a held slot but php -l still answers", () => {
-    withComposer();
-    fakeTool(join(root, "site", "vendor", "bin", "phpstan"), "PHPSTAN");
-    takeSlot("phpstan", process.pid);
-
-    const text = context(runHook(payload(phpFile), { AC_CLI_DIAGNOSTICS_WAIT: "0", FAKE_PHPSTAN_CODE: "1" }));
-
-    expect(text).toContain("php -l: clean");
-    expect(text).toContain("vendor/bin/phpstan analyse: skipped, another check holds the machine-wide slot");
-    expect(text).not.toContain(STALE);
-});
-
-test("a timeout pauses the project, and the next edit passes silently until the pause is over", () => {
-    withDartProject();
-
-    const first = context(runHook(payload(dartFile), { FAKE_DART_SLEEP: "5", AC_CLI_DIAGNOSTICS_TIMEOUT: "1" }));
-    expect(first).toContain("timed out after 1s");
-    expect(first).toContain("Checks of this project are paused for 180s.");
-
-    expect(runHook(payload(dartFile), { FAKE_DART_OUT: "No issues found!" })).toEqual({ exitCode: 0, stdout: "" });
-
-    const afterPause = context(runHook(payload(dartFile), { AC_CLI_DIAGNOSTICS_BACKOFF: "0", FAKE_DART_OUT: "No issues found!" }));
-    expect(afterPause).toContain("dart analyze --fatal-infos: clean");
-});
-
-test("a clean run lifts the pause", () => {
-    withDartProject();
-
-    runHook(payload(dartFile), { FAKE_DART_SLEEP: "5", AC_CLI_DIAGNOSTICS_TIMEOUT: "1" });
-    expect(runHook(payload(dartFile), { FAKE_DART_OUT: "No issues found!" }).stdout).toBe("");
-
-    // BACKOFF=0 ignores the pause for this run; the clean result it produces must retire the marker.
-    const forced = context(runHook(payload(dartFile), { AC_CLI_DIAGNOSTICS_BACKOFF: "0", FAKE_DART_OUT: "No issues found!" }));
-    expect(forced).toContain("dart analyze --fatal-infos: clean");
-
-    const after = context(runHook(payload(dartFile), { FAKE_DART_OUT: "No issues found!" }));
-    expect(after).toContain("dart analyze --fatal-infos: clean");
+    expect(text).toContain("dart analyze --fatal-infos: 1 issue line");
 });
 
 test("a timeout ends the tool's helper process too, and returns without waiting for it", () => {
@@ -465,9 +575,9 @@ test("a timeout ends the tool's helper process too, and returns without waiting 
     dartWithSleeper(pidFile, "hang");
 
     const started = Date.now();
-    const text = context(runHook(payload(dartFile), { AC_CLI_DIAGNOSTICS_TIMEOUT: "1" }));
+    const result = runAsync(payload(dartFile), { AC_CLI_DIAGNOSTICS_TIMEOUT: "1" });
 
-    expect(text).toContain("timed out after 1s");
+    expect(result).toEqual(SILENT);
     expect(Date.now() - started).toBeLessThan(15000);
     expect(gone(Number(readFileSync(pidFile, "utf8")))).toBe(true);
 });
@@ -478,10 +588,10 @@ test("a helper the tool left behind after a normal exit is ended too", () => {
     dartWithSleeper(pidFile, "exit");
 
     const started = Date.now();
-    const text = context(runHook(payload(dartFile)));
+    const result = runAsync(payload(dartFile));
 
     // Without the sweep the helper holds the output pipe open and the hook waits out its 60 s sleep.
     expect(Date.now() - started).toBeLessThan(15000);
-    expect(text).toContain("dart analyze --fatal-infos: clean");
+    expect(result).toEqual(SILENT);
     expect(gone(Number(readFileSync(pidFile, "utf8")))).toBe(true);
 });
