@@ -97,6 +97,27 @@ test("every other section still gets the fill marker", () => {
     expect(fills).toBe(PLAN_SECTIONS.length - 1);
 });
 
+// Sections no later stage reads stay out of the skeleton: Tier Calibration was read by nothing, and
+// Cross-Project Observations said "None." in 31 of 96 plans, so the planner adds it only when there is
+// an observation to record.
+test("the skeleton carries no section a later stage never reads", () => {
+    const skeleton = buildSkeleton("demo-slug", false, false);
+    expect(skeleton).not.toContain("Tier Calibration");
+    expect(skeleton).not.toContain("Cross-Project Observations");
+    expect(skeleton).not.toContain("Git context");
+});
+
+test("the step stub asks for the rule token alone and states the Description cap", () => {
+    const steps = buildSkeleton("demo-slug", false, false).split("## Steps\n")[1] ?? "";
+    const why = steps.split("\n").find((line) => line.includes("**Why this tier**")) ?? "";
+    expect(why).toContain("rule-1-cross-layer");
+    expect(why).not.toContain("then a colon and one sentence");
+    expect(why).toContain("rule token only");
+    const description = steps.split("\n").find((line) => line.includes("**Description**")) ?? "";
+    expect(description).toContain("Hard cap");
+    expect(description).toContain("450");
+});
+
 test("the skeleton carries no complexity field", () => {
     // The field was deleted once its three consumers went: reviewer-tier routing, the oracle default,
     // and the wave-commit gate. Measured across 106 plans it had also stopped classifying anything,

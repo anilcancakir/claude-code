@@ -31,7 +31,7 @@ It lives here rather than in the body because it is needed exactly once, at the 
 
 ## Empty-slug fallback
 
-If the resulting slug is empty (every token was a stopword, a pathological case), fall back to the topic's first non-stopword word. If even that fails, use `unnamed-plan` and surface the unusual slug in Stage 3a so the user can override it.
+If the resulting slug is empty (every token was a stopword, a pathological case), fall back to the topic's first non-stopword word. If even that fails, use `unnamed-plan` and name the unusual slug in the Stage 4 `Lock all?` scope line so the user can override it.
 
 ## Worked examples
 

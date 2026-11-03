@@ -2,7 +2,7 @@
 
 Read at Stage 3 entry. The skill body carries the bounds that must hold all run; this file carries the walk-down itself, which is needed once per run.
 
-Under `LANE_MODE` no `AskUserQuestion` below is called. Each one becomes a `pending_decisions[]` entry returned in a `DECISIONS` block, written as `<lane_mode>` in the skill body says; the 3a call becomes `Proceed?` and `TDD?` or `Tests?` as two entries of one block, or `Proceed?` alone when the lane brief's `tdd:` line already names a mode and test infrastructure exists (the `<lane_mode>` "Test mode from the brief" bullet). `QA?` is not asked: the lane records `QA = false`, because `ac:execute --lane` skips the QA pass and an answer would be discarded.
+Under `LANE_MODE` no `AskUserQuestion` below is called. Each one becomes a `pending_decisions[]` entry returned in a `DECISIONS` block, written as `<lane_mode>` in the skill body says. Stage 3a and 3b raise an entry only for `Tests?` (no test infrastructure) or for `TDD?` when the lane brief says `tdd: ask` (the `<lane_mode>` "Test mode from the brief" bullet). `QA?` is never asked: the lane records `QA = false`, because `ac:execute --lane` skips the QA pass and an answer would be discarded.
 
 ### 3a. Build the decision tree and surface the synthesis
 
@@ -11,11 +11,9 @@ From the Stage 2 synthesis, extract the open questions. Each question is a node.
 - Sequential nodes: each answer materially affects the next question's framing.
 - Parallel branches: independent decisions that can be batched in one `AskUserQuestion` call (up to 4 questions) or expressed as `multiSelect: true`. Under `LANE_MODE` all independent nodes go in one block with no cap of 4, since the coordinator does the batching into questions.
 
-Surface the synthesis as plain text in the chat before the first question:
+Write the synthesis to `LOG_PATH` under `## Stage 3a Synthesis`, not to the chat, and ask no question about it. The proceed-or-correct-scope gate that used to sit here was answered "proceed" in 49 of 49 measured plans and nobody ever chose "Wrong scope" or "Investigate more", so the question only cost a turn. The owner still sees the scope and can object where it matters: the Stage 4 `Lock all?` question opens with a one-line scope summary taken from this synthesis, and its `Revise / expand scope` option loops back here.
 
 ```
-Before we start the interview, here is what I found:
-
 You asked: <restate>
 What exists today: <N similar implementations at file:line refs>
 Codebase fit: <High | Medium | Low> (<reason>)
@@ -24,11 +22,9 @@ Effort: <Small | Medium | Large> (<file counts>)
 Reuse candidates: <count>; top 3: <file:line, what>
 Prerequisites: <list or "None">
 Risks: <list or "None significant">
-
-I have <N> decisions to walk through with you. Each comes with a recommended answer.
 ```
 
-Then call `AskUserQuestion` once, carrying up to three questions: header `Proceed?` (options `Proceed (Recommended)` / `Wrong scope, correct first` / `Investigate more first`), the `TDD?` or `Tests?` question from 3b.1, and the `QA?` question from 3b.2. One call, because the three are independent preference asks and a user who hands off mid-session answers them together instead of waiting through three turns. On Proceed: record the TDD and QA answers as 3b.1 and 3b.2 describe, then start the 3c walk-down. When `Proceed?` is anything else, discard the TDD and QA answers (they were given against a scope that is about to change; the next 3a call asks them again) and run the existing branch. On Wrong scope: ask freeform follow-up, return to Stage 0f. On Investigate more first: ask which area, spawn the matching agents, return to Stage 1d.
+Then resolve the TDD and QA settings as 3b.1 and 3b.2 describe and start the 3c walk-down in the same turn.
 
 ### 3b. The routing rule (applied before every question to the user)
 
@@ -56,38 +52,31 @@ Example C (user-answerable), use `AskUserQuestion`:
 
 This routing rule is the difference between a useful interview and spam. Apply it to every node, not just the first.
 
-### 3b.1. TDD interview node (mandatory when test infrastructure relevant)
+### 3b.1. TDD node
 
-Before the general decision tree walk-down, ask the TDD question as the second question of the 3a call. This is a separate node because the answer affects every step's worker briefing in `/ac:execute` (TDD enforcement directive) and the plan's `## Codebase Conventions` section.
+The answer affects every step's worker briefing in `/ac:execute` (TDD enforcement directive) and the plan's `## Codebase Conventions` section. Branch on `TEST_INFRA_PRESENT` from Stage 2c.1:
 
-Branch on `TEST_INFRA_PRESENT` from Stage 2c.1:
+- **`TEST_INFRA_PRESENT = true`: no question.** `TDD_MODE = "tdd"`, because 37 of 40 owners asked chose it. Log it to `LOG_PATH` as `TDD: tdd (defaulted, test infrastructure present)`. Three cases take another value without a question: the request itself names a mode ("no tests", "tests after"), which wins; a coordinate lane brief carries `tdd: tdd`, `tests-after` or `none`, which the lane keeps (`<lane_mode>`); and a brief with `tdd: ask` means the owner wants this lane asked, so ask `TDD?` with the options below. The Stage 4 `Lock all?` render shows the value, so the owner can still change it there.
 
-- If `TEST_INFRA_PRESENT = true`:
-  `AskUserQuestion` (header `TDD?`, options:
+  `TDD?` options, used only for a lane brief with `tdd: ask`:
   - `Yes, TDD (Recommended)`: `TDD_MODE = "tdd"`. Worker briefings will require "write failing test first, then implementation".
   - `Yes, tests after implementation`: `TDD_MODE = "tests-after"`. Worker briefings require tests for behavioral changes but allow implementation-first.
-  - `No tests`: `TDD_MODE = "none"`. Worker briefings include no test-writing directive. Use this only when the user explicitly opts out of tests for this plan.
-  )
+  - `No tests`: `TDD_MODE = "none"`. Worker briefings include no test-writing directive.
 
-- If `TEST_INFRA_PRESENT = false`:
+- **`TEST_INFRA_PRESENT = false`: keep asking.** The setup choice is a real decision and the framework follow-up depends on it, so it is its own call before the 3c walk-down.
   `AskUserQuestion` (header `Tests?`, options:
   - `Set up test infrastructure + TDD (Recommended)`: `TDD_MODE = "tdd"`. The plan includes a Wave 1 step to set up the chosen framework. The user answers a follow-up to pick the framework (Vitest / Bun test / Jest / pytest / Go test / Other).
   - `Set up test infrastructure + tests after`: `TDD_MODE = "tests-after"`. Same as above but implementation-first per step.
   - `Proceed without tests`: `TDD_MODE = "none"`. No test setup, no tests in plan. Surface this in the plan's `## Risks Accepted` because untested code is a real risk.
   )
 
-Record the choice in the checkpoint as `tdd_mode` and surface it in the Stage 4 Synthesis Preview. The plan's `## Codebase Conventions` section gets a `TDD: <mode>` field at write time.
+Record the value in the checkpoint as `tdd_mode`. The plan's `## Codebase Conventions` section gets a `TDD: <mode>` field at write time.
 
-### 3b.2. QA node
+### 3b.2. QA default
 
-Ask it as the third question of the same 3a call, after 3b.1: the answer decides whether `/ac:execute` runs a QA pass (Phase 3e) after the review, and it is a preference the code cannot answer. Judge the recommendation from the Stage 2 synthesis, since the scope is not locked yet, and name `E2E_FRAMEWORK` from 2c.1 in the question (a project without one runs QA through the playwright-cli fallback). A plan that changes a user-facing surface (a page, an HTTP endpoint, CLI output) gets the pass recommended, because the per-step checks never exercise the finished surface the way a user does; a plan that touches none (internal refactor, docs, build tooling) does not. `QA = true` runs the pass even when a step walks the app live, since that step's evidence reaches the tester as existing evidence rather than replacing the pass; a plan whose own verification step should be the only live check picks `No QA pass`.
+No question: the planner's own rule predicted every answer in the measured plans, so apply it and log it. The value decides whether `/ac:execute` runs a QA pass (Phase 3e) after the review. A plan that changes a user-facing surface (a page, an HTTP endpoint, CLI output) gets `QA = true`, because the per-step checks never exercise the finished surface the way a user does; a plan that touches none (internal refactor, docs, build tooling) gets `QA = false`. Judge it from the Stage 2 synthesis and name `E2E_FRAMEWORK` from 2c.1 in the log line (a project without one runs QA through the playwright-cli fallback). `QA = true` runs the pass even when a step walks the app live, since that step's evidence reaches the tester as existing evidence rather than replacing the pass; a plan whose own verification step should be the only live check defaults to `QA = false`.
 
-`AskUserQuestion` (header `QA?`, options, with the recommended one first:
-- `Yes, QA pass after review (Recommended)` when the plan changes a user-facing surface: `QA = true`. `/ac:execute` runs `ac:qa` against the plan's work after the review.
-- `No QA pass (Recommended)` when it does not: `QA = false`. Listed first in that case, with `Yes, QA pass after review` as the alternative.
-)
-
-Offer the two options in either case; only the label carrying `(Recommended)` and its position change. Record the choice in the checkpoint as the top-level `qa`, surface it in the Stage 4 Synthesis Preview, and carry it to Stage 5, where `plan-scaffold --qa` writes it into the plan frontmatter.
+Log `QA: <true|false> (defaulted, <the rule's reason>)` to `LOG_PATH`, record it in the checkpoint as the top-level `qa`, and carry it to Stage 5, where `plan-scaffold --qa` writes it into the plan frontmatter. The Stage 4 `Lock all?` render shows it beside the TDD value, and a change typed there is applied before the scaffold.
 
 ### 3c. Walk down with recommended answers
 
@@ -108,7 +97,7 @@ Universal rules applied to every turn of the interview:
 - Interview log: append every Q&A to `LOG_PATH` (decision, options presented, user selection, freeform notes). For the layout, read `${CLAUDE_SKILL_DIR}/references/interview-log-layout.md`.
 - Re-research after path-narrowing locks: when a locked decision narrows the option space (chosen framework version, chosen library, chosen test runner), invalidate any prior research that targeted the un-chosen options. Re-orient context to the chosen path by re-reading the relevant `research/*.md` files; the early-Stage-1 fan-out may have weighted both option arms equally and the un-chosen arm's findings no longer apply. If research depth on the chosen path is thin (single source, surface-level only), spawn ONE more targeted `ac:librarian` brief BEFORE the next decision node, using the canonical brief at `${CLAUDE_SKILL_DIR}/references/librarian-brief.md`. Example: user locks Vue 3 after Stage 3 surfaced both Vue 2 and Vue 3 candidates, discard the Vue 2 reasoning, deepen Vue 3 research if thin, then continue with Vue 3-specific decisions. Apply this trigger after every locked decision that narrows the option space, not just framework choices.
 - **Decision-tree pruning after path-narrowing locks (F23)**: after each locked Stage 3c decision, re-evaluate the REMAINING decision tree for pruning opportunities, the decision-side parallel to the research-side re-orient rule above. If a downstream decision's options ALL became moot due to the lock, drop that decision from the tree, note the pruning in the interview-log under `## Stage 3 Decision Tree Pruning`, and do NOT ask the user the dead question. Worked example: when the user locks `D4 Input modes: file only`, the downstream decisions `D5 URL handling rigor` and `D6 Path-traversal-via-URL guard` have nothing to decide (no URL surface exists): collapse both into a single `D7 Sanitizer rigor` question covering the surface that remains, or drop entirely if no surface remains. Apply this after every locked decision, not just the first; pruning compounds across the walk-down.
-- **AskUserQuestion batching heuristic (F25)**: standalone single-question calls for GATEWAY questions whose answer changes the flow and for conditional follow-ups that depend on a prior answer within the same stage (the framework pick after `Tests?`, asked only once `Proceed?` is Proceed). The 3a call is the one batched exception: it carries `Proceed?`, `TDD?` or `Tests?`, and `QA?` together, because test-infra detection ran in Stage 2c.1 and neither of the other two depends on the `Proceed?` answer, which discards them when it is not Proceed. Batched calls (up to 4 questions per AskUserQuestion invocation; that is the spec hard cap, not a target) for INDEPENDENT decisions that share no conditional dependency. After each batched call's answers arrive, re-evaluate the remaining decision tree per the pruning rule above BEFORE issuing the next batch, answers from batch N can prune nodes that would otherwise have entered batch N+1. Smaller cohesive batches (3 location-class questions together; 2 security-rigor questions together) beat arbitrary batch-of-4 fills; cohesion matters more than fill rate.
+- **AskUserQuestion batching heuristic (F25)**: standalone single-question calls for GATEWAY questions whose answer changes the flow and for conditional follow-ups that depend on a prior answer within the same stage (the framework pick after `Tests?`). Batched calls (up to 4 questions per AskUserQuestion invocation; that is the spec hard cap, not a target) for INDEPENDENT decisions that share no conditional dependency. After each batched call's answers arrive, re-evaluate the remaining decision tree per the pruning rule above BEFORE issuing the next batch, answers from batch N can prune nodes that would otherwise have entered batch N+1. Smaller cohesive batches (3 location-class questions together; 2 security-rigor questions together) beat arbitrary batch-of-4 fills; cohesion matters more than fill rate.
 
 ## Stage 4 synthesis preview shape
 
@@ -147,8 +136,12 @@ answering `Revise a decision` or `Revise / expand scope`.
 ### Oracle findings (only when Stage 3.5 surfaced IMPORTANT ones)
 - [IMPORTANT] <trigger>: <concern>. Recommended action: <revise | accept-as-risk | no-action>.
 
+Defaults: TDD <tdd | tests-after | none>, QA <yes | no>; say so here to change
+
 Full synthesis, conventions, reuse map and references: `<LOG_PATH>`.
 ```
+
+The `Defaults:` line is always present. It is how one question still covers the TDD and QA values 3b.1 and 3b.2 settled without asking: a reply to `Lock all?` that names a different TDD or QA value changes it, and you re-ask `Lock all?` once with the new line. The `Lock all?` question text opens with the one-line scope summary that replaces that gate: `<You asked, restated> | fit <High|Medium|Low>, effort <Small|Medium|Large> | scope IN: <headline>`.
 
 ### Log form (appended to `LOG_PATH`, no cap)
 
@@ -173,11 +166,11 @@ thing that reads it is you, at Stage 5, from the plan you are writing.
 - Type discipline: <level>
 - File organization: <pattern>
 - Import convention: <pattern>
-- Path aliases: <mapping, or "n/a">
+- Path aliases: <mapping; omit the line when none>
 - TDD: <tdd | tests-after | none>
-- LSP false-positive whitelist: <symbols and patterns, or "n/a">
-- Test mount discipline: <canonical pattern and banned APIs, or "n/a">
-- QA learnings: <topic-relevant lines from `.ac/qa/learnings.md`, or "n/a">
+- LSP false-positive whitelist: <symbols and patterns; omit the line when none>
+- Test mount discipline: <canonical pattern and banned APIs; omit the line when none>
+- QA learnings: <topic-relevant lines from `.ac/qa/learnings.md`; omit the line when none>
 
 ### Reuse Map (existing code to leverage)
 - file_path:line_number, what it provides, which decision uses it

@@ -9,11 +9,9 @@ export const PLAN_SECTIONS = [
     "Codebase Conventions",
     "Reuse Map",
     "Work Objectives",
-    "Tier Calibration",
     "Execution Strategy",
     "Steps",
     "Risks Accepted",
-    "Cross-Project Observations",
     "Deferred Ideas",
 ] as const;
 
@@ -42,9 +40,9 @@ const STEPS_STUB = `<!-- Keep this shape and delete this stub once the real step
 - [ ] **Step 1**: <imperative title>
     - **Type**: code | infra | verification
     - **Tier**: quick | junior | junior-high | senior (omit when Type is verification)
-    - **Why this tier**: <rule-1-cross-layer | rule-2-context | rule-3-codebase-state | rule-4-detail | rule-5-criticality | rule-none, then a colon and one sentence> (omit when Type is verification)
+    - **Why this tier**: <rule token only: rule-1-cross-layer | rule-2-context | rule-3-codebase-state | rule-4-detail | rule-5-criticality | rule-none. rule-5-criticality adds ": before X, after Y" and rule-none adds ": the risk", see model-tiers.md> (omit when Type is verification)
     - **Files**: <absolute paths, one per line; for verification: "(no source edits; runs commands)">
-    - **Description**: <what to do and why, grounded in research. Stands alone: the worker sees this field and no other step, so name a path or a file:line rather than "Step 4's parser".>
+    - **Description**: <what to do and why, grounded in research. Hard cap 400 characters for quick, 450 for junior and junior-high, 800 for senior: it is pasted verbatim into every worker briefing. Stands alone: the worker sees this field and no other step, so name a path or a file:line rather than "Step 4's parser".>
     - **References**:
         - <file_path:line_number>, <pattern to follow>
     - **Commands**: <verification steps only: explicit command list, one per line>

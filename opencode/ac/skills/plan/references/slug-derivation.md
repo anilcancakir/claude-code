@@ -1,4 +1,4 @@
-<!-- ported-from: plugins/ac/skills/plan/references/slug-derivation.md sha256:1b2add10594b09137c475cfbb06f7d54ab5263a3efbecada5f64bfaa3e744901 -->
+<!-- ported-from: plugins/ac/skills/plan/references/slug-derivation.md sha256:bd99b2f2b5d964fcbfadcef98d56af8196c08737579b656d9d0a26dc557fbd20 -->
 # Slug Derivation
 
 The full algorithm behind Stage 0b, plus worked examples. Read this at Stage 0b; the skill body carries only the summary and the outputs.
@@ -32,7 +32,7 @@ It lives here rather than in the body because it is needed exactly once, at the 
 
 ## Empty-slug fallback
 
-If the resulting slug is empty (every token was a stopword, a pathological case), fall back to the topic's first non-stopword word. If even that fails, use `unnamed-plan` and surface the unusual slug in Stage 3a so the user can override it.
+If the resulting slug is empty (every token was a stopword, a pathological case), fall back to the topic's first non-stopword word. If even that fails, use `unnamed-plan` and name the unusual slug in the Stage 4 `Lock all?` scope line so the user can override it.
 
 ## Worked examples
 

@@ -1,4 +1,4 @@
-<!-- ported-from: plugins/ac/skills/plan/references/plan-template.md sha256:0bd2ae9e61c8540a22efa3e0f1e14c0bb4477de4e4bf8f172d15a64ac54a1f94 -->
+<!-- ported-from: plugins/ac/skills/plan/references/plan-template.md sha256:44d5af5f29d69358ecdd0256a122f7b890995fcd753b45f03d82c809c70eace2 -->
 # Plan File Template
 
 Copy-paste-ready markdown structure the planner writes to `.ac/plans/<slug>/plan.md` in Stage 5. The plan file is LLM-friendly: structured markdown, concrete `file_path:line_number`, parsable field labels, no prose flourish, no decorative narration. Downstream agents (`ac/plan-reviewer`, the execute skill, plan-worker tier subagents) read it as a spec.
@@ -40,7 +40,7 @@ The binding constraint is review coverage, because the reviewer runs once and ca
 - **Type discipline**: <level>
 - **File organization**: <pattern>
 - **Import convention**: <pattern>
-- **Path aliases**: <explicit alias resolution rules for the framework and the project's path conventions. State the alias → directory mapping AND name any common mis-form to avoid. Example for Nuxt 4: `~/X` resolves to `<srcDir>/X`; NEVER write `~/app/X` because it doubles the prefix (build error: `Could not load app//app/...`). Test runners may resolve aliases more leniently than the production build; the build is authoritative. Configs at project root use the same rules. Apply to every import in every file; do not let workers re-derive per step.>
+- **Path aliases**: <explicit alias resolution rules for the framework and the project's path conventions. State the alias → directory mapping AND name any common mis-form to avoid. Example for Nuxt 4: `~/X` resolves to `<srcDir>/X`; NEVER write `~/app/X` because it doubles the prefix (build error: `Could not load app//app/...`). Test runners may resolve aliases more leniently than the production build; the build is authoritative. Configs at project root use the same rules. Apply to every import in every file; do not let workers re-derive per step. Omit the line when the project defines no aliases.>
 - **TDD**: <tdd | tests-after | none>. Set in the Stage 3 TDD interview; the executor's worker briefings honor this.
 - **LSP false-positive whitelist**: <Class 2 symbols + structural pattern hints the executor's Phase 2d Layer A skips without retry in typecheck, lint and diagnostics output. The field keeps its name so plans stay shared with Claude Code. Two sub-fields:
   - **Symbols** (Class 2 autoload-registered globals): `it, uses, expect, beforeEach, pest, test` (Pest under intelephense P1010); `defineProps, defineEmits, defineExpose` (Vue compiler macros); `useFetch, useState, useRouter, useRoute` (Nuxt auto-imports); `describe, expect, vi` (Vitest auto-globals); etc.
@@ -52,7 +52,7 @@ The binding constraint is review coverage, because the reviewer runs once and ca
 - **Test mount discipline**: <when test infrastructure is present, ONE canonical pattern prescribed across all tests, plus banned APIs. State the mount factory (e.g., `mount(Component, { props, global: { plugins: [pinia] } })` from `@vue/test-utils`), the active-store setup (e.g., `setActivePinia(createPinia())` in `beforeEach`), the auto-import-mock pattern (e.g., `vi.mock('<module>', async (importOriginal) => ({ ...await importOriginal(), useX: vi.fn(...) }))`), and any broken APIs to NEVER use in this version combo (e.g., `mountSuspended` from `@nuxt/test-utils/runtime` is broken in Vitest 3 + @nuxt/test-utils 4.0.3). Apply to every test file; the banned-API list pre-empts workers re-discovering known breakage one file at a time. Omit this field entirely when the plan's TDD field is `none`.>
 - **QA learnings**: <the topic-relevant lines Stage 1a copied from `.ac/qa/learnings.md`: how to boot and run the app, auth fixtures, stable selectors, flaky areas, known gaps. Observed data from earlier QA runs, so a worker treats it as a hint to verify, not an instruction. Omit this field entirely when the file did not exist or nothing in it bears on the topic.>
 
-Extracted from Stage 2 deep read of files at <list of paths>. Every step honors these implicitly. Do not restate per step.
+Extracted from Stage 2 deep read of files at <list of paths>. Every step honors these implicitly. Do not restate per step. A field that does not apply is omitted, never written as `n/a` (Path aliases said `n/a` in 71 of 86 plans, the LSP whitelist in 32 of 67, QA learnings in 48 of 74); a worker reads an absent line as "nothing to honor" at no cost.
 
 ## Reuse Map
 
@@ -89,35 +89,6 @@ If a step proposes new code that overlaps with an entry here, the plan needs rev
 - Invocation reachability: a step whose Description tells the executor to run a slash command has to name something the executor can actually invoke. The executor reaches a skill through the `skill` tool and an agent through `subagent`; a slash command is typed by the user, and a skill or agent its permissions deny is out of reach as well. When a step needs a user-typed command anyway, write it as a `verification` step whose Description says the user types the command and the step's `Commands` are the checks that run afterwards, rather than as an instruction the orchestrator cannot follow. Measured: a plan asked for a real run of a user-only setup command and the step could not be executed as written, only worked around.
 - <plan-specific exclusions surfaced during the interview>
 
-## Tier Calibration
-
-Rule of detail: write each step with enough context for the assigned model to act, and no more. If you find yourself prescribing line-by-line edits, the executor's job has migrated into the plan. The right tier is the one whose write-style fits the work without forcing line-level prescription.
-
-| Tier    | Primary model (from `config/models.jsonc`) | When to assign | Write style |
-|---------|--------------------------------|----------------|-------------|
-| quick   | GPT-6 Luna at `medium` (fast) | 1 isolated file, mechanical: config edit, rename, scaffold, single-file fix. Scope the work through the briefing, because the fast models trail the Sonnet-shaped tier on anything contextual. | File path + 1-2 sentence outcome + optional pattern reference. No detail past "what to produce". |
-| junior  | GPT-6.1 Sol at `medium` (Sonnet-shaped) | Standard implementation, business logic, pattern application, multi-file pattern work. The default tier on speed and cost, but NOT a near-peer on the hardest cases. | Outcome + pattern reference (file:line) + Must NOT scope guardrails. Name tests, docs or small files the step must not add in Must NOT when the Files list does not cover them. |
-| junior-high | GPT-6.1 Sol at `medium` (Sonnet-shaped) | Junior-shaped work at the borderline of coupling or context depth, or lifted there by codebase state. Same model and variant as junior, so a borderline step has somewhere to go that is not senior. Sourced from rules 1-3 only; the criticality rule never routes here. | Same as junior. The tier marks the step as borderline; it does not change the write style. |
-| senior  | GPT-6.1 Sol at `high` (Opus-shaped) | Genuinely cross-layer changes, architecture, migration, long-horizon or critical work, complex edges, self-verification | High-level intent + architectural constraint + cross-cutting concerns + acceptance criterion. The senior worker designs the solution; do not prescribe low-level code. State the Files list as a hard boundary, because this tier widens scope more readily. |
-
-The model column is the first entry of each tier's fallback chain in `/Users/anilcan/Code/claude-code/opencode/ac/config/models.jsonc`; the full chains and the model shapes are in `model-tiers.md`.
-
-The five numbered assignment rules and the two escalation rules live in `model-tiers.md` and are not restated here, because two copies drift and the copy in this file was the one that drifted: it said criticality fires when a step "touches" a security surface, which is the wording that put half of every recent plan's steps on senior. Read `model-tiers.md` before assigning tiers, and record any escalation in `## Research Summary`.
-
-The one thing worth repeating, because it is the most expensive decision in the file: senior is the expensive and slow tier, the Opus-shaped model at its highest variant, so every unnecessary escalation to it is paid in full. Criticality escalation fires when a step DECIDES security-relevant behaviour, not when it touches a file in that area. A step that can satisfy its own `Done when` without altering a security-relevant decision does not qualify.
-
-Every non-verification step's `Done when` carries at least one criterion a single sub-60-second command can prove, so the wave barrier confirms it by running something rather than by reading prose. When the surface has no such command (no test file, no build target, no lint rule), say so in `Done when` and add a Wave-0 step that creates the harness before that step's wave runs. The reviewer flags a step with no provable criterion as IMPORTANT and the orchestrator decides.
-
-**A criterion has to be able to fail.** Before a command goes into `Done when`, run it against an input you know is bad and confirm it reports the failure. A gate that cannot fail reports a pass, which is worse than no gate because it looks like verification. Two ways this happens, both measured here. A tool that does not support the flag you gave it exits non-zero with an empty stdout, and "returns nothing" then reads as clean: `grep -P` on macOS exits 2 and prints nothing, so a Unicode-class gate written that way passed on a file full of the characters it was meant to reject, and `rg` was the fix. And a criterion can be checked against the wrong thing: a command ending in `head` truncates before the value it claims to assert appears. Write the assertion into the command rather than into the prose around it.
-
-**A criterion that names a number gets read against the fixture in the same step.** A step once required a generated file of 60 to 200 lines while its own Description prescribed a three-line project to generate it from; the honest output was 33 lines, and padding it to clear the floor would have broken the very principle the generator exists to enforce. The criterion was the thing that was wrong. When a `Done when` states a size, a count or a duration, check it against the input the step itself sets up before the plan is written, and prefer a quality test with a hard cap over a fixed floor.
-
-Anti-patterns per tier (each example is a bad step; the rewrite shows the correct shape):
-
-- quick, bad: `"Open foo.ts at line 42, change let x = 1 to let x = 2."` The quick worker does this without you describing it. Write `"Update the timeout default to 30s in foo.ts."` and stop.
-- junior, bad: `"Wrap every call site with try { ... } catch (e) { logger.error(e); throw new ApiError(e); }"`. The junior worker infers handlers from existing code. Write `"Add error handling on the user-input boundary in handlers/users.ts; follow the pattern at handlers/auth.ts:88."`.
-- senior, bad: `"First create A, then B imports A, then C imports B, then D imports C."` The senior worker designs the order. Write `"Implement event-driven dispatch matching the pattern at dispatcher/core.ts:142; preserve the at-least-once delivery invariant."`.
-
 ## Execution Strategy
 
 ### Parallel Execution Waves
@@ -136,14 +107,6 @@ Single-file chain check, applied before you commit to the wave list: when three 
 
 <inline dependencies between waves and steps, or "None">
 
-### Git context (optional)
-
-<one of `root | gitignored-subproject | independent-git-init`, or omit when default `root` applies. The executor's Phase 4a reads this field as a hint:
-- `root` (default when omitted): project files tracked at repo root; Phase 4 final commit follows normal flow.
-- `gitignored-subproject`: project lives under a gitignored path (e.g. `references/<slug>/` when `references/` is in .gitignore). Phase 4 final commit will be auto-skipped per the F7 rule when the parent repo has unrelated tracked work; the plan's deliverables remain at the gitignored location.
-- `independent-git-init`: project intended to have its own `git init` separate from the outer repo. Phase 4 commit responsibility is on the user; the orchestrator does not auto-init.>
-
-
 ## Steps
 
 `ac plan-check <slug>` validates this section mechanically and is the Stage 5 gate. It reads the `- [ ]` line, the
@@ -158,13 +121,15 @@ Step types (the `Type:` field per step):
 - [ ] **Step 1**: <imperative title>
     - **Type**: code | infra | verification
     - **Tier**: quick | junior | junior-high | senior (omit when Type is verification)
-    - **Why this tier**: <`rule-1-cross-layer` | `rule-2-context` | `rule-3-codebase-state` | `rule-4-detail` | `rule-5-criticality` | `rule-none`, then a colon and one sentence. `rule-5-criticality` takes the before-and-after form: `before <X>, after <Y>`, both halves concrete. `rule-none` names a risk no numbered rule covers and routes to `junior-high`, never `senior`. See `model-tiers.md`.> (omit when Type is verification)
+    - **Why this tier**: <the rule token only, no sentence: `rule-1-cross-layer` | `rule-2-context` | `rule-3-codebase-state` | `rule-4-detail` | `rule-5-criticality` | `rule-none`. Two tokens keep the part their audit reads: `rule-5-criticality: before <X>, after <Y>`, both halves concrete, and `rule-none: <the risk no numbered rule covers>`, which routes to `junior-high`, never `senior`. See `model-tiers.md`.> (omit when Type is verification)
     - **Files**: <absolute paths, one per line; for verification: "(no source edits; runs commands)">
     - **Description**: <what to do and why, grounded in research. Must stand alone: the worker receives this
       field and never sees another step, so name a path or a `file:line` rather than "Step 4's parser".
-      Target 400 characters for `quick`, 450 for `junior` and `junior-high`, 800 for `senior`. Name the change and the
-      reason, cite the pattern by `file:line`, and stop. Measured, Descriptions averaged 1,100 characters and were
-      39% of the whole plan file; the worker needs the spec, not the narration.>
+      Hard cap: 400 characters for `quick`, 450 for `junior` and `junior-high`, 800 for `senior`. The field is pasted
+      verbatim into every worker briefing, so each extra character is paid again at every spawn and on every
+      retry. Name the change and the reason, cite the pattern by `file:line`, and stop. Measured over the latest 100
+      plans, the median Description was 1,314 bytes against the 450 target; the worker needs the spec, not the
+      narration.>
     - **References**:
         - file_path:line_number, <pattern to follow>
         - <Reuse Map entry>: <how this step uses it>
@@ -190,25 +155,42 @@ Decisions kept in scope with a recommended default rather than a user-locked cho
 
 - <decision and recommended default>: <reason for acceptance, link to interview-log node>
 
-## Cross-Project Observations
-
-Findings that surfaced during planning or execution of THIS plan but apply to OTHER projects / sibling sub-projects in this repo. Each entry names: the observation, the target `file_path:line_number` in the sibling, and the suggested follow-up. These are NOT in this plan's scope; they are flags for the operator to spin off a separate plan when ready.
-
-Sources of cross-project observations:
-- Stage 3.5 oracle findings that explicitly mention applicability to a sibling project (same pattern, different package).
-- Worker `### Deviations` reports (F17) that adapt a sibling pattern AND identify that the sibling has the same gap.
-- Layer B Manual Code Review cross-file consistency checks that surface a same-pattern bug in a sibling.
-
-Omit this section when there are no cross-project observations.
-
-- <observation>: applies to `<sibling-project-path>/<file>:<line>`. Suggested follow-up: `/ac/plan <topic-for-sibling-fix>`.
-
 ## Deferred Ideas
 
 Captured during the interview as out of scope for this plan. The backlog.
 
 - <idea>: <reason deferred>
 ```
+
+## Optional section: Cross-Project Observations
+
+`plan-scaffold` does not write it. Add `## Cross-Project Observations` after `## Risks Accepted` only when a finding applies to another project or sibling sub-project in this repo (31 of 96 plans carried the heading with the word "None."). Each entry names the observation, the target `file_path:line_number` in the sibling and the suggested follow-up. These are flags for the operator to spin off a separate plan, not scope of this one.
+
+Sources: Stage 3.5 oracle findings that name a sibling project, worker `### Deviations` reports that identify the same gap in a sibling, and Layer B cross-file consistency checks that surface a same-pattern bug in a sibling.
+
+- <observation>: applies to `<sibling-project-path>/<file>:<line>`. Suggested follow-up: `/ac/plan <topic-for-sibling-fix>`.
+
+## Writing the steps: tier style and `Done when`
+
+Rule of detail: write each step with enough context for the assigned model to act, and no more. If you find yourself prescribing line-by-line edits, the executor's job has migrated into the plan. The right tier is the one whose write style fits the work without forcing line-level prescription.
+
+- `quick`: file path, a 1-2 sentence outcome and an optional pattern reference. No detail past "what to produce".
+- `junior` and `junior-high`: outcome, pattern reference (`file:line`) and Must NOT scope guardrails. Name tests, docs or small files the step must not add in Must NOT when the Files list does not cover them. `junior-high` marks the step as borderline; it does not change the write style.
+- `senior`: high-level intent, architectural constraint, cross-cutting concerns and acceptance criterion. The senior worker designs the solution; do not prescribe low-level code. State the Files list as a hard boundary, because this tier widens scope more readily.
+
+The model each tier runs on is the first entry of its fallback chain in `/Users/anilcan/Code/claude-code/opencode/ac/config/models.jsonc`; the full chains and the model shapes are in `model-tiers.md`. The numbered assignment rules and the two escalation rules live there too and are not restated here, because two copies drift: the copy that used to live in this file said criticality fires when a step "touches" a security surface, which put half of every recent plan's steps on senior. Read `model-tiers.md` before assigning tiers, and record any escalation in `## Research Summary`. Senior is the expensive and slow tier, so every unnecessary escalation to it is paid in full: criticality fires when a step DECIDES security-relevant behaviour, not when it touches a file in that area.
+
+Every non-verification step's `Done when` carries at least one criterion a single sub-60-second command can prove, so the wave barrier confirms it by running something rather than by reading prose. When the surface has no such command (no test file, no build target, no lint rule), say so in `Done when` and add a Wave-0 step that creates the harness before that step's wave runs. The reviewer flags a step with no provable criterion as IMPORTANT and the orchestrator decides.
+
+**A criterion has to be able to fail.** Before a command goes into `Done when`, run it against an input you know is bad and confirm it reports the failure. A gate that cannot fail reports a pass, which is worse than no gate because it looks like verification. Two ways this happens, both measured here. A tool that does not support the flag you gave it exits non-zero with an empty stdout, and "returns nothing" then reads as clean: `grep -P` on macOS exits 2 and prints nothing, so a Unicode-class gate written that way passed on a file full of the characters it was meant to reject, and `rg` was the fix. And a criterion can be checked against the wrong thing: a command ending in `head` truncates before the value it claims to assert appears. Write the assertion into the command rather than into the prose around it.
+
+**A criterion that names a number gets read against the fixture in the same step.** A step once required a generated file of 60 to 200 lines while its own Description prescribed a three-line project to generate it from; the honest output was 33 lines, and padding it to clear the floor would have broken the very principle the generator exists to enforce. The criterion was the thing that was wrong. When a `Done when` states a size, a count or a duration, check it against the input the step itself sets up before the plan is written, and prefer a quality test with a hard cap over a fixed floor.
+
+Anti-patterns per tier (each example is a bad step; the rewrite shows the correct shape):
+
+- quick, bad: `"Open foo.ts at line 42, change let x = 1 to let x = 2."` The quick worker does this without you describing it. Write `"Update the timeout default to 30s in foo.ts."` and stop.
+- junior, bad: `"Wrap every call site with try { ... } catch (e) { logger.error(e); throw new ApiError(e); }"`. The junior worker infers handlers from existing code. Write `"Add error handling on the user-input boundary in handlers/users.ts; follow the pattern at handlers/auth.ts:88."`.
+- senior, bad: `"First create A, then B imports A, then C imports B, then D imports C."` The senior worker designs the order. Write `"Implement event-driven dispatch matching the pattern at dispatcher/core.ts:142; preserve the at-least-once delivery invariant."`.
 
 ## Literal-pattern audit: worked example
 

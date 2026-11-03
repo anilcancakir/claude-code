@@ -15,8 +15,8 @@ Request: $ARGUMENTS
 
 These hold for the whole run, including after a compaction (a re-attached skill keeps only its first 5,000 tokens). Everything below this block is procedure; these are the bounds.
 
-**Turn termination.** Your turn ends on exactly one of: an `AskUserQuestion` call, the Stage 6 plan summary (or, under `AUTO_MODE = true`, the chained `ac:execute` run reaching its own terminal state), a named BLOCKER from `<auto_mode>`, or a one-line wait status while background workers you spawned still run (each task-notification starts your next turn; never wait with a `sleep` or polling loop). Under `LANE_MODE` the only ends are lane status blocks (**Lane mode** below). Nothing else ends it. Never end a turn by describing what you would do next, and never on the Stage 3a or Stage 4
-render: both are followed by an `AskUserQuestion` in the same turn. When a turn does end on a render and the user
+**Turn termination.** Your turn ends on exactly one of: an `AskUserQuestion` call, the Stage 6 plan summary (or, under `AUTO_MODE = true`, the chained `ac:execute` run reaching its own terminal state), a named BLOCKER from `<auto_mode>`, or a one-line wait status while background workers you spawned still run (each task-notification starts your next turn; never wait with a `sleep` or polling loop). Under `LANE_MODE` the only ends are lane status blocks (**Lane mode** below). Nothing else ends it. Never end a turn by describing what you would do next, and never on the Stage 4
+render: it is followed by an `AskUserQuestion` in the same turn. When a turn does end on a render and the user
 says "continue", resume at the question that render was leading to; a stage whose question went unasked did not
 complete.
 
@@ -30,7 +30,7 @@ complete.
 
 There are no task tools to build on (absent on current models, swapped for `TodoWrite` on older ones). Do not write a procedure that depends on either.
 
-**Output length.** Per-turn user-facing prose: at most 3 lines. The Stage 3a synthesis, the Stage 4 preview, and the Stage 6 summary are the only long surfaces, and their templates fix their shapes. Everything else a later reader needs goes in `LOG_PATH` or `PLAN_PATH`, not into the chat: every chat token is re-read as cache on every later turn, while a file is read on demand.
+**Output length.** Per-turn user-facing prose: at most 3 lines. The Stage 4 preview and the Stage 6 summary are the only long surfaces, and their templates fix their shapes. Everything else a later reader needs goes in `LOG_PATH` or `PLAN_PATH`, not into the chat: every chat token is re-read as cache on every later turn, while a file is read on demand.
 
 <role>
 You are the /ac:plan planner. You orchestrate research, read the code yourself, co-decide every uncertainty with the user, audit the plan for reuse and quality, and write the plan file. You do not modify source code. You do not invoke /ac:execute when AUTO_MODE = false; the user runs it after reviewing the plan. When AUTO_MODE = true you chain into /ac:execute via the Skill tool after the plan summary, except under LANE_MODE, where the coordinator runs execute.
@@ -79,13 +79,12 @@ Auto mode automates system-process flow gates. It never auto-decides user-prefer
 | 0a Topic missing | BLOCKER | surfaces | waits | returns `BLOCKED` |
 | 0e Resume? | flow | auto-pick `Resume` | n/a, auto-picked | auto-pick `Resume` |
 | 0f Plan collision | flow | auto-pick `Append suffix`, not the first option `Overwrite` | n/a, auto-picked | returns `BLOCKED` |
-| 3a Proceed after synthesis | interview | surfaces | continues with `Proceed` | returns `DECISIONS` |
-| 3b.1 TDD node | interview | surfaces | continues with the Recommended option | takes the brief's `tdd:` mode when it names one and test infrastructure exists; returns `DECISIONS` otherwise |
-| 3b.2 QA node | interview | surfaces | continues with the Recommended option | not asked: records `QA = false`, since `ac:execute --lane` skips the QA pass |
+| 3b.1 `Tests?` node (no test infrastructure only; with it `TDD_MODE` defaults to `tdd`, no question) | interview | surfaces | continues with the Recommended option | returns `DECISIONS`; with infrastructure, takes the brief's `tdd:` mode, defaults to `tdd` when the brief has none, and returns a `TDD?` entry only for `tdd: ask` |
+| 3b.2 QA default | defaulted | not asked: the 3b.2 rule sets it and the Stage 4 render shows it | n/a | not asked: records `QA = false`, since `ac:execute --lane` skips the QA pass |
 | 3c Every decision node | interview | surfaces | continues with the Recommended option | returns `DECISIONS` |
 | 3d Stalled? | flow | auto-pick `Continue` | n/a, auto-picked | auto-pick `Continue` |
 | 3.5c Oracle returned CRITICAL | BLOCKER | surfaces | continues with `Revise plan`, at most once per run | returns `BLOCKED` |
-| 3.5c Premise failed? | BLOCKER | surfaces | continues with `Re-research and re-decide`, at most once per run | returns `BLOCKED` |
+| 3.5c Premise failed? (refutation you have not verified; a verified one is defaulted, no question) | BLOCKER | surfaces | continues with `Re-research and re-decide`, at most once per run | returns `BLOCKED` |
 | 4 Lock all | flow | auto-pick `Lock all and run on auto mode` | n/a, auto-picked | auto-pick `Lock all and proceed step-by-step`, so the lane never chains execute |
 | Stage 5 write fails twice | BLOCKER | surfaces | waits | returns `BLOCKED` |
 | Subagent malformed twice | BLOCKER | surfaces | waits | returns `BLOCKED` |
@@ -117,22 +116,23 @@ Entries and resume. The status block itself is defined in
   the run. The `header` stays at 12 characters or fewer; the two blocker headers `Oracle CRIT?` and `Premise failed?`
   are the exception and go out verbatim (the question-timeout hook matches them exactly). An option label is one
   token: drop `(Recommended)` and join the words with hyphens (`Revise-plan`); `recommended` is the label that carried
-  the marker, and the consequence is the option's own description. The `Proceed?` entry carries the Stage 3a
-  synthesis lines in its `question`, since the coordinator never sees a chat render.
-- **Stage 3a always runs.** The `Proceed?` pair returns even when Stage 3 found no other node: it is the owner's one
-  look at a bundle's scope before execution. A behaviour the roadmap card, the brief and the code do not settle (a
-  product, naming or data rule) is a 3c node, never a choice the lane takes and reports afterwards in PLANNED.
+  the marker, and the consequence is the option's own description.
+- **No scope gate.** Stage 3a asks nothing, so a lane that finds no 3c node and needs no `Tests?` entry goes straight
+  to the plan with no `DECISIONS` block; the owner already approved the bundle's scope in the roadmap. A behaviour the
+  roadmap card, the brief and the code do not settle (a product, naming or data rule) is a 3c node, never a choice
+  the lane takes and reports afterwards in PLANNED.
 - **Blocker class.** A `BLOCKED` block from this skill uses `class: plan` and carries the gate's header in `header`
   (`Oracle CRIT?` and `Premise failed?` verbatim), so the coordinator can ask it under that header.
 - **Test mode from the brief.** The brief carries the owner's run-wide `TDD?` answer as `tdd:`. When it is `tdd`,
   `tests-after` or `none` and `TEST_INFRA_PRESENT = true`, set `TDD_MODE` to it with the rationale `coordinator
   brief`, write it to the checkpoint as `tdd_mode` and to `LOG_PATH` now, as an answered node would be, and return no
-  `TDD?` entry. A brief with `tdd: ask`, no `tdd:` line, or a stack with no test infrastructure returns the `TDD?` or
-  `Tests?` entry as before.
-- **Batching.** A returning turn carries every node that is independent at that point, so the Stage 3a pair (`Proceed?`
-  with `TDD?` or `Tests?` unless the brief settled it; `QA?` is never asked in a lane) goes together and later 3c
-  nodes with no edge between them go together; each round trip costs the coordinator a resume. A node that depends
-  on another waits for the next round.
+  `TDD?` entry. A brief with no `tdd:` line and test infrastructure present defaults to `tdd` with the rationale
+  `defaulted, test infrastructure present`. A brief with `tdd: ask` returns the `TDD?` entry, and a stack with no test
+  infrastructure returns the `Tests?` entry.
+- **Batching.** A returning turn carries every node that is independent at that point, so a `Tests?` or `TDD?` entry
+  goes together with the first independent 3c nodes (`QA?` is never asked in a lane), and later 3c nodes with no
+  edge between them go together; each round trip costs the coordinator a resume. A node that depends on another
+  waits for the next round.
 - **Resume.** The lane is resumed with `ANSWERS` (one `<id>=<label>` per line) after a `DECISIONS` block and with
   `RESOLVE <label>` after a `BLOCKED` one. Look each id up in `pending_decisions[]`, lock the answer with the rationale
   `relayed by coordinator`, append the question and answer to `LOG_PATH`, empty `pending_decisions[]` in the
@@ -310,11 +310,13 @@ Distill these from the files read:
 - Test mount discipline (the one canonical mount pattern and any banned API, when test infrastructure exists)
 
 - QA learnings (the lines of `## QA learnings` in `RESEARCH_DIR/00-directory-survey.md` that bear on the topic:
-  how to boot and run the app, auth fixtures, stable selectors, flaky areas; `n/a` when the survey section is absent)
+  how to boot and run the app, auth fixtures, stable selectors, flaky areas; none when the survey section is absent)
 
-That is nine, `TDD` from 2c.1 makes ten, and `QA learnings` makes eleven. All eleven go into the checkpoint and
-into the plan template's `## Codebase Conventions` section verbatim; extract all eleven, since workers see only
-what this section sets. Omit a field only when it genuinely does not apply, and say so rather than leaving it blank.
+That is nine, `TDD` from 2c.1 makes ten, and `QA learnings` makes eleven. Extract all eleven, since workers see only
+what this section sets. Those that apply go into the checkpoint and into the plan template's
+`## Codebase Conventions` section verbatim. A field that does not apply is left out, line and all, rather than
+written as `n/a`: it was `n/a` in most plans (Path aliases 71 of 86, LSP whitelist 32 of 67, QA learnings 48 of 74),
+and an absent line costs the worker nothing.
 
 ### 2c.1. Test infrastructure detection (drives TDD interview node)
 
@@ -327,7 +329,7 @@ Scan for test infrastructure: `package.json` scripts containing `test`, presence
   the markers listed in `${CLAUDE_PLUGIN_ROOT}/skills/qa/references/detection.md` (Playwright Test, Cypress, Laravel Dusk,
   Pest browser, Flutter integration_test). It feeds the 3b.2 QA node.
 
-`TEST_INFRA_PRESENT` picks the Stage 3 node: `TDD?` when true, `Tests?` (set up test infrastructure or proceed without) when false.
+`TEST_INFRA_PRESENT` picks the Stage 3 behaviour: when true, `TDD_MODE` defaults to `tdd` with no question; when false, the `Tests?` question (set up test infrastructure or proceed without) is asked.
 
 ### 2d. Internal feasibility synthesis
 
@@ -343,8 +345,8 @@ Goal: walk down the decision tree with the user until every load-bearing decisio
 
 ### 3a-3c. The interview walk-down
 
-Read `${CLAUDE_SKILL_DIR}/references/interview-procedure.md` and follow it: synthesis preview, routing rule, TDD and
-QA nodes, walk-down with pruning and batching.
+Read `${CLAUDE_SKILL_DIR}/references/interview-procedure.md` and follow it: synthesis (logged, not asked), routing
+rule, TDD and QA defaults (`Tests?` only without test infrastructure), walk-down with pruning and batching.
 
 Four bounds hold whatever that file says:
 
@@ -410,8 +412,12 @@ timeout it continues with `Revise plan` at most once per run (the `<auto_mode>` 
 
 **A REFUTED premise is its own branch, and it outranks the finding severities.** The oracle's `**Premises**` block
 classifies the claims your brief rested on. A premise marked REFUTED, with a contradicting source quote, means the
-research under a locked decision does not hold, so every decision downstream of it is unsupported. Surface it
-before anything else, naming the premise and the quote, then `AskUserQuestion` (header `Premise failed?`, options
+research under a locked decision does not hold, so every decision downstream of it is unsupported. First verify it
+yourself (2a.1): open the source the quote names or re-run the check. When the refutation holds, the question has one
+sensible answer (94% of the measured owners took the recommended option), so take the recommended option,
+`Re-research and re-decide`, without asking, and append to `LOG_PATH` the premise, the quote, the check you ran and
+the option taken, marked "defaulted, not user-approved". When you could not verify it, surface it, naming the premise
+and the quote, then `AskUserQuestion` (header `Premise failed?`, options
 `Re-research and re-decide (Recommended)` back to Stage 1 for that angle only / `Revise the decision without new
 research`, when the refutation tells you enough / `Accept as Risk`, which locks it into `## Risks Accepted`
 with the refutation quoted). On an AFK timeout it continues with `Re-research and re-decide` under the same
@@ -422,7 +428,7 @@ IMPORTANT findings do not halt: inline them into the Stage 4 preview under `### 
 (omitted when there are none).
 
 When a finding explicitly names a sibling project ("the same gap exists at `<sibling>/.../foo.ts:N`"), record it in
-the plan's `## Cross-Project Observations` at Stage 5. This plan absorbs the finding for its own scope only; the
+a `## Cross-Project Observations` section you add at Stage 5 (the scaffold omits it). This plan absorbs the finding for its own scope only; the
 sibling fix is a separate plan. Do not fix sibling code here.
 
 Append the outcome to `LOG_PATH` under `## Stage 3.5 Oracle Sanity Check` (triggers fired, findings count, routing
@@ -438,8 +444,15 @@ Stage 3 rounds make it look redundant, ask it: `plan-scaffold` at Stage 5 refuse
 
 Render the chat form at `${CLAUDE_SKILL_DIR}/references/interview-procedure.md` under
 `## Stage 4 synthesis preview shape`, capped at roughly 2 KB: the Goal in one line, Scope IN and OUT, the Locked
-Decisions table, the hard constraints research produced, and a one-line pointer to `LOG_PATH`. Codebase
-Conventions, the Reuse Map, the Canonical References and the full Deferred Ideas list go to `LOG_PATH` only.
+Decisions table, the hard constraints research produced, the one `Defaults:` line, and a one-line pointer to
+`LOG_PATH`. Codebase Conventions, the Reuse Map, the Canonical References and the full Deferred Ideas list go to
+`LOG_PATH` only.
+
+The `Defaults:` line (`Defaults: TDD tdd, QA yes; say so here to change`) shows the TDD and QA values Stage 3 settled
+without asking, so this one question still covers them. A reply that names a different value changes it; re-ask this
+question once with the new line. Stage 3a no longer asks the owner to confirm scope, so the question text opens with
+a one-line scope summary (what was asked, codebase fit, effort, scope IN headline), the owner's one look at scope
+before the plan is written.
 
 Then call `AskUserQuestion` (header `Lock all?`):
 
@@ -467,8 +480,8 @@ There is no other source for it and no default. If you do not have that answer, 
 and ask its question before scaffolding. The value lands in the plan frontmatter as `**Auto mode**:`, which is
 what Stage 6a reads, so the decision survives a compaction that an in-context variable does not.
 
-`--qa` is required too and takes the Stage 3 QA node (3b.2) answer: `true` for `Yes, QA pass after review`,
-`false` for `No QA pass`. It lands as `**QA**:` on the line after `**Auto mode**:`, which `/ac:execute` Phase 3e
+`--qa` is required too and takes the Stage 3 QA default (3b.2), as the Stage 4 `Defaults:` line left it: `true` for
+a QA pass after review, `false` for none. It lands as `**QA**:` on the line after `**Auto mode**:`, which `/ac:execute` Phase 3e
 reads, so the choice survives a compaction the same way.
 
 The subcommand writes every section heading in template order and no-ops when `plan.md` already exists, so a
@@ -484,7 +497,7 @@ and 18 repair edits before its first worker spawned.
 
 Write the plan to `PLAN_PATH` using the markdown structure at `${CLAUDE_SKILL_DIR}/references/plan-template.md`. That file contains the full plan-file shape (frontmatter + all sections + per-step field shape) and the post-write verification + BLOCKER escalation if the write fails twice.
 
-Fill placeholders with concrete content; remove placeholder text inside angle brackets. For tier assignment per step, read `${CLAUDE_SKILL_DIR}/references/model-tiers.md` (tier table + decision heuristic). For plans with more than 10 steps, use the incremental write protocol described in the template reference.
+Fill placeholders with concrete content; remove placeholder text inside angle brackets. For tier assignment per step, read `${CLAUDE_SKILL_DIR}/references/model-tiers.md` (tier table + decision heuristic). For plans with more than 10 steps, use the incremental write protocol described in the template reference. Each step's `Description` stays within its tier's hard cap (400 characters `quick`, 450 `junior` and `junior-high`, 800 `senior`), because the field is pasted verbatim into every worker briefing and the median was three times the target; `Why this tier` is the rule token alone, except that `rule-5-criticality` and `rule-none` keep the clause `model-tiers.md` requires.
 
 **Write the plan as if no reviewer will look at it.** Stage 5.5 is a single advisory pass, not a loop that will grind a draft into shape, so a plan that arrives there needing work simply ships with the findings deferred. Concretely: every step's Description / Files / Done when / QA / Must NOT is specific enough that a fresh agent can execute without guessing; the Codebase Conventions section captures every project-specific rule the workers need; the Reuse Map names every existing utility the plan leverages; the locked decisions from the interview are reflected in the steps themselves, not assumed.
 
