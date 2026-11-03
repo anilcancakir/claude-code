@@ -116,13 +116,15 @@ case "$wake_count" in '' | *[!0-9]*) exit 0 ;; esac
 
 # An armed /ac:execute or /ac:auto marker owned by this session already has its own guard with
 # a richer reason; do not stack a second block on the same stop.
+markers_lib="$(dirname "$0")/lib/execute-markers.sh"
+[ -f "$markers_lib" ] && . "$markers_lib"
 payload_dir="$(printf '%s' "$input" | jq -r '.cwd // empty' 2>/dev/null)"
 for _dir in "$payload_dir" "${CLAUDE_PROJECT_DIR:-}"; do
     [ -n "$_dir" ] || continue
-    for _m in "$_dir/.ac/state/active-execution.json" "$_dir/.ac/state/active-auto.json"; do
-        [ -f "$_m" ] || continue
-        [ "$(jq -r '.session_id // empty' "$_m" 2>/dev/null)" = "$session_id" ] && exit 0
-    done
+    [ -f "$markers_lib" ] && [ -n "$(exec_owned_markers "$_dir" "$session_id")" ] && exit 0
+    _m="$_dir/.ac/state/active-auto.json"
+    [ -f "$_m" ] || continue
+    [ "$(jq -r '.session_id // empty' "$_m" 2>/dev/null)" = "$session_id" ] && exit 0
 done
 
 msg="$(printf '%s' "$input" | jq -r '.last_assistant_message // empty' 2>/dev/null)"

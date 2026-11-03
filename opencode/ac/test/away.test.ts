@@ -4,7 +4,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { AWAY_MARKER_PATH, awayShellDenial, readAwayMarker, registerAwayGuards } from "../src/away.ts"
 import { COORDINATE_MARKER_PATH } from "../src/coordinate.ts"
-import { MARKER_PATH } from "../src/marker.ts"
+import { EXECUTE_MARKER_DIR } from "../src/marker.ts"
 import { createFakeCtx, type FakeCtx, type FakeSession } from "./fake-ctx.ts"
 
 const HOUR_MS = 3_600_000
@@ -369,7 +369,7 @@ describe("stop guard", () => {
 
     test("a plan or execute source defers to the run guards until gating", async () => {
         writeRunFile(".ac/auto/demo/criteria.md")
-        writeJson(MARKER_PATH, {
+        writeJson(`${EXECUTE_MARKER_DIR}/demo.json`, {
             slug: "demo",
             session_id: "ses_root",
             root_session_id: "ses_root",
@@ -415,7 +415,7 @@ describe("stop guard", () => {
     test("an execute source with its execute marker live stays silent", async () => {
         writeAway({ phase: "executing", source: "execute", source_ref: "demo" })
         writeRunFile(".ac/auto/demo/criteria.md")
-        writeJson(MARKER_PATH, {
+        writeJson(`${EXECUTE_MARKER_DIR}/demo.json`, {
             slug: "demo",
             session_id: "ses_root",
             root_session_id: "ses_root",
@@ -428,6 +428,24 @@ describe("stop guard", () => {
         await stop(fake)
 
         expect(fake.calls.synthetic).toHaveLength(0)
+    })
+
+    test("an execute marker owned by another root does not stand in for this root's run", async () => {
+        writeAway({ phase: "executing", source: "execute", source_ref: "demo" })
+        writeRunFile(".ac/auto/demo/criteria.md")
+        writeJson(`${EXECUTE_MARKER_DIR}/other-plan.json`, {
+            slug: "other-plan",
+            session_id: "ses_other",
+            root_session_id: "ses_other",
+            harness: "opencode",
+            started_at: isoAgo(HOUR_MS),
+            wave_files: [],
+        })
+        const fake = await setup()
+
+        await stop(fake)
+
+        expect(fake.calls.synthetic[0]?.text).toContain("has ended (its marker is gone)")
     })
 
     test("a coordinator source defers while its coordinate marker lives, then asks for the gate", async () => {

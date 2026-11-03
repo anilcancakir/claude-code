@@ -1,14 +1,45 @@
 # Worker Briefing Template (hybrid 6-section)
 
-The briefing shape passed to every worker subagent (`ac:plan-worker-quick`, `-junior`, `-junior-high`, `-senior`) at Phase 2c. The briefing keeps the worker's CONTRACT fields VERBATIM from the plan (Description, Files, Done when, QA, Must NOT, paraphrasing these silently inverts opt-in/opt-out, the #1 worker failure mode). Auxiliary plan context (Pattern References, Codebase Conventions) is inlined into Section 6, because the worker does not open the plan. The briefing is longer for it, and the ~8k tokens a worker would spend re-reading the plan are not spent. Net savings scale with wave size and per-step References count.
+The briefing shape passed to every worker subagent (`ac:plan-worker-quick`, `-junior`, `-junior-high`, `-senior`) at Phase 2c. The briefing keeps the worker's CONTRACT fields VERBATIM from the plan (Description, Files, Done when, QA, Must NOT, paraphrasing these silently inverts opt-in/opt-out, the #1 worker failure mode). Auxiliary plan context (Pattern References, Codebase Conventions) goes into Section 6 and `briefing-common.md`, because the worker does not open the plan. The briefing is longer for it, and the ~8k tokens a worker would spend re-reading the plan are not spent. Net savings scale with wave size and per-step References count.
+
+The blocks that are identical for every step live once per run in `.ac/plans/<slug>/briefing-common.md`, and each per-step briefing points at that file instead of repeating them. Together the two are the six-section briefing.
 
 ## When to read this
 
-Read in Phase 2c every time you spawn a worker. The fields marked VERBATIM are copied from the plan exactly; the fields marked DERIVED are computed by the orchestrator. Nothing is left for the worker to read from the plan file, which it never opens.
+Read at Phase 2b before Wave 1, to write `briefing-common.md`, and in Phase 2c every time you spawn a worker. The fields marked VERBATIM are copied from the plan exactly; the fields marked DERIVED are computed by the orchestrator. Nothing is left for the worker to read from the plan file, which it never opens.
 
-## Template
+## briefing-common.md
+
+Written once per run, before Wave 1's spawns, at `.ac/plans/<slug>/briefing-common.md`. A resumed run overwrites the previous run's copy, since the plan may have changed in between. Nothing step-specific goes here.
 
 ```markdown
+# Shared briefing: <plan title>
+
+Every per-step briefing of this run includes this file. It is part of your Section 6.
+
+## Runtime Commands (DERIVED from CLAUDE.md)
+<RUNTIME_CONTEXT if non-empty, build, test, lint commands>
+
+## Codebase conventions (VERBATIM from the plan's `## Codebase Conventions`)
+<Every field the plan set, including Path aliases, TDD, the LSP false-positive whitelist and Test mount discipline
+when present. Do not summarise; a paraphrased convention is a convention the worker will not follow exactly.>
+
+## Core Objective (VERBATIM from the plan's `## Work Objectives`)
+<The Core Objective. This is what stops a locally-correct change from breaking the thing the plan exists to deliver.>
+
+## Plan-wide guardrails (VERBATIM from the plan's `## Must NOT Have`)
+<The whole block. This is the anti-slop rule set: no scope inflation, no premature abstraction, no copy-paste with
+variation, comments only where WHY is non-obvious, no documentation bloat, no over-validation on trusted inputs.
+Without it, the worker sees no anti-slop rule at all, because it does not read the plan.>
+```
+
+## Per-step template
+
+```markdown
+Read `<absolute path to .ac/plans/<slug>/briefing-common.md>` before anything else: it carries the Runtime Commands,
+codebase conventions, Core Objective and plan-wide guardrails shared by every step of this run, and it is part of
+this briefing.
+
 ## 1. TASK
 
 **Your Assignment**: Step <N>: <step title, VERBATIM>
@@ -44,8 +75,8 @@ Examples of what belongs here:
 
 ## 4. MUST DO
 
-- **Do NOT open the plan file.** Everything you need is in this briefing, which is why Section 6 carries the
-  conventions, the references and the guardrails inline. The plan runs to tens of thousands of characters and you would be
+- **Do NOT open the plan file.** Everything you need is in this briefing and `briefing-common.md`, which is why
+  they carry the conventions, the references and the guardrails. The plan runs to tens of thousands of characters and you would be
   reading it to find the 1,000 that are already below.
 - Follow CLAUDE.md conventions (already in your context).
 - Follow the user's personal coding skill `my-coding` (preloaded into your context). Apply its rules to every file you touch.
@@ -72,8 +103,8 @@ Examples of what belongs here:
 
 ## 6. CONTEXT
 
-### Runtime Commands (DERIVED from CLAUDE.md)
-<RUNTIME_CONTEXT if non-empty, build, test, lint commands>
+Runtime Commands, codebase conventions, Core Objective and plan-wide guardrails: in `briefing-common.md` (first line
+of this briefing).
 
 ### Wisdom from prior steps (DERIVED)
 <ACCUMULATED_WISDOM if non-empty, items distilled in prior waves; prefer these over re-discovering>
@@ -92,18 +123,9 @@ silence on a question the briefing asked is not.
 <Every entry, with its `file_path:line_number` and the one line on what to follow there. Include the step's Reuse
 Map entries and what each provides; a Reuse Map entry is an instruction to use the existing thing, not a hint.>
 
-### Codebase conventions (VERBATIM from the plan's `## Codebase Conventions`)
-<Every field the plan set, including Path aliases, TDD, the LSP false-positive whitelist and Test mount discipline
-when present. Do not summarise; a paraphrased convention is a convention the worker will not follow exactly.>
-
 ### Invariants to preserve (DERIVED from the plan's `## Work Objectives`)
-<The Core Objective in one line, plus any Must Have this step could break. This is what stops a locally-correct
-change from breaking the thing the plan exists to deliver.>
-
-### Plan-wide guardrails (VERBATIM from the plan's `## Must NOT Have`)
-<The whole block. This is the anti-slop rule set: no scope inflation, no premature abstraction, no copy-paste with
-variation, comments only where WHY is non-obvious, no documentation bloat, no over-validation on trusted inputs.
-Without it inline, the worker sees no anti-slop rule at all, because it does not read the plan.>
+<Any Must Have this step could break. The Core Objective is in `briefing-common.md`; omit this section when no Must
+Have is at risk.>
 ```
 
 ## Length and verbatim discipline
@@ -115,14 +137,18 @@ The briefing keeps the worker's CONTRACT fields VERBATIM:
 - QA (Section 2): verification scenario
 - Must NOT (Section 5): anti-scope guardrails
 
-Paraphrasing any of these silently flips opt-in/opt-out and is the most common worker failure mode. Pattern References, the Codebase Conventions, the Work Objectives invariants and the plan-wide guardrails are
-INLINED into Section 6, verbatim. The worker does not open the plan, so anything not assembled here is unreachable.
+Paraphrasing any of these silently flips opt-in/opt-out and is the most common worker failure mode. The contract fields
+are step-specific, so they always sit in the per-step briefing, never in `briefing-common.md`. Pattern References and
+the step's Must Have invariants go into Section 6, the Codebase Conventions, the Core Objective and the plan-wide
+guardrails into `briefing-common.md`, all verbatim. The worker does not open the plan, so anything not assembled in
+the two is unreachable.
 
 The TDD directive is inserted based on the plan's `## Codebase Conventions` → `**TDD**` field, read once at Phase 1f and propagated to every worker briefing for the rest of the run.
 
 ## What the worker does on receipt
 
-1. Read the briefing (this template populated). Note the step number in Section 1; there is no plan path to follow.
+1. Read the briefing (this template populated) and the `briefing-common.md` its first line names. Note the step
+   number in Section 1; there is no plan path to follow.
 2. Read the target files named in `Files to Modify`.
 3. Apply wisdom from Section 6.
 4. Implement per the briefing's references and contract fields.

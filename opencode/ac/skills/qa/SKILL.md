@@ -2,7 +2,7 @@
 name: qa
 description: "Test recent work the way a QA engineer would: derive cases from the requirement and the diff, run them against the live app, fix critical and high findings, retest once. Use when the user asks for QA, a test pass or a browser walk-through, or the execute skill reaches Phase 3e; never start it unasked."
 ---
-<!-- ported-from: plugins/ac/skills/qa/SKILL.md sha256:becb3aa5c0879fb85ad93e365e6ed3df178ea54baba7b446819cb05ffebf64d9 -->
+<!-- ported-from: plugins/ac/skills/qa/SKILL.md sha256:65f321113fc45a6a3c2802f783524d4b6bc6431b5d53a9a2c79769e8d5c2faea -->
 
 # qa
 
@@ -17,14 +17,14 @@ These hold for the whole run, including after a compaction.
 - Never call the `question` tool and never raise a BLOCKER. An environment failure (app will not boot, tool missing, browser missing, credentials absent) ends the run as `could-not-run`, recorded in the report and in `## Known gaps`, and the run still prints its `QA result:` block.
 - Spawn `ac/qa-tester` at most twice per invocation: one initial run, one retest. Spawn it with the `subagent` tool and `background: true`; its report reaches this session as a notification. A returned report continues Phase 3 at once. A background launch ends the turn with one line (`QA: tester running for run <run id>; resuming on its notification`), and the notification resumes at the report handling. Never wait with `sleep`, a poll loop or by reading the tester's output file.
 - Standalone, and plan mode outside execute, the turn ends on the `QA result:` block. Chained (`--plan` under the execute skill) that block hands control back to the execute skill, which continues to Phase 4a in the same turn, so never end the turn there and never summarise to the user as if the work were over. A wait turn during `--plan` is allowed, because execute's stop guard counts a running subagent.
-- Never commit, never push, never touch the `.ac/state/` markers (`active-execution.json` must still exist when the execute skill resumes).
+- Never commit, never push, never touch the `.ac/state/` markers (`.ac/state/execute/<slug>.json` must still exist when the execute skill resumes).
 - Only you edit application code and `.ac/qa/learnings.md`; the tester writes only inside its run directory.
 
 ## Phase 0: Parse the request
 
 `--plan <slug>` selects a plan run; the rest of the request text is the focus text. Without `--plan` the mode is standalone and the whole request is the user's request. Set `PROJECT_ROOT` to `pwd` and use absolute paths from here on; the tester cannot expand relative ones.
 
-With `--plan`, read `.ac/state/active-execution.json` (read only). When it names the slug, the mode is chained, called from the execute skill's Phase 3e. When the file is absent or names another slug, it is plan mode outside execute: `Requirement` comes from the plan as in chained mode, the base is the commit before the plan's `**Generated**:` time (`git rev-list -1 --before=<Generated> HEAD`), falling back to the standalone clean-tree base rule in Phase 1 when that finds nothing, in place of the `started_at` lookup, the run dir sits under the plan's `qa/`, lows and unfixed mediums go to the plan's `## Deferred Ideas`, and the `QA result:` block ends the turn as in standalone mode.
+With `--plan`, read `.ac/state/execute/<slug>.json` (read only). When it exists and this session owns it (its `harness` is `opencode` and its `root_session_id` is this session's, from the `ac_session` tool), the mode is chained, called from the execute skill's Phase 3e. When the file is absent or another session owns it, it is plan mode outside execute: `Requirement` comes from the plan as in chained mode, the base is the commit before the plan's `**Generated**:` time (`git rev-list -1 --before=<Generated> HEAD`), falling back to the standalone clean-tree base rule in Phase 1 when that finds nothing, in place of the `started_at` lookup, the run dir sits under the plan's `qa/`, lows and unfixed mediums go to the plan's `## Deferred Ideas`, and the `QA result:` block ends the turn as in standalone mode.
 
 A plan run needs `.ac/plans/<slug>/plan.md`. If it is missing, print the `QA result:` block with `status: could-not-run` and `report: none`, then hand control back (chained) or end the turn (outside execute).
 
@@ -40,7 +40,7 @@ Run id: `date +%Y%m%d-%H%M%S`. Run dir:
 - Dirty tree (`git status --porcelain` prints anything): `git diff --name-only HEAD` plus the untracked paths from `git status --porcelain` (the `??` lines). Diff command: `git diff HEAD`.
 - Clean tree: take the base from `git merge-base HEAD main` or, failing that, `git merge-base HEAD master`. If neither exists, or the base equals `HEAD`, use `HEAD~1`, and only when `git rev-parse -q --verify HEAD~1` succeeds. Scope files: `git diff --name-only <base>`; diff command: `git diff <base>`. With no base at all, scope is only what the request names.
 
-**Chained, and plan mode outside execute.** `Requirement` is the plan's Core Objective and Definition of Done from `## Work Objectives`, verbatim, plus the focus text when given. Base commit: chained, `git rev-list -1 --before=<started_at> HEAD`, with `started_at` read from `.ac/state/active-execution.json` (read only); outside execute, the Phase 0 merge-base. Scope files are `MODIFIED_FILES` from the execute run in context; after a compaction, and outside execute, `git diff --name-only <base>`. Diff command: `git diff <base> -- <scope files>`. `Existing evidence` is the absolute path of `.ac/plans/<slug>/evidence/`: execute's Layer C already proved those scenarios, and the tester skips them.
+**Chained, and plan mode outside execute.** `Requirement` is the plan's Core Objective and Definition of Done from `## Work Objectives`, verbatim, plus the focus text when given. Base commit: chained, `git rev-list -1 --before=<started_at> HEAD`, with `started_at` read from `.ac/state/execute/<slug>.json` (read only); outside execute, the Phase 0 merge-base. Scope files are `MODIFIED_FILES` from the execute run in context; after a compaction, and outside execute, `git diff --name-only <base>`. Diff command: `git diff <base> -- <scope files>`. `Existing evidence` is the absolute path of `.ac/plans/<slug>/evidence/`: execute's Layer C already proved those scenarios, and the tester skips them.
 
 **No user-facing change in scope** (only docs, tests, comments, build output or internal config, and nothing in the request asks for a behavior check): print the `QA result:` block with `status: skipped`, `cases: 0/0/0/0`, `findings: none`, `fixed files: none`, `report: none`, and stop here. Write nothing.
 

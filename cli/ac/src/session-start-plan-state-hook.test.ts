@@ -67,9 +67,18 @@ function writeCoordinateMarker(fields: Record<string, unknown> = {}): void {
     );
 }
 
-function writePlan(): void {
-    mkdirSync(join(project, ".ac", "plans", PLAN), { recursive: true });
-    writeFileSync(join(project, ".ac", "plans", PLAN, "plan.md"), "# Plan\n\n- [ ] **Step 1**: first\n- [x] **Step 2**: second\n");
+function writeExecuteMarker(slug: string, fields: Record<string, unknown> = {}): void {
+    mkdirSync(join(project, ".ac", "state", "execute"), { recursive: true });
+    writeFileSync(join(project, ".ac", "state", "execute", `${slug}.json`), JSON.stringify({ slug, ...fields }));
+}
+
+function writePlan(withMarker: boolean = true, slug: string = PLAN): void {
+    mkdirSync(join(project, ".ac", "plans", slug), { recursive: true });
+    writeFileSync(join(project, ".ac", "plans", slug, "plan.md"), "# Plan\n\n- [ ] **Step 1**: first\n- [x] **Step 2**: second\n");
+
+    if (withMarker) {
+        writeExecuteMarker(slug);
+    }
 }
 
 test("surfaces the slug, phase and note of a coordinator run this session owns", () => {
@@ -121,16 +130,78 @@ test("a slug outside the allowed charset is never used in a path or surfaced", (
 
 test("an execute marker alone produces the same output as before", () => {
     writePlan();
-    writeFileSync(
-        join(project, ".ac", "state", "active-execution.json"),
-        JSON.stringify({ slug: PLAN, session_id: SESSION, current_wave: 2, note: "wave two" }),
-    );
+    writeExecuteMarker(PLAN, { session_id: SESSION, current_wave: 2, note: "wave two" });
 
     const text = context(runHook());
 
-    expect(text).toContain("Marker .ac/state/active-execution.json reports wave 2");
+    expect(text).toContain(`Marker .ac/state/execute/${PLAN}.json reports wave 2`);
+    expect(text).toContain("owned by this session");
     expect(text).toContain("Marker note: wave two");
     expect(text).not.toContain("coordinate");
+});
+
+test("two markers of two sessions are both reported, each with its owner", () => {
+    writePlan(false, "plan-a");
+    writePlan(false, "plan-b");
+    writeExecuteMarker("plan-a", { session_id: SESSION, current_wave: 1, note: "mine" });
+    writeExecuteMarker("plan-b", { session_id: "sess-other", current_wave: 3, note: "theirs" });
+
+    const mine = context(runHook());
+    const theirs = context(runHook("sess-other"));
+
+    const line = (slug: string, wave: number, owner: string): string =>
+        `Marker .ac/state/execute/${slug}.json reports wave ${wave}, so an /ac:execute run was in flight; owned by ${owner}.`;
+
+    expect(mine).toContain("Active plan: plan-a (1 of 2 steps checked, 1 unchecked)");
+    expect(mine).toContain("Active plan: plan-b (1 of 2 steps checked, 1 unchecked)");
+    expect(mine).toContain(line("plan-a", 1, "this session"));
+    expect(mine).toContain(line("plan-b", 3, "another session"));
+    expect(mine).toContain("Marker note: mine");
+    expect(mine).toContain("Marker note: theirs");
+    expect(theirs).toContain(line("plan-a", 1, "another session"));
+    expect(theirs).toContain(line("plan-b", 3, "this session"));
+});
+
+test("a marker file whose name is not a plain slug is not reported", () => {
+    writePlan(false);
+    writeExecuteMarker("bad slug", { slug: PLAN, session_id: SESSION });
+
+    expect(runHook()).toBe("");
+});
+
+test("the per-slug stop-guard counter is not reported as a marker", () => {
+    writePlan(false);
+    writeFileSync(join(project, ".ac", "plans", PLAN, "plan.md"), "# Plan\n\n- [ ] **Step 1**: first\n");
+    mkdirSync(join(project, ".ac", "state", "execute"), { recursive: true });
+    writeFileSync(
+        join(project, ".ac", "state", "execute", `${PLAN}.stop-guard.json`),
+        JSON.stringify({ run: "x", blocks: 1 }),
+    );
+
+    expect(runHook()).toBe("");
+});
+
+test("an unchecked plan with no execute marker prints nothing", () => {
+    writePlan(false);
+
+    expect(runHook()).toBe("");
+});
+
+test("an unchecked plan with no execute marker leaves only the coordinator note for the owning session", () => {
+    writePlan(false);
+    writeCoordinateMarker();
+
+    const text = context(runHook());
+
+    expect(text).toContain("ship-auth");
+    expect(text).not.toContain("Active plan");
+});
+
+test("an execute marker naming a missing plan prints nothing even when another plan is unchecked", () => {
+    writePlan(false);
+    writeExecuteMarker("gone-plan");
+
+    expect(runHook()).toBe("");
 });
 
 test("on compact, a coordinator run alone carries the 5,000-token guidance for ac:coordinate", () => {

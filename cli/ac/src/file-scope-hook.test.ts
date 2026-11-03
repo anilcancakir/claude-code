@@ -28,18 +28,23 @@ beforeEach(() => {
     root = mkdtempSync(join(tmpdir(), "ac-file-scope-"));
     projectDir = join(root, "project");
     target = join(projectDir, "src", "outside.ts");
-    mkdirSync(join(projectDir, ".ac", "state"), { recursive: true });
+    mkdirSync(join(projectDir, ".ac", "state", "execute"), { recursive: true });
     mkdirSync(join(projectDir, "src"), { recursive: true });
+    writeMarker("demo", [join(projectDir, "src", "declared.ts")]);
+});
+
+function writeMarker(slug: string, waveFiles: string[], session: string = SESSION_ID): void {
     writeFileSync(
-        join(projectDir, ".ac", "state", "active-execution.json"),
+        join(projectDir, ".ac", "state", "execute", `${slug}.json`),
         JSON.stringify({
-            session_id: SESSION_ID,
+            slug,
+            session_id: session,
             started_at: new Date().toISOString().replace(/\.\d{3}Z$/, "Z"),
             pid: process.pid,
-            wave_files: [join(projectDir, "src", "declared.ts")],
+            wave_files: waveFiles,
         }),
     );
-});
+}
 
 afterEach(() => {
     rmSync(root, { recursive: true, force: true });
@@ -114,4 +119,43 @@ test("does not exempt a lane-prefixed agent that is not the lane orchestrator", 
 
     expect(result.exitCode).toBe(0);
     expect(isDenied(result)).toBe(true);
+});
+
+const WORKER = { agent_id: "agent1", agent_type: "ac:plan-worker-junior" };
+
+function workerEditing(file: string, session: string = SESSION_ID): string {
+    return payload({ ...WORKER, session_id: session, tool_input: { file_path: file } });
+}
+
+test("another session's marker in the same checkout neither scopes nor widens this session", () => {
+    writeMarker("other-plan", [target], "sess-other");
+
+    expect(isDenied(runHook(workerEditing(target)))).toBe(true);
+    expect(runHook(workerEditing(target, "sess-other")).stdout).toBe("");
+    expect(isDenied(runHook(workerEditing(join(projectDir, "src", "declared.ts"), "sess-other")))).toBe(true);
+});
+
+test("a session with no marker of its own is not scoped by another session's marker", () => {
+    expect(runHook(workerEditing(target, "sess-third")).stdout).toBe("");
+});
+
+test("a session owning two markers may edit the union of their wave files", () => {
+    writeMarker("second-plan", [target]);
+
+    expect(runHook(workerEditing(target)).stdout).toBe("");
+    expect(runHook(workerEditing(join(projectDir, "src", "declared.ts"))).stdout).toBe("");
+    expect(isDenied(runHook(workerEditing(join(projectDir, "src", "third.ts"))))).toBe(true);
+});
+
+test("a marker file whose name is not a plain slug is ignored", () => {
+    writeMarker("bad slug", [target]);
+
+    expect(isDenied(runHook(payload(WORKER)))).toBe(true);
+});
+
+test("the per-slug stop-guard counter is not read as a marker", () => {
+    rmSync(join(projectDir, ".ac", "state", "execute", "demo.json"));
+    writeMarker("demo.stop-guard", [join(projectDir, "src", "declared.ts")]);
+
+    expect(runHook(payload(WORKER)).stdout).toBe("");
 });

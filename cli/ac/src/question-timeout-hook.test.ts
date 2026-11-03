@@ -140,10 +140,11 @@ function seedCoordinatorRun(overrides: { session?: string; startedAt?: string; s
     );
 }
 
-function seedExecuteMarker(session: string = SESSION): void {
+function seedExecuteMarker(session: string = SESSION, slug: string = SLUG): void {
+    mkdirSync(join(project, ".ac", "state", "execute"), { recursive: true });
     writeFileSync(
-        join(project, ".ac", "state", "active-execution.json"),
-        JSON.stringify({ session_id: session, slug: SLUG, started_at: isoAgo(0), current_wave: 1, pid: 0 }),
+        join(project, ".ac", "state", "execute", `${slug}.json`),
+        JSON.stringify({ session_id: session, slug, started_at: isoAgo(0), current_wave: 1, pid: 0 }),
     );
 }
 
@@ -263,6 +264,21 @@ test("an owned execute marker beside the auto marker waits", () => {
 test("an execute marker owned by another session does not stop the continue", () => {
     seedAutoRun();
     seedExecuteMarker("sess-other");
+
+    expectContinue(runHook(payload()));
+});
+
+test("an owned execute marker waits even beside another session's execute marker", () => {
+    seedAutoRun();
+    seedExecuteMarker("sess-other", "other-plan");
+    seedExecuteMarker(SESSION, "own-plan");
+
+    expectWait(runHook(payload()));
+});
+
+test("an execute marker whose file name is not a plain slug is ignored", () => {
+    seedAutoRun();
+    seedExecuteMarker(SESSION, "bad slug");
 
     expectContinue(runHook(payload()));
 });

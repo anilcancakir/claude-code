@@ -1,7 +1,7 @@
-<!-- ported-from: plugins/ac/skills/auto/references/criteria-schema.md sha256:6a35a577e425130e94eb5ba19e19d7037109278ba09f8b5063429832208f711a -->
+<!-- ported-from: plugins/ac/skills/auto/references/criteria-schema.md sha256:dffb4ba52624d5fa64dcdf8e95c703443821c7aa60289db83b8af8df2113e096 -->
 # Auto-Run Criteria and Marker Schema
 
-Two on-disk shapes back `/ac/auto`. The criteria file states, before any work starts, what "done" means for this request and how each item is checked. The state marker names which run is live, the way `.ac/state/active-execution.json` does for `/ac/execute` (`../execute/references/execution-state.md`). A fresh agent should be able to write a valid criteria file from this document alone.
+Two on-disk shapes back `/ac/auto`. The criteria file states, before any work starts, what "done" means for this request and how each item is checked. The state marker names which run is live, the way `.ac/state/execute/<slug>.json` does for an `/ac/execute` run (`../execute/references/execution-state.md`). A fresh agent should be able to write a valid criteria file from this document alone.
 
 ## Why two verification tiers only
 
@@ -75,6 +75,7 @@ the digest and read as a rewritten contract.
   - `verification`: `command` or `judgment`. No third value.
   - `command`: required when `verification: command`, absent when `verification: judgment`. The literal shell command the gate runs.
   - `expected_exit_code`: required when `verification: command`. The exit code that counts as a pass; the gate treats any other code as a fail, not a crash.
+  - A `command` leaves the working tree and shared state as it found them. The away guard (`opencode/ac/src/away.ts`) denies, while an away marker is live, a hard reset, a `git clean` that is not a dry run, a checkout or restore of the whole tree, a recursive forced `rm`, a force push, and `sed -i` or `perl -i`, so a criterion built on one never runs and the verdict lands on `human_needed` because of the tooling, not the work. A check that needs a clean tree is written read-only, for example `git diff --quiet` or `test -z "$(git status --porcelain)"` with `expected_exit_code: 0`. A database check runs against the test database the gate already uses, never a shared or production one.
   - A `judgment`-tier criterion carries no `command` and no `expected_exit_code`. The gate reads the artifact or the transcript and states pass or fail with a one-line reason; it never invents a command for a criterion that named none.
   - `anchor`: present only on a criterion copied from a plan file (`adopted_from: execute` or `plan`), as `"<plan path>:<line>"`. It names where the verbatim text came from, so a reader can confirm the criterion predates the work. The gate lists anchors and does not evaluate them.
 - `adopted_from`: present only when `/ac/auto` carried a run already going in the session rather than starting from a request. Absent on a new run (source `new`), and never written for a coordinator source, whose criteria are the coordinator's own `.ac/coord/<slug>/criteria.md`. One of:
@@ -107,12 +108,12 @@ the digest and read as a rewritten contract.
 
 ### Invariants
 
-- `started_at` on the state marker (below) is written once and never refreshed, for the same reason `../execute/references/execution-state.md` gives for `active-execution.json`: it is the age bound a guard uses to treat a stale marker as abandoned, and it is the key the stop guard's count uses to hand a run a fresh budget. A criteria file carries no `started_at` of its own; the marker is the single source for it.
+- `started_at` on the state marker (below) is written once and never refreshed, for the same reason `../execute/references/execution-state.md` gives for the execute marker: it is the age bound a guard uses to treat a stale marker as abandoned, and it is the key the stop guard's count uses to hand a run a fresh budget. A criteria file carries no `started_at` of its own; the marker is the single source for it.
 - `overrides[].accepted_by` is writable only from a real user answer, never by a model. A gate or a worker that finds a failing criterion may propose an override (statement plus reason), the same split open-gsd/gsd-core draws in its `verification-overrides` reference, where the verifier suggests an override and a person accepts it, but the entry does not exist in `overrides[]` until the user has answered an explicit question and the answer is recorded verbatim as `accepted_by`. No agent fills that field with its own name, a placeholder, or an inferred identity.
 
 ## `.ac/state/active-auto.json`
 
-Path: `.ac/state/active-auto.json`. Written once at the start of an `/ac/auto` run, refreshed on a narrow subset of fields, and removed on every terminal branch, mirroring the lifecycle discipline `../execute/references/execution-state.md` sets for `active-execution.json`.
+Path: `.ac/state/active-auto.json`. Written once at the start of an `/ac/auto` run, refreshed on a narrow subset of fields, and removed on every terminal branch, mirroring the lifecycle discipline `../execute/references/execution-state.md` sets for the execute marker.
 
 ### Shape
 
@@ -132,7 +133,7 @@ Path: `.ac/state/active-auto.json`. Written once at the start of an `/ac/auto` r
 }
 ```
 
-The marker routinely coexists with `.ac/state/active-coordinate.json` or `.ac/state/active-execution.json` owned by the same session: that is the away mode carrying the run, not a conflict. A marker owned by another session is that session's run and refuses a new one.
+The marker routinely coexists with `.ac/state/active-coordinate.json` or a `.ac/state/execute/<slug>.json` owned by the same session: that is the away mode carrying the run, not a conflict. A marker owned by another session is that session's run and refuses a new one.
 
 ### Field reference
 
@@ -141,12 +142,12 @@ The marker routinely coexists with `.ac/state/active-coordinate.json` or `.ac/st
 - `source_ref`: the coordinator slug or the plan slug the source names; absent for `adhoc` and `new`. Guards refuse a value outside `[A-Za-z0-9._-]`.
 - `allowed_outward`: the outward actions the user's words allowed, a subset of `push`, `merge`, `pr`, `release`, `deploy`; an empty list allows none. The skill adds what a named action needs (`merge` adds `push`, and `pr` where the repository merges through pull requests; a push-triggered `deploy` adds `push`), and a negated mention grants nothing. The shell guard allows `git push` under `push`, `pr` or `merge`, `gh pr create` under `pr` or `merge`, `gh pr merge` under `merge`, and `gh release create|delete|edit|upload` under `release`, and denies a force push or a remote delete whatever the list says.
 - `decisions`: the path of the decisions file, below.
-- `session_id`: `root_session_id` exactly as the `ac_session` tool returned it, written once and matched by any guard that scopes its blocking behaviour to the session that started this run and its workers, the role `root_session_id` plays in `active-execution.json`.
+- `session_id`: `root_session_id` exactly as the `ac_session` tool returned it, written once and matched by any guard that scopes its blocking behaviour to the session that started this run and its workers, the role `root_session_id` plays in the execute marker.
 - `harness`: exactly `"opencode"`. A marker without it was written by Claude Code and the plugin leaves it alone.
 - `started_at`: written once here and never refreshed. See the invariant above.
 - `turns_used`: an integer counter, incremented as the run progresses. Compared against `criteria.md`'s `turn_budget` to decide when to stop new work and go to the gate.
 - `phase`: the run's current stage (`planning`, `executing`, `gating`). Plain string, not an enum in this document; the skill body owns the exact value set.
-- `note`: a one-line resume hint in plain prose, refreshed as the run progresses, read back after a compaction or a restart, matching the role `note` plays in `active-execution.json`.
+- `note`: a one-line resume hint in plain prose, refreshed as the run progresses, read back after a compaction or a restart, matching the role `note` plays in the execute marker.
 
 ### Lifecycle
 

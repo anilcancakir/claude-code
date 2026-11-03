@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, realpathSync } from "node:fs"
 import { basename, dirname, join, resolve, sep } from "node:path"
 import type { Plugin } from "@opencode/plugin"
-import { type ExecutionMarker, ownsMarker, readMarker, rootSessionOf } from "./marker.ts"
+import { EXECUTE_MARKER_DIR, type ExecutionMarker, ownedMarkers, readMarkers, rootSessionOf } from "./marker.ts"
 import { log } from "./log.ts"
 import type { BackgroundShells } from "./wake.ts"
 
@@ -15,6 +15,9 @@ type Cleanup = () => void
 // stop-guard-announce.sh's budget: one nudge per stall, three per user prompt. A nudge is a synthetic message that
 // starts a new run, so without both caps a model that keeps ending its turn would loop on the guard indefinitely.
 const MAX_NUDGES_PER_PROMPT = 3
+
+// Joins the per-run notes of a root that owns several runs into one synthetic message.
+const RUN_SEPARATOR = "\n\n---\n\n"
 
 const UNCHECKED_STEP = /^- \[ \] (.+)$/gm
 const CHECKED_STEP = /^- \[x\] /gm
@@ -33,12 +36,13 @@ const STANDING_RULES = [
         "you would do next, and never propose a fresh session to continue the run. Under --lane (a coordinate " +
         "lane) there is no question tool: every turn ends with the LANE STATUS block instead.",
     "",
-    "Every branch that terminates the run deletes .ac/state/active-execution.json first. While it exists and no " +
-        "subagent of this session runs, the ac plugin hands an ended turn back with the outstanding steps.",
+    "Every branch that terminates a run deletes that run's marker .ac/state/execute/<slug>.json first. While it " +
+        "exists and no subagent of this session runs, the ac plugin hands an ended turn back with the outstanding " +
+        "steps.",
     "",
     "Context: compaction summarizes older turns and the run continues. A filling context window is not a stopping " +
         "condition. When the procedure you need is gone from context, load the skill `execute` again and read the " +
-        "plan file named in .ac/state/active-execution.json for the authoritative step state.",
+        "plan file named by each of your markers in .ac/state/execute/ for the authoritative step state.",
     "",
     "A stop needs a name: a fact you cannot obtain, a decision only the user can make, or a gate you cannot pass. " +
         "Take that branch, ask with the question tool, delete the marker, and report what landed.",
@@ -81,8 +85,9 @@ function stopNudge(marker: ExecutionMarker, plan: string, path: string): string 
         "No subagent of this session is running, so do not wait with sleep or a polling loop: read the plan file and " +
             "the workers' evidence, and spawn a step again only when its output shows it ended without a result.",
         "",
-        "If the user asked you to stop or pause, that outranks this note: delete .ac/state/active-execution.json and " +
-            "stop. If an execute halt branch genuinely applies, take it; it deletes the marker before the run stops.",
+        `If the user asked you to stop or pause, that outranks this note: delete ${EXECUTE_MARKER_DIR}/${marker.slug}` +
+            ".json and stop. If an execute halt branch genuinely applies, take it; it deletes the marker before the " +
+            "run stops.",
         "",
         "Otherwise continue the wave loop from the next unchecked step.",
     ].join("\n")
@@ -155,10 +160,7 @@ export async function registerRunGuards(
         return created
     }
 
-    const ownedMarker = (rootSessionID: string): ExecutionMarker | undefined => {
-        const marker = readMarker(directory)
-        return marker && ownsMarker(marker, rootSessionID) ? marker : undefined
-    }
+    const ownedBy = (rootSessionID: string): ExecutionMarker[] => ownedMarkers(readMarkers(directory), rootSessionID)
 
     // 1. The execute skill writes this id pair into the marker; it cannot learn its session id any other way.
     await ctx.tool.transform((editor) => {
@@ -169,7 +171,7 @@ export async function registerRunGuards(
             options: { codemode: false },
             description:
                 "Returns this session's id and its root session id (the top of the parent chain) as JSON. " +
-                "The ac execute skill writes both into .ac/state/active-execution.json.",
+                "The ac execute skill writes both into its marker .ac/state/execute/<slug>.json.",
             input: {
                 type: "object",
                 properties: {},
@@ -197,18 +199,23 @@ export async function registerRunGuards(
     //    scoped: its plan ticks and Phase 3 remediation fall outside every wave's files by design.
     await ctx.permission.hook("evaluate", async (event) => {
         if (event.action !== "edit") return
-        const marker = readMarker(directory)
-        if (!marker || marker.wave_files.length === 0) return
-        if (event.sessionID === marker.root_session_id) return
+        const markers = readMarkers(directory)
+        if (!markers.some((marker) => marker.wave_files.length > 0)) return
+        if (markers.some((marker) => marker.root_session_id === event.sessionID)) return
         // An unknown root leaves the default effect, as pretooluse-file-scope.sh fails open on any resolution doubt.
         const root = await rootOf(event.sessionID).catch((error: unknown) => {
             log("error", "ac run-guards: root session lookup failed, edit left unscoped", event.sessionID, error)
             return undefined
         })
-        if (root === undefined || !ownsMarker(marker, root)) return
+        if (root === undefined) return
+        // A root's runs share one scope: the union of their declared files. A run with none declared adds nothing.
+        const owned = ownedMarkers(markers, root).filter((marker) => marker.wave_files.length > 0)
+        if (owned.length === 0) return
 
         const acDir = canonical(join(directory, ".ac"))
-        const scope = new Set(marker.wave_files.map((file) => canonical(resolve(directory, file))))
+        const scope = new Set(
+            owned.flatMap((marker) => marker.wave_files).map((file) => canonical(resolve(directory, file))),
+        )
         // opencode passes a resource relative to the location directory, or absolute outside it (file-access.ts).
         const outside = event.resources.find((resource) => {
             const target = canonical(resolve(directory, resource))
@@ -219,27 +226,28 @@ export async function registerRunGuards(
         event.effect = "deny"
         event.message =
             `Edit outside the active wave's files: ${outside}. ` +
-            "The ac execute run scopes worker edits to wave_files in .ac/state/active-execution.json; report the " +
+            "The ac execute run scopes worker edits to wave_files in " +
+            `${owned.map((marker) => `${EXECUTE_MARKER_DIR}/${marker.slug}.json`).join(", ")}; report the ` +
             "need under Issues instead of editing it."
     })
 
     // 4. The context hook runs on every model request, so the owned-marker check is a cheap root id comparison.
     await ctx.session.hook("context", (event) => {
-        if (!ownedMarker(event.sessionID)) return
+        if (ownedBy(event.sessionID).length === 0) return
         event.system.push({ type: "text", text: STANDING_RULES })
     })
 
     const onStarted = async (sessionID: string): Promise<void> => {
-        const marker = readMarker(directory)
-        if (!marker || sessionID === marker.root_session_id) return
+        const markers = readMarkers(directory)
+        if (markers.length === 0 || markers.some((marker) => marker.root_session_id === sessionID)) return
         const root = await rootOf(sessionID)
-        if (ownsMarker(marker, root)) running.set(sessionID, root)
+        if (ownedMarkers(markers, root).length > 0) running.set(sessionID, root)
     }
 
     const onSucceeded = async (sessionID: string): Promise<void> => {
-        const marker = ownedMarker(sessionID)
         // A lane's turn ends on a LANE STATUS block by design; its coordinator, not this guard, acts on it.
-        if (!marker || marker.lane) return
+        const markers = ownedBy(sessionID).filter((marker) => !marker.lane)
+        if (markers.length === 0) return
         // Running work wakes the session when it lands, so ending the turn is how the orchestrator waits for it:
         // a subagent, or a background shell that will end (a gate run, a test suite).
         if ([...running.values()].includes(sessionID)) return
@@ -248,22 +256,25 @@ export async function registerRunGuards(
         const state = stateOf(sessionID)
         if (state.interrupted || state.stalled || state.nudges >= MAX_NUDGES_PER_PROMPT) return
 
-        const path = planPath(directory, marker)
-        if (!existsSync(path)) return
-        const text = stopNudge(marker, readFileSync(path, "utf8"), path)
-        if (!text) return
+        const texts = markers.flatMap((marker) => {
+            const path = planPath(directory, marker)
+            // An unreadable plan gives no concrete next action; the owned runs that do still get their nudge.
+            const text = existsSync(path) ? stopNudge(marker, readFileSync(path, "utf8"), path) : undefined
+            return text ?? []
+        })
+        if (texts.length === 0) return
 
         state.nudges++
         state.stalled = true
-        await ctx.session.synthetic({ sessionID, text, description: "ac stop guard" })
+        await ctx.session.synthetic({ sessionID, text: texts.join(RUN_SEPARATOR), description: "ac stop guard" })
     }
 
     const onCompacted = async (sessionID: string): Promise<void> => {
-        const marker = ownedMarker(sessionID)
-        if (!marker) return
+        const markers = ownedBy(sessionID)
+        if (markers.length === 0) return
         await ctx.session.synthetic({
             sessionID,
-            text: compactionNudge(marker, planPath(directory, marker)),
+            text: markers.map((marker) => compactionNudge(marker, planPath(directory, marker))).join(RUN_SEPARATOR),
             description: "ac compaction recovery",
         })
     }

@@ -6,11 +6,13 @@
 # no output): the main-thread orchestrator, a dormant/absent marker, a stale marker from
 # a crashed run, an in-scope or .ac/ path, and any parse or resolution uncertainty.
 #
-# It reads the active-execution marker written by the execute skill
+# It reads the per-slug markers .ac/state/execute/<slug>.json written by the execute skill
 # (see plugins/ac/skills/execute/SKILL.md marker contract): wave_files drives the scope
 # check, session_id decides whether this session owns the run, and started_at bounds its
-# age. Denial is expressed as permissionDecision:"deny" JSON on stdout with exit 0; exit 2
-# is never used, because a non-zero crash also fails open by design.
+# age. A session running two plans at once is scoped by the union of its fresh markers'
+# wave_files; markers other sessions own are ignored. Denial is expressed as
+# permissionDecision:"deny" JSON on stdout with exit 0; exit 2 is never used, because a
+# non-zero crash also fails open by design.
 
 set -u
 
@@ -37,64 +39,83 @@ esac
 # root deliberately does not (utils/hooks.ts:813-816: "getProjectRoot() is never updated when
 # entering a worktree"), and every .ac/ path in the execute skill is cwd-relative. So probe
 # the payload cwd first, fall back to the stable root, and only then to PWD.
+markers_lib="$(dirname "$0")/lib/execute-markers.sh"
+[ -f "$markers_lib" ] || exit 0
+. "$markers_lib"
+
 payload_dir="$(printf '%s' "$input" | jq -r '.cwd // empty' 2>/dev/null)"
 project_dir=""
 for _cand in "$payload_dir" "${CLAUDE_PROJECT_DIR:-}"; do
     [ -n "$_cand" ] || continue
-    if [ -e "$_cand/.ac/state/active-execution.json" ]; then
+    if [ -n "$(exec_markers "$_cand")" ]; then
         project_dir="$_cand"
         break
     fi
 done
 [ -n "$project_dir" ] || project_dir="${payload_dir:-${CLAUDE_PROJECT_DIR:-$PWD}}"
 
-marker="$project_dir/.ac/state/active-execution.json"
-
-# 2. No marker means no active run; the guard is dormant outside runs, so allow.
-[ -f "$marker" ] || exit 0
-
-# A malformed marker is uncertainty, so allow.
-jq -e . "$marker" >/dev/null 2>&1 || exit 0
-
-# 2a. Ownership. Only the session that wrote the marker may be scoped by it. Without this
-#     check a marker left by session A denies out-of-wave edits in an unrelated session B
-#     working in the same repository, which is a false deny.
+# 2. Ownership. Only the session that wrote a marker may be scoped by it. Without this
+#    check a marker left by session A denies out-of-wave edits in an unrelated session B
+#    working in the same repository, which is a false deny. No owned marker means no active
+#    run of this session; the guard is dormant outside runs, so allow.
 #
-#     session_id is the signal, not pid. The orchestrator cannot learn its own process id
-#     (a `$$` from Bash yields a short-lived subshell), and real markers in the field carry
-#     `"pid": 0`, which passes `kill -0` only because pid 0 addresses the process group. The
-#     pid check below is therefore retained as a cheap sanity filter, not a liveness proof.
+#    session_id is the signal, not pid. The orchestrator cannot learn its own process id
+#    (a `$$` from Bash yields a short-lived subshell), and real markers in the field carry
+#    `"pid": 0`, which passes `kill -0` only because pid 0 addresses the process group. The
+#    pid check below is therefore retained as a cheap sanity filter, not a liveness proof.
 hook_session="$(printf '%s' "$input" | jq -r '.session_id // empty' 2>/dev/null)"
-marker_session="$(jq -r '.session_id // empty' "$marker" 2>/dev/null)"
 [ -n "$hook_session" ] || exit 0
-[ -n "$marker_session" ] || exit 0
-[ "$hook_session" = "$marker_session" ] || exit 0
+owned="$(exec_owned_markers "$project_dir" "$hook_session")"
+[ -n "$owned" ] || exit 0
 
-# 2b. Staleness. To reach a denial we must POSITIVELY confirm the run is fresh: a crashed
-#     run that skipped its Phase-4 delete must never brick the next session. Any failure to
-#     confirm freshness falls open.
 now_epoch="$(date -u +%s 2>/dev/null)" || exit 0
 
-started_at="$(jq -r '.started_at // empty' "$marker" 2>/dev/null)"
-[ -n "$started_at" ] || exit 0
+# 2a. Staleness, per owned marker. To reach a denial we must POSITIVELY confirm a run is
+#     fresh: a crashed run that skipped its Phase-4 delete must never brick the next session.
+#     A marker whose freshness cannot be confirmed is skipped; with none fresh, allow.
+#     The scope is the union of the fresh markers' wave_files. One fresh marker with an
+#     empty or absent set leaves its scope undeclared, so no target can be confirmed out of
+#     the union -> allow.
+fresh=0
+undeclared=""
+wave_files=""
+while IFS= read -r marker; do
+    [ -n "$marker" ] || continue
+    jq -e . "$marker" >/dev/null 2>&1 || continue
 
-# Parse the ISO-8601 UTC timestamp. Try GNU date, then BSD date; a parse failure means we
-# cannot confirm freshness, so allow.
-started_epoch="$(date -u -d "$started_at" +%s 2>/dev/null)" \
-    || started_epoch="$(date -u -j -f '%Y-%m-%dT%H:%M:%SZ' "$started_at" +%s 2>/dev/null)" \
-    || started_epoch=""
-[ -n "$started_epoch" ] || exit 0
+    started_at="$(jq -r '.started_at // empty' "$marker" 2>/dev/null)"
+    [ -n "$started_at" ] || continue
 
-# Older than 24h, or a future timestamp (clock skew), cannot be confirmed fresh -> allow.
-age=$((now_epoch - started_epoch))
-{ [ "$age" -ge 0 ] && [ "$age" -le 86400 ]; } || exit 0
+    # Parse the ISO-8601 UTC timestamp. Try GNU date, then BSD date; a parse failure means
+    # we cannot confirm freshness.
+    started_epoch="$(date -u -d "$started_at" +%s 2>/dev/null)" \
+        || started_epoch="$(date -u -j -f '%Y-%m-%dT%H:%M:%SZ' "$started_at" +%s 2>/dev/null)" \
+        || started_epoch=""
+    [ -n "$started_epoch" ] || continue
 
-# The pid must be a live process; a missing, non-numeric, or dead pid is stale -> allow.
-pid="$(jq -r '.pid // empty' "$marker" 2>/dev/null)"
-case "$pid" in
-    '' | *[!0-9]*) exit 0 ;;
-esac
-kill -0 "$pid" 2>/dev/null || exit 0
+    # Older than 24h, or a future timestamp (clock skew), cannot be confirmed fresh.
+    age=$((now_epoch - started_epoch))
+    { [ "$age" -ge 0 ] && [ "$age" -le 86400 ]; } || continue
+
+    # The pid must be a live process; a missing, non-numeric, or dead pid is stale.
+    pid="$(jq -r '.pid // empty' "$marker" 2>/dev/null)"
+    case "$pid" in
+        '' | *[!0-9]*) continue ;;
+    esac
+    kill -0 "$pid" 2>/dev/null || continue
+
+    fresh=$((fresh + 1))
+    files="$(jq -r '.wave_files[]? // empty' "$marker" 2>/dev/null)"
+    if [ -n "$files" ]; then
+        wave_files="$wave_files
+$files"
+    else
+        undeclared=1
+    fi
+done <<EOF
+$owned
+EOF
+[ "$fresh" -gt 0 ] || exit 0
 
 # 3. Resolve the tool's target path. No path means nothing to scope -> allow.
 target="$(printf '%s' "$input" | jq -r '.tool_input.file_path // empty' 2>/dev/null)"
@@ -135,9 +156,9 @@ case "$target_canon" in
     "$ac_canon"/*) exit 0 ;;
 esac
 
-# 3b. wave_files is the active wave's declared scope. An empty or absent set means the
-#     allowed set is undeclared, so we cannot confirm the target is out of scope -> allow.
-wave_files="$(jq -r '.wave_files[]? // empty' "$marker" 2>/dev/null)"
+# 3b. wave_files is the active waves' declared scope, collected at 2a. An undeclared set
+#     means we cannot confirm the target is out of scope -> allow.
+[ -z "$undeclared" ] || exit 0
 [ -n "$wave_files" ] || exit 0
 
 # 4. Compare the target against each declared wave file. A match means in-scope -> allow.

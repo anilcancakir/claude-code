@@ -1,5 +1,5 @@
-<!-- ported-from: plugins/ac/skills/execute/references/execution-state.md sha256:b524e4b3495df2b4ebd1b67fd64360d80a346dbac53a7483a945428255d3ef7e -->
-# Execution State and the Active-Execution Marker
+<!-- ported-from: plugins/ac/skills/execute/references/execution-state.md sha256:c4f984753f31eb444a266ed6d1931c060d7dce6f6bebfdafb59f92af04bf8075 -->
+# Execution State and the Per-Slug Execute Marker
 
 Read at Phase 1e. The skill body carries the write, the lifecycle rule, and the field list the guards read; this file carries the schema and the reasoning behind each field.
 
@@ -15,7 +15,9 @@ WORKER_RETRY_PER_STEP = {}              # retries spent per step (variant rung, 
 
 No Phase 3 counters live here or anywhere else. The review is one pass and `.ac/plans/<slug>/review-log.md` holds its outcome as a record, per the `## Standing rules` block.
 
-Then write the on-disk active-execution marker at `.ac/state/active-execution.json`. The ac plugin reads it in four places (`../../src/marker.ts` holds the schema, `../../src/run-guards.ts` the readers): the file-scope guard uses it to scope worker edits to the active wave, the standing-rules injection re-states the run's bounds on every request of the owning session, the compaction recovery note names the plan to reload after a compaction, and the stop guard uses its existence to continue a turn that ended while the run is unfinished. It exists only during an active run and is removed on every terminal branch. Call the `ac_session` tool, create `.ac/state/` if absent, then write:
+Then write this run's marker at `.ac/state/execute/<slug>.json`. Each running plan owns one, so several execute runs can share a checkout; the slug is the file name, limited to `[A-Za-z0-9._-]`, and the plugin ignores any other name because the slug ends up in paths and in text handed to the model. The ac plugin acts on every marker the current root session owns, in four places (`../../src/marker.ts` holds the schema, `../../src/run-guards.ts` the readers): the file-scope guard scopes worker edits to the union of their `wave_files`, the standing-rules injection re-states the runs' bounds on every request of the owning session, the compaction recovery note names each plan to reload after a compaction, and the stop guard continues a turn that ended while any owned run is unfinished. A `<slug>.stop-guard.json` beside a marker is the Claude Code stop guard's counter, not a run; this skill never touches it. A marker exists only during an active run and is removed on every terminal branch.
+
+Before writing, look for an existing `.ac/state/execute/<slug>.json`. Another slug's marker is another run and never a conflict. This slug's marker owned by another session (a `harness` or `root_session_id` other than yours) with a `started_at` under 24 hours old means another session is running this plan: refuse to start, because two runs ticking one plan's checkboxes corrupt its state. One older than 24 hours is abandoned, and one this session owns is a resume; overwrite either. Call the `ac_session` tool, create `.ac/state/execute/` if absent, then write:
 
 ```
 {
@@ -32,22 +34,22 @@ Then write the on-disk active-execution marker at `.ac/state/active-execution.js
 ```
 
 Marker schema:
-- `slug`: the plan slug. Names which run holds the scope lock, and tells the stop guard and the compaction recovery note which of a repository's many plan directories is the live one. It becomes a path segment under `.ac/plans/`, so the guards reject a slug that is not a plain name.
+- `slug`: the plan slug, equal to the file name. Names which plan this run's `wave_files` belong to, and tells the stop guard and the compaction recovery note which of a repository's many plan directories are live. It becomes a path segment under `.ac/plans/`, so the guards reject a slug that is not a plain name.
 - `session_id`: this session's own id, copied from `ac_session`; never derive or recall it. Informational: workers run as child sessions with ids of their own, so no guard compares against it.
 - `root_session_id`: the top of this session's parent chain, copied from `ac_session`. Load-bearing for every guard: each one walks the calling session's parent chain to its root and acts only when that root matches this field. It scopes the guards to the run that owns the marker, so a marker left behind by another session cannot nudge or scope an unrelated session working in the same repository, and it is how a worker's child session is recognised as part of this run.
-- `harness`: exactly `"opencode"`. A marker without it was written by Claude Code and the ac plugin leaves it alone; Claude Code's own hooks in turn never match this marker, because they compare `session_id` with a Claude Code session id. One execute run per repository at a time, whichever harness runs it, since both write the same file.
+- `harness`: exactly `"opencode"`. A marker without it was written by Claude Code and the ac plugin leaves it alone; Claude Code's own hooks in turn never match this marker, because they compare `session_id` with a Claude Code session id. One execute run per plan at a time, whichever harness runs it, since both write the same per-slug file.
 - `lane`: `true` only under `LANE_MODE` (an `ac/lane` session running `--lane`), absent otherwise. The stop guard then sends no continuation, because the coordinator is the lane's supervisor and reads its status block; the file-scope guard and the standing-rules injection still apply. Write it once with the rest of the marker and never refresh it.
 - `paused`: optional, `true` while a lane is paused by its coordinator (`PAUSE`), removed on `RESUME`. The plugin's compaction note then tells the lane to wait for `RESUME` instead of continuing from the next unchecked step.
 - `started_at`: written once here and preserved verbatim by every later refresh. Two mechanisms key on it, so changing it mid-run is a real defect: it is the age bound the guards use to treat a marker older than 24 hours as absent, and it is the value in the Phase 3a `## Run` header that scopes this run's review-log entry. Refresh `current_wave`, `wave_files`, and `note`; never this field.
 - `current_wave`: the wave index the run is on; refreshed at each wave start (2c). The stop guard's continuation names it.
-- `wave_files`: absolute paths of the ACTIVE wave's step Files. The file-scope guard allows a worker edit only when the target resolves inside this set (or under `.ac/`); the orchestrator's own edits are never scoped. Empty until Wave 1 starts, when 2c populates it, and an empty list scopes nothing.
+- `wave_files`: absolute paths of the ACTIVE wave's step Files. The file-scope guard allows a worker edit only when the target resolves inside the union of the `wave_files` of every marker the root session owns (or under `.ac/`); the orchestrator's own edits are never scoped. Empty until Wave 1 starts, when 2c populates it, and an empty list scopes nothing.
 - `note`: a one-line resume hint in plain prose, refreshed at the end of each wave (2f item 3). It is what you read back after a compaction or a restart, so write what a fresh reader needs: which waves are done and committed, and which step to resume at.
 
 Marker lifecycle: written here, with ONLY `current_wave`, `wave_files`, and `note` refreshed at each wave start and barrier (2c, 2f) while `slug`, `session_id`, `root_session_id`, `harness`, `lane`, and `started_at` stay exactly as written, and deleted at Phase 4 start (4a) plus on every branch that terminates or aborts the run before Phase 4 completes (the 2i / 2j / 3c Stop branches and the error-handling aborts). The marker must never survive a halt: a halt that leaves it behind leaves the stop guard sending continuations, up to its caps, into a run you meant to end.
 
 ## Error handling
 
-Marker teardown applies to every halt: delete `.ac/state/active-execution.json` FIRST, before printing anything or
+Marker teardown applies to every halt: delete this run's `.ac/state/execute/<slug>.json` first (never another slug's), before printing anything or
 ending the turn. The stop guard reads the marker's presence as "this run is unfinished" and will hand the ended turn
 back with the outstanding steps, up to one continuation per stall and three per user prompt. Branches that continue
 the run leave the marker in place.

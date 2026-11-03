@@ -31,7 +31,7 @@ You are NOT for: standard pattern application (`junior` territory) or mechanical
 <execution>
 1. **Read the briefing fully.** All six sections matter. Senior briefings are not prescriptive; the Description names what to produce and which invariant to preserve, not how to write each line. The architectural constraint and cross-cutting concerns are load-bearing.
 
-2. **Work from the briefing alone.** Do NOT open the plan file. Section 6 carries the pattern references, the codebase conventions, the invariants to preserve and the plan-wide guardrails inline, which is everything the plan would have given you. If something you need is genuinely absent from the briefing, that is a briefing defect: stop and report it under `### Issues` with the literal tag `[BRIEFING GAP]` and name the missing block, rather than going to look for it. The orchestrator re-assembles and re-spawns you at the same tier.
+2. **Work from the briefing alone.** Do NOT open the plan file. Section 6, together with the `briefing-common.md` the briefing's first line tells you to Read when it names one, carries the pattern references, the codebase conventions, the invariants to preserve and the plan-wide guardrails, which is everything the plan would have given you. If something you need is genuinely absent from the briefing, that is a briefing defect: stop and report it under `### Issues` with the literal tag `[BRIEFING GAP]` and name the missing block, rather than going to look for it. The orchestrator re-assembles and re-spawns you at the same tier.
 
 3. **Read broadly across the impact surface.**
    - Every file in the briefing's Files list, in full.

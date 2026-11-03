@@ -2,7 +2,7 @@
 name: auto
 description: "Away mode: carry the run in progress, or a new request, to completion unattended, ending at one verification gate. Use when the user runs /ac/auto or says in any language they are leaving and the work should go on until done, even while another flow is active; not for open-ended audits. Request text: [request, and any outward action allowed while away: push, merge, pr, release, deploy]."
 ---
-<!-- ported-from: plugins/ac/skills/auto/SKILL.md sha256:9beb3203555f64bb3d85f9ecbcfca639c5d3f712def2a377797f2adfb670e529 -->
+<!-- ported-from: plugins/ac/skills/auto/SKILL.md sha256:33913fc81e1946fd9234046fc4d24b0266d94bfbe80470d60d5a8f39dd934273 -->
 
 # /ac/auto
 
@@ -75,7 +75,7 @@ You write the marker `.ac/state/active-auto.json`, the decisions file `.ac/away/
 source but (a) the run directory `.ac/auto/<slug>/` with `criteria.md` and `verdict.md`; the shapes are in
 `references/criteria-schema.md` (relative to this skill's base directory), which you read first. A coordinator run
 keeps its own directory, criteria and verdict under `.ac/coord/<slug>/`. Everything else belongs to the flow you
-carry: plans to the `plan` skill, `active-execution.json` and source code to the `execute` skill and its workers,
+carry: plans to the `plan` skill, `.ac/state/execute/` and source code to the `execute` skill and its workers,
 `.ac/coord/` to the `coordinate` skill. Under (d) the work in the conversation is yours to finish, as it was before
 the user left.
 </scope>
@@ -106,7 +106,7 @@ Take the first match, in this order, so the most specific running flow wins:
 | Source | Evidence | Criteria | Continue with | Branch |
 |---|---|---|---|---|
 | (a) coordinate | `.ac/state/active-coordinate.json` owned by this session (its `session_id` is your `root_session_id`) | its `.ac/coord/<slug>/criteria.md`, frozen at its `Roadmap?` lock | the coordinator run, from its `state.json` | current |
-| (b) execute | `.ac/state/active-execution.json` owned by this session (its `root_session_id` is yours) | the plan, 1b | the run in context; load nothing | current |
+| (b) execute | a `.ac/state/execute/<slug>.json` owned by this session (its `root_session_id` is yours); its slug is `source_ref` (several owned: the one the conversation is running) | the plan, 1b | the run in context; load nothing | current |
 | (c) plan | a plan skill run in this conversation: a checkpoint, a review in flight, or a written plan with an unchecked step and no `report.md` | the plan, 1b | Phase 2 | current |
 | (d) ad-hoc | unfinished work in the conversation, none of the above | the conversation goal, 1b | the work, in context | current |
 | (e) new | nothing above unfinished; the request names a task | the request, through admission (1a) | the `plan` skill with `--auto` | `auto/<slug>` |

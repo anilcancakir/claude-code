@@ -101,7 +101,7 @@ test("a truncated plan is named as truncated rather than as a missing prefix", (
     expect(found.some((message) => message.includes("missing their"))).toBe(false);
 });
 
-// The hooks grep `'^- \[ \] '` with the trailing space (stop-guard.sh:121 and :130). A checkbox
+// The hooks grep `'^- \[ \] '` with the trailing space (the per-run loop in stop-guard.sh). A checkbox
 // this gate accepts but the guard cannot see is worse than no gate: the plan passes and its
 // progress signal is already dead.
 

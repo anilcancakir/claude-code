@@ -16,17 +16,18 @@
 # anthropics/claude-code plugins/ralph-wiggum/hooks/stop-hook.sh: the loop counter lives in
 # a file the hook increments, never in the model's working memory.
 #
-# The marker's existence IS the predicate. The execute skill deletes it at Phase 4a and on
-# every branch that terminates the run (see plugins/ac/skills/execute/SKILL.md marker
-# lifecycle), so a legitimate halt has already removed it before the turn ends.
+# The marker's existence IS the predicate. The execute skill deletes .ac/state/execute/<slug>.json
+# at Phase 4a and on every branch that terminates the run (see plugins/ac/skills/execute/SKILL.md
+# marker lifecycle), so a legitimate halt has already removed it before the turn ends.
 #
 # Known limits, deliberate:
 #   - `--resume --fork-session` keeps the fresh startup session id rather than the resumed
 #     one (utils/sessionRestore.ts:452-453), so the ownership check below fails and the guard
 #     goes inert for that run. Failing open is the correct direction; a forked session is a
 #     new run and should write its own marker.
-#   - The marker is a single global slot per repository. Two concurrent /ac:execute runs in
-#     one repository leave the second owning the marker and the first unguarded.
+#   - Each running plan has its own marker, .ac/state/execute/<slug>.json, and its own block
+#     counter beside it, so concurrent runs in one checkout do not overwrite each other. A
+#     session owning two runs is blocked while either is in flight, with both named.
 #   - A bare `Stop` registration never fires for subagents; utils/hooks.ts:3654 routes those
 #     to SubagentStop. Blast radius is the main thread only.
 #   - The no-progress test needs `transcript_path` in the payload to read tool activity. Without
@@ -51,25 +52,24 @@ printf '%s' "$input" | jq -e . >/dev/null 2>&1 || exit 0
 # root deliberately does not (utils/hooks.ts:813-816: "getProjectRoot() is never updated when
 # entering a worktree"), and every .ac/ path in the execute skill is cwd-relative. So probe
 # the payload cwd first, fall back to the stable root, and only then to PWD.
+markers_lib="$(dirname "$0")/lib/execute-markers.sh"
+[ -f "$markers_lib" ] || exit 0
+. "$markers_lib"
+
 payload_dir="$(printf '%s' "$input" | jq -r '.cwd // empty' 2>/dev/null)"
 project_dir=""
 for _cand in "$payload_dir" "${CLAUDE_PROJECT_DIR:-}"; do
     [ -n "$_cand" ] || continue
-    if [ -e "$_cand/.ac/state/active-execution.json" ]; then
+    if [ -n "$(exec_markers "$_cand")" ]; then
         project_dir="$_cand"
         break
     fi
 done
 [ -n "$project_dir" ] || project_dir="${payload_dir:-${CLAUDE_PROJECT_DIR:-$PWD}}"
 
-marker="$project_dir/.ac/state/active-execution.json"
-
-# 1. No marker means no active run. The guard is dormant outside runs, so allow.
-[ -f "$marker" ] || exit 0
-jq -e . "$marker" >/dev/null 2>&1 || exit 0
-
-# 2. Ownership. Only the session that wrote the marker may be blocked by it, so a marker
+# 1-2. Ownership. Only the session that wrote a marker may be blocked by it, so a marker
 #    left behind by another session cannot trap an unrelated session in the same repository.
+#    No owned marker means no active run of this session; the guard is dormant, so allow.
 #    session_id is the signal, not pid: the orchestrator cannot learn its own process id (a
 #    `$$` from Bash yields a short-lived subshell), and real markers carry `"pid": 0`, which
 #    passes `kill -0` only because pid 0 addresses the process group.
@@ -78,27 +78,38 @@ jq -e . "$marker" >/dev/null 2>&1 || exit 0
 #    hooks; utils/sessionRestore.ts:436-446 reuses the resumed id).
 hook_session="$(printf '%s' "$input" | jq -r '.session_id // empty' 2>/dev/null)"
 transcript_path="$(printf '%s' "$input" | jq -r '.transcript_path // empty' 2>/dev/null)"
-marker_session="$(jq -r '.session_id // empty' "$marker" 2>/dev/null)"
 [ -n "$hook_session" ] || exit 0
-[ -n "$marker_session" ] || exit 0
-[ "$hook_session" = "$marker_session" ] || exit 0
+owned="$(exec_owned_markers "$project_dir" "$hook_session")"
+[ -n "$owned" ] || exit 0
 
 # 3. Age bound as a second floor: a run this session started but abandoned long ago should
-#    not keep blocking. A parse failure means we cannot confirm freshness, so allow.
+#    not keep blocking. A marker whose age cannot be parsed is skipped; with none left, allow.
 now_epoch="$(date -u +%s 2>/dev/null)" || exit 0
 
-started_at="$(jq -r '.started_at // empty' "$marker" 2>/dev/null)"
-[ -n "$started_at" ] || exit 0
+live=""
+while IFS= read -r marker; do
+    [ -n "$marker" ] || continue
+    jq -e . "$marker" >/dev/null 2>&1 || continue
 
-started_epoch="$(date -u -d "$started_at" +%s 2>/dev/null)" \
-    || started_epoch="$(date -u -j -f '%Y-%m-%dT%H:%M:%SZ' "$started_at" +%s 2>/dev/null)" \
-    || started_epoch=""
-[ -n "$started_epoch" ] || exit 0
+    started_at="$(jq -r '.started_at // empty' "$marker" 2>/dev/null)"
+    [ -n "$started_at" ] || continue
 
-age=$((now_epoch - started_epoch))
-# A model-written local time with a trailing Z reads as up to 14h in the future (UTC+14 is the
-# widest offset); accept that skew rather than going inert for the run.
-{ [ "$age" -ge -50400 ] && [ "$age" -le 86400 ]; } || exit 0
+    started_epoch="$(date -u -d "$started_at" +%s 2>/dev/null)" \
+        || started_epoch="$(date -u -j -f '%Y-%m-%dT%H:%M:%SZ' "$started_at" +%s 2>/dev/null)" \
+        || started_epoch=""
+    [ -n "$started_epoch" ] || continue
+
+    age=$((now_epoch - started_epoch))
+    # A model-written local time with a trailing Z reads as up to 14h in the future (UTC+14 is the
+    # widest offset); accept that skew rather than going inert for the run.
+    { [ "$age" -ge -50400 ] && [ "$age" -le 86400 ]; } || continue
+
+    live="$live$marker
+"
+done <<EOF
+$owned
+EOF
+[ -n "$live" ] || exit 0
 
 # 3a. A question that timed out armed the latch (lib/question-wait.sh): the turn ends to wait for the
 #     answer, which is correct, so allow. The latch is read, never consumed, because the other two
@@ -119,99 +130,9 @@ wake_count="$(printf '%s' "$input" | jq -r --arg mode strict -f "$(dirname "$0")
 case "$wake_count" in '' | *[!0-9]*) exit 0 ;; esac
 [ "$wake_count" -eq 0 ] || exit 0
 
-# 4. Resolve the plan the marker names. Without a readable plan we cannot say what remains,
-#    and a block with no concrete next action is worse than no block, so allow.
-slug="$(jq -r '.slug // empty' "$marker" 2>/dev/null)"
-[ -n "$slug" ] || exit 0
-
-plan_file="$project_dir/.ac/plans/$slug/plan.md"
-[ -f "$plan_file" ] || exit 0
-
-unchecked="$( { grep -c '^- \[ \] ' "$plan_file" 2>/dev/null || echo 0; } | tail -1 )"
-checked="$( { grep -c '^- \[x\] ' "$plan_file" 2>/dev/null || echo 0; } | tail -1 )"
-case "$unchecked" in '' | *[!0-9]*) unchecked=0 ;; esac
-case "$checked" in '' | *[!0-9]*) checked=0 ;; esac
-total=$((unchecked + checked))
-
-# A plan with no step checkboxes at all is an unrecognized shape, so allow.
-[ "$total" -gt 0 ] || exit 0
-
-next_step="$(grep -m1 '^- \[ \] ' "$plan_file" 2>/dev/null | sed -E 's/^- \[ \] \*\*[^*]*\*\*: *//')"
-[ -n "$next_step" ] || next_step="(all steps checked; Phase 3 review, Phase 3e QA when the plan asks for it, and Phase 4 deliver remain)"
-
-wave="$(jq -r '.current_wave // empty' "$marker" 2>/dev/null)"
-[ -n "$wave" ] || wave="unknown"
-
-# 5. Counter state, in a file so it survives compaction. Keyed on the marker's started_at so
-#    a new run always starts from zero. `spent` latches: once the budget is exhausted the
-#    guard stops blocking this run entirely. Deleting the file instead would reset the count
-#    and produce an unbounded block-budget-then-one-allow cycle for as long as the marker
-#    lives, which is how a guard strands a user.
-counter="$project_dir/.ac/state/stop-guard.json"
-blocks=0
-prev_unchecked=""
-prev_tpos=""
-if [ -f "$counter" ] && jq -e . "$counter" >/dev/null 2>&1; then
-    prev_run="$(jq -r '.run // empty' "$counter" 2>/dev/null)"
-    if [ "$prev_run" = "$started_at" ]; then
-        [ "$(jq -r '.spent // false' "$counter" 2>/dev/null)" = "true" ] && exit 0
-        blocks="$(jq -r '.blocks // 0' "$counter" 2>/dev/null)"
-        prev_unchecked="$(jq -r '.unchecked // empty' "$counter" 2>/dev/null)"
-        prev_tpos="$(jq -r '.tpos // empty' "$counter" 2>/dev/null)"
-        case "$blocks" in '' | *[!0-9]*) blocks=0 ;; esac
-        case "$prev_unchecked" in *[!0-9]*) prev_unchecked="" ;; esac
-        case "$prev_tpos" in '' | *[!0-9]*) prev_tpos="" ;; esac
-    fi
-fi
-
-# 6. Progress test. A guard that only counts blocks can be satisfied by one token of work
-#    and a second stop. Compare the unchecked count against the previous block's: when it has
-#    not moved, this block is the last one, and the reason says so.
-#
-#    The `unchecked > 0` condition matters. Once every step is ticked the count is pinned at
-#    zero, so without it the metric would read "no progress" forever and the guard would
-#    latch after two blocks during Phase 3 review and Phase 4 deliver, which is exactly the
-#    long context-heavy stretch it exists to cover. Past that point the block budget is the
-#    only bound, which is the correct one: there are no checkboxes left to measure.
 stop_hook_active="$(printf '%s' "$input" | jq -r '.stop_hook_active // false' 2>/dev/null)"
 
-# Did the model actually use the turn the last block bought? The checkbox count alone cannot answer
-# that, and assuming it could is what made this test fire on healthy runs. A wave's steps are verified
-# together at the barrier, so from the first spawn until that barrier ticks, `unchecked` is pinned by
-# design while several workers are mid-flight. Measured on a real run: this latched at wave 1 of 4
-# after a single block, and the guard was then inert for the remaining three waves and the whole
-# review phase, which is the opposite of what it exists to do.
-#
-# So the progress signal is tool activity, the same one the first-party `/goal` loop uses for its stall
-# detector. The counter stores the transcript's byte size at each block; the next block scans only the
-# bytes added since, which costs about 10ms on a 14MB transcript because it never reads the head.
-tool_used="unknown"
-if [ -n "$transcript_path" ] && [ -f "$transcript_path" ] && [ -n "$prev_tpos" ]; then
-    if tail -c "+$prev_tpos" "$transcript_path" 2>/dev/null | grep -q '"type":"tool_use"'; then
-        tool_used="yes"
-    else
-        tool_used="no"
-    fi
-fi
-
-# `unknown` deliberately does NOT latch. Being unable to read a transcript is not evidence that the
-# model is spinning, and the block budget above still bounds the run either way.
-no_progress="false"
-if [ "$unchecked" -gt 0 ] && [ -n "$prev_unchecked" ] && [ "$unchecked" -ge "$prev_unchecked" ] \
-    && [ "$tool_used" = "no" ]; then
-    no_progress="true"
-fi
-
-if [ "$blocks" -ge "$max_blocks" ]; then
-    latch_reason="block budget ($max_blocks) spent"
-elif [ "$no_progress" = "true" ] && [ "$stop_hook_active" = "true" ]; then
-    # Already inside a forced continuation and the plan did not move. Blocking again would
-    # only repeat the exchange, so hand control back now.
-    latch_reason="no progress across a forced continuation"
-else
-    latch_reason=""
-fi
-
+# Persists one run's counter. Reads the loop's $counter, $started_at and $unchecked.
 write_counter() {
     _tmp="$counter.tmp.$$"
     _tpos=1
@@ -227,38 +148,168 @@ write_counter() {
     return 1
 }
 
-if [ -n "$latch_reason" ]; then
-    write_counter "$blocks" true
-    printf '%s\n' "ac stop-guard: $latch_reason for $slug; allowing the turn to end. $unchecked of $total steps remain unchecked. Resume with /ac:execute $slug." >&2
-    exit 0
-fi
+# Steps 4 to 6 run once per live marker. A run that cannot be judged, or whose budget is spent,
+# is skipped; the turn is blocked when at least one run is left, and the reason names each.
+blocked=0
+slugs_quoted=""
+markers_named=""
+runs_text=""
+single_text=""
+message=""
+any_no_progress="false"
+while IFS= read -r marker; do
+    [ -n "$marker" ] || continue
+    started_at="$(jq -r '.started_at // empty' "$marker" 2>/dev/null)"
 
-# A counter we cannot persist means the next Stop would restart the count from zero and
-# block forever. Fail open, matching this file's stated policy.
-blocks=$((blocks + 1))
-write_counter "$blocks" false || exit 0
+    # 4. Resolve the plan the marker names. Without a readable plan we cannot say what remains,
+    #    and a block with no concrete next action is worse than no block, so skip this run.
+    slug="$(exec_marker_slug "$marker")" || continue
 
-# 7. Confirmed: a live /ac:execute run owned by this session, with work outstanding, tried to
-#    end the turn. `reason` is the documented channel for telling Claude why it should
+    plan_file="$project_dir/.ac/plans/$slug/plan.md"
+    [ -f "$plan_file" ] || continue
+
+    unchecked="$( { grep -c '^- \[ \] ' "$plan_file" 2>/dev/null || echo 0; } | tail -1 )"
+    checked="$( { grep -c '^- \[x\] ' "$plan_file" 2>/dev/null || echo 0; } | tail -1 )"
+    case "$unchecked" in '' | *[!0-9]*) unchecked=0 ;; esac
+    case "$checked" in '' | *[!0-9]*) checked=0 ;; esac
+    total=$((unchecked + checked))
+
+    # A plan with no step checkboxes at all is an unrecognized shape, so skip it.
+    [ "$total" -gt 0 ] || continue
+
+    next_step="$(grep -m1 '^- \[ \] ' "$plan_file" 2>/dev/null | sed -E 's/^- \[ \] \*\*[^*]*\*\*: *//')"
+    [ -n "$next_step" ] || next_step="(all steps checked; Phase 3 review, Phase 3e QA when the plan asks for it, and Phase 4 deliver remain)"
+
+    wave="$(jq -r '.current_wave // empty' "$marker" 2>/dev/null)"
+    [ -n "$wave" ] || wave="unknown"
+
+    # 5. Counter state, in a file so it survives compaction, one per run beside its marker. Keyed
+    #    on the marker's started_at so a new run always starts from zero. `spent` latches: once the
+    #    budget is exhausted the guard stops blocking this run entirely. Deleting the file instead
+    #    would reset the count and produce an unbounded block-budget-then-one-allow cycle for as
+    #    long as the marker lives, which is how a guard strands a user.
+    counter="$project_dir/.ac/state/execute/$slug.stop-guard.json"
+    blocks=0
+    prev_unchecked=""
+    prev_tpos=""
+    if [ -f "$counter" ] && jq -e . "$counter" >/dev/null 2>&1; then
+        prev_run="$(jq -r '.run // empty' "$counter" 2>/dev/null)"
+        if [ "$prev_run" = "$started_at" ]; then
+            [ "$(jq -r '.spent // false' "$counter" 2>/dev/null)" = "true" ] && continue
+            blocks="$(jq -r '.blocks // 0' "$counter" 2>/dev/null)"
+            prev_unchecked="$(jq -r '.unchecked // empty' "$counter" 2>/dev/null)"
+            prev_tpos="$(jq -r '.tpos // empty' "$counter" 2>/dev/null)"
+            case "$blocks" in '' | *[!0-9]*) blocks=0 ;; esac
+            case "$prev_unchecked" in *[!0-9]*) prev_unchecked="" ;; esac
+            case "$prev_tpos" in '' | *[!0-9]*) prev_tpos="" ;; esac
+        fi
+    fi
+
+    # 6. Progress test. A guard that only counts blocks can be satisfied by one token of work
+    #    and a second stop. Compare the unchecked count against the previous block's: when it has
+    #    not moved, this block is the last one, and the reason says so.
+    #
+    #    The `unchecked > 0` condition matters. Once every step is ticked the count is pinned at
+    #    zero, so without it the metric would read "no progress" forever and the guard would
+    #    latch after two blocks during Phase 3 review and Phase 4 deliver, which is exactly the
+    #    long context-heavy stretch it exists to cover. Past that point the block budget is the
+    #    only bound, which is the correct one: there are no checkboxes left to measure.
+    #
+    #    Did the model actually use the turn the last block bought? The checkbox count alone cannot
+    #    answer that, and assuming it could is what made this test fire on healthy runs. A wave's
+    #    steps are verified together at the barrier, so from the first spawn until that barrier
+    #    ticks, `unchecked` is pinned by design while several workers are mid-flight. Measured on a
+    #    real run: this latched at wave 1 of 4 after a single block, and the guard was then inert for
+    #    the remaining three waves and the whole review phase, which is the opposite of what it
+    #    exists to do.
+    #
+    #    So the progress signal is tool activity, the same one the first-party `/goal` loop uses for
+    #    its stall detector. The counter stores the transcript's byte size at each block; the next
+    #    block scans only the bytes added since, which costs about 10ms on a 14MB transcript because
+    #    it never reads the head.
+    tool_used="unknown"
+    if [ -n "$transcript_path" ] && [ -f "$transcript_path" ] && [ -n "$prev_tpos" ]; then
+        if tail -c "+$prev_tpos" "$transcript_path" 2>/dev/null | grep -q '"type":"tool_use"'; then
+            tool_used="yes"
+        else
+            tool_used="no"
+        fi
+    fi
+
+    # `unknown` deliberately does NOT latch. Being unable to read a transcript is not evidence that
+    # the model is spinning, and the block budget above still bounds the run either way.
+    no_progress="false"
+    if [ "$unchecked" -gt 0 ] && [ -n "$prev_unchecked" ] && [ "$unchecked" -ge "$prev_unchecked" ] \
+        && [ "$tool_used" = "no" ]; then
+        no_progress="true"
+    fi
+
+    if [ "$blocks" -ge "$max_blocks" ]; then
+        latch_reason="block budget ($max_blocks) spent"
+    elif [ "$no_progress" = "true" ] && [ "$stop_hook_active" = "true" ]; then
+        # Already inside a forced continuation and the plan did not move. Blocking again would
+        # only repeat the exchange, so hand control back now.
+        latch_reason="no progress across a forced continuation"
+    else
+        latch_reason=""
+    fi
+
+    if [ -n "$latch_reason" ]; then
+        write_counter "$blocks" true
+        printf '%s\n' "ac stop-guard: $latch_reason for $slug; allowing the turn to end. $unchecked of $total steps remain unchecked. Resume with /ac:execute $slug." >&2
+        continue
+    fi
+
+    # A counter we cannot persist means the next Stop would restart the count from zero and
+    # block forever. Fail open for this run, matching this file's stated policy.
+    blocks=$((blocks + 1))
+    write_counter "$blocks" false || continue
+
+    blocked=$((blocked + 1))
+    [ "$no_progress" = "true" ] && any_no_progress="true"
+    state="wave $wave, $checked of $total steps checked, $unchecked unchecked.
+Next unchecked step: $next_step
+Authoritative step state: .ac/plans/$slug/plan.md, in its \`- [ ]\` checkboxes."
+    single_text="State from disk: $state"
+    runs_text="$runs_text
+
+Run '$slug', state from disk: $state"
+    slugs_quoted="${slugs_quoted:+$slugs_quoted, }'$slug'"
+    markers_named="${markers_named:+$markers_named, }.ac/state/execute/$slug.json"
+    message="${message:+$message; }blocked stop $blocks/$max_blocks | $slug wave $wave, $unchecked/$total steps unchecked"
+done <<EOF
+$live
+EOF
+[ "$blocked" -gt 0 ] || exit 0
+
+# 7. Confirmed: at least one live /ac:execute run owned by this session, with work outstanding,
+#    tried to end the turn. `reason` is the documented channel for telling Claude why it should
 #    continue (https://code.claude.com/docs/en/hooks.md), so it carries the directive; the
-#    factual-phrasing rule from the same page applies to additionalContext, not here.
+#    factual-phrasing rule from the same page applies to additionalContext, not here. One run
+#    keeps the single-run wording; several get one state block each, named by slug.
 progress_note=""
-if [ "$no_progress" = "true" ]; then
+if [ "$any_no_progress" = "true" ]; then
     progress_note="
 This turn was handed back to you before, and since then the unchecked count has not moved AND you made no tool call. Blocking is not a substitute for progress: either complete the next step or take a terminal branch. This guard stops blocking once the budget is spent, and the run will simply be left unfinished."
 fi
 
-reason="An /ac:execute run for '$slug' is still in flight, so this turn must not end yet.
+if [ "$blocked" -eq 1 ]; then
+    opening="An /ac:execute run for $slugs_quoted is still in flight, so this turn must not end yet.
 
-State from disk: wave $wave, $checked of $total steps checked, $unchecked unchecked.
-Next unchecked step: $next_step
-Authoritative step state: .ac/plans/$slug/plan.md, in its \`- [ ]\` checkboxes.
+$single_text"
+    halt="delete $markers_named and stop"
+else
+    opening="/ac:execute runs for $slugs_quoted are still in flight, so this turn must not end yet.$runs_text"
+    halt="delete each of their markers ($markers_named) and stop"
+fi
+
+reason="$opening
 $progress_note
 No background worker of this session is running, so do not wait with a sleep, until or file-stability loop in the foreground. If you were waiting on a worker, it has finished: its task-notification may still be queued behind your next tool call, so read the plan file and the worker's evidence first, and spawn a step again only when its output shows it ended without a result. While workers do run, ending the turn is the right way to wait and this guard allows it; a wait you start yourself is seen as one only when it runs under \`timeout N\` (N up to 3600 seconds), either alone or after \`cd dir &&\`, \`NAME=value &&\` or \`export NAME=value &&\` segments with no \`\$(\`, backtick or process substitution before the \`timeout\`, with redirects such as \`> out 2>&1\` allowed and no \`;\`, \`|\` or background \`&\`.
 
 Context pressure is not a stopping condition. Auto-compaction summarizes older turns and the run continues; do not announce a context or token-budget concern in place of finishing, and do not hand the remainder back as a next step for a new session. If a compaction just happened, only the first 5,000 tokens of the ac:execute body survived it: re-invoke the ac:execute skill to restore the full body, then continue from the plan file.
 
-If the user asked you to stop, pause, or take back control, that is a legitimate halt and outranks this guard: delete .ac/state/active-execution.json and stop. Do not argue with the user or keep working through their request to stop.
+If the user asked you to stop, pause, or take back control, that is a legitimate halt and outranks this guard: $halt. Do not argue with the user or keep working through their request to stop.
 
 The internal halts each have a branch in the execute skill: Phase 2i wave dependency failed, Phase 2j 3-strike, Phase 3c plan-spec issue, a wave checkpoint commit failure. Every one of them surfaces an AskUserQuestion and deletes the marker before the run stops. Take that branch if one genuinely applies; the marker's absence is what lets this turn end.
 
@@ -266,6 +317,6 @@ Otherwise: continue the wave loop from the next unchecked step."
 
 jq -cn \
     --arg r "$reason" \
-    --arg m "ac stop-guard: blocked stop $blocks/$max_blocks | $slug wave $wave, $unchecked/$total steps unchecked" \
+    --arg m "ac stop-guard: $message" \
     '{decision: "block", reason: $r, systemMessage: $m}'
 exit 0

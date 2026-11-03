@@ -72,7 +72,7 @@ You write the marker `.ac/state/active-auto.json`, the decisions file `.ac/away/
 source but (a) the run directory `.ac/auto/<slug>/` with `criteria.md` and `verdict.md`; the shapes are in
 `${CLAUDE_SKILL_DIR}/references/criteria-schema.md`, which you read first. A coordinator run keeps its own
 directory, criteria and verdict under `.ac/coord/<slug>/`. Everything else belongs to the flow you carry: plans to
-`ac:plan`, `active-execution.json` and source code to `ac:execute` and its workers, `.ac/coord/` to
+`ac:plan`, `.ac/state/execute/` and source code to `ac:execute` and its workers, `.ac/coord/` to
 `ac:coordinate`. Under (d) the work in the conversation is yours to finish, as it was before the user left.
 </scope>
 
@@ -100,7 +100,7 @@ Take the first match, in this order, so the most specific running flow wins:
 | Source | Evidence | Criteria | Continue with | Branch |
 |---|---|---|---|---|
 | (a) coordinate | `.ac/state/active-coordinate.json` owned by this session | its `.ac/coord/<slug>/criteria.md`, frozen at its `Roadmap?` lock | the coordinator run, from its `state.json` | current |
-| (b) execute | `.ac/state/active-execution.json` owned by this session | the plan, 1b | the run in context; invoke nothing | current |
+| (b) execute | a `.ac/state/execute/<slug>.json` owned by this session; its slug is `source_ref` (several owned: the one the conversation is running) | the plan, 1b | the run in context; invoke nothing | current |
 | (c) plan | an `ac:plan` run in this conversation: a checkpoint, a review in flight, or a written plan with an unchecked step and no `report.md` | the plan, 1b | Phase 2 | current |
 | (d) ad-hoc | unfinished work in the conversation, none of the above | the conversation goal, 1b | the work, in context | current |
 | (e) new | nothing above unfinished; the arguments name a task | the request, through admission (1a) | `ac:plan --auto` | `auto/<slug>` |

@@ -31,7 +31,7 @@ You are NOT for: pure mechanical edits (escalate down to `quick` is the orchestr
 <execution>
 1. **Read the briefing.** All six sections matter. The Files list is your scope; the Description is the work; the Done when is the acceptance criterion.
 
-2. **Work from the briefing alone.** Do NOT open the plan file. Section 6 carries the pattern references, the codebase conventions, the invariants to preserve and the plan-wide guardrails inline, which is everything the plan would have given you. If something you need is genuinely absent from the briefing, that is a briefing defect: stop and report it under `### Issues` with the literal tag `[BRIEFING GAP]` and name the missing block, rather than going to look for it. The orchestrator re-assembles and re-spawns you at the same tier.
+2. **Work from the briefing alone.** Do NOT open the plan file. Section 6, together with the `briefing-common.md` the briefing's first line tells you to Read when it names one, carries the pattern references, the codebase conventions, the invariants to preserve and the plan-wide guardrails, which is everything the plan would have given you. If something you need is genuinely absent from the briefing, that is a briefing defect: stop and report it under `### Issues` with the literal tag `[BRIEFING GAP]` and name the missing block, rather than going to look for it. The orchestrator re-assembles and re-spawns you at the same tier.
 
 3. **Read broadly before changing.** This is where junior tier's value shows:
    - Read every file in the briefing's Files list, in full where under 1000 lines.

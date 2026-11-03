@@ -3,7 +3,7 @@ import { join } from "node:path"
 import type { Plugin } from "@opencode/plugin"
 import { readCoordinateMarker } from "./coordinate.ts"
 import { log } from "./log.ts"
-import { isFresh, nonEmptyString, readJson, readMarker, rootSessionOf, SLUG } from "./marker.ts"
+import { isFresh, nonEmptyString, ownedMarkers, readJson, readMarkers, rootSessionOf, SLUG } from "./marker.ts"
 import type { BackgroundShells } from "./wake.ts"
 
 /** Test seams; the plugin entry passes only the shared shell tracker, so each instance roots itself at its location. */
@@ -476,7 +476,7 @@ export async function registerAwayGuards(ctx: Plugin.Context, options: AwayGuard
             if (marker.source === "adhoc") return { stage: "working", runDir }
             // A live execute run owned by this root has its own stop guard (run-guards.ts). Without one, the plan or
             // execute run being carried is over, or is still planning, and nothing else will nudge this stop.
-            if (readMarker(directory)?.root_session_id === sessionID) return undefined
+            if (ownedMarkers(readMarkers(directory), sessionID).length > 0) return undefined
             const ended = marker.source === "execute" || marker.phase === "executing"
             return { stage: ended ? "source-ended" : "working", runDir }
         }

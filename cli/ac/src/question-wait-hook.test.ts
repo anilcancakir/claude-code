@@ -121,10 +121,10 @@ function seedAutoRun(): void {
 }
 
 function seedExecuteRun(): void {
-    mkdirSync(join(project, ".ac", "state"), { recursive: true });
+    mkdirSync(join(project, ".ac", "state", "execute"), { recursive: true });
     mkdirSync(join(project, ".ac", "plans", SLUG), { recursive: true });
     writeFileSync(
-        join(project, ".ac", "state", "active-execution.json"),
+        join(project, ".ac", "state", "execute", `${SLUG}.json`),
         JSON.stringify({ session_id: SESSION, slug: SLUG, started_at: isoNow(), current_wave: 1, pid: 0 }),
     );
     writeFileSync(join(project, ".ac", "plans", SLUG, "plan.md"), "# Plan\n\n- [ ] **Step 1**: x\n");
@@ -281,6 +281,17 @@ test("stop-guard-announce.sh blocks an offer without a latch and stays silent wi
     writeLatch();
     expectAllow(runAnnounce());
     expect(existsSync(latchPath())).toBe(true);
+});
+
+test("stop-guard-announce.sh defers to an execute run this session owns, not to another session's", () => {
+    seedExecuteRun();
+    expectAllow(runAnnounce());
+
+    writeFileSync(
+        join(project, ".ac", "state", "execute", `${SLUG}.json`),
+        JSON.stringify({ session_id: "sess-other", slug: SLUG, started_at: isoNow(), current_wave: 1, pid: 0 }),
+    );
+    expectAnnounceBlock(runAnnounce());
 });
 
 test("stop-guard-announce.sh blocks once the transcript shows the user came back", () => {

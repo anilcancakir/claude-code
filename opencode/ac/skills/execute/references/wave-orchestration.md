@@ -1,4 +1,4 @@
-<!-- ported-from: plugins/ac/skills/execute/references/wave-orchestration.md sha256:3a82fc101f81056899978f7b23793869fdd506a0dacc96dd284ade16ddeee735 -->
+<!-- ported-from: plugins/ac/skills/execute/references/wave-orchestration.md sha256:f7c5d90ed53aef49d47f02e585d312524e4ad9f20f2c4816f4b98f2f015485b1 -->
 # Wave Orchestration: the Progress Surface and the Dependency Gate
 
 Read at Phase 1g and again at the first wave barrier. The skill body carries the rules and the gate conditions; this file carries the procedure.
@@ -53,8 +53,8 @@ question (header `Dep failed?`, options
 )
 ```
 
-- `Stop and investigate`: delete `.ac/state/active-execution.json`, then halt; user resolves and re-runs `/ac/execute <slug>` to resume (Phase 1 writes a fresh marker on resume).
-- `Fix manually and resume`: delete `.ac/state/active-execution.json`, then pause; user fixes the failed step's output, marks the step verified, and re-runs.
+- `Stop and investigate`: delete this run's `.ac/state/execute/<slug>.json`, then halt; user resolves and re-runs `/ac/execute <slug>` to resume (Phase 1 writes a fresh marker on resume).
+- `Fix manually and resume`: delete this run's `.ac/state/execute/<slug>.json`, then pause; user fixes the failed step's output, marks the step verified, and re-runs.
 - `Skip the dependent steps`: mark dependent steps as `skipped` (note in report), continue to non-dependent steps in the next wave (the run continues, so the marker stays in place).
 
 **Auto mode**: this is a BLOCKER call site (see `<auto_mode>`). Surface the question to the user EVEN IF `AUTO_MODE = true`. Before calling `question`, emit one line: `BLOCKER: Wave <M+1> has a hard dependency on a failed step in Wave <N>. Auto mode halted; user judgment required.` Continue per the user's response. AUTO_MODE stays set unless the user picks `Stop and investigate`, which terminates the run.

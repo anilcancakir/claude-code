@@ -2,7 +2,7 @@
 name: execute
 description: "Run an approved ac plan to completion, wave by wave, with cost-tiered workers, per-wave verification and a final review. Loaded by /ac/execute; the request carries a plan slug or path plus flags."
 ---
-<!-- ported-from: plugins/ac/skills/execute/SKILL.md sha256:d8fa763c1a79b77476c2b41f02e54b3492b7cb64820333e093537321d8d2290d -->
+<!-- ported-from: plugins/ac/skills/execute/SKILL.md sha256:f804207e82454f6f38991fa849456dfb5fb62f0bc7c81cd8ced9a23593b7e4f9 -->
 
 # /ac/execute
 
@@ -18,7 +18,7 @@ These hold for the whole run, including after a compaction, which drops the load
 
 Under `LANE_MODE` (set by `--lane`: this run is an `ac/lane` session, which has no `question` tool and whose coordinator sees only its last message of each turn) the legal turn end is the lane status block defined in `../coordinate/references/lane-protocol.md`, and every turn ends with one. `status: WORKING` replaces the one-line wait status while workers run, `status: BLOCKED` replaces `question` at every BLOCKER (see `<auto_mode>`), `status: DONE` ends Phase 4b, and `status: FAILED` ends a halt that has no option to offer (plan not found, a truncated plan, a count mismatch). A lane never calls `question`, never pushes and never loads the `qa` skill. A `PAUSE` message can arrive mid-turn: from then on spawn no new worker and launch no new step, let the workers already running report, run Layer A to D on the steps they finished (commit the wave only when all of it verified), leave the rest unchecked, delete nothing, set `"paused": true` in the marker so a compaction meanwhile does not restart the steps, and end with `status: PAUSED`; `RESUME` removes that field and continues from the plan's unchecked steps.
 
-Every branch that terminates the run deletes `.ac/state/active-execution.json` first: while the marker exists, no subagent of this session is running, and your turn ends, the ac plugin's stop guard sends a synthetic continuation that names the unchecked steps from the plan file and tells you to continue (`../../src/run-guards.ts`). It sends at most one per stall (your next tool call ends the stall) and three per user prompt, and a user interrupt silences it. The marker's absence is what lets a terminal stop stay stopped.
+Every branch that terminates the run deletes this run's marker, `.ac/state/execute/<slug>.json`, first, and leaves every other slug's marker alone: while a marker this session owns exists, no subagent of this session is running, and your turn ends, the ac plugin's stop guard sends a synthetic continuation that names the unchecked steps from the plan file and tells you to continue (`../../src/run-guards.ts`). It sends at most one per stall (your next tool call ends the stall) and three per user prompt, and a user interrupt silences it. The marker's absence is what lets a terminal stop stay stopped.
 
 **A failed subagent moves down its model chain; it is not a question.** A subagent call that comes back with a provider failure (`Subagent failed (sessionID: ...)`, a `<subagent ... state="error">` message, an error such as `provider.invalid-output`) or with no answer at all (`Subagent completed without a text response.`, an empty report) failed on its model, not on the work. Recover by continuing the same child, not by a fresh spawn: call the `subagent` tool again with the same `agent`, `sessionID: "<the sessionID from the failure text>"` and the prompt `Your last turn stopped on a provider error. Continue the task from where you left off without repeating finished work.`, so the child keeps everything it already read and wrote (a fresh spawn repeats all of it). When it answered nothing or broke off mid-stream (`provider.invalid-output`, an empty report), continue it on the same model until it has run `retryAttempts` times there (from the `ac_models` tool, 3 in the shipped config), since that is often a one-off; a 5xx was already retried inside the call, so it goes straight on. Then call `ac_fallback_next({ tier: "<the agent name without ac/>", tried: [<every model this call ran on>], session_id: "<the sessionID from the failure text>", status: <the HTTP status, when the error carried one> })`, with `tried` starting at the agent's chain head from `ac_models` unless you set its model yourself, continue the same child with `model: "<the returned value>"` as well (the child switches to it and keeps its context), and give that model the same number of attempts. A rate limit was retried 10 times inside the call, and the plugin gives one model 30 across continuations: `wait:<seconds>` means that model has retries left, so wait that long with one `shell` `sleep` and continue the child on the same model with `tried` unchanged. The tool bounds those waits itself. Start a fresh spawn with the full prompt only when the continuation is refused (`Subagent session not found`, `is not a child of the current session`) or the child's context overflowed. Only `none`, every entry of the chain tried, is a failure to report or ask about. Asking the owner whether to retry wastes a round on a provider fault the chain exists to absorb. A plan worker follows 2e, which is this rule plus the tier ladder; this rule covers the reviewer and `ac/oracle` at Phase 3. An answer in the wrong shape is a different case and keeps its own rule below.
 
@@ -39,7 +39,7 @@ You are the Developer orchestrating execution of an approved plan at `.ac/plans/
 <scope>
 Source code in the project, scoped to the files each step declares, plus these artifacts under
 `.ac/plans/<slug>/`: `wisdom.md` (max 15 items, max 5 per wave; the `[RETRY]` and `[REMEDIATION]` records sit outside both caps), `evidence/<step-id>-<scenario>.<ext>`,
-`review-log.md` (append-only, one entry per Phase 3 review, a record rather than a loop counter),
+`briefing-common.md` (2b), `review-log.md` (append-only, one entry per Phase 3 review, a record rather than a loop counter),
 `qa/<run id>/` (the Phase 3e QA run directory, written by the `qa` skill), and `report.md`. The wave commit is a plain `git commit`; the final commit at Phase 4 goes through the `commit` skill.
 
 `plan.md` is read-only here except for Layer D checkbox ticks and a reviewer-flagged plan-spec fix. If the plan is
@@ -59,7 +59,7 @@ the `<diagnostics file="...">` blocks the ac plugin appends to `edit`, `write` a
 it has a checker for; callers and duplicates come from `grep`.
 
 Subagents run in child sessions and inherit none of your context, so every worker gets the full six-section
-briefing. Drive every chain from here (the agent reports back and you make the next call): the plan-workers'
+briefing, its shared blocks in `briefing-common.md` (2b). Drive every chain from here (the agent reports back and you make the next call): the plan-workers'
 permissions deny `subagent`, and the code reviewer and `ac/oracle` have it denied.
 </capabilities>
 
@@ -85,12 +85,11 @@ permissions deny `subagent`, and the code reviewer and `ac/oracle` have it denie
 
 <auto_mode>
 `--auto` in the request sets `AUTO_MODE = true` for the run, and the `plan` skill's Stage 6 chain passes it when it
-continues here. Auto mode resolves flow gates; it never skips verification, the wave-after commit, or the final
-code-review.
+continues here. Every gate left in this body is a BLOCKER, so auto mode resolves none of them; it never skips
+verification, the wave-after commit, or the final code-review.
 
 | Call site | Class | Under `AUTO_MODE = true` |
 |---|---|---|
-| 2a Execute? | flow | auto-pick `Execute` |
 | 2i Dep failed? | BLOCKER | surfaces |
 | 2j Halted? (3 failures spanning 2+ waves) | BLOCKER | surfaces |
 | 3c plan-spec issue | BLOCKER | surfaces |
@@ -99,14 +98,14 @@ code-review.
 
 When `.ac/state/active-auto.json` owned by this session (its `session_id` is this session's `root_session_id`) appears mid-run (`ac/auto` adopted the run), keep running in context with `AUTO_MODE` true and do not load yourself again. While that marker is live the BLOCKER rows above do not surface either: record the block under `## Blocked` in the marker's decisions file, skip the blocked step and the steps that depend on it, and keep every independent wave going. The final commit's `--no-push` keys on that file (Phase 4a); `ac/auto` pushes after its gate when the user named the push.
 
-`LANE_MODE` implies `AUTO_MODE`, so the 2a flow gate resolves as above. Under `LANE_MODE` no gate calls `question`: every BLOCKER row, plus each other site below that names one (the 1g and 2c plan-spec branch, the third briefing gap at 2e, 3c, and the 2f surface-first patch, all class `3c`), ends the turn with a `status: BLOCKED` block. Its `blocker` carries the class from `lane-protocol.md` (`2i`, `2j`, `3c` or `commit`), the question, the options the `question` call would have offered as single-token labels, and the recommended label. The marker stays, because the run resumes rather than ends. A `RESOLVE <label>` message continues as if the user had chosen that label, including that option's own marker handling: an option that stops the run deletes the marker and ends with `status: FAILED`.
+`LANE_MODE` implies `AUTO_MODE`. Under `LANE_MODE` no gate calls `question`: every BLOCKER row, plus each other site below that names one (the 1g and 2c plan-spec branch, the third briefing gap at 2e, 3c, and the 2f surface-first patch, all class `3c`), ends the turn with a `status: BLOCKED` block. Its `blocker` carries the class from `lane-protocol.md` (`2i`, `2j`, `3c` or `commit`), the question, the options the `question` call would have offered as single-token labels, and the recommended label. The marker stays, because the run resumes rather than ends. A `RESOLVE <label>` message continues as if the user had chosen that label, including that option's own marker handling: an option that stops the run deletes the marker and ends with `status: FAILED`.
 
-Flow gates resolve to the `(Recommended)` option and emit one heartbeat line. BLOCKER gates surface whatever the mode,
+BLOCKER gates surface whatever the mode,
 because each needs judgment auto mode cannot supply. Before surfacing one, emit a line naming which class fired.
 Outside an away run, a BLOCKER waits for the user's answer and never picks an option on its own. `AUTO_MODE` stays set through a BLOCKER
 unless the user picks an option that stops the run.
 
-Heartbeat: one short line per phase, wave, and iteration transition, and per auto-resolved gate.
+Heartbeat: one short line per phase, wave, and iteration transition.
 </auto_mode>
 
 <bootstrap>
@@ -117,7 +116,7 @@ Nothing to load and no task list to register (see Progress surface). Begin at Ph
 
 ### 1a. Parse arguments
 
-- Strip `--auto` if present: `AUTO_MODE = true`, per the `<auto_mode>` policy: auto-resolve the flow gates, halt only on BLOCKER classes.
+- Strip `--auto` if present: `AUTO_MODE = true`, per the `<auto_mode>` policy: halt only on BLOCKER classes.
 - Strip `--lane` if present: `LANE_MODE = true`. Set by the `ac/lane` agent that `/ac/coordinate` dispatches. Implies `AUTO_MODE = true`, `NO_QA = true` (parallel lanes would collide on dev-server ports) and no push at 4a.
 - Strip `--max-parallel N` if present: `MAX_PARALLEL = N`, the cap on workers running at once within a wave (2c). Without the flag, `MAX_PARALLEL` is `maxParallel` from the `ac_models` tool (1c), 3 in the shipped config: a conservative default, since the gateway's concurrency limit is unknown and each worker turn spends several requests and a share of the key's balance.
 - Strip `--no-oracle` if present: `NO_ORACLE = true`. Skips the `ac/oracle` spawn at 3b.
@@ -134,7 +133,7 @@ Nothing to load and no task list to register (see Progress surface). Begin at Ph
 Read `PLAN_PATH` in full and hold: the frontmatter (`Steps`, `Waves`, `Codebase State`, `Generated`, `QA`), `## Research Summary`, `## Codebase Conventions` including the `TDD` field,
 `## Reuse Map`, `## Work Objectives` (Core Objective, Concrete Deliverables, Definition of Done, Must Have,
 Must NOT Have), `## Execution Strategy` with its Dependency Notes, every step in `## Steps` with all its fields,
-and `## Risks Accepted`. `## Tier Calibration` is referential; read it once, do not re-read per step.
+and `## Risks Accepted`.
 
 Set `QA_ENABLED = true` only when the frontmatter carries `**QA**: true`; an absent line means false. Read the line from
 the frontmatter only (the text above the first `## ` heading), because a step's own `**QA**:` field can sit at column
@@ -175,16 +174,26 @@ STEP_FAILURES = []                      # one {step, wave} per step at terminal 
 WORKER_RETRY_PER_STEP = {}              # retries spent per step (variant rung, tier rung), max 2
 ```
 
-Then write `.ac/state/active-execution.json`, which the ac plugin's file-scope guard, standing-rules injection,
-compaction recovery note and stop guard read, all keyed on `harness` and `root_session_id`. Call the `ac_session`
-tool first; it returns `session_id` and `root_session_id` as JSON. Fields: `slug`, `session_id` and `root_session_id` (copy exactly what
+Then write this run's marker, `.ac/state/execute/<slug>.json` (the plan slug, characters `[A-Za-z0-9._-]` only; the
+plugin ignores any other name), which the ac plugin's file-scope guard, standing-rules injection, compaction recovery
+note and stop guard read, all keyed on `harness` and `root_session_id`. Call the `ac_session` tool first; it returns
+`session_id` and `root_session_id` as JSON. Each running plan owns its own marker, so another slug's marker is another
+run sharing the checkout, not a conflict. When this slug's marker already exists, is owned by another session (a
+`harness` or `root_session_id` other than yours) and has a `started_at` under 24 hours old, another session is running
+this plan: say so in one line and stop without writing (under `LANE_MODE`, with `status: FAILED`), because two runs
+ticking one plan's checkboxes corrupt its state. An older one, or one this session owns (a resume), is overwritten.
+Fields: `slug`, `session_id` and `root_session_id` (copy exactly what
 `ac_session` returned, never derive or recall them; the root id is what scopes every guard to this run),
 `harness` (exactly `"opencode"`; without it the plugin reads the marker as Claude Code's and ignores it), `lane` (only under `LANE_MODE`: exactly `true`, so the stop guard leaves the nudge to the coordinator, the lane's supervisor; omit the field otherwise), `started_at`
 (24-hour age bound; take it from `date -u +%Y-%m-%dT%H:%M:%SZ`, never from your own sense of the time, since a local
 time with a `Z` reads as the future), `current_wave`, `wave_files`, `note`. Schema and per-field reasoning at
 `references/execution-state.md`.
 
-Lifecycle: written here, refreshed at 2c and 2f, deleted at 4a and on every branch that ends the run early.
+Lifecycle: written here, refreshed at 2c and 2f, deleted at 4a and on every branch that ends the run early. Every
+read, refresh and delete in this body names this run's own file and never touches another slug's.
+
+Also keep the output of one `git status --porcelain` taken now as `BASELINE_DIRTY`: 2d never restores a path that was
+already dirty before this run started, since it may belong to another run or to the user.
 
 `.ac/state/active-auto.json` may coexist beside it. That marker belongs to `ac/auto`, not to this skill: never
 delete it, and read it only at Phase 4a, where it counts only when it names this session.
@@ -253,18 +262,25 @@ Goal: run each step to verified completion, wave by wave, on auto-continue. The 
 Render the wave breakdown once using the shape at `references/wave-orchestration.md` under
 `## Phase 2a execution-strategy render`.
 
-Then call `question` with one question (header `Execute?`, options `Execute (Recommended)` / `Adjust wave grouping` /
-`Cancel`, each with a one-line description). `Adjust wave grouping` takes the user's free-text follow-up, re-renders,
-and asks again. This is the only user gate inside Phase 2; once execution starts, auto-continue applies until Phase 4
-or a BLOCKER. Auto mode skips it and proceeds.
+Then start Wave 1 in the same turn. There is no confirmation gate: typing `/ac/execute` is the consent, and the
+plan was approved in the `plan` skill. Auto-continue applies until Phase 4 or a BLOCKER.
 
 ### 2b. Worker briefing template (the 6-section prompt)
 
 Every worker invocation receives the 6-section briefing. For the exact template (with VERBATIM/DERIVED field annotations), read `references/worker-briefing-template.md`.
 
-**The briefing is the worker's whole world.** The worker does not read the plan, so Section 6 carries the step's
-pattern references, the codebase conventions, the invariants it must preserve and the plan-wide guardrails
-inline. Assemble all four from the plan you are holding.
+**The briefing is the worker's whole world.** The worker does not read the plan, so Section 6, with `briefing-common.md`,
+carries the step's pattern references, the codebase conventions, the invariants it must preserve and the plan-wide
+guardrails. Assemble all four from the plan you are holding.
+
+**Write the shared blocks once.** Before Wave 1's spawns, write `.ac/plans/<slug>/briefing-common.md` with the
+blocks that are identical for every step, per the template's `## briefing-common.md` section: Runtime Commands,
+Codebase conventions, the Core Objective and the plan-wide guardrails, all verbatim. Write it once per run (a
+resumed run overwrites the previous run's copy, since the plan may have changed) and do not repeat those blocks in
+the per-step briefings. Each per-step briefing opens with a line telling the worker to `read` that file by absolute
+path, then carries only the step-specific sections. 20 of 100 measured plans did this unprompted and 206 worker
+runs read such a file, so the worker reads it reliably and the orchestrator stops paying for the same blocks once
+per step.
 
 **Resolve every sibling-step pointer before you send it.** Wherever the step's `Description`, `QA` or `Must NOT`
 names another step by number ("call Step 4's parser", "same constraint as Step 10"), replace the pointer with what
@@ -272,12 +288,12 @@ the worker actually needs: the sibling's `Files` path and a one-line statement o
 the thing will live at. A forward pointer to a step that has not run yet is the dangerous case, because there is no
 source to fall back on.
 
-Length rule: under 30 lines is too short; under-spec'd briefings produce drift. The contract fields go in verbatim
-(`<constraints>`).
+Length rule: a per-step briefing and `briefing-common.md` together under 30 lines is too short; under-spec'd
+briefings produce drift. The contract fields go in verbatim, in the per-step briefing (`<constraints>`).
 
 ### 2c. Launch workers in parallel within the wave
 
-**Refresh the marker first**: `current_wave` to this wave's index, `wave_files` to the union of every absolute path
+**Refresh this run's marker first**: `current_wave` to this wave's index, `wave_files` to the union of every absolute path
 in this wave's steps' `Files`. The file-scope guard lets a worker edit exactly that set, so the union has to be
 complete before any spawn.
 
@@ -322,7 +338,9 @@ A worker's report is a claim, and automated checks alone do not confirm it.
 Layer A commands; it does not depend on their results and they do not depend on its.
 
 The allowed set is `wave_files` (this wave's declared union, from 2c) plus `MODIFIED_FILES` (earlier
-waves) plus anything under `.ac/`. A dirty path outside all three is an unreverted mutation or an
+waves) plus anything under `.ac/`, plus the `wave_files` of every other marker in `.ac/state/execute/` and every
+path already dirty in the `git status --porcelain` you took at 1e: another run may share this checkout, and its
+files are not yours to restore. A dirty path outside all of these is an unreverted mutation or an
 out-of-scope edit, typically through `shell`, which the file-scope guard cannot see (it gates the `edit` permission
 that `edit`, `write` and `patch` share): restore it from git, and record it as a
 `[REMEDIATION] Step <N> <tier>: <what you restored>` wisdom line. Compare against `wave_files`, not against
@@ -783,14 +801,16 @@ Goal: commit, write the report, render the summary.
 
 ### 4a. Final commit
 
-**Delete `.ac/state/active-execution.json` first**, before the F7 check and any commit.
+Before the marker goes, check `wisdom.md` once: every `[RETRY]` and `[REMEDIATION]` line must name `Step <N> <tier>:` (or `Step - -:` for a fix no step owns), because `ac plan-stats` counts an untagged one as lost data; correct it before closing.
+
+**Delete `.ac/state/execute/<slug>.json` first**, this run's marker only, before the F7 check and any commit.
 
 **F7 skip check**: run `git check-ignore -q` on every file in `MODIFIED_FILES`. If all are ignored and
 `git status --porcelain` shows tracked changes not in `MODIFIED_FILES`, the parent repo has unrelated work that a
 commit would snapshot as this plan's deliverable. Skip it, say so in one line, and record it in the report under
-`## Commits` with the path and the count. The plan's `Git context:` field is a hint; git state is authoritative.
+`## Notes` with the path and the count.
 
-Otherwise load the `commit` skill and run it on the request `--skip-preflight`, plus `--no-push` when `LANE_MODE` is true or `.ac/state/active-auto.json` names this session (its `harness` is `opencode` and its `session_id` is this session's `root_session_id`; a marker without `harness` was written by Claude Code and is not this run's): an unattended run has nobody present to approve a push, and the `commit` skill's branch guard only asks on `main` or `master`. A lane checks `LANE_MODE` on its own because `.ac/` is gitignored, so its worktree never holds `active-auto.json`; only the coordinator publishes.
+Otherwise load the `commit` skill and run it on the request `--skip-preflight` with `MODIFIED_FILES` as its note, so it commits this run's files and never another run's in-flight edits in the same checkout, plus `--no-push` when `LANE_MODE` is true or `.ac/state/active-auto.json` names this session (its `harness` is `opencode` and its `session_id` is this session's `root_session_id`; a marker without `harness` was written by Claude Code and is not this run's): an unattended run has nobody present to approve a push, and the `commit` skill's branch guard only asks on `main` or `master`. A lane checks `LANE_MODE` on its own because `.ac/` is gitignored, so its worktree never holds `active-auto.json`; only the coordinator publishes.
 
 ```
 skill({ id: "commit" })    // then continue with the request: --skip-preflight (plus --no-push under LANE_MODE or an away marker)
@@ -803,7 +823,8 @@ verification `--skip-preflight` refers to. A clean tree exits silently, which is
 
 Write the report, `.ac/plans/<slug>/report.md` (under `LANE_MODE` `.ac/plans/<slug>/outcome.md`, the name the Claude
 Code side must use because its host refuses a subagent's `report*.md`), from the template at
-`references/report-template.md`. Confirm
+`references/report-template.md`: Summary, Verification, Deferred and Notes only, because the plan checkboxes, git
+and `wisdom.md` already hold the steps, files, commits and wisdom. Confirm
 it landed with `test -f ... && wc -l ...`; retry the write once if it did not, and render the report inline if the
 retry also fails, so the work is not lost in chat history.
 

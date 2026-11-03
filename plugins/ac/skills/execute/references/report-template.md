@@ -2,6 +2,8 @@
 
 Markdown structure for `.ac/plans/<slug>/report.md` (`outcome.md` under `LANE_MODE`, the name a subagent may write). Written at Phase 4b after all waves verify and the final code-review settles. This is the long-form artifact for the user; the inline execution summary (Phase 4b) is the short-form heartbeat.
 
+It carries only what no other file holds. The plan checkboxes already record which steps ran, git records the modified files and the commits, and `wisdom.md` holds the wisdom, so the report names none of them again.
+
 ## When to read this
 
 Read in Phase 4b before calling `Write` on the report path (`.ac/plans/<slug>/report.md`, or `outcome.md` under `LANE_MODE`). After Write, verify the file landed: `Bash test -f <report path> && wc -l <report path>`. If absent or zero-length, retry Write once; if still failing, render the report inline to the user.
@@ -15,21 +17,8 @@ Read in Phase 4b before calling `Write` on the report path (`.ac/plans/<slug>/re
 **Generated**: <ISO timestamp>
 
 ## Summary
-<1-2 sentences: what the plan delivered, overall posture>.
-
-## Steps Executed
-
-| # | Step | Tier | Result | Files |
-|---|------|------|--------|-------|
-| 1 | <title> | <tier> | PASS | <file, ...> |
-| 2 | <title> | <tier> | escalated → <new tier> PASS | <file, ...> |
-| 3 | <title> | senior | FAIL (3-strike accepted) | <file, ...> |
-
-**Steps**: <N>/<total> passed | **Escalations**: <N> | **Failed steps**: <N>
-
-## Modified Files
-
-- <file_path:line_number>: <one-line what changed>
+<1-2 sentences: what the plan delivered, overall posture. Name failed steps (accepted via 3-strike), skipped dependent
+steps and tier escalations here when there were any.>
 
 ## Verification
 
@@ -40,15 +29,13 @@ Read in Phase 4b before calling `Write` on the report path (`.ac/plans/<slug>/re
 - Oracle: <bottom line> | SKIPPED (planner judged nothing critical) | SKIPPED (path-only criticality, routed to the reviewer) | SKIPPED (--no-oracle)
 - QA: <status from the QA result block, cases run/passed/failed/blocked, findings by severity; report at .ac/plans/<slug>/qa/<run id>/report.md> | could-not-run (<reason>) | SKIPPED (plan QA is false) | SKIPPED (--no-qa)
 
-## Wisdom Accumulated
+## Deferred
 
-<contents of .ac/plans/<slug>/wisdom.md, dropped here for posterity>
+<IMPORTANT findings recorded rather than fixed, MINOR or low-confidence findings (3c), unfixed QA findings, anything
+added to the plan's `## Deferred Ideas`. `None` when empty.>
 
 ## Notes
 
-<non-obvious decisions made during execution, root causes hit, anything the next person should know>
-
-## Commits
-
-<git log --oneline since the plan started, produced by the final /ac:commit>
+<non-obvious decisions made during execution, root causes hit, the quick-to-junior routing count (1c), a missing TDD
+field (1f), a skipped final commit (4a F7) with the path and the count, anything the next person should know>
 ```

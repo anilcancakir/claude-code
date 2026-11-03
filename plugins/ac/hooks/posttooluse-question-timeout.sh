@@ -31,7 +31,8 @@
 #
 # Both texts are fixed ASCII with no quote or backslash, so printf can build valid JSON without jq.
 # updatedToolOutput is deliberately not used: the AskUserQuestion output shape is undocumented and a
-# mismatch is silently ignored. active-execution.json is wait evidence only, never auto evidence.
+# mismatch is silently ignored. An execute marker (.ac/state/execute/<slug>.json) is wait evidence
+# only, never auto evidence.
 
 set -u
 
@@ -175,12 +176,17 @@ confirmed_run() {
     [ ! -e "$project_dir/.ac/$run_root/$run_slug/verdict.md" ] || return 1
 
     # An execute marker owned by this session makes every question an execute BLOCKER. One that
-    # cannot be read is doubt, so it waits too.
-    exec_marker="$project_dir/.ac/state/active-execution.json"
-    if [ -e "$exec_marker" ]; then
+    # cannot be read is doubt, so it waits too, and so does a missing lib, which cannot list them.
+    markers_lib="$(dirname "$0")/lib/execute-markers.sh"
+    [ -f "$markers_lib" ] || return 1
+    . "$markers_lib"
+    while IFS= read -r exec_marker; do
+        [ -n "$exec_marker" ] || continue
         exec_session="$(jq -er '.session_id' "$exec_marker" 2>/dev/null)" || return 1
         [ "$exec_session" != "$sid" ] || return 1
-    fi
+    done <<EOF
+$(exec_markers "$project_dir")
+EOF
 
     # A prompt with no question list cannot be classified. One blocker header anywhere makes the
     # whole prompt wait.

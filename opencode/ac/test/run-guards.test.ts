@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import type { ToolContext } from "@opencode/plugin/promise/tool"
-import { MARKER_PATH } from "../src/marker.ts"
+import { EXECUTE_MARKER_DIR } from "../src/marker.ts"
 import { registerRunGuards } from "../src/run-guards.ts"
 import { createFakeCtx, type FakeCtx, type FakeSession } from "./fake-ctx.ts"
 
@@ -33,10 +33,14 @@ function isoAgo(ms: number): string {
     return new Date(Date.now() - ms).toISOString().replace(/\.\d{3}Z$/, "Z")
 }
 
-function writeMarker(overrides: Record<string, unknown> = {}): void {
-    mkdirSync(join(dir, ".ac/state"), { recursive: true })
+function markerFile(fileName: string): string {
+    return join(dir, EXECUTE_MARKER_DIR, fileName)
+}
+
+function writeMarker(overrides: Record<string, unknown> = {}, fileName = "demo.json"): void {
+    mkdirSync(join(dir, EXECUTE_MARKER_DIR), { recursive: true })
     writeFileSync(
-        join(dir, MARKER_PATH),
+        markerFile(fileName),
         JSON.stringify({
             slug: "demo",
             session_id: "ses_root",
@@ -51,9 +55,9 @@ function writeMarker(overrides: Record<string, unknown> = {}): void {
     )
 }
 
-function writePlan(text = PLAN): void {
-    mkdirSync(join(dir, ".ac/plans/demo"), { recursive: true })
-    writeFileSync(join(dir, ".ac/plans/demo/plan.md"), text)
+function writePlan(text = PLAN, slug = "demo"): void {
+    mkdirSync(join(dir, ".ac/plans", slug), { recursive: true })
+    writeFileSync(join(dir, ".ac/plans", slug, "plan.md"), text)
 }
 
 async function setup(shells?: { pending(sessionID: string): number }): Promise<FakeCtx> {
@@ -461,7 +465,152 @@ describe("standing rules", () => {
         const fake = await setup()
 
         expect(await systemFor(fake, "ses_worker")).toEqual(["base"])
-        rmSync(join(dir, MARKER_PATH))
+        rmSync(markerFile("demo.json"))
         expect(await systemFor(fake, "ses_root")).toEqual(["base"])
+    })
+})
+
+describe("several runs in one checkout", () => {
+    function writeOtherRootRun(): void {
+        writeMarker(
+            { slug: "beta", session_id: "ses_other", root_session_id: "ses_other", wave_files: ["src/beta.ts"] },
+            "beta.json",
+        )
+        writePlan("- [ ] **Step 9**: Beta work\n", "beta")
+    }
+
+    test("two roots each get their own nudge, and neither names the other's plan", async () => {
+        writeMarker()
+        writePlan()
+        writeOtherRootRun()
+        const fake = await setup()
+
+        await push(fake, "session.execution.succeeded", { sessionID: "ses_root" })
+        await push(fake, "session.execution.succeeded", { sessionID: "ses_other" })
+
+        expect(fake.calls.synthetic).toHaveLength(2)
+        const [first, second] = fake.calls.synthetic
+        expect(first?.sessionID).toBe("ses_root")
+        expect(first?.text).toContain("'demo'")
+        expect(first?.text).not.toContain("beta")
+        expect(second?.sessionID).toBe("ses_other")
+        expect(second?.text).toContain("'beta'")
+        expect(second?.text).not.toContain("demo")
+    })
+
+    test("each root's workers are scoped by their own run's wave_files only", async () => {
+        writeMarker()
+        writeOtherRootRun()
+        const fake = await setup()
+
+        expect((await edit(fake, "ses_worker", "src/in-scope.ts")).effect).toBe("allow")
+        expect((await edit(fake, "ses_worker", "src/beta.ts")).effect).toBe("deny")
+        expect((await edit(fake, "ses_other_worker", "src/beta.ts")).effect).toBe("allow")
+        expect((await edit(fake, "ses_other_worker", "src/in-scope.ts")).effect).toBe("deny")
+    })
+
+    test("ending one run leaves the other root's guards armed", async () => {
+        writeMarker()
+        writePlan()
+        writeOtherRootRun()
+        const fake = await setup()
+
+        rmSync(markerFile("beta.json"))
+        await push(fake, "session.execution.succeeded", { sessionID: "ses_other" })
+        await push(fake, "session.execution.succeeded", { sessionID: "ses_root" })
+
+        expect(fake.calls.synthetic.map((call) => call.sessionID)).toEqual(["ses_root"])
+        expect((await edit(fake, "ses_other_worker", "src/elsewhere.ts")).effect).toBe("allow")
+        expect((await edit(fake, "ses_worker", "src/elsewhere.ts")).effect).toBe("deny")
+    })
+
+    describe("one root owning two markers", () => {
+        function writeTwoRuns(): void {
+            writeMarker({ wave_files: ["src/a.ts"] }, "demo.json")
+            writePlan()
+            writeMarker({ slug: "second", wave_files: ["src/b.ts"] }, "second.json")
+            writePlan("- [ ] **Step 7**: Second work\n", "second")
+        }
+
+        test("file scope is the union of the owned wave_files", async () => {
+            writeTwoRuns()
+            const fake = await setup()
+
+            expect((await edit(fake, "ses_worker", "src/a.ts")).effect).toBe("allow")
+            expect((await edit(fake, "ses_worker", "src/b.ts")).effect).toBe("allow")
+            expect((await edit(fake, "ses_worker", "src/c.ts")).effect).toBe("deny")
+        })
+
+        test("an undeclared run does not lift the scope another owned run declares", async () => {
+            writeMarker({ wave_files: [] }, "demo.json")
+            writeMarker({ slug: "second", wave_files: ["src/b.ts"] }, "second.json")
+            const fake = await setup()
+
+            expect((await edit(fake, "ses_worker", "src/b.ts")).effect).toBe("allow")
+            expect((await edit(fake, "ses_worker", "src/c.ts")).effect).toBe("deny")
+        })
+
+        test("one stop nudge names both slugs and both plans' outstanding steps", async () => {
+            writeTwoRuns()
+            const fake = await setup()
+
+            await push(fake, "session.execution.succeeded", { sessionID: "ses_root" })
+
+            expect(fake.calls.synthetic).toHaveLength(1)
+            const text = fake.calls.synthetic[0]?.text ?? ""
+            expect(text).toContain("'demo'")
+            expect(text).toContain("'second'")
+            expect(text).toContain("**Step 2**: Port the guards")
+            expect(text).toContain("**Step 7**: Second work")
+        })
+
+        test("a lane marker keeps the stop nudge off for its own run only", async () => {
+            writeMarker({ lane: true }, "demo.json")
+            writePlan()
+            writeMarker({ slug: "second" }, "second.json")
+            writePlan("- [ ] **Step 7**: Second work\n", "second")
+            const fake = await setup()
+
+            await push(fake, "session.execution.succeeded", { sessionID: "ses_root" })
+
+            const text = fake.calls.synthetic[0]?.text ?? ""
+            expect(text).toContain("'second'")
+            expect(text).not.toContain("'demo'")
+        })
+
+        test("compaction recovery names each owned run's plan", async () => {
+            writeTwoRuns()
+            const fake = await setup()
+
+            await push(fake, "session.compaction.ended", { sessionID: "ses_root", reason: "auto", text: "summary" })
+
+            expect(fake.calls.synthetic).toHaveLength(1)
+            const text = fake.calls.synthetic[0]?.text ?? ""
+            expect(text).toContain(join(dir, ".ac/plans/demo/plan.md"))
+            expect(text).toContain(join(dir, ".ac/plans/second/plan.md"))
+        })
+
+        test("a running child silences the nudge for both runs", async () => {
+            writeTwoRuns()
+            const fake = await setup()
+
+            await push(fake, "session.execution.started", { sessionID: "ses_worker" })
+            await push(fake, "session.execution.succeeded", { sessionID: "ses_root" })
+
+            expect(fake.calls.synthetic).toHaveLength(0)
+        })
+    })
+
+    test("a bad slug and a stop-guard counter are not runs", async () => {
+        writeMarker({}, "bad slug.json")
+        writeMarker({}, "demo.stop-guard.json")
+        writePlan()
+        const fake = await setup()
+
+        await push(fake, "session.execution.succeeded", { sessionID: "ses_root" })
+        await push(fake, "session.compaction.ended", { sessionID: "ses_root", reason: "auto", text: "summary" })
+
+        expect(fake.calls.synthetic).toHaveLength(0)
+        expect((await edit(fake, "ses_worker", "src/elsewhere.ts")).effect).toBe("allow")
     })
 })

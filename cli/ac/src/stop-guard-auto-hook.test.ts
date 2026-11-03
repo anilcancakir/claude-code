@@ -84,6 +84,14 @@ function writeAutoMarker(fields: Record<string, unknown>): void {
     );
 }
 
+function writeExecuteMarker(slug: string, session: string = SESSION): void {
+    mkdirSync(join(project, ".ac", "state", "execute"), { recursive: true });
+    writeFileSync(
+        join(project, ".ac", "state", "execute", `${slug}.json`),
+        JSON.stringify({ session_id: session, slug, started_at: isoAgo(0) }),
+    );
+}
+
 function seedAwayOverCoordinator(startedAt: string = isoAgo(0)): void {
     mkdirSync(join(project, ".ac", "coord", SLUG), { recursive: true });
     writeFileSync(
@@ -142,13 +150,26 @@ test("an execute source whose execute marker is gone is told to gate", () => {
 
 test("an execute source still running gets the note, not the gate", () => {
     mkdirSync(join(project, ".ac", "auto", SLUG), { recursive: true });
-    writeFileSync(
-        join(project, ".ac", "state", "active-execution.json"),
-        JSON.stringify({ session_id: SESSION, slug: SLUG, started_at: isoAgo(0) }),
-    );
+    writeExecuteMarker(SLUG);
     writeAutoMarker({ phase: "executing", source: "execute", source_ref: SLUG });
 
     expect(blockReason(runGuard())).toContain("this is a note rather than an instruction");
+});
+
+test("an execute source has ended when its own marker is gone and only other sessions' plans still run", () => {
+    mkdirSync(join(project, ".ac", "auto", SLUG), { recursive: true });
+    writeExecuteMarker("third-plan", "sess-other");
+    writeAutoMarker({ phase: "executing", source: "execute", source_ref: SLUG });
+
+    expect(blockReason(runGuard())).toContain("has ended (its marker is gone)");
+});
+
+test("an execute source has not ended while this session still runs another plan, which the plan guard blocks for", () => {
+    mkdirSync(join(project, ".ac", "auto", SLUG), { recursive: true });
+    writeExecuteMarker("other-plan");
+    writeAutoMarker({ phase: "executing", source: "execute", source_ref: SLUG });
+
+    expect(blockReason(runGuard())).not.toContain("has ended (its marker is gone)");
 });
 
 test("over a live coordinator run this session owns, the coordinator guard owns the stop", () => {

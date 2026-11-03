@@ -254,13 +254,29 @@ write_counter "$blocks" false || exit 0
 # run, whose verdict then releases this guard for good.
 # The stage picks the wording. A coordinator source reaching here has lost its marker with no
 # verdict: with frozen criteria the gate is owed, without them the coordinator aborted before its
-# roadmap lock and the away run ends too. An execute source whose execute marker is gone has ended.
+# roadmap lock and the away run ends too. An execute source has ended once its own marker,
+# .ac/state/execute/<source_ref>.json, is gone and this session owns no other execute marker: while
+# another of its plans still runs, stop-guard.sh blocks this same stop for it, and a "gate now"
+# wording here would contradict that block.
+execute_source_running() {
+    _exec_ref="$(jq -r '.source_ref // empty' "$marker" 2>/dev/null)"
+    case "$_exec_ref" in
+        '' | *[!A-Za-z0-9._-]*) ;;
+        *) [ -e "$project_dir/.ac/state/execute/$_exec_ref.json" ] && return 0 ;;
+    esac
+    # A missing lib cannot tell, and the note wording is the one that defers to the plan guard.
+    _markers_lib="$(dirname "$0")/lib/execute-markers.sh"
+    [ -f "$_markers_lib" ] || return 0
+    . "$_markers_lib"
+    [ -n "$(exec_owned_markers "$project_dir" "$hook_session")" ]
+}
+
 stage="$phase"
 if [ "$phase" != "closing" ]; then
     if [ -n "$source_ref" ]; then
         stage="coordinate-aborted"
         [ -f "$run_dir/criteria.md" ] && stage="coordinate-closed"
-    elif [ "$source" = "execute" ] && [ ! -e "$project_dir/.ac/state/active-execution.json" ]; then
+    elif [ "$source" = "execute" ] && ! execute_source_running; then
         stage="source-ended"
     fi
 fi

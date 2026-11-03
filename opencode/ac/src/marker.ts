@@ -1,10 +1,12 @@
+import { readdirSync } from "node:fs"
 import { join } from "node:path"
 import type { Plugin } from "@opencode/plugin"
 import { readIfPresent } from "./memory.ts"
 
 /**
- * The active-execution marker the execute skill writes at `.ac/state/active-execution.json`, the same slot and the
- * same CC fields as plugins/ac/skills/execute/references/execution-state.md, so the `.ac/` layout stays shared.
+ * The per-plan execution marker the execute skill writes at `.ac/state/execute/<slug>.json`, the same slot and the
+ * same CC fields as plugins/ac/skills/execute/references/execution-state.md, so the `.ac/` layout stays shared. The
+ * file name is the slug and several markers can coexist; a root session acts on every marker it owns.
  *
  * Two fields are opencode-only. `harness: "opencode"` tells the two runtimes' guards apart: a marker without it was
  * written by Claude Code and is left to the CC hooks, and the CC hooks in turn never match an opencode marker because
@@ -32,7 +34,11 @@ export interface ExecutionMarker {
     readonly paused?: boolean
 }
 
-export const MARKER_PATH = ".ac/state/active-execution.json"
+/** One `<slug>.json` per running plan, so several runs can share a checkout. */
+export const EXECUTE_MARKER_DIR = ".ac/state/execute"
+
+// The stop guard of the Claude Code side keeps its block counter beside a marker; it is not a run.
+const COUNTER_SUFFIX = ".stop-guard"
 
 const MAX_AGE_MS = 24 * 3_600_000
 
@@ -69,16 +75,33 @@ export function isFresh(startedAt: string, now: number, maxAgeMs: number = MAX_A
     return age >= -MAX_FUTURE_SKEW_MS && age <= maxAgeMs
 }
 
-/** The live opencode run's marker under `dir`, or undefined when there is none, it is malformed, or it is stale. */
-export function readMarker(dir: string, now: number = Date.now()): ExecutionMarker | undefined {
-    const raw = readJson(join(dir, MARKER_PATH))
+/** The slugs whose `<slug>.json` sits in `dir`, sorted; counters and names outside the slug charset are skipped. */
+function markerSlugs(dir: string): string[] {
+    let names: string[]
+    try {
+        names = readdirSync(join(dir, EXECUTE_MARKER_DIR))
+    } catch (error) {
+        const code = (error as NodeJS.ErrnoException).code
+        if (code === "ENOENT" || code === "ENOTDIR") return []
+        throw error
+    }
+
+    return names
+        .filter((name) => name.endsWith(".json"))
+        .map((name) => name.slice(0, -".json".length))
+        .filter((slug) => !slug.endsWith(COUNTER_SUFFIX) && SLUG.test(slug))
+        .sort()
+}
+
+/** The marker `slug` names under `dir`, or undefined when it is gone, malformed, foreign or stale. */
+function readMarker(dir: string, slug: string, now: number): ExecutionMarker | undefined {
+    const raw = readJson(join(dir, EXECUTE_MARKER_DIR, `${slug}.json`))
     if (typeof raw !== "object" || raw === null) return undefined
 
-    const fields = raw as Record<string, unknown>
-    const { slug, session_id, root_session_id, harness, started_at, current_wave, wave_files, note, lane, paused } =
-        fields
+    // The file name is the slug: the body's own `slug` is never trusted, as it ends up in paths and model text.
+    const { session_id, root_session_id, harness, started_at, current_wave, wave_files, note, lane, paused } =
+        raw as Record<string, unknown>
     if (harness !== "opencode") return undefined
-    if (!nonEmptyString(slug) || !SLUG.test(slug)) return undefined
     if (!nonEmptyString(session_id) || !nonEmptyString(root_session_id)) return undefined
     if (!nonEmptyString(started_at) || !isFresh(started_at, now)) return undefined
     if (wave_files !== undefined && !(Array.isArray(wave_files) && wave_files.every(nonEmptyString))) return undefined
@@ -97,8 +120,18 @@ export function readMarker(dir: string, now: number = Date.now()): ExecutionMark
     }
 }
 
+/** Every live opencode run's marker under `dir`, ordered by slug; unusable files are skipped, never thrown on. */
+export function readMarkers(dir: string, now: number = Date.now()): ExecutionMarker[] {
+    return markerSlugs(dir).flatMap((slug) => readMarker(dir, slug, now) ?? [])
+}
+
 export function ownsMarker(marker: ExecutionMarker, rootSessionID: string): boolean {
     return marker.root_session_id === rootSessionID
+}
+
+/** The markers one root session owns: a run only ever acts on these, so another root's runs never touch it. */
+export function ownedMarkers(markers: readonly ExecutionMarker[], rootSessionID: string): ExecutionMarker[] {
+    return markers.filter((marker) => ownsMarker(marker, rootSessionID))
 }
 
 /** The top of the caller's parentID chain: the session the user drives, whatever subagent depth the caller sits at. */

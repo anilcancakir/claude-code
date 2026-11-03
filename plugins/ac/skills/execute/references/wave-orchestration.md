@@ -54,8 +54,8 @@ AskUserQuestion (header `Dep failed?`, options
 )
 ```
 
-- `Stop and investigate`: delete `.ac/state/active-execution.json`, then halt; user resolves and re-runs `/ac:execute <slug>` to resume (Phase 1 writes a fresh marker on resume).
-- `Fix manually and resume`: delete `.ac/state/active-execution.json`, then pause; user fixes the failed step's output, marks the step verified, and re-runs.
+- `Stop and investigate`: delete this run's `.ac/state/execute/<slug>.json`, then halt; user resolves and re-runs `/ac:execute <slug>` to resume (Phase 1 writes a fresh marker on resume).
+- `Fix manually and resume`: delete this run's `.ac/state/execute/<slug>.json`, then pause; user fixes the failed step's output, marks the step verified, and re-runs.
 - `Skip the dependent steps`: mark dependent steps as `skipped` (note in report), continue to non-dependent steps in the next wave (the run continues, so the marker stays in place).
 
 **Auto mode**: this is a BLOCKER call site (see `<auto_mode>`). Surface the question to the user EVEN IF `AUTO_MODE = true`. Before calling `AskUserQuestion`, emit one line: `BLOCKER: Wave <M+1> has a hard dependency on a failed step in Wave <N>. Auto mode halted; user judgment required.` Continue per the user's response. AUTO_MODE stays set unless the user picks `Stop and investigate`, which terminates the run.
