@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `ac-lsp` 0.5.1: the `php` profile drops Intelephense class type mismatches (P1006) wherever it drops undefined symbols, on a file outside the server's project and in a project without `vendor`. There `throw new` of a `RuntimeException` subclass or of Laravel's `HttpResponseException` came back as `Expected type 'Throwable'`, and a Mockery mock as the wrong class. A mismatch whose value is a builtin type (`Found 'string'`, `Found 'null'`) needs no class hierarchy and is kept. Replayed through the filter, the 1,483 diagnostics of the 24 hours to 4 November lose 970 instead of 776; 172 of the 194 extra are `Expected type 'Throwable'`.
+
 ## [0.42.0] - 2026-11-04
 
 ### Added

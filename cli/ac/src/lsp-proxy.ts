@@ -918,6 +918,9 @@ export interface NoiseRule {
     foreignProject?: boolean;
 }
 
+/** An Intelephense type mismatch whose value is a builtin type, which no missing class hierarchy can explain. */
+const PHP_BUILTIN_MISMATCH: RegExp = /\. Found '(?:int|float|string|bool|true|false|null|array|callable|iterable|object|mixed|void)'\.$/;
+
 /**
  * Rule sets chosen with `--profile`. Each names diagnostics that are symptoms of a missing environment
  * (dependencies never installed, a package never built) or false positives of the server, not of the code.
@@ -931,15 +934,20 @@ export const NOISE_PROFILES: Readonly<Record<string, readonly NoiseRule[]>> = {
     // but a server rooted at the worktree cannot see it.
     // The same codes on a file outside the server's project (a worktree under .claude/worktrees, .ac/worktrees
     // or beside the checkout): the index holds the other project, so the worktree's own classes are undefined.
+    // P1006 (type mismatch) goes with them when the value is a class: without the class's parents the server
+    // reports `throw new` of a RuntimeException subclass as "Expected type 'Throwable'". A builtin value
+    // (`Found 'string'`, `Found 'null'`) needs no hierarchy, so that mismatch stays a real error.
     php: [
         {
-            codes: ["P1009", "P1010", "P1011", "P1012", "P1013", "P1014"],
+            codes: ["P1006", "P1009", "P1010", "P1011", "P1012", "P1013", "P1014"],
+            keep: PHP_BUILTIN_MISMATCH,
             requires: ["composer.json"],
             missing: ["vendor"],
             withinProject: true,
         },
         {
-            codes: ["P1009", "P1010", "P1011", "P1012", "P1013", "P1014"],
+            codes: ["P1006", "P1009", "P1010", "P1011", "P1012", "P1013", "P1014"],
+            keep: PHP_BUILTIN_MISMATCH,
             foreignProject: true,
         },
     ],

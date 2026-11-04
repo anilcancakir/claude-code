@@ -605,16 +605,19 @@ function findProjectRoot(path, exists) {
 function projectOfDirectory(directory, exists) {
   return findProjectRoot(join(directory, "_"), exists);
 }
+var PHP_BUILTIN_MISMATCH = /\. Found '(?:int|float|string|bool|true|false|null|array|callable|iterable|object|mixed|void)'\.$/;
 var NOISE_PROFILES = {
   php: [
     {
-      codes: ["P1009", "P1010", "P1011", "P1012", "P1013", "P1014"],
+      codes: ["P1006", "P1009", "P1010", "P1011", "P1012", "P1013", "P1014"],
+      keep: PHP_BUILTIN_MISMATCH,
       requires: ["composer.json"],
       missing: ["vendor"],
       withinProject: true
     },
     {
-      codes: ["P1009", "P1010", "P1011", "P1012", "P1013", "P1014"],
+      codes: ["P1006", "P1009", "P1010", "P1011", "P1012", "P1013", "P1014"],
+      keep: PHP_BUILTIN_MISMATCH,
       foreignProject: true
     }
   ],

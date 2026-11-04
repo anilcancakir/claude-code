@@ -841,9 +841,11 @@ describe("filterDiagnostics", () => {
             diagnostic("Undefined type 'Illuminate\\Validation\\Rule'.", "P1009"),
             diagnostic("Undefined method 'getKey'.", "P1013"),
             diagnostic("Undefined property '$layout_rows'.", "P1014"),
+            diagnostic("Expected type 'Throwable'. Found 'App\\Exceptions\\PlaceRejected'.", "P1006"),
             diagnostic("Expected type 'int'. Found 'string'.", "P1006"),
             diagnostic("syntax error, unexpected '}'", "P1001"),
         ] };
+        // A class mismatch is judged against a hierarchy the server cannot see without vendor; a builtin one is not.
         const real = ["Expected type 'int'. Found 'string'.", "syntax error, unexpected '}'"];
 
         // No composer.json: nothing is missing, so an undefined symbol is a real error.
@@ -862,7 +864,9 @@ describe("filterDiagnostics", () => {
         const projectOf = (path: string): string => path.startsWith("/repo/.claude/worktrees/wt/") ? "/repo/.claude/worktrees/wt" : "/repo";
         const params = (path: string) => ({ uri: pathToFileURL(path).href, diagnostics: [
             diagnostic("Undefined type 'Tests\\TestCase'.", "P1009"),
-            diagnostic("Expected type 'int'. Found 'string'.", "P1006"),
+            diagnostic("Expected type 'Throwable'. Found 'App\\Exceptions\\PlaceRejected'.", "P1006"),
+            diagnostic("Expected type 'App\\Models\\Place'. Found 'null'.", "P1006"),
+            diagnostic("syntax error, unexpected '}'", "P1001"),
         ] });
         const filter = (path: string, workspaceProject: string | undefined) => filterDiagnostics(params(path), {
             ...options(4, ["php"]),
@@ -873,7 +877,10 @@ describe("filterDiagnostics", () => {
         installed.add("vendor");
         installed.add(".git");
 
-        expect(messages(filter("/repo/.claude/worktrees/wt/tests/A.php", "/repo"))).toEqual(["Expected type 'int'. Found 'string'."]);
+        expect(messages(filter("/repo/.claude/worktrees/wt/tests/A.php", "/repo"))).toEqual([
+            "Expected type 'App\\Models\\Place'. Found 'null'.",
+            "syntax error, unexpected '}'",
+        ]);
         // The server's own project, or a root not known yet, keeps the error.
         expect(filter("/repo/tests/A.php", "/repo")).toBeUndefined();
         expect(filter("/repo/.claude/worktrees/wt/tests/A.php", "/repo/.claude/worktrees/wt")).toBeUndefined();
