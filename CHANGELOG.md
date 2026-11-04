@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.42.2] - 2026-11-04
+
+### Changed
+
+- The agents that can run inside an `ac:lane` worktree (`ac:lane`, the plan workers, `ac:plan-reviewer`, `ac:plan-code-review`, `ac:oracle`, `ac:qa-tester`) are told what Claude Code's worktree isolation refuses there: a command whose git use it cannot verify from the text, most often a compound or multi-line command with a heredoc, a loop or `$variable` feeding `sed`, `rg` or `git`, a computed command name, or `git -C`/`cd` aimed at another checkout. Over the four days to 4 November those checks refused 806 commands on the author's machine, 98 of them on the main thread, and Claude Code offers no setting to turn them off. `/ac:execute` and `/ac:plan` no longer append to `wisdom.md`, `review-log.md`, the plan log or the review log header through Bash (the `review-log.md` header `printf >>` was refused in 16 of 25 lane runs); they append with `Edit` instead.
+
 ## [0.42.1] - 2026-11-04
 
 ### Fixed
