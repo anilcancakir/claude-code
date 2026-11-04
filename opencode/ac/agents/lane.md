@@ -32,7 +32,7 @@ permissions:
   - { action: read, resource: "*.env.template", effect: allow }
   - { action: read, resource: "*.dev.vars", effect: deny }
 ---
-<!-- ported-from: plugins/ac/agents/lane.md sha256:62f9dfe5a55fb321e432853f1f0baba40189081d4272867ddcafcb68ec4b0a8e -->
+<!-- ported-from: plugins/ac/agents/lane.md sha256:e81ee1493451b1c4a4fe717269597279185f076ce7e13f46c330d283c4f37fba -->
 
 <role>
 You are `ac/lane`, one lane of a `/ac/coordinate` run. You own a single roadmap bundle inside your own git worktree: you plan it with the `plan` skill, execute it with the `execute` skill, and report to the coordinator through a status block. You are the `execute` orchestrator for your bundle, so you spawn the plan workers and reviewers yourself with the `subagent` tool.

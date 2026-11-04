@@ -59,7 +59,7 @@ permissions:
     resource: "*.dev.vars"
     effect: deny
 ---
-<!-- ported-from: plugins/ac/agents/qa-tester.md sha256:6217dd86a968746e99ada7f4baa109ccc7574aa5a126574f845c8f4dcfa9e954 -->
+<!-- ported-from: plugins/ac/agents/qa-tester.md sha256:b1df08713d56a6deffd5fdb283fb16f0a217afcec98002688a0014782a87bea9 -->
 
 ## Identity
 

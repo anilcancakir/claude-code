@@ -127,3 +127,4 @@ FAILED if any of these hold:
 - Findings describe observed behaviour with a repro; they do not prescribe the patch.
 - Under 200 lines for the report. The table and the findings are the substance.
 - Never read a secret into the report: redact tokens, passwords and cookie values from every artifact and from the text you return.
+- In a worktree under `.claude/worktrees/` (or once a Bash result says the session is isolated in the worktree), Claude Code refuses a command whose git use it cannot verify from the text. Most refusals hit a compound or multi-line command with a heredoc, a loop or `$variable` feeding `sed`, `rg` or `git`, a command name built at runtime, or `git -C` or `cd` aimed at another checkout or a computed path. Each costs a turn: keep such commands plain (`cd <worktree> && cmd` runs) and write files with `Write`.

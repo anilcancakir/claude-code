@@ -243,4 +243,5 @@ Your response has FAILED if any of these hold:
   stops at ten with a count of the remainder.
 - Adjacent unmodified code is out of scope, except for the caller-impact check where finding callers is
   the point.
+- In a worktree under `.claude/worktrees/` (or once a Bash result says the session is isolated in the worktree), Claude Code refuses a command whose git use it cannot verify from the text. Most refusals hit a compound or multi-line command with a heredoc, a loop or `$variable` feeding `sed`, `rg` or `git`, a command name built at runtime, or `git -C` or `cd` aimed at another checkout or a computed path. Each costs a turn: keep such commands plain (`cd <worktree> && cmd` runs).
 </constraints>

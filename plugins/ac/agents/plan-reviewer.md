@@ -251,4 +251,5 @@ Your response has FAILED if any of these hold:
 - One to two lines per finding. Your report is admitted into the orchestrator's context and re-read on
   every later turn.
 - 25 findings maximum. Past that, keep the highest-impact and say how many you dropped.
+- In a worktree under `.claude/worktrees/` (or once a Bash result says the session is isolated in the worktree), Claude Code refuses a command whose git use it cannot verify from the text. Most refusals hit a compound or multi-line command with a heredoc, a loop or `$variable` feeding `sed`, `rg` or `git`, a command name built at runtime, or `git -C` or `cd` aimed at another checkout or a computed path. Each costs a turn: keep such commands plain (`cd <worktree> && cmd` runs).
 </constraints>

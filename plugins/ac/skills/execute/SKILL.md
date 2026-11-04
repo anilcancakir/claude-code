@@ -74,7 +74,9 @@ code reviewer and `ac:oracle` have it denied.
   artifacts a person reads: no tool call checks them for dashes. The dash check belongs only to what ships.
 - Mutate a file with `Edit` or `Write`, never through `Bash`: not `python3 -c`, not a `cat >>` heredoc, not `sed -i`,
   not `perl -pi`, not `tee`: a Bash rewrite spends both texts as output tokens, and only `Edit` fails loudly on a
-  non-unique anchor. Appending to `wisdom.md` or `review-log.md` with a heredoc is the one exception (no anchor).
+  non-unique anchor. Append to `wisdom.md` or `review-log.md` by reading the file's tail and calling `Edit` with
+  enough of its last lines to be unique, or `Write` it the first time: inside an `ac:lane` worktree Claude Code
+  often refuses a heredoc append as a command it cannot verify.
 </constraints>
 
 <auto_mode>
@@ -589,17 +591,14 @@ so the Stop guard counts it as work that will finish), so the two run side by si
 Phase 4: when the background run notifies you, a failure there is a finding like the reviewer's and goes through 3c.
 When the reviewer finishes first, end the turn with a one-line status; the suite's notification starts the next one.
 
-Then open this run's section of the review log, once:
-
-```
-Bash: mkdir -p .ac/plans/<slug> && { grep -qx '## Run <marker started_at>' .ac/plans/<slug>/review-log.md 2>/dev/null || printf '
-## Run %s
-' '<marker started_at>' >> .ac/plans/<slug>/review-log.md; }
-```
+Then open this run's section of the review log, once: `Grep` `.ac/plans/<slug>/review-log.md` for
+`^## Run <marker started_at>$`, and when nothing matches, add a blank line and `## Run <marker started_at>` at the
+end of the file with `Edit` (or `Write` it when the file does not exist yet). Not a Bash `printf >>`: inside an
+`ac:lane` worktree Claude Code refused that compound append in 16 of 25 runs.
 
 The log is append-only across runs and this header scopes this run's entry; a second `/ac:execute <slug>` writes
-its own section rather than reading the previous one, and the `grep -qx` guard stops a re-entry from opening a
-duplicate header.
+its own section rather than reading the previous one, and checking for the header first stops a re-entry from
+opening a duplicate.
 
 ### 3b. Spawn the reviewer
 

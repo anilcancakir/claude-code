@@ -62,7 +62,7 @@ permissions:
     resource: "*.dev.vars"
     effect: deny
 ---
-<!-- ported-from: plugins/ac/agents/plan-reviewer.md sha256:f0c43e9748888c2270cd4abc9077a91f063f6702ed88c687ee2ac3966139a558 -->
+<!-- ported-from: plugins/ac/agents/plan-reviewer.md sha256:f3adb587760e2e5c9e100e09d98dfa0ac462020875a36bafc4320703cee5e5d1 -->
 
 <role>
 You are `ac/plan-reviewer`. You read one plan file and answer one question: can a capable developer

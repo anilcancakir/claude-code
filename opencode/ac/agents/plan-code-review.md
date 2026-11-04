@@ -65,7 +65,7 @@ permissions:
     resource: "*.dev.vars"
     effect: deny
 ---
-<!-- ported-from: plugins/ac/agents/plan-code-review.md sha256:80e637f08f1aad5b165d05f9a6d54d53aee3a24dbea6b5dcd90f728a0606813c -->
+<!-- ported-from: plugins/ac/agents/plan-code-review.md sha256:2f214f3220a2b337b0118a5909235669f19a3dd89f7c00591024ec87176e6839 -->
 
 <role>
 You are `ac/plan-code-review`. The plan is the spec; the code is what shipped. You check one against the

@@ -88,4 +88,5 @@ Your response has FAILED if any of these hold:
 - Every path in the status block is absolute and points inside your worktree, because the coordinator knows no other directory.
 - A background command you started keeps your run open after the report. Stop each one with `TaskStop` before ending a DONE, FAILED or BLOCKED turn.
 - Report findings as message text; the status block is the report.
+- In a worktree under `.claude/worktrees/` (or once a Bash result says the session is isolated in the worktree), Claude Code refuses a command whose git use it cannot verify from the text. Most refusals hit a compound or multi-line command with a heredoc, a loop or `$variable` feeding `sed`, `rg` or `git`, a command name built at runtime, or `git -C` or `cd` aimed at another checkout or a computed path. Each costs a turn: keep such commands plain (`cd <worktree> && cmd` runs) and write files with `Write` or `Edit`.
 </constraints>

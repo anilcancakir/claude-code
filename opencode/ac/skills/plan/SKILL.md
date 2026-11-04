@@ -2,7 +2,7 @@
 name: plan
 description: "Plan a change: research in parallel, ask only the decisions the user must make, write a tiered plan. Writes no code. Use only when the user asks for a written plan, runs /ac/plan, or passes a .ac/tasks/*.yaml file. Request text: [--auto] [--lane] [--slug <s>] [--revise] <topic description | .ac/tasks/*.yaml>."
 ---
-<!-- ported-from: plugins/ac/skills/plan/SKILL.md sha256:49854a21442e97a73ce3fe4a13d8c71a271d6833374a715ff9a379808f885bb9 -->
+<!-- ported-from: plugins/ac/skills/plan/SKILL.md sha256:38ce49b692d6c3d8aef75a1f208d594d6ce7144d30750aba45269c444d69b784 -->
 
 # /ac/plan
 

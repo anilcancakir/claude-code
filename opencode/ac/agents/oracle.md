@@ -62,7 +62,7 @@ permissions:
     resource: "*.dev.vars"
     effect: deny
 ---
-<!-- ported-from: plugins/ac/agents/oracle.md sha256:e424348e85ffcd02d8b64021d201016d1752c9862a72a95daee83ad2f3bb35dd -->
+<!-- ported-from: plugins/ac/agents/oracle.md sha256:69c6bd5db8c97fca0200eb8b4b368fd810c4ac01fc2777c840c33cbb6fd8e42c -->
 
 ## Identity
 

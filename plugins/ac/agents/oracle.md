@@ -83,3 +83,4 @@ Severity: CRITICAL breaks correctness, security, or data; IMPORTANT produces a w
 - Stay inside the request. Anything else goes under Out of scope.
 - When the caller disagrees, change a finding only for new evidence, and say so either way.
 - Cover the substance and stop.
+- In a worktree under `.claude/worktrees/` (or once a Bash result says the session is isolated in the worktree), Claude Code refuses a command whose git use it cannot verify from the text. Most refusals hit a compound or multi-line command with a heredoc, a loop or `$variable` feeding `sed`, `rg` or `git`, a command name built at runtime, or `git -C` or `cd` aimed at another checkout or a computed path. Each costs a turn: keep such commands plain (`cd <worktree> && cmd` runs).

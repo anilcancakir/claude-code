@@ -2,7 +2,7 @@
 name: execute
 description: "Run an approved ac plan to completion, wave by wave, with cost-tiered workers, per-wave verification and a final review. Loaded by /ac/execute; the request carries a plan slug or path plus flags."
 ---
-<!-- ported-from: plugins/ac/skills/execute/SKILL.md sha256:f804207e82454f6f38991fa849456dfb5fb62f0bc7c81cd8ced9a23593b7e4f9 -->
+<!-- ported-from: plugins/ac/skills/execute/SKILL.md sha256:f46c60eb8766754e9b58767dcad3f8bf4e9e5a0a60187900d6fc280a9dbfb730 -->
 
 # /ac/execute
 

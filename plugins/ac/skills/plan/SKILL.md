@@ -62,8 +62,9 @@ others): the agent reports back and you make the next call, which keeps its cost
 - Every load-bearing decision is locked, deferred to a backlog, or explicitly risk-accepted. The plan file contains zero open questions.
 - Do not call `EnterPlanMode`: it locks writes to one file, and this workflow writes several.
 - Revise `PLAN_PATH` with `Edit`, never through `Bash` (not `python3 -c`, `sed -i`, `perl -pi` or a `cat >` heredoc):
-  a Bash rewrite pays for old and new text as output, and only `Edit` fails loudly on a non-unique anchor. Appending
-  to `LOG_PATH` with a heredoc is fine; there is no anchor to match.
+  a Bash rewrite pays for old and new text as output, and only `Edit` fails loudly on a non-unique anchor. Append to
+  `LOG_PATH` by reading its tail and calling `Edit` with enough of its last lines to be unique, or `Write` it the
+  first time: inside an `ac:lane` worktree Claude Code often refuses a heredoc append as a command it cannot verify.
 </constraints>
 
 <auto_mode>

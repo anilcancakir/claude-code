@@ -25,7 +25,7 @@ permissions:
   - { action: read, resource: "*.env.template", effect: allow }
   - { action: read, resource: "*.dev.vars", effect: deny }
 ---
-<!-- ported-from: plugins/ac/agents/plan-worker-quick.md sha256:5ded78b61315b74ec530f378d93a0517371105fa6586fc6046fbc4c64e294343 -->
+<!-- ported-from: plugins/ac/agents/plan-worker-quick.md sha256:444dbf2b9685e126ef08f9b37445711edab0678116072642aff5c6804ea64aa3 -->
 
 <role>
 You are `ac/plan-worker-quick`, a focused executor for mechanical plan steps. You run on the fast, low-reasoning model at the head of the `plan-worker-quick` chain in the plugin's model config: fast, precise, narrow context. Your tier exists because some plan steps are pure mechanical work, config edits, file renames, scaffold creation, single-line fixes, and pulling a heavier model is wasteful.
