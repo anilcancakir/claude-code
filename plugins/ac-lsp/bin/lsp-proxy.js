@@ -478,6 +478,115 @@ function rootAtProject(params, cwd, exists, home = homedir()) {
     workspaceFolders: [{ uri, name: basename(project) }]
   };
 }
+function fullVersion(version) {
+  const parts = version.split(".");
+  while (parts.length < 3) {
+    parts.push("0");
+  }
+  return parts.join(".");
+}
+function compareVersions(left, right) {
+  const a = left.split(".").map(Number);
+  const b = right.split(".").map(Number);
+  for (let index = 0;index < 3; index++) {
+    const difference = (a[index] ?? 0) - (b[index] ?? 0);
+    if (difference !== 0) {
+      return difference;
+    }
+  }
+  return 0;
+}
+function composerPhpVersion(text) {
+  const manifest = JSON.parse(text);
+  if (typeof manifest !== "object" || manifest === null || Array.isArray(manifest)) {
+    return;
+  }
+  const { config, require: require2 } = manifest;
+  const candidates = [
+    config?.platform?.php,
+    require2?.php
+  ];
+  for (const constraint of candidates) {
+    if (typeof constraint !== "string") {
+      continue;
+    }
+    const floors = constraintFloors(constraint).sort(compareVersions);
+    if (floors[0] !== undefined) {
+      return floors[0];
+    }
+  }
+  return;
+}
+function constraintFloors(constraint) {
+  const floors = [];
+  let pendingOperator;
+  for (const token of constraint.split(/[\s,|]+/)) {
+    if (/^(<=?|>=?|!=|==?|\^|~)$/.test(token)) {
+      pendingOperator = token;
+      continue;
+    }
+    const match = /^(<=?|>=?|!=|==?|\^|~)?v?(\d+(?:\.\d+){0,2})/.exec(token);
+    const operator = match?.[1] ?? pendingOperator;
+    pendingOperator = undefined;
+    if (match === null || operator?.startsWith("<") || operator === "!=") {
+      continue;
+    }
+    floors.push(fullVersion(match[2]));
+  }
+  return floors;
+}
+function intelephenseConfigHome() {
+  const base = process.platform === "win32" ? process.env.APPDATA ?? homedir() : process.env.XDG_CONFIG_HOME ?? join(homedir(), ".config");
+  return join(base, "intelephense");
+}
+function withPhpVersionStorage(params, version, configHome) {
+  const options = typeof params?.initializationOptions === "object" && params.initializationOptions !== null ? params.initializationOptions : {};
+  if (options.storagePath !== undefined) {
+    return;
+  }
+  return {
+    ...params,
+    initializationOptions: {
+      ...options,
+      storagePath: join(configHome, `workspace-php-${version}`)
+    }
+  };
+}
+function intelephenseWithPhpVersion(section, version) {
+  const settings = typeof section === "object" && section !== null ? section : {};
+  const environment = settings.environment ?? {};
+  if (environment.phpVersion !== undefined) {
+    return;
+  }
+  return {
+    ...settings,
+    environment: {
+      ...environment,
+      phpVersion: version
+    }
+  };
+}
+function configurationWithPhpVersion(items, result, version) {
+  if (!Array.isArray(items) || !Array.isArray(result) || items.length !== result.length) {
+    return;
+  }
+  let changed = false;
+  const answered = result.map((value, index) => {
+    const section = items[index]?.section;
+    if (section === "intelephense") {
+      const configured = intelephenseWithPhpVersion(value, version);
+      changed ||= configured !== undefined;
+      return configured ?? value;
+    }
+    if ((section === undefined || section === "") && typeof value === "object" && value !== null) {
+      const configured = intelephenseWithPhpVersion(value.intelephense, version);
+      changed ||= configured !== undefined;
+      return configured === undefined ? value : { ...value, intelephense: configured };
+    }
+    return value;
+  });
+  return changed ? answered : undefined;
+}
 var DEFAULT_SETTLE_MS = 6000;
 var DEFAULT_MAX_HOLD_MS = 300000;
 function findProjectRoot(path, exists) {
@@ -724,6 +833,7 @@ function parseProxyArgs(argv) {
   }
   let watchRoot = false;
   let gitRoot = false;
+  let composerPhp = false;
   let settleMs = DEFAULT_SETTLE_MS;
   let maxHoldMs = DEFAULT_MAX_HOLD_MS;
   let maxSeverity = 4;
@@ -740,6 +850,10 @@ function parseProxyArgs(argv) {
     }
     if (flag === "--git-root") {
       gitRoot = true;
+      continue;
+    }
+    if (flag === "--composer-php") {
+      composerPhp = true;
       continue;
     }
     if (flag === "--ext" && flags[index + 1] !== undefined) {
@@ -788,6 +902,7 @@ function parseProxyArgs(argv) {
   return {
     watchRoot,
     gitRoot,
+    composerPhp,
     extensions: extensions.length > 0 ? extensions : [".php"],
     settleMs,
     maxHoldMs,
@@ -878,7 +993,7 @@ function runLspProxy(argv) {
     options = parseProxyArgs(argv);
   } catch (error) {
     process.stderr.write(`${LOG_PREFIX} ${errorMessage(error)}
-` + `usage: lsp-proxy [--watch-root] [--git-root] [--ext .php]... [--settle <ms>] [--max-hold <ms>] [--max-severity <1-4>] [--profile <name>]... [--busy <start>,<end>] [--idle <ms>] -- <server command> [args...]
+` + `usage: lsp-proxy [--watch-root] [--git-root] [--composer-php] [--ext .php]... [--settle <ms>] [--max-hold <ms>] [--max-severity <1-4>] [--profile <name>]... [--busy <start>,<end>] [--idle <ms>] -- <server command> [args...]
 `);
     process.exit(2);
   }
@@ -915,6 +1030,22 @@ function runLspProxy(argv) {
   let proxyRequests = 0;
   let initializeId;
   let shutdownId;
+  let phpVersion;
+  const configurationRequests = new Map;
+  const configurationMethod = Buffer.from(JSON.stringify("workspace/configuration"));
+  const readComposerPhpVersion = (root) => {
+    const manifest = join(root, "composer.json");
+    if (!existsSync(manifest)) {
+      return;
+    }
+    try {
+      return composerPhpVersion(readFileSync(manifest, "utf8"));
+    } catch (error) {
+      const reason = errorMessage(error);
+      log("composer-php", `leaving the PHP version to the server, cannot read ${manifest}: ${reason}`);
+      return;
+    }
+  };
   const directoryWatchers = new Map;
   const directoryTimers = new Map;
   let directoryWatchDisabled = false;
@@ -1150,6 +1281,7 @@ function runLspProxy(argv) {
     shutdownId = undefined;
     clientRequests.clear();
     serverRequests.clear();
+    configurationRequests.clear();
     clearTimeout(gateTimer);
     gateTimer = undefined;
     gate.flush();
@@ -1188,7 +1320,23 @@ function runLspProxy(argv) {
         message.params = rerooted;
         raw = frameMessage(JSON.stringify(message));
       }
-      filterOptions.workspaceProject = projectOfDirectory(resolveWorkspaceRoot(message.params, process.cwd()), existsSync);
+      const workspaceRoot = resolveWorkspaceRoot(message.params, process.cwd());
+      filterOptions.workspaceProject = projectOfDirectory(workspaceRoot, existsSync);
+      phpVersion = options.composerPhp ? readComposerPhpVersion(workspaceRoot) : undefined;
+      const stored = phpVersion === undefined ? undefined : withPhpVersionStorage(message.params, phpVersion, intelephenseConfigHome());
+      if (stored !== undefined) {
+        message.params = stored;
+        raw = frameMessage(JSON.stringify(message));
+      }
+    }
+    const asked = message?.method === undefined ? configurationRequests.get(message?.id) : undefined;
+    if (asked !== undefined && message !== undefined) {
+      configurationRequests.delete(message.id);
+      const result = configurationWithPhpVersion(asked, message.result, phpVersion);
+      if (result !== undefined) {
+        message.result = result;
+        raw = frameMessage(JSON.stringify(message));
+      }
     }
     toServer(raw);
     if (tracksIdle) {
@@ -1343,6 +1491,15 @@ function runLspProxy(argv) {
     clientRequests.delete(id);
     return false;
   };
+  const recordConfigurationRequest = (body) => {
+    try {
+      const message = JSON.parse(body.toString("utf8"));
+      const items = message?.params?.items;
+      if (message?.method === "workspace/configuration" && message.id !== undefined && Array.isArray(items)) {
+        configurationRequests.set(message.id, items);
+      }
+    } catch {}
+  };
   const readServer = (chunk) => {
     for (const event of serverParser.push(chunk)) {
       if (event.kind === "raw") {
@@ -1353,6 +1510,9 @@ function runLspProxy(argv) {
       }
       if (tracksIdle && consumeServerMessage(event.body)) {
         continue;
+      }
+      if (phpVersion !== undefined && event.body.includes(configurationMethod)) {
+        recordConfigurationRequest(event.body);
       }
       const published = publishMessage(event.body);
       if (published === undefined) {

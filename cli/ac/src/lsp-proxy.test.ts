@@ -18,6 +18,8 @@ import type { FileStamp, FrameEvent, SweepDeps } from "./lsp-proxy.ts";
 import {
     ancestorEntryOnDisk,
     applyContentChanges,
+    composerPhpVersion,
+    configurationWithPhpVersion,
     createBusyReader,
     DEFAULT_MAX_HOLD_MS,
     DEFAULT_SETTLE_MS,
@@ -44,6 +46,7 @@ import {
     syncedUri,
     watchEventType,
     WatchedFileBatch,
+    withPhpVersionStorage,
 } from "./lsp-proxy.ts";
 
 function framed(body: string): Buffer {
@@ -501,6 +504,7 @@ describe("parseProxyArgs", () => {
         expect(parseProxyArgs(["--watch-root", "--ext", ".php", "--ext", ".inc", "--", "srv", "--stdio"])).toEqual({
             watchRoot: true,
             gitRoot: false,
+            composerPhp: false,
             extensions: [".php", ".inc"],
             settleMs: DEFAULT_SETTLE_MS,
             maxHoldMs: DEFAULT_MAX_HOLD_MS,
@@ -536,6 +540,7 @@ describe("parseProxyArgs", () => {
         expect(parseProxyArgs(["--", "dart", "language-server"])).toEqual({
             watchRoot: false,
             gitRoot: false,
+            composerPhp: false,
             extensions: [".php"],
             settleMs: DEFAULT_SETTLE_MS,
             maxHoldMs: DEFAULT_MAX_HOLD_MS,
@@ -576,6 +581,124 @@ describe("parseProxyArgs", () => {
 
     test("reads the git-root switch", () => {
         expect(parseProxyArgs(["--git-root", "--", "srv"]).gitRoot).toBe(true);
+    });
+
+    test("reads the composer-php switch", () => {
+        expect(parseProxyArgs(["--composer-php", "--", "srv"]).composerPhp).toBe(true);
+    });
+});
+
+describe("composerPhpVersion", () => {
+    const composer = (manifest: object): string => JSON.stringify(manifest);
+
+    test("prefers the platform version, which pins the PHP the project runs on", () => {
+        expect(composerPhpVersion(composer({
+            require: { php: "^8.1" },
+            config: { platform: { php: "7.4.33" } },
+        }))).toBe("7.4.33");
+        expect(composerPhpVersion(composer({ config: { platform: { php: "8.2" } } }))).toBe("8.2.0");
+        expect(composerPhpVersion(composer({ config: { platform: { php: "8.1.2-1ubuntu2.14" } } }))).toBe("8.1.2");
+    });
+
+    test("takes the lowest version the require constraint allows", () => {
+        const cases: [string, string][] = [
+            ["^7.4|^8.0", "7.4.0"],
+            ["^8.0 || ^7.3", "7.3.0"],
+            [">=7.3 <8.1", "7.3.0"],
+            ["~7.4.0", "7.4.0"],
+            ["7.4.*", "7.4.0"],
+            ["7.2 - 8.1", "7.2.0"],
+            ["v8.1.2", "8.1.2"],
+            ["^7.1.3", "7.1.3"],
+            [">= 7.3 < 8.0", "7.3.0"],
+            [">=7.4.0-beta1", "7.4.0"],
+            [">=8.1 <8.4.0-RC1", "8.1.0"],
+            ["^8.0@RC2", "8.0.0"],
+            ["7.4.0.0", "7.4.0"],
+        ];
+        for (const [constraint, version] of cases) {
+            expect(composerPhpVersion(composer({ require: { php: constraint } }))).toBe(version);
+        }
+    });
+
+    test("names no version when the manifest gives no lower bound", () => {
+        expect(composerPhpVersion(composer({ require: { php: "<8.0" } }))).toBeUndefined();
+        expect(composerPhpVersion(composer({ require: { php: "< 8.0" } }))).toBeUndefined();
+        expect(composerPhpVersion(composer({ require: { php: "*" } }))).toBeUndefined();
+        expect(composerPhpVersion(composer({ require: { "laravel/framework": "^8.0" } }))).toBeUndefined();
+        expect(composerPhpVersion(composer({ require: { php: 74 } }))).toBeUndefined();
+        expect(composerPhpVersion("[]")).toBeUndefined();
+        expect(composerPhpVersion("null")).toBeUndefined();
+    });
+
+    test("throws on a manifest that is not JSON, so the caller can name the file", () => {
+        expect(() => composerPhpVersion("{")).toThrow();
+    });
+});
+
+describe("withPhpVersionStorage", () => {
+    test("keeps the workspace cache of each PHP version apart, so one built for another version is never read", () => {
+        const params = { rootUri: "file:///repo", initializationOptions: { licenceKey: "k" } };
+        expect(withPhpVersionStorage(params, "7.4.0", "/home/me/.config/intelephense")).toEqual({
+            rootUri: "file:///repo",
+            initializationOptions: {
+                licenceKey: "k",
+                storagePath: "/home/me/.config/intelephense/workspace-php-7.4.0",
+            },
+        });
+        expect(withPhpVersionStorage({}, "8.2.0", "/c")).toEqual({
+            initializationOptions: { storagePath: "/c/workspace-php-8.2.0" },
+        });
+    });
+
+    test("leaves a storage path the client chose alone", () => {
+        const params = { initializationOptions: { storagePath: "/mine" } };
+        expect(withPhpVersionStorage(params, "7.4.0", "/c")).toBeUndefined();
+    });
+});
+
+describe("configurationWithPhpVersion", () => {
+    const intelephense = {
+        diagnostics: { unusedSymbols: false },
+        environment: { includePaths: ["/x"] },
+    };
+
+    test("adds the version to each intelephense section the server asked for, keeping every other setting", () => {
+        const items = [
+            { section: "intelephense" },
+            { section: "intelephense", scopeUri: "file:///repo" },
+        ];
+        const withVersion = {
+            diagnostics: { unusedSymbols: false },
+            environment: { includePaths: ["/x"], phpVersion: "7.4.0" },
+        };
+        expect(configurationWithPhpVersion(items, [intelephense, intelephense], "7.4.0")).toEqual([
+            withVersion,
+            withVersion,
+        ]);
+        expect(configurationWithPhpVersion([{ section: "intelephense" }], [null], "7.4.0")).toEqual([
+            { environment: { phpVersion: "7.4.0" } },
+        ]);
+    });
+
+    test("adds it under intelephense when the server asked for the root section", () => {
+        expect(configurationWithPhpVersion([{}], [{ intelephense, other: 1 }], "7.4.0")).toEqual([
+            {
+                intelephense: {
+                    diagnostics: { unusedSymbols: false },
+                    environment: { includePaths: ["/x"], phpVersion: "7.4.0" },
+                },
+                other: 1,
+            },
+        ]);
+    });
+
+    test("changes nothing for another section, a version the client set or a malformed exchange", () => {
+        const pinned = { environment: { phpVersion: "8.3.0" } };
+        expect(configurationWithPhpVersion([{ section: "files" }], [{ maxSize: 1 }], "7.4.0")).toBeUndefined();
+        expect(configurationWithPhpVersion([{ section: "intelephense" }], [pinned], "7.4.0")).toBeUndefined();
+        expect(configurationWithPhpVersion([{ section: "intelephense" }], "nope", "7.4.0")).toBeUndefined();
+        expect(configurationWithPhpVersion(undefined, [intelephense], "7.4.0")).toBeUndefined();
     });
 });
 
@@ -1600,6 +1723,60 @@ describe("proxy process", () => {
             await Bun.sleep(20);
         }
     }
+
+    // The server asks for its settings with workspace/configuration; Claude Code answers from .lsp.json.
+    async function answerConfiguration(harness: Harness, id: number): Promise<Record<string, unknown>> {
+        harness.emit({ id, method: "workspace/configuration", params: { items: [{ section: "intelephense" }] } });
+        const deadline = Date.now() + 3000;
+        while (!harness.toClient().some((message) => message.id === id) && Date.now() < deadline) {
+            await Bun.sleep(20);
+        }
+        harness.send({ id, result: [{ diagnostics: { unusedSymbols: false } }] });
+        const messages = await harness.waitFor((all) => all.some((message) => message.id === id && "result" in message));
+        return messages.find((message) => message.id === id && "result" in message)!;
+    }
+
+    test("--composer-php gives the project's PHP version in the client's configuration answer", async () => {
+        const harness = startProxy(["--composer-php"]);
+        writeFileSync(join(harness.workspace, "composer.json"), JSON.stringify({ require: { php: "^7.4|^8.0" } }));
+        harness.send({ id: 1, method: "initialize", params: { rootUri: pathToFileURL(harness.workspace).href, capabilities: {} } });
+
+        const answer = await answerConfiguration(harness, 40);
+        expect(answer.result).toEqual([{ diagnostics: { unusedSymbols: false }, environment: { phpVersion: "7.4.0" } }]);
+        const initialize = harness.logged().find((message) => message.method === "initialize") as any;
+        expect(initialize.params.initializationOptions.storagePath).toEndWith(join("intelephense", "workspace-php-7.4.0"));
+    });
+
+    test("--composer-php gives a server restarted after --idle the same cache and version", async () => {
+        const harness = startProxy(["--composer-php", "--idle", "200"], true);
+        writeFileSync(join(harness.workspace, "composer.json"), JSON.stringify({ require: { php: "^7.4" } }));
+        initializeSession(harness, { rootUri: pathToFileURL(harness.workspace).href, capabilities: {} });
+        await harness.waitFor((all) => methods(all).includes("exit"));
+
+        harness.send({ id: 7, method: "textDocument/hover", params: {
+            textDocument: { uri: pathToFileURL(join(harness.workspace, "a.php")).href },
+            position: { line: 0, character: 0 },
+        } });
+        await harness.waitFor((all) => methods(all).includes("textDocument/hover"));
+        const answer = await answerConfiguration(harness, 41);
+        expect(answer.result).toEqual([{ diagnostics: { unusedSymbols: false }, environment: { phpVersion: "7.4.0" } }]);
+
+        const initializes = harness.logged().filter((message) => message.method === "initialize") as any[];
+        expect(initializes).toHaveLength(2);
+        const storagePaths = initializes.map((message) => message.params.initializationOptions.storagePath);
+        expect(storagePaths[1]).toBe(storagePaths[0]);
+        expect(storagePaths[0]).toEndWith(join("intelephense", "workspace-php-7.4.0"));
+    });
+
+    test("--composer-php forwards the configuration answer untouched when the project has no composer.json", async () => {
+        const harness = startProxy(["--composer-php"]);
+        harness.send({ id: 1, method: "initialize", params: { rootUri: pathToFileURL(harness.workspace).href, capabilities: {} } });
+
+        const answer = await answerConfiguration(harness, 40);
+        expect(answer.result).toEqual([{ diagnostics: { unusedSymbols: false } }]);
+        const initialize = harness.logged().find((message) => message.method === "initialize") as any;
+        expect(initialize.params.initializationOptions).toBeUndefined();
+    });
 
     test("--idle shuts an idle server down with shutdown then exit, and the proxy stays", async () => {
         const harness = startProxy(["--idle", "200"], true);

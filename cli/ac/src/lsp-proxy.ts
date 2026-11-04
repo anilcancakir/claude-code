@@ -243,6 +243,7 @@ export interface ClientMessage {
     id?: unknown;
     method?: unknown;
     params?: any;
+    result?: unknown;
 }
 
 /**
@@ -692,6 +693,156 @@ export function rootAtProject(params: any, cwd: string, exists: (path: string) =
     };
 }
 
+/** Turns `7`, `7.4` or `7.4.33` into the three-part form Intelephense compares against. */
+function fullVersion(version: string): string {
+    const parts = version.split(".");
+    while (parts.length < 3) {
+        parts.push("0");
+    }
+    return parts.join(".");
+}
+
+/** Orders two three-part versions numerically. */
+function compareVersions(left: string, right: string): number {
+    const a = left.split(".").map(Number);
+    const b = right.split(".").map(Number);
+    for (let index = 0; index < 3; index++) {
+        const difference = (a[index] ?? 0) - (b[index] ?? 0);
+        if (difference !== 0) {
+            return difference;
+        }
+    }
+    return 0;
+}
+
+/**
+ * The PHP version a project targets, read from the text of its `composer.json`: `config.platform.php` when
+ * set, since it pins the PHP the project runs on, else the lowest version `require.php` allows. A version
+ * behind `<`, `<=` or `!=` is an upper bound or an exclusion, never the floor. Undefined when the manifest
+ * names no lower bound; throws when the text is not JSON.
+ */
+export function composerPhpVersion(text: string): string | undefined {
+    const manifest: unknown = JSON.parse(text);
+    if (typeof manifest !== "object" || manifest === null || Array.isArray(manifest)) {
+        return undefined;
+    }
+    const { config, require } = manifest as { config?: any; require?: any };
+    const candidates = [
+        config?.platform?.php,
+        require?.php,
+    ];
+    for (const constraint of candidates) {
+        if (typeof constraint !== "string") {
+            continue;
+        }
+        const floors = constraintFloors(constraint).sort(compareVersions);
+        if (floors[0] !== undefined) {
+            return floors[0];
+        }
+    }
+    return undefined;
+}
+
+/**
+ * Every version in a Composer constraint that is not an upper bound or an exclusion, in three-part form. A
+ * token is read up to its third number, so a stability or distribution suffix (`7.4.0-beta1`, `^8.0@RC2`,
+ * `8.1.2-1ubuntu2.14`) never reads as a version of its own; an operator written apart (`< 8.0`) still binds
+ * to the version after it.
+ */
+function constraintFloors(constraint: string): string[] {
+    const floors: string[] = [];
+    let pendingOperator: string | undefined;
+    for (const token of constraint.split(/[\s,|]+/)) {
+        if (/^(<=?|>=?|!=|==?|\^|~)$/.test(token)) {
+            pendingOperator = token;
+            continue;
+        }
+        const match = /^(<=?|>=?|!=|==?|\^|~)?v?(\d+(?:\.\d+){0,2})/.exec(token);
+        const operator = match?.[1] ?? pendingOperator;
+        pendingOperator = undefined;
+        if (match === null || operator?.startsWith("<") || operator === "!=") {
+            continue;
+        }
+        floors.push(fullVersion(match[2]!));
+    }
+    return floors;
+}
+
+/** Intelephense's own configuration directory, which holds its default `workspace` cache directory. */
+export function intelephenseConfigHome(): string {
+    const base = process.platform === "win32"
+        ? process.env.APPDATA ?? homedir()
+        : process.env.XDG_CONFIG_HOME ?? join(homedir(), ".config");
+    return join(base, "intelephense");
+}
+
+/**
+ * `initialize` params whose `initializationOptions.storagePath` is a workspace cache directory for `version`
+ * alone (`<configHome>/workspace-php-<version>`); undefined when the client chose a storage path. Intelephense
+ * keys a workspace cache by its folders only and reads it back whatever the version, so an index built for
+ * PHP 8.5 keeps PHP 8 functions defined after the project moves to 7.4.
+ */
+export function withPhpVersionStorage(params: any, version: string, configHome: string): any {
+    const options = typeof params?.initializationOptions === "object" && params.initializationOptions !== null
+        ? params.initializationOptions
+        : {};
+    if (options.storagePath !== undefined) {
+        return undefined;
+    }
+    return {
+        ...params,
+        initializationOptions: {
+            ...options,
+            storagePath: join(configHome, `workspace-php-${version}`),
+        },
+    };
+}
+
+/** The `intelephense` settings section with `environment.phpVersion` added; undefined when it names one. */
+function intelephenseWithPhpVersion(section: any, version: string): object | undefined {
+    const settings = typeof section === "object" && section !== null ? section : {};
+    const environment = settings.environment ?? {};
+    if (environment.phpVersion !== undefined) {
+        return undefined;
+    }
+    return {
+        ...settings,
+        environment: {
+            ...environment,
+            phpVersion: version,
+        },
+    };
+}
+
+/**
+ * The client's answer to a server's `workspace/configuration` request with `intelephense.environment.phpVersion`
+ * set to `version` in each `intelephense` or root section, every other setting kept; undefined when nothing
+ * changes. Intelephense reads its settings from this answer alone once the client declares the configuration
+ * capability (Claude Code does for a server with `settings`), and without a version it checks every project as
+ * its newest PHP, so a PHP 8 function in a PHP 7.4 project goes unreported.
+ */
+export function configurationWithPhpVersion(items: unknown, result: unknown, version: string): unknown[] | undefined {
+    if (!Array.isArray(items) || !Array.isArray(result) || items.length !== result.length) {
+        return undefined;
+    }
+    let changed = false;
+    const answered = result.map((value: any, index) => {
+        const section: unknown = items[index]?.section;
+        if (section === "intelephense") {
+            const configured = intelephenseWithPhpVersion(value, version);
+            changed ||= configured !== undefined;
+            return configured ?? value;
+        }
+        if ((section === undefined || section === "") && typeof value === "object" && value !== null) {
+            const configured = intelephenseWithPhpVersion(value.intelephense, version);
+            changed ||= configured !== undefined;
+            return configured === undefined ? value : { ...value, intelephense: configured };
+        }
+        return value;
+    });
+    return changed ? answered : undefined;
+}
+
 /** Quiet time a project needs before its held diagnostics are forwarded, in ms. */
 export const DEFAULT_SETTLE_MS: number = 6000;
 
@@ -1066,6 +1217,8 @@ export interface ProxyOptions {
     watchRoot: boolean;
     /** Re-root `initialize` at the project holding the client's root (see `rootAtProject`). */
     gitRoot: boolean;
+    /** Tell Intelephense the PHP version the workspace's `composer.json` targets (see `composerPhpVersion`). */
+    composerPhp: boolean;
     extensions: string[];
     settleMs: number;
     maxHoldMs: number;
@@ -1120,9 +1273,9 @@ function parseMilliseconds(flag: string, value: string | undefined): number {
 }
 
 /**
- * Parses `[--watch-root] [--git-root] [--ext <.ext>]... [--settle <ms>] [--max-hold <ms>] [--max-severity <1-4>]
- * [--profile <name>]... [--busy <start>,<end>] [--idle <ms>] -- <command> [args...]`; throws an Error naming
- * the problem. `--idle 0` is the same as no `--idle`.
+ * Parses `[--watch-root] [--git-root] [--composer-php] [--ext <.ext>]... [--settle <ms>] [--max-hold <ms>]
+ * [--max-severity <1-4>] [--profile <name>]... [--busy <start>,<end>] [--idle <ms>] -- <command> [args...]`;
+ * throws an Error naming the problem. `--idle 0` is the same as no `--idle`.
  */
 export function parseProxyArgs(argv: string[]): ProxyOptions {
     const separator = argv.indexOf("--");
@@ -1136,6 +1289,7 @@ export function parseProxyArgs(argv: string[]): ProxyOptions {
 
     let watchRoot = false;
     let gitRoot = false;
+    let composerPhp = false;
     let settleMs = DEFAULT_SETTLE_MS;
     let maxHoldMs = DEFAULT_MAX_HOLD_MS;
     let maxSeverity = 4;
@@ -1152,6 +1306,10 @@ export function parseProxyArgs(argv: string[]): ProxyOptions {
         }
         if (flag === "--git-root") {
             gitRoot = true;
+            continue;
+        }
+        if (flag === "--composer-php") {
+            composerPhp = true;
             continue;
         }
         if (flag === "--ext" && flags[index + 1] !== undefined) {
@@ -1201,6 +1359,7 @@ export function parseProxyArgs(argv: string[]): ProxyOptions {
     return {
         watchRoot,
         gitRoot,
+        composerPhp,
         extensions: extensions.length > 0 ? extensions : [".php"],
         settleMs,
         maxHoldMs,
@@ -1320,10 +1479,12 @@ const SHUTDOWN_GRACE_MS: number = 5000;
 const TERMINATE_GRACE_MS: number = 3000;
 
 /**
- * Runs the proxy: `[--watch-root] [--git-root] [--ext .php]... [--settle <ms>] [--max-hold <ms>] [--max-severity <1-4>]
- * [--profile <name>]... [--busy <start>,<end>] [--idle <ms>] -- <server command> [args...]`.
+ * Runs the proxy: `[--watch-root] [--git-root] [--composer-php] [--ext .php]... [--settle <ms>] [--max-hold <ms>]
+ * [--max-severity <1-4>] [--profile <name>]... [--busy <start>,<end>] [--idle <ms>] -- <server command> [args...]`.
  *
- * Spawns the server and relays both directions. Client messages are forwarded byte for byte; before
+ * Spawns the server and relays both directions. Client messages are forwarded byte for byte, except an
+ * initialize re-rooted by `--git-root` and a configuration answer given the project's PHP version by
+ * `--composer-php`; before
  * each one, and 150 ms after any change in a directory holding an open document, the proxy writes
  * full-text didChange notifications for open documents whose disk text moved. With `--watch-root`
  * it also turns changes under the workspace root into batched `workspace/didChangeWatchedFiles`.
@@ -1345,7 +1506,7 @@ export function runLspProxy(argv: string[]): void {
     } catch (error) {
         process.stderr.write(
             `${LOG_PREFIX} ${errorMessage(error)}\n`
-            + "usage: lsp-proxy [--watch-root] [--git-root] [--ext .php]... [--settle <ms>] [--max-hold <ms>] [--max-severity <1-4>] [--profile <name>]... [--busy <start>,<end>] [--idle <ms>] -- <server command> [args...]\n",
+            + "usage: lsp-proxy [--watch-root] [--git-root] [--composer-php] [--ext .php]... [--settle <ms>] [--max-hold <ms>] [--max-severity <1-4>] [--profile <name>]... [--busy <start>,<end>] [--idle <ms>] -- <server command> [args...]\n",
         );
         process.exit(2);
     }
@@ -1388,6 +1549,26 @@ export function runLspProxy(argv: string[]): void {
     let proxyRequests = 0;
     let initializeId: string | undefined;
     let shutdownId: string | undefined;
+    // Read once at initialize, so a restarted server is told the same version.
+    let phpVersion: string | undefined;
+    // Items of each workspace/configuration request the server has sent, by id, until the client answers it.
+    const configurationRequests = new Map<unknown, unknown>();
+    const configurationMethod = Buffer.from(JSON.stringify("workspace/configuration"));
+
+    // A project without a composer.json is not a PHP project to tell anything about; any other failure is logged.
+    const readComposerPhpVersion = (root: string): string | undefined => {
+        const manifest = join(root, "composer.json");
+        if (!existsSync(manifest)) {
+            return undefined;
+        }
+        try {
+            return composerPhpVersion(readFileSync(manifest, "utf8"));
+        } catch (error) {
+            const reason = errorMessage(error);
+            log("composer-php", `leaving the PHP version to the server, cannot read ${manifest}: ${reason}`);
+            return undefined;
+        }
+    };
 
     const directoryWatchers = new Map<string, FSWatcher>();
     const directoryTimers = new Map<string, NodeJS.Timeout>();
@@ -1670,6 +1851,7 @@ export function runLspProxy(argv: string[]): void {
         shutdownId = undefined;
         clientRequests.clear();
         serverRequests.clear();
+        configurationRequests.clear();
 
         // The next server republishes what it still finds and has not started indexing, so nothing held survives.
         clearTimeout(gateTimer);
@@ -1711,15 +1893,34 @@ export function runLspProxy(argv: string[]): void {
             skipUri: message === undefined ? undefined : syncedUri(message),
         });
 
-        // 2. Forward the client's own bytes untouched, except an initialize re-rooted by --git-root; only a
-        //    client message counts as activity.
+        // 2. Forward the client's own bytes untouched, except an initialize re-rooted by --git-root and a
+        //    configuration answer given the project's PHP version by --composer-php; only a client message counts
+        //    as activity.
         if (message?.method === "initialize") {
             const rerooted = options.gitRoot ? rootAtProject(message.params, process.cwd(), existsSync) : undefined;
             if (rerooted !== undefined) {
                 message.params = rerooted;
                 raw = frameMessage(JSON.stringify(message));
             }
-            filterOptions.workspaceProject = projectOfDirectory(resolveWorkspaceRoot(message.params, process.cwd()), existsSync);
+            const workspaceRoot = resolveWorkspaceRoot(message.params, process.cwd());
+            filterOptions.workspaceProject = projectOfDirectory(workspaceRoot, existsSync);
+            phpVersion = options.composerPhp ? readComposerPhpVersion(workspaceRoot) : undefined;
+            const stored = phpVersion === undefined
+                ? undefined
+                : withPhpVersionStorage(message.params, phpVersion, intelephenseConfigHome());
+            if (stored !== undefined) {
+                message.params = stored;
+                raw = frameMessage(JSON.stringify(message));
+            }
+        }
+        const asked = message?.method === undefined ? configurationRequests.get(message?.id) : undefined;
+        if (asked !== undefined && message !== undefined) {
+            configurationRequests.delete(message.id);
+            const result = configurationWithPhpVersion(asked, message.result, phpVersion!);
+            if (result !== undefined) {
+                message.result = result;
+                raw = frameMessage(JSON.stringify(message));
+            }
         }
         toServer(raw);
         if (tracksIdle) {
@@ -1898,6 +2099,19 @@ export function runLspProxy(argv: string[]): void {
         return false;
     };
 
+    // Only a request counts; a notification or a response that merely quotes the method name does not.
+    const recordConfigurationRequest = (body: Buffer): void => {
+        try {
+            const message = JSON.parse(body.toString("utf8")) as ClientMessage | null;
+            const items: unknown = message?.params?.items;
+            if (message?.method === "workspace/configuration" && message.id !== undefined && Array.isArray(items)) {
+                configurationRequests.set(message.id, items);
+            }
+        } catch {
+            // Not JSON: forwarded untouched like any other body the proxy does not read.
+        }
+    };
+
     const readServer = (chunk: Buffer): void => {
         for (const event of serverParser.push(chunk)) {
             if (event.kind === "raw") {
@@ -1908,6 +2122,9 @@ export function runLspProxy(argv: string[]): void {
             }
             if (tracksIdle && consumeServerMessage(event.body)) {
                 continue;
+            }
+            if (phpVersion !== undefined && event.body.includes(configurationMethod)) {
+                recordConfigurationRequest(event.body);
             }
             const published = publishMessage(event.body);
             if (published === undefined) {

@@ -5,6 +5,7 @@
             "${CLAUDE_PLUGIN_ROOT}/bin/lsp-proxy.js",
             "--watch-root",
             "--git-root",
+            "--composer-php",
             "--ext",
             ".php",
             "--ext",
