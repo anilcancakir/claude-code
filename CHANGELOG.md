@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.42.0] - 2026-11-04
+
+### Added
+
+- `ac-lsp` 0.5.0: Intelephense checks a project as the PHP version its `composer.json` targets (`config.platform.php`, else the lowest version `require.php` allows), not as PHP 8.5. In a `^7.4` project a PHP 8 function or syntax used to pass without a word; in a real session it now arrives as `Undefined function 'str_contains'` (P1010) and `PHP 8.0+ syntax found. Targeting PHP 7.4.` (P1022). The proxy's new `--composer-php` flag adds the version to Claude Code's answer to the server's `workspace/configuration` request, the only place Intelephense reads settings from once the client declares that capability, and gives each version its own cache directory (`workspace-php-<version>`), because Intelephense reuses a cache built for another version and kept `str_contains` defined. A project switching versions is indexed once from scratch.
+
 ## [0.41.0] - 2026-11-04
 
 Changes from a real-usage audit of the 0.34 to 0.40 features (156 sessions, 24 October to 3 November), reviewed by `ac:oracle` before any was built.
