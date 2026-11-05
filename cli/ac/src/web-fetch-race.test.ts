@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { StreamableHTTPError } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import type { Clock } from "./web-fetch-race.ts";
 import { raceWebFetch } from "./web-fetch-race.ts";
@@ -250,4 +251,82 @@ test("scenario 5: both fail -> isError result", async () => {
     expect(result.isError).toBe(true);
     expect(result.content.length).toBeGreaterThanOrEqual(1);
     expect(clock.armedCount).toBe(0);
+});
+
+function textOf(result: CallToolResult): string {
+    return result.content.map((block) => (block.type === "text" ? block.text : "")).join("\n");
+}
+
+test("scenario 6: a remote outage with no local fallback tells the model to retry after a wait", async () => {
+    const clock = new FakeClock();
+    const local = deferred<CallToolResult>();
+    const outage = new StreamableHTTPError(503, 'Error POSTing to endpoint: {"message":"Service Unavailable."}');
+
+    const promise = raceWebFetch({
+        ...baseOpts,
+        remoteCall: () => Promise.reject(outage),
+        localFetch: () => local.promise,
+        clock,
+    });
+
+    await flush(); // remote rejected fast, local started at once
+    local.reject(new Error("local boom"));
+    await flush();
+
+    clock.advance(1000); // deadline
+    const result = await promise;
+
+    expect(result.isError).toBe(true);
+    expect(textOf(result)).toContain("Service Unavailable");
+    expect(textOf(result)).toContain("retry this exact call once after about 60 seconds");
+});
+
+test("scenario 7: a remote that refused the page for another reason is not worth a retry either", async () => {
+    const clock = new FakeClock();
+    const local = deferred<CallToolResult>();
+    const refusal = new StreamableHTTPError(403, 'Error POSTing to endpoint: {"message":"Forbidden"}');
+
+    const promise = raceWebFetch({
+        ...baseOpts,
+        remoteCall: () => Promise.reject(refusal),
+        localFetch: () => local.promise,
+        clock,
+    });
+
+    await flush(); // remote rejected fast, local started at once
+    local.reject(new Error("local boom"));
+    await flush();
+
+    clock.advance(1000); // deadline
+    const text = textOf(await promise);
+
+    expect(text).toContain("Forbidden");
+    expect(text).toContain("Do not repeat this call");
+    expect(text).not.toContain("about 60 seconds");
+});
+
+test("scenario 8: a remote that never answers points the model at another fetch tool, not a repeat", async () => {
+    const clock = new FakeClock();
+    const remote = deferred<CallToolResult>();
+    const local = deferred<CallToolResult>();
+
+    const promise = raceWebFetch({
+        ...baseOpts,
+        remoteCall: () => remote.promise,
+        localFetch: () => local.promise,
+        clock,
+    });
+
+    clock.advance(100); // trigger fires, local invoked
+    local.reject(new Error("local boom"));
+    await flush();
+
+    clock.advance(900); // deadline with the remote still pending
+    const result = await promise;
+    const text = textOf(result);
+
+    expect(result.isError).toBe(true);
+    expect(text).toContain("did not return before the deadline");
+    expect(text).toContain("Do not repeat this call");
+    expect(text).not.toContain("about 60 seconds");
 });

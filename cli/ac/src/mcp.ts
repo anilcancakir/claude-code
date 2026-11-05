@@ -11,6 +11,7 @@ import {
 import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
 import { HISTORY_TOOL_DEFINITION, HISTORY_TOOL_NAME, runHistoryTool } from "./history-tool.ts";
 import { LOCAL_WEB_FETCH_TOOL_DEFINITION, runLocalFetch } from "./local-fetch.ts";
+import { isTransientRemoteError, TRANSIENT_OUTAGE_HINT, withTransientRetry } from "./remote-retry.ts";
 import { raceWebFetch } from "./web-fetch-race.ts";
 import { AC_VERSION } from "./version.ts";
 
@@ -172,13 +173,16 @@ export function applyAlwaysLoad(tool: Tool): Tool {
  * A remote network/rate-limit/upstream failure is a tool-execution failure,
  * distinct from a dispatch error (unknown tool, missing bearer) which stays an
  * McpError. Mirrors the web-fetch-race error->result shape so the model sees a
- * readable failure instead of a protocol-level rejection.
+ * readable failure instead of a protocol-level rejection. A transient failure that survived the retries
+ * also carries the wait-and-retry instruction.
  */
 export function toIsErrorResult(err: unknown): CallToolResult {
     const message = err instanceof Error ? err.message : String(err);
+    const hint = isTransientRemoteError(err) ? `. ${TRANSIENT_OUTAGE_HINT}` : "";
+
     return {
         isError: true,
-        content: [{ type: "text", text: `remote tool call failed: ${message}` }],
+        content: [{ type: "text", text: `remote tool call failed: ${message}${hint}` }],
     };
 }
 
@@ -372,15 +376,21 @@ export async function runMcpProxy(
         // to an isError result rather than letting it propagate as a protocol-level
         // rejection. ensureConnected is inside the try so a lazy-connect failure (remote
         // unreachable, auth rejected at connect) is normalized too, matching the web-fetch
-        // race leg where the connect runs inside the fallback-guarded call.
+        // race leg where the connect runs inside the fallback-guarded call. These tools are
+        // reads with no local fallback, so a transient outage is retried here; web-fetch is
+        // not, because its local leg already answers while the remote is down and a retry
+        // would hold that answer back.
         try {
-            await remote.ensureConnected();
-            return await remote.client.callTool(
-                {
-                    name: requestedName,
-                    arguments: request.params.arguments,
-                },
-            ) as CallToolResult;
+            return await withTransientRetry(async (): Promise<CallToolResult> => {
+                await remote.ensureConnected();
+
+                return await remote.client.callTool(
+                    {
+                        name: requestedName,
+                        arguments: request.params.arguments,
+                    },
+                ) as CallToolResult;
+            });
         } catch (err) {
             return toIsErrorResult(err);
         }

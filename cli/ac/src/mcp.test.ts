@@ -5,6 +5,7 @@
 import { test, expect } from "bun:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { StreamableHTTPError } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -108,6 +109,16 @@ test("toIsErrorResult stringifies a non-Error thrown value", () => {
     const out = toIsErrorResult("boom");
     expect(out.isError).toBe(true);
     expect(joinText(out.content)).toContain("boom");
+});
+
+test("toIsErrorResult adds the wait-and-retry instruction only to a transient failure", () => {
+    const outage = toIsErrorResult(new StreamableHTTPError(503, "Error POSTing to endpoint: Service Unavailable."));
+    const rejected = toIsErrorResult(new StreamableHTTPError(403, "Error POSTing to endpoint: Forbidden"));
+    const plain = toIsErrorResult(new Error("upstream 429"));
+
+    expect(joinText(outage.content)).toContain("retry this exact call once after about 60 seconds");
+    expect(joinText(rejected.content)).not.toContain("60 seconds");
+    expect(joinText(plain.content)).toBe("remote tool call failed: upstream 429");
 });
 
 test("SERVER_INSTRUCTIONS is non-empty and under the 2KB truncation bound", () => {
@@ -370,6 +381,65 @@ test("mcp proxy normalizes a remote connection failure to isError, not a thrown 
         expect(result.content?.[0]?.text ?? "").toContain("remote tool call failed");
     } finally {
         await client.close();
+    }
+}, 30_000);
+
+test("mcp proxy retries a remote outage, then tells the model to wait and retry once", async () => {
+    // A remote that answers every request with the 503 body seen during a kodizm deploy. The proxy must
+    // retry the transient failure before giving up (three POSTs, not one), and the final isError text must
+    // carry the wait-and-retry instruction rather than only the raw transport message.
+    let posts = 0;
+    const outage = Bun.serve({
+        port: 0,
+        fetch() {
+            posts++;
+
+            return Response.json({ message: "Service Unavailable." }, { status: 503 });
+        },
+    });
+
+    const env = Object.fromEntries(
+        Object.entries(process.env)
+            .filter((e): e is [string, string] => e[1] !== undefined)
+            .filter(([k]) => k !== "KODIZM_MCP_TOKEN" && k !== "KODIZM_MCP_URL"),
+    );
+    env["KODIZM_MCP_TOKEN"] = "kdz-dummy-outage";
+    env["KODIZM_MCP_URL"] = `http://127.0.0.1:${outage.port}/mcp`;
+
+    const transport = new StdioClientTransport(
+        {
+            command: "bun",
+            args: ["run", "src/index.ts", "mcp"],
+            cwd: CLI_DIR,
+            env,
+        },
+    );
+
+    const client = new Client(
+        { name: "test-client", version: "0.0.0" },
+        { capabilities: {} },
+    );
+
+    try {
+        await client.connect(transport);
+
+        const result = await client.callTool(
+            {
+                name: "resolve-library",
+                arguments: { query: "react" },
+            },
+        ) as { isError?: boolean; content?: Array<{ type: string; text?: string }> };
+
+        const text = result.content?.[0]?.text ?? "";
+
+        expect(result.isError).toBe(true);
+        expect(text).toContain("remote tool call failed");
+        expect(text).toContain("Service Unavailable");
+        expect(text).toContain("retry this exact call once after about 60 seconds");
+        expect(posts).toBeGreaterThanOrEqual(3);
+    } finally {
+        await client.close();
+        await outage.stop(true);
     }
 }, 30_000);
 

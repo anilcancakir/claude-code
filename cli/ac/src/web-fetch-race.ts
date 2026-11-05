@@ -1,4 +1,5 @@
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import { isTransientRemoteError, TRANSIENT_OUTAGE_HINT } from "./remote-retry.ts";
 
 /**
  * Pluggable timer source. Defaults to real setTimeout/clearTimeout, but tests inject a
@@ -196,14 +197,35 @@ export function raceWebFetch<T = ReturnType<typeof setTimeout>>(
     });
 }
 
-/** Builds the error result for the deadline path, surfacing the remote error when present. */
+/**
+ * Shown when the remote went quiet or refused the page and the local fetch failed too.
+ *
+ * In the logged web-fetch calls the hard failures landed on a few hosts more than in any one outage window, and
+ * repeating the same call rarely recovered them: the model needs to be sent to another fetch tool, not to try
+ * again. The wording avoids naming a tool, because the model may have used the obvious one already and
+ * opencode has no tool of that name.
+ */
+const UNFETCHABLE_PAGE_HINT =
+    "Do not repeat this call: a second try rarely helps, because the site is probably slow or blocks automated "
+    + "fetches. Fetch the page with a fetch tool you have not tried on this URL yet, preferably one with a "
+    + "browser mode, if one is available.";
+
+/**
+ * Builds the error result for the deadline path, surfacing the remote error when present.
+ *
+ * The closing instruction depends on why the remote failed: a transient outage is worth one retry after a wait,
+ * anything else is not worth repeating.
+ */
 function deadlineError(remoteState: RemoteState): CallToolResult {
+    const outage = remoteState.status === "rejected" && isTransientRemoteError(remoteState.error);
     const reason = remoteState.status === "rejected"
         ? `remote fetch failed: ${errorMessage(remoteState.error)}`
         : "remote fetch did not return before the deadline";
+    const hint = outage ? TRANSIENT_OUTAGE_HINT : UNFETCHABLE_PAGE_HINT;
+
     return {
         isError: true,
-        content: [labelBlock(`web fetch failed and local fallback was unavailable (${reason})`)],
+        content: [labelBlock(`web fetch failed and local fallback was unavailable (${reason}). ${hint}`)],
     };
 }
 
