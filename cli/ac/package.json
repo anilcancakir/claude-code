@@ -1,6 +1,6 @@
 {
     "name": "@anilcancakir/ac-cli",
-    "version": "0.42.2",
+    "version": "0.43.0",
     "description": "Companion CLI runtime for the ac Claude Code plugin. Serves the ac MCP tools, checks plans, prices runs and searches the local history archive.",
     "private": true,
     "type": "module",

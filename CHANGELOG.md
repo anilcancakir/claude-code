@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.43.0] - 2026-11-05
+
+### Added
+
+- The `ac` MCP proxy retries a transient remote failure of `web-search`, `search-docs`, `resolve-library` and `web-code-search` after 2 s and again after 6 s: HTTP 502, 503, 504, Cloudflare 520, 521, 522 and 524, and undici's `fetch failed` and `terminated`. A timeout, a 4xx and a plain 500 are not retried. If the failure outlasts the retries, the error text tells the model not to loop, to do other work, to retry that exact call once after about 60 seconds, and then to continue with another source.
+
+### Changed
+
+- The final error of `web-fetch` now says what to do next. After a transient remote outage it gives the same wait-and-retry instruction. After a remote that stayed silent until the 30 s deadline, or refused the page, it says not to repeat the call and to try a fetch tool not yet used on that URL, since over the 1,337 logged `web-fetch` calls since 1 September the hard failures landed on a few hosts (skandix.de, swedespeed.com, volvoforums.org.uk) rather than in an outage, and 65 of 82 were never retried. `web-fetch` itself is not retried: its local fallback answers while the remote is down, and a retry would hold that answer back.
+
 ## [0.42.2] - 2026-11-04
 
 ### Changed

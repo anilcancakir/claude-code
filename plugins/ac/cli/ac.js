@@ -37963,6 +37963,32 @@ function renderMarkdown(html) {
   return sanitizeMarkdownSchemes(markdown);
 }
 
+// src/remote-retry.ts
+var TRANSIENT_STATUSES = new Set([502, 503, 504, 520, 521, 522, 524]);
+var REMOTE_RETRY_DELAYS_MS = [2000, 6000];
+var TRANSIENT_OUTAGE_HINT = "The kodizm remote looks temporarily unavailable (often a deploy, back within a minute or two). " + "Do not retry in a tight loop: do other work first, retry this exact call once after about 60 seconds, " + "and if it fails again continue with another source.";
+function isTransientRemoteError(err) {
+  if (err instanceof StreamableHTTPError) {
+    return err.code !== undefined && TRANSIENT_STATUSES.has(err.code);
+  }
+  return err instanceof TypeError && (err.message === "fetch failed" || err.message === "terminated");
+}
+async function withTransientRetry(call, options = {}) {
+  const delaysMs = options.delaysMs ?? REMOTE_RETRY_DELAYS_MS;
+  const sleep = options.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
+  for (let attempt = 0;; attempt++) {
+    try {
+      return await call();
+    } catch (err) {
+      const delayMs = delaysMs[attempt];
+      if (delayMs === undefined || !isTransientRemoteError(err)) {
+        throw err;
+      }
+      await sleep(delayMs);
+    }
+  }
+}
+
 // src/web-fetch-race.ts
 var realClock = {
   setTimer: (fn, ms) => setTimeout(fn, ms),
@@ -38071,11 +38097,14 @@ function raceWebFetch(opts) {
     }, deadlineMs);
   });
 }
+var UNFETCHABLE_PAGE_HINT = "Do not repeat this call: a second try rarely helps, because the site is probably slow or blocks automated " + "fetches. Fetch the page with a fetch tool you have not tried on this URL yet, preferably one with a " + "browser mode, if one is available.";
 function deadlineError(remoteState) {
+  const outage = remoteState.status === "rejected" && isTransientRemoteError(remoteState.error);
   const reason = remoteState.status === "rejected" ? `remote fetch failed: ${errorMessage(remoteState.error)}` : "remote fetch did not return before the deadline";
+  const hint = outage ? TRANSIENT_OUTAGE_HINT : UNFETCHABLE_PAGE_HINT;
   return {
     isError: true,
-    content: [labelBlock(`web fetch failed and local fallback was unavailable (${reason})`)]
+    content: [labelBlock(`web fetch failed and local fallback was unavailable (${reason}). ${hint}`)]
   };
 }
 function errorMessage(error) {
@@ -38084,7 +38113,7 @@ function errorMessage(error) {
 // package.json
 var package_default = {
   name: "@anilcancakir/ac-cli",
-  version: "0.42.2",
+  version: "0.43.0",
   description: "Companion CLI runtime for the ac Claude Code plugin. Serves the ac MCP tools, checks plans, prices runs and searches the local history archive.",
   private: true,
   type: "module",
@@ -38196,9 +38225,10 @@ function applyAlwaysLoad(tool) {
 }
 function toIsErrorResult(err) {
   const message = err instanceof Error ? err.message : String(err);
+  const hint = isTransientRemoteError(err) ? `. ${TRANSIENT_OUTAGE_HINT}` : "";
   return {
     isError: true,
-    content: [{ type: "text", text: `remote tool call failed: ${message}` }]
+    content: [{ type: "text", text: `remote tool call failed: ${message}${hint}` }]
   };
 }
 var SERVER_INSTRUCTIONS = "For a library or framework question call resolve-library, then search-docs, before any web " + "search; for real usage of an API call web-code-search. web-search is the fallback after the " + "built-in WebSearch. web-fetch returns exact page text; otherwise it is the last fetch fallback, " + "after the built-in WebFetch and any local fetch server. GitHub files, issues and pull requests " + "go through gh when it is installed. For the user's own past work or conversations, call " + "search-history instead of guessing.";
@@ -38293,10 +38323,12 @@ async function runMcpProxy(options) {
       throw new McpError(ErrorCode.InvalidRequest, "Remote MCP not configured; set KODIZM_MCP_TOKEN to enable kodizm tools.");
     }
     try {
-      await remote.ensureConnected();
-      return await remote.client.callTool({
-        name: requestedName,
-        arguments: request.params.arguments
+      return await withTransientRetry(async () => {
+        await remote.ensureConnected();
+        return await remote.client.callTool({
+          name: requestedName,
+          arguments: request.params.arguments
+        });
       });
     } catch (err) {
       return toIsErrorResult(err);
@@ -40681,4 +40713,4 @@ function formatSyncReport(report) {
 }
 await program2.parseAsync(process.argv);
 
-//# debugId=9B0FCA844C0A3D6964756E2164756E21
+//# debugId=649F3EE237DC4A3B64756E2164756E21
