@@ -1,4 +1,4 @@
-<!-- ported-from: plugins/ac/references/verification.md sha256:e99f1715df0547a49cb27cfb0ad9ad2d48239d99853cf93f5a96ec418a2736b7 -->
+<!-- ported-from: plugins/ac/references/verification.md sha256:3945085400d60105c2762956cec33e10b609752e7f20e66aa78135736458d8c5 -->
 # Verification: scope, commands, diagnostics, fast tests
 
 Shared by the plan workers, `ac/execute` and `ac/qa`. A full lint and test suite can take minutes on a real project, and running it after every step multiplies that by the step count while proving nothing a narrower run does not. So each layer checks what it changed, and the whole project is checked once, in the background, while the final review runs.
@@ -13,11 +13,24 @@ Shared by the plan workers, `ac/execute` and `ac/qa`. A full lint and test suite
 
 After review fixes, re-run the per-file checks and related tests on what the fixes touched. Run the full suite again only when a fix touched code that other modules call.
 
-Run independent checks together: several shell calls in one response, or one call joining them with `&` and `wait`. Format, lint, analyzer and tests do not depend on each other's output.
+## Projects that gate on CI
 
-Admit only what you need into context: pipe a passing run through `tail -20` or use the runner's quiet flag; on a failure keep the failing cases and drop the rest.
+A project opts in with a `## Verification gate: ci` section in its `AGENTS.md` or `CLAUDE.md`, beside its build and test commands. Without that section nothing below applies and the table above holds as written.
 
-A failure in a test you did not touch is not "pre-existing" until it is seen failing without the change, or the project records it as a known failure. Name it either way. A worker reports it and leaves the check to the orchestrator, because `git stash` in a tree that other workers share would pull their files out from under them; the orchestrator checks at the barrier, when no worker is running.
+The section says the project's CI runs the test suite and the lint on its own runners, so a local run only adds wall time and contention. It also grants one standing permission: push the task's branch and open a pull request for it. A merge, a push to the default branch and a force-push are outside it and need the user's word. When the checkout sits on the default branch, create the task branch before the first commit.
+
+CI rarely covers everything the project checks locally, and only the project knows where the line falls. So the section also names what this file cannot: the checks CI does not run, which stay local and are run as it says; how to read a failed job when it is not a GitHub Actions run; a regex for the checks that are not a gate (a review bot) for `--ignore`; and a bootstrap command to run once in a fresh worktree, when the project's own check script is what creates its untracked files.
+
+The mode is for an interactive run. Under an away marker the push belongs to the away run and its `allowed_outward` list (the `commit` skill skips its push under that marker, and the away guard denies `git push` and `gh pr create` until the list names them), and under coordinator lanes the coordinator owns the push order. Both keep the local full run.
+
+In the mode the last row of the table changes and the rest stays: the per-file layer, the wave layer and the build run as before. The final review becomes:
+
+1. Commit what is still uncommitted with the `commit` skill with `--skip-preflight --no-push`, push with `git push -u origin HEAD`, and open the pull request with `gh pr create` (reuse the one `gh pr view` finds).
+2. In the same response that spawns the reviewer, start `timeout 3600 sh references/ci-watch.sh [--ignore <regex>] <number>` with `background: true` on the shell call; the path is relative to the `execute` skill, and the regex comes from the section. The script waits until the PR shows the head you pushed, then polls its checks. Exit 0: green on that head. Exit 1: a check failed or was cancelled, and the check table is printed. Exit 2, or 124 from `timeout`: CI cannot gate this head, because it never started or every check sat queued with no runner.
+3. A red check or a confirmed review finding is fixed on the branch, committed and pushed as in step 1, and watched again; the script keys on the head, so a rerun never reads the previous head's result. Read the failing job as the section says; for a GitHub Actions run that is `gh run view <run id> --log-failed`. Stop after three rounds, or the cap the section names, and report what is still red.
+4. Report when the watch exits 0 on the head you last pushed and the review is closed. Give the PR URL and the check names, and say what ran in CI and what ran here (the checks the section keeps local); never claim a run that did not happen.
+
+When CI cannot gate (exit 2 or 124, no `gh` or no remote, a push that fails), run the full suite locally as the table says and name the reason in the report. A queued run is not a pass.
 
 ## Commands by ecosystem
 

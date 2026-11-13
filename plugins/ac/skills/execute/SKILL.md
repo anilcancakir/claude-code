@@ -25,7 +25,7 @@ Every branch that terminates the run deletes this run's marker, `.ac/state/execu
 
 **A stop needs a name.** "I cannot verify this properly in the remaining context" is not a reason. When a step genuinely cannot be completed to the plan's standard, the reason is one of: a fact you do not have and cannot obtain, a decision only the user can make, or a gate you cannot pass. Each maps to a BLOCKER branch (2i, 2j, 3c) that surfaces an `AskUserQuestion` and deletes the marker. Name the class, take the branch, report what did land. Never substitute a capacity limit for the real reason.
 
-**No review loop needs bounding.** Phase 3 is one reviewer pass and the findings are yours to filter. Four bounded loops remain: at most two retries per step at 2e (an effort rung, then a tier rung), counted in `WORKER_RETRY_PER_STEP`; at most two briefing-gap re-spawns per step at 2e; the three-failed-steps-across-two-waves halt at 2j, read from `STEP_FAILURES` (one entry per step at terminal failure); and the one QA retest that `ac:qa` runs and counts after its own fixes at 3e, so 3e never re-invokes it.
+**No review loop needs bounding.** Phase 3 is one reviewer pass and the findings are yours to filter. Five bounded loops remain: at most two retries per step at 2e (an effort rung, then a tier rung), counted in `WORKER_RETRY_PER_STEP`; at most two briefing-gap re-spawns per step at 2e; the three-failed-steps-across-two-waves halt at 2j, read from `STEP_FAILURES` (one entry per step at terminal failure); the one QA retest that `ac:qa` runs and counts after its own fixes at 3e, so 3e never re-invokes it; and, under the CI gate, at most three red-CI rounds at 3f.
 
 **Progress surface.** Two surfaces carry it and neither is a tool. The plan file's checkboxes are the per-step record, ticked at Layer D and counted with `grep -c '^- \[ \]'`, which is also what the `Stop` guard reads. Phase 2h prints the per-step table after each wave. Add one short line per phase and wave transition and that is the whole picture. Do not write a procedure that depends on task tools or `TodoWrite`: recent models get no task tools, and `CLAUDE_CODE_ENABLE_TASKS=false` swaps them for `TodoWrite` elsewhere.
 
@@ -62,7 +62,7 @@ code reviewer and `ac:oracle` have it denied.
 - Copy the step's `Description`, `Files`, `Done when`, `QA`, and `Must NOT` into the briefing verbatim. Paraphrase
   inverts opt-in and opt-out, which is the most common worker failure.
 - The wave is the unit of every orchestrator action: one diff, one typecheck, one build, one test and lint run
-  scoped to the wave's touched files, one commit per wave. The full suite runs once, at Phase 3. The two exceptions are per-step and stay per-step: the Layer C QA scenario, which is
+  scoped to the wave's touched files, one commit per wave. The full suite runs once, at Phase 3 (in CI for a project with a `## Verification gate: ci` section, see 3a). The two exceptions are per-step and stay per-step: the Layer C QA scenario, which is
   the only evidence anything ran, and the Layer D checkbox, which the `Stop` guard reads as the progress signal.
 - All four verification layers run on every wave, and none of them is optional. Layer B means reading the wave
   diff hunk by hunk and matching every hunk to a worker's claim, not sampling.
@@ -192,6 +192,9 @@ in the Phase 4 report. The value is injected into every worker briefing.
 
 Read project `CLAUDE.md` and `CLAUDE.local.md` for build, test, and lint commands as `RUNTIME_CONTEXT`. Workers
 receive the `CLAUDE.md` rules but never this skill's workflow rules, so briefings cite those commands explicitly.
+When `CLAUDE.md` has a `## Verification gate: ci` section (see 3a) and the checkout sits on the default branch,
+`git switch -c <slug>` before the first wave commit, so the pull request branch carries them, and run the section's
+bootstrap command once if it names one.
 
 ### 1g. Confirm the progress surface
 
@@ -591,6 +594,14 @@ so the Stop guard counts it as work that will finish), so the two run side by si
 Phase 4: when the background run notifies you, a failure there is a finding like the reviewer's and goes through 3c.
 When the reviewer finishes first, end the turn with a one-line status; the suite's notification starts the next one.
 
+**CI gate.** When `CLAUDE.md` has a `## Verification gate: ci` section, `LANE_MODE` is false and
+`.ac/state/active-auto.json` does not exist, the build above is the only local run. Commit what is uncommitted, push,
+open the pull request and start `timeout 3600 sh ${CLAUDE_PLUGIN_ROOT}/scripts/ci-watch.sh [--ignore <regex>] <number>`
+(the regex, if any, is the one the section names) with `run_in_background: true` in the same message that spawns the
+reviewer in 3b, as `verification.md` describes under
+"Projects that gate on CI". Green CI on the pushed head replaces the background suite and lint, and a red check is a
+finding that goes through 3c. 3f closes the gate.
+
 Then open this run's section of the review log, once: `Grep` `.ac/plans/<slug>/review-log.md` for
 `^## Run <marker started_at>$`, and when nothing matches, add a blank line and `## Run <marker started_at>` at the
 end of the file with `Edit` (or `Write` it when the file does not exist yet). Not a Bash `printf >>`: inside an
@@ -672,7 +683,7 @@ CRITICAL findings fixed and re-verified, or none returned. Advance to 3e.
 ### 3e. QA pass
 
 Runs when `QA_ENABLED` is true and `NO_QA` is unset. Otherwise emit one heartbeat line naming which of the two skipped
-it and go straight to Phase 4. A plan step that already walked the app live does not replace the pass: its Layer C
+it and go straight to 3f under the CI gate, else Phase 4. A plan step that already walked the app live does not replace the pass: its Layer C
 evidence reaches the tester as `Existing evidence`, and the tester skips those scenarios and still runs the rest.
 
 1. Emit one heartbeat line (`QA pass: running ac:qa for <slug>`) and refresh the marker's `note` so a resume knows
@@ -693,8 +704,9 @@ evidence reaches the tester as `Existing evidence`, and the tester skips those s
    plus `result.txt missing`, and still apply the rule below. Append its `fixed files` to `MODIFIED_FILES` (nothing
    for `none`). The skill has already triaged and fixed by the 3c rules and run its one retest, so do not re-triage
    or re-run it here. When `fixed files` is not `none`, re-run 3a (build, full suite and lint, in the foreground)
-   before 4a, because 4a commits with `--skip-preflight` on the strength of 3a having covered those edits.
-4. Continue to 4a in the turn the block prints. Under `--plan` the block is a hand-back to this skill, not a turn end;
+   before 4a, because 4a commits with `--skip-preflight` on the strength of 3a having covered those edits. Under the
+   CI gate that re-run is the build alone; 3f's push and watch cover the rest.
+4. Continue to 3f under the CI gate, else to 4a, in the turn the block prints. Under `--plan` the block is a hand-back to this skill, not a turn end;
    ending the turn on it would meet the live marker's `Stop` guard.
 
 Every QA status (`passed`, `findings`, `could-not-run`, `skipped`) continues to Phase 4, and none is a BLOCKER: a
@@ -703,6 +715,20 @@ added to the plan's `## Deferred Ideas`.
 
 The pass sits before 4a, which deletes the marker and then commits and pushes, so QA runs inside the `Stop` guard
 and its fixes reach the final commit.
+
+### 3f. Close the CI gate
+
+Runs only under the CI gate from 3a; otherwise go to Phase 4. The marker stays live through this step, so the `Stop`
+guards cover the wait and the fix rounds, and 4a's commit then finds a clean tree and pushes nothing.
+
+1. When the review or QA fixes moved the head since 3a's push, commit them (`/ac:commit --skip-preflight --no-push`
+   with `MODIFIED_FILES` as its note), `git push -u origin HEAD`, start
+   `timeout 3600 sh ${CLAUDE_PLUGIN_ROOT}/scripts/ci-watch.sh [--ignore <regex>] <number>` with `run_in_background: true`, and end the turn
+   with a one-line status. When the head did not move, the 3a watch is the result.
+2. Exit 0 on the current head: go to Phase 4. Exit 1: fix by the 3c CRITICAL rule, commit and push as in step 1, watch
+   again, three rounds at most; what is still red goes into the 4b report, never a claim of a green gate. Exit 2 or
+   124: CI cannot gate this head, so run the full suite and repo-wide lint in the foreground as 3a does without the
+   gate, and say so in the report.
 
 ## Phase 4: Deliver
 
@@ -725,7 +751,6 @@ unattended run has nobody present to approve a push, and `/ac:commit`'s branch g
 A lane checks `LANE_MODE` on its own because `.ac/` is gitignored, so its worktree never holds `active-auto.json`.
 Without either, the final commit pushes. Phase 2d and Phase 3 already covered the verification `--skip-preflight`
 refers to. A clean tree exits silently, which is fine.
-
 ### 4b. Report and summary
 
 Write the report, `.ac/plans/<slug>/report.md` (under `LANE_MODE` `.ac/plans/<slug>/outcome.md`, because Claude Code

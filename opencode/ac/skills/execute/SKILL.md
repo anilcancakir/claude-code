@@ -2,7 +2,7 @@
 name: execute
 description: "Run an approved ac plan to completion, wave by wave, with cost-tiered workers, per-wave verification and a final review. Loaded by /ac/execute; the request carries a plan slug or path plus flags."
 ---
-<!-- ported-from: plugins/ac/skills/execute/SKILL.md sha256:f46c60eb8766754e9b58767dcad3f8bf4e9e5a0a60187900d6fc280a9dbfb730 -->
+<!-- ported-from: plugins/ac/skills/execute/SKILL.md sha256:4af3386bd2a9b0f3e7919c5942a1f80cdb6fb721ff790ba34a2194f15004e84a -->
 
 # /ac/execute
 
@@ -26,7 +26,7 @@ Every branch that terminates the run deletes this run's marker, `.ac/state/execu
 
 **A stop needs a name.** "I cannot verify this properly in the remaining context" is not a reason. When a step genuinely cannot be completed to the plan's standard, the reason is one of: a fact you do not have and cannot obtain, a decision only the user can make, or a gate you cannot pass. Each maps to a BLOCKER branch (2i, 2j, 3c) that surfaces a `question` and deletes the marker. Name the class, take the branch, report what did land. Never substitute a capacity limit for the real reason.
 
-**No review loop needs bounding.** Phase 3 is one reviewer pass and the findings are yours to filter. Five bounded loops remain: at most two retries per step at 2e (a variant rung, then a tier rung), counted in `WORKER_RETRY_PER_STEP`; at most two briefing-gap re-spawns per step at 2e; the provider-fallback re-spawns at 2e, which end when the tier's model chain does (plus at most ten `wait:` re-spawns per step), bounded by the `tried` list you pass to `ac_fallback_next`; the three-failed-steps-across-two-waves halt at 2j, read from `STEP_FAILURES` (one entry per step at terminal failure); and the one QA retest that the `qa` skill runs and counts after its own fixes at 3e, so 3e never re-invokes it.
+**No review loop needs bounding.** Phase 3 is one reviewer pass and the findings are yours to filter. Six bounded loops remain: at most two retries per step at 2e (a variant rung, then a tier rung), counted in `WORKER_RETRY_PER_STEP`; at most two briefing-gap re-spawns per step at 2e; the provider-fallback re-spawns at 2e, which end when the tier's model chain does (plus at most ten `wait:` re-spawns per step), bounded by the `tried` list you pass to `ac_fallback_next`; the three-failed-steps-across-two-waves halt at 2j, read from `STEP_FAILURES` (one entry per step at terminal failure); the one QA retest that the `qa` skill runs and counts after its own fixes at 3e, so 3e never re-invokes it; and, under the CI gate, at most three red-CI rounds at 3f.
 
 **Progress surface.** Two surfaces carry it and neither is a tool. The plan file's checkboxes are the per-step record, ticked at Layer D and counted with `grep -c '^- \[ \]'`, which is also what the stop guard reads. Phase 2h prints the per-step table after each wave. Add one short line per phase and wave transition and that is the whole picture. Do not write a procedure that depends on opencode's `todo` tool, which is off unless an experimental flag turns it on.
 
@@ -68,7 +68,7 @@ permissions deny `subagent`, and the code reviewer and `ac/oracle` have it denie
 - Copy the step's `Description`, `Files`, `Done when`, `QA`, and `Must NOT` into the briefing verbatim. Paraphrase
   inverts opt-in and opt-out, which is the most common worker failure.
 - The wave is the unit of every orchestrator action: one diff, one typecheck, one build, one test and lint run
-  scoped to the wave's touched files, one commit per wave. The full suite runs once, at Phase 3. The two exceptions are per-step and stay per-step: the Layer C QA scenario, which is
+  scoped to the wave's touched files, one commit per wave. The full suite runs once, at Phase 3 (in CI for a project with a `## Verification gate: ci` section, see 3a). The two exceptions are per-step and stay per-step: the Layer C QA scenario, which is
   the only evidence anything ran, and the Layer D checkbox, which the stop guard reads as the progress signal.
 - All four verification layers run on every wave, and none of them is optional. Layer B means reading the wave
   diff hunk by hunk and matching every hunk to a worker's claim, not sampling.
@@ -194,6 +194,10 @@ read, refresh and delete in this body names this run's own file and never touche
 
 Also keep the output of one `git status --porcelain` taken now as `BASELINE_DIRTY`: 2d never restores a path that was
 already dirty before this run started, since it may belong to another run or to the user.
+
+When `AGENTS.md` or `CLAUDE.md` has a `## Verification gate: ci` section (see 3a) and the checkout sits on the default branch,
+`git switch -c <slug>` before the first wave commit, so the pull request branch carries them, and run the section's
+bootstrap command once if it names one.
 
 `.ac/state/active-auto.json` may coexist beside it. That marker belongs to `ac/auto`, not to this skill: never
 delete it, and read it only at Phase 4a, where it counts only when it names this session.
@@ -678,6 +682,13 @@ and the repo-wide lint with `background: true` on the `shell` call, in the same 
 Phase 4: when the background run notifies you, a failure there is a finding like the reviewer's and goes through 3c.
 When the reviewer finishes first, end the turn with a one-line status; the suite's notification starts the next one.
 
+**CI gate.** When `AGENTS.md` or `CLAUDE.md` has a `## Verification gate: ci` section, `LANE_MODE` is false and
+`.ac/state/active-auto.json` does not name this session, the build above is the only local run. Commit what is
+uncommitted, push, open the pull request and start `timeout 3600 sh references/ci-watch.sh [--ignore <regex>] <number>`
+(the regex, if any, is the one the section names) with `background: true` on the shell call in the same response that spawns the reviewer in 3b, as
+`references/verification.md` describes under "Projects that gate on CI". Green CI on the pushed head replaces the
+background suite and lint, and a red check is a finding that goes through 3c. 3f closes the gate.
+
 Then open this run's section of the review log, once:
 
 ```
@@ -762,7 +773,7 @@ CRITICAL findings fixed and re-verified, or none returned. Advance to 3e.
 ### 3e. QA pass
 
 Runs when `QA_ENABLED` is true and `NO_QA` is unset. Otherwise emit one heartbeat line naming which of the two skipped
-it and go straight to Phase 4. A plan step that already walked the app live does not replace the pass: its Layer C
+it and go straight to 3f under the CI gate, else Phase 4. A plan step that already walked the app live does not replace the pass: its Layer C
 evidence reaches the tester as `Existing evidence`, and the tester skips those scenarios and still runs the rest.
 
 1. Emit one heartbeat line (`QA pass: running qa for <slug>`) and refresh the marker's `note` so a resume knows
@@ -784,8 +795,9 @@ evidence reaches the tester as `Existing evidence`, and the tester skips those s
    `result.txt missing`, and still apply the rule below. Append its `fixed files` to `MODIFIED_FILES` (nothing for
    `none`). The skill has already triaged and fixed by the 3c rules and run its one retest, so do not re-triage or
    re-run it here. When `fixed files` is not `none`, re-run 3a (build, full suite and lint, in the foreground) before
-   4a, because 4a commits with `--skip-preflight` on the strength of 3a having covered those edits.
-4. Continue to 4a in the turn the block prints. Under `--plan` the block is a hand-back to this skill, not a turn end;
+   4a, because 4a commits with `--skip-preflight` on the strength of 3a having covered those edits. Under the CI gate
+   that re-run is the build alone; 3f's push and watch cover the rest.
+4. Continue to 3f under the CI gate, else to 4a, in the turn the block prints. Under `--plan` the block is a hand-back to this skill, not a turn end;
    ending the turn on it would meet the live marker's stop guard.
 
 Every QA status (`passed`, `findings`, `could-not-run`, `skipped`) continues to Phase 4, and none is a BLOCKER: a
@@ -794,6 +806,20 @@ unfixed live in its report, with open lows and unfixed mediums added to the plan
 
 The pass sits before 4a, which deletes the marker and then commits and pushes, so QA runs inside the stop guard
 and its fixes reach the final commit.
+
+### 3f. Close the CI gate
+
+Runs only under the CI gate from 3a; otherwise go to Phase 4. The marker stays live through this step, so the stop guard
+covers the wait and the fix rounds, and 4a's commit then finds a clean tree and pushes nothing.
+
+1. When the review or QA fixes moved the head since 3a's push, commit them (the `commit` skill with `--skip-preflight
+   --no-push` and `MODIFIED_FILES` as its note), `git push -u origin HEAD`, start
+   `timeout 3600 sh references/ci-watch.sh [--ignore <regex>] <number>` with `background: true` on the shell call, and end the turn with a
+   one-line status. When the head did not move, the 3a watch is the result.
+2. Exit 0 on the current head: go to Phase 4. Exit 1: fix by the 3c CRITICAL rule, commit and push as in step 1, watch
+   again, three rounds at most; what is still red goes into the 4b report, never a claim of a green gate. Exit 2 or
+   124: CI cannot gate this head, so run the full suite and repo-wide lint in the foreground as 3a does without the
+   gate, and say so in the report.
 
 ## Phase 4: Deliver
 

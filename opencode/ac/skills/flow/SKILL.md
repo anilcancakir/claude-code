@@ -2,7 +2,7 @@
 name: flow
 description: "Run a medium or large request on the main thread: parallel research, interview, build in slices, oracle review. Use before building anything that touches several files, an unfamiliar area or an open behaviour choice; not for a one-file change or an explicit /ac/plan."
 ---
-<!-- ported-from: plugins/ac/skills/flow/SKILL.md sha256:61e24b577c65638333505bee08aaff51baec06ff44e66c9713052767753c0a52 -->
+<!-- ported-from: plugins/ac/skills/flow/SKILL.md sha256:5a7a646e59aa1374bd678fa003386487fb7a6e0660b7993a344c44fec1045d41 -->
 
 # flow
 
@@ -74,7 +74,7 @@ Hold the result to the success check from phase 1: the changed files clean by th
 
 ## 6. Review
 
-Start the full test suite and the repo-wide lint with `background: true` on the `shell` call, whether or not an oracle runs; both must be green before you report, and a failure there is a finding like the oracle's. One `ac/oracle`, in the same message, when the change crosses more than one file or is hard to reverse; a single-file M skips it. Send the diff and the claims it rests on: the success check, the interview decisions, the research sources. Fix what it confirms and say which findings you left and why. Append one line per reviewer that ran to `review-log.md` in the run directory from phase 4 (create the directory now when no record went there): `Review: ac/oracle CRITICAL <n> IMPORTANT <n> MINOR <n>`, counting the findings it returned.
+In a project whose `AGENTS.md` or `CLAUDE.md` has a `## Verification gate: ci` section, on a run with no `.ac/state/active-auto.json` naming this session, skip the local suite and lint: commit, push, open the pull request, then start `timeout 3600 sh ../execute/references/ci-watch.sh [--ignore <regex>] <number>` with `background: true` on the shell call in the same response as the oracle (the regex, if any, is the one the section names). `../execute/references/verification.md` ("Projects that gate on CI") has the exit codes, the red-check rounds and the fallback; report only when the watch exits 0 on the head you pushed. Otherwise start the full test suite and the repo-wide lint with `background: true` on the `shell` call, whether or not an oracle runs; both must be green before you report, and a failure there is a finding like the oracle's. One `ac/oracle`, in the same message, when the change crosses more than one file or is hard to reverse; a single-file M skips it. Send the diff and the claims it rests on: the success check, the interview decisions, the research sources. Fix what it confirms and say which findings you left and why. Append one line per reviewer that ran to `review-log.md` in the run directory from phase 4 (create the directory now when no record went there): `Review: ac/oracle CRITICAL <n> IMPORTANT <n> MINOR <n>`, counting the findings it returned.
 
 ## 7. Report
 
