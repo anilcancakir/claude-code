@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.44.0] - 2026-11-13
+
+### Added
+
+- A project can gate on CI instead of a local full test run. A `## Verification gate: ci` section in its `CLAUDE.md` makes `ac:flow` and `ac:execute` skip the local suite and the repo-wide lint: they push the task branch, open a pull request and watch CI in the background while the reviewer runs, and report only when CI is green on the pushed head. The section grants the push and the pull request, never a merge, and names what CI does not cover, how to read a failed job, the checks to ignore and a bootstrap command for a fresh worktree. A project without the section behaves as before. `ac:auto` and `/ac:coordinate` lanes keep the local run, because their pushes belong to the away guard and the coordinator.
+- `scripts/ci-watch.sh` does the watching. It waits until the pull request shows the pushed head, treats a cancelled check as red (`gh pr checks --watch` exits 0 on one), gives up when every check stays queued for 15 minutes (a repository with no runner registered), and takes `--ignore <regex>` for checks that are not a gate, such as a review bot. `ac:execute` closes the gate in a new step 3f while its run marker is live. The opencode ports carry the same text and a byte-identical copy of the script.
+
 ## [0.43.0] - 2026-11-05
 
 ### Added
