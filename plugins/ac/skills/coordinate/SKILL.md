@@ -207,10 +207,7 @@ End the turn with a wait status; the report starts the next one. At most two rou
    run at once (Phase 6 enforces the second). A merge order the roadmap wants without a build dependency (b2 after
    b1 because both edit one request class) goes in `merge_after`, not in prose, which binds nothing once the context that wrote it is
    compacted.
-2. **Baseline.** Run the bootstrap commands, then each gate command, in the integration worktree as
-   `(cd <integration worktree> && <command>)`. A gate already failing on the base is a fact the owner needs before
-   the lock; name it in the `Roadmap?` question.
-3. **Criteria draft.** The verifier's contract in the shape of `${CLAUDE_PLUGIN_ROOT}/skills/auto/references/criteria-schema.md`,
+2. **Criteria draft.** The verifier's contract in the shape of `${CLAUDE_PLUGIN_ROOT}/skills/auto/references/criteria-schema.md`,
    without `turn_budget` and `failure_budget` (those bound `ac:auto`'s loop). Every command-tier criterion is written
    as `cd <integration worktree absolute path> && <command>`: the per-merge gate and the verifier both run it from
    the repository root, and the prefix points them at the integration branch rather than this checkout.
@@ -220,14 +217,14 @@ End the turn with a wait status; the report starts the next one. At most two rou
    `human_needed` for any judgment-tier result, so avoidable judgment rows keep the contract from `passed`. Keep
    judgment for what no command can show. Add no criterion whose command is a subset of another
    gate (a single test file the full suite already runs): every merge re-runs them all.
-4. **Lock.** One `AskUserQuestion` with two questions. Header `Roadmap?`: the bundle table, the order, the criteria
-   ids with their statements, open oracle risks, the baseline; options `Approve (Recommended)`, `Revise`, `Abort`.
+3. **Lock.** One `AskUserQuestion` with two questions. Header `Roadmap?`: the bundle table, the order, the criteria
+   ids with their statements, open oracle risks; options `Approve (Recommended)`, `Revise`, `Abort`.
    Header `TDD?`: how every lane's workers write tests; options `TDD (Recommended)`, `Tests after`, `No tests`,
    `Per bundle` (each lane asks its own). When `research.md` names no test command, drop the
    `TDD?` question and record `ask`, since each lane then asks `Tests?` with the setup choice its stack needs. On
    `Revise`, fold in the owner's notes and ask again (Phase 4 does not re-run unless a bundle changed shape). `Abort`
    is the Abort branch.
-5. **Freeze.** On `Approve`: `Write` `roadmap.md`; `Write` `criteria.md` with `criteria_sha256: "pending"`; compute
+4. **Freeze.** On `Approve`: `Write` `roadmap.md`; `Write` `criteria.md` with `criteria_sha256: "pending"`; compute
    the digest with the `python3` block under `### 1b` in `${CLAUDE_PLUGIN_ROOT}/skills/auto/SKILL.md`, copied as it
    stands because `ac:auto-verifier` recomputes with the identical bytes, and patch the line with `Edit`. A missing
    `python3` is an error ending. Then rewrite `state.json` with every bundle `pending` and `tdd_mode` from the `TDD?`

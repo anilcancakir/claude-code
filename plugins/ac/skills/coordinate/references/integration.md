@@ -31,8 +31,8 @@ merge moves `<head>` and the next bundle has to be checked against the new one.
 
 4. **Gates.** Run every command-tier criterion of `.ac/coord/<slug>/criteria.md` from the repository root, exactly
    as written; each carries the `cd <wt> &&` prefix, so it runs against the integration branch. Compare each exit
-   code with its `expected_exit_code`. A gate that already failed at the Phase 5 baseline is compared with that
-   baseline, not counted against this bundle.
+   code with its `expected_exit_code`. A gate that already failed on the integration branch before this bundle's
+   merge (the previous merge's own record) is not counted against this bundle.
 
 5. **On a gate failure, the lane fixes it.** Never patch `<wt>` yourself: the fix then has no plan, no review and
    no lane that owns it. First put the integration branch back with `git -C <wt> reset --keep <head>` (`<head>` has

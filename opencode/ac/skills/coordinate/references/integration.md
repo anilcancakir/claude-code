@@ -1,4 +1,4 @@
-<!-- ported-from: plugins/ac/skills/coordinate/references/integration.md sha256:8f83abfacab1254ab649847a37164f672f2e85c30ceb38ec14d635e7f878f870 -->
+<!-- ported-from: plugins/ac/skills/coordinate/references/integration.md sha256:eb7c8dafc7a32adf7ef8765b2daa4228da8fdec5bab92645c6d3a59d1ce0f7e9 -->
 # Integration
 
 How `/ac/coordinate` moves one DONE bundle into the local `coord/<slug>` branch, and how it tears a lane down. Read
@@ -34,8 +34,8 @@ merge moves `<head>` and the next bundle has to be checked against the new one.
 
 4. **Gates.** Run every command-tier criterion of `.ac/coord/<slug>/criteria.md` from the repository root, exactly
    as written; each carries the `cd <wt> &&` prefix, so it runs against the integration branch. Compare each exit
-   code with its `expected_exit_code`. A gate that already failed at the Phase 5 baseline is compared with that
-   baseline, not counted against this bundle. Capture the exit code of the gate itself: a gate piped into `tail`
+   code with its `expected_exit_code`. A gate that already failed on the integration branch before this bundle's
+   merge (the previous merge's own record) is not counted against this bundle. Capture the exit code of the gate itself: a gate piped into `tail`
    reports `tail`'s, and the agent shell is zsh, where `${PIPESTATUS[0]}` is empty. Run it as
    `set -o pipefail; <criterion> 2>&1 | tail -20`, or redirect to a log and `echo "exit=$?"` before reading the tail.
    A long gate (a full suite, `bin/check`) runs as a background shell with the turn ended, written as

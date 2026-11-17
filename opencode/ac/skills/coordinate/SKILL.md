@@ -2,7 +2,7 @@
 name: coordinate
 description: "Turn a large request into a reviewed roadmap of bundles and drive them through parallel ac/lane worktrees. Use when a request is too large for one plan and splits into bundles that can run in parallel worktrees; ends in one approved push. Request text: <request> [--lanes N] [--max-workers N]."
 ---
-<!-- ported-from: plugins/ac/skills/coordinate/SKILL.md sha256:059f5507022f82ca91f46ce7fa232bb95ab092743c1eccb970ba630b4914cb50 -->
+<!-- ported-from: plugins/ac/skills/coordinate/SKILL.md sha256:936cb33edca3cd8d7ebec7b6a97a71e6e2aff4d6ce1e0b913dd0308443485522 -->
 
 # /ac/coordinate
 
@@ -239,10 +239,7 @@ End the turn with a wait status; the report starts the next one. At most two rou
    branch name and a worktree path. Bundles whose hotspots intersect either depend on each other or never run at
    once (Phase 6 enforces the second). A merge order the roadmap wants without a build dependency goes in
    `merge_after`, not in prose, which binds nothing once the context that wrote it is compacted.
-2. **Baseline.** Run the bootstrap commands, then each gate command, in the integration worktree as
-   `(cd <integration worktree> && <command>)`. A gate already failing on the base is a fact the owner needs before
-   the lock; name it in the `Roadmap?` question.
-3. **Criteria draft.** The verifier's contract in the shape of `references/criteria-schema.md`, without
+2. **Criteria draft.** The verifier's contract in the shape of `references/criteria-schema.md`, without
    `adopted_from`, `anchor` and any loop budget (those belong to runs that adopt a plan). Every command-tier
    criterion is written as `cd <integration worktree absolute path> && <command>`: the per-merge gate and the
    verifier both run it from the repository root, and the prefix is what points them at the integration branch
@@ -253,14 +250,14 @@ End the turn with a wait status; the report starts the next one. At most two rou
    rows keep the contract from `passed`. Keep judgment for what no command can show. Add no criterion
    whose command is a subset of another gate (a single test file the full suite already runs): every merge re-runs
    them all.
-4. **Lock.** One `question` call with two questions. Header `Roadmap?`: the bundle table, the order, the criteria
-   ids with their statements, open oracle risks, the baseline; options `Approve (Recommended)`, `Revise`, `Abort`.
+3. **Lock.** One `question` call with two questions. Header `Roadmap?`: the bundle table, the order, the criteria
+   ids with their statements, open oracle risks; options `Approve (Recommended)`, `Revise`, `Abort`.
    Header `TDD?`: how every lane's workers write tests; options `TDD (Recommended)`, `Tests after`, `No tests`,
    `Per bundle` (each lane asks its own). When `research.md` names no test command, drop the
    `TDD?` question and record `ask`, since each lane then asks `Tests?` with the setup choice its stack needs. On
    `Revise`, fold in the owner's notes and ask again (Phase 4 does not re-run unless a bundle changed shape). `Abort`
    is the Abort branch.
-5. **Freeze.** On `Approve`: `write` `roadmap.md`; `write` `criteria.md` with `criteria_sha256: "pending"`; compute
+4. **Freeze.** On `Approve`: `write` `roadmap.md`; `write` `criteria.md` with `criteria_sha256: "pending"`; compute
    the digest with the `python3` block below, which `ac/auto-verifier` recomputes with byte for byte, and patch the
    line with `edit`. A missing `python3` is an error ending, because a digest you improvise is one the verifier
    cannot reproduce and it would refuse the run. Then rewrite `state.json` with every bundle `pending` and
