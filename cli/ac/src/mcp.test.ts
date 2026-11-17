@@ -7,7 +7,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { StreamableHTTPError } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { LOCAL_WEB_FETCH_TOOL_DEFINITION } from "./local-fetch.ts";
@@ -176,6 +176,47 @@ test("buildCatalogue (opencode client) lists search-history last, in either bran
         "search-history",
     ]);
     expect(buildCatalogue(null, "opencode").map((t) => t.name)).toEqual(["web-fetch", "search-history"]);
+});
+
+test("buildCatalogue passes kodizm's image tool through with the proxy's own text and no alwaysLoad", () => {
+    const tools = buildCatalogue([...REMOTE_SURFACE, makeTool("generate_image")], "claude-code");
+    const image = tools.find((tool) => tool.name === "generate_image");
+
+    expect(image).toBeDefined();
+    expect(image?.description).toContain("Gemini");
+    expect(image?.description).toContain("ac:prompt-writer");
+    expect(image?._meta).toBeUndefined();
+    expect(tools.at(-1)?.name).toBe("search-history");
+});
+
+test("buildCatalogue offers a local reference path where the remote takes inline base64, and hides the base64", () => {
+    const remoteImage: Tool = {
+        ...makeTool("generate_image"),
+        inputSchema: {
+            type: "object",
+            properties: {
+                prompt: { type: "string" },
+                reference_image_url: { type: "string" },
+                reference_image_base64: { type: "string" },
+            },
+        },
+    };
+    const tools = buildCatalogue([...REMOTE_SURFACE, remoteImage], "claude-code");
+    const image = tools.find((tool) => tool.name === "generate_image");
+    const properties = image?.inputSchema.properties as Record<string, { description?: string }>;
+
+    expect(Object.keys(properties)).toEqual(["prompt", "reference_image_url", "reference_image_path"]);
+    expect(properties["reference_image_url"]?.description).toContain("image_url a previous call returned");
+    expect(image?.description).toContain("reference_image_path");
+});
+
+test("buildCatalogue (opencode client) keeps the image description but drops the Claude Code skill pointer", () => {
+    const tools = buildCatalogue([...REMOTE_SURFACE, makeTool("generate_image")], "opencode");
+    const image = tools.find((tool) => tool.name === "generate_image");
+
+    expect(image?.description).toContain("Gemini");
+    expect(image?.description).toContain("once per image");
+    expect(image?.description).not.toContain("prompt-writer");
 });
 
 test("buildCatalogue (opencode client) describes the web tools without naming Claude Code built-ins", () => {
@@ -440,6 +481,372 @@ test("mcp proxy retries a remote outage, then tells the model to wait and retry 
     } finally {
         await client.close();
         await outage.stop(true);
+    }
+}, 30_000);
+
+test("mcp proxy does not retry an image generation call against a failing remote", async () => {
+    // A generation draws on a shared quota, so unlike the read tools it is attempted once: the same
+    // 503 remote that makes resolve-library retry (three POSTs) must see exactly one POST here.
+    let posts = 0;
+    const outage = Bun.serve({
+        port: 0,
+        fetch() {
+            posts++;
+
+            return Response.json({ message: "Service Unavailable." }, { status: 503 });
+        },
+    });
+
+    const env = Object.fromEntries(
+        Object.entries(process.env)
+            .filter((e): e is [string, string] => e[1] !== undefined)
+            .filter(([k]) => k !== "KODIZM_MCP_TOKEN" && k !== "KODIZM_MCP_URL"),
+    );
+    env["KODIZM_MCP_TOKEN"] = "kdz-dummy-outage";
+    env["KODIZM_MCP_URL"] = `http://127.0.0.1:${outage.port}/mcp`;
+
+    const transport = new StdioClientTransport(
+        {
+            command: "bun",
+            args: ["run", "src/index.ts", "mcp"],
+            cwd: CLI_DIR,
+            env,
+        },
+    );
+
+    const client = new Client(
+        { name: "test-client", version: "0.0.0" },
+        { capabilities: {} },
+    );
+
+    try {
+        await client.connect(transport);
+
+        const result = await client.callTool(
+            {
+                name: "generate_image",
+                arguments: { prompt: "a lighthouse at dusk" },
+            },
+        ) as { isError?: boolean; content?: Array<{ type: string; text?: string }> };
+
+        const text = result.content?.[0]?.text ?? "";
+
+        expect(result.isError).toBe(true);
+        expect(text).toContain("remote tool call failed");
+        expect(text).toContain("may already have been generated");
+        // The generic outage hint tells the model to repeat the exact call, which would draw a second picture.
+        expect(text).not.toContain("retry this exact call");
+        expect(posts).toBe(1);
+    } finally {
+        await client.close();
+        await outage.stop(true);
+    }
+}, 30_000);
+
+test("mcp proxy turns kodizm's image link into a saved file and an inline picture", async () => {
+    // A hand-rolled streamable-HTTP remote: initialize, the initialized notification and one tools/call that
+    // answers the way kodizm's custom Tool does (text JSON carrying a signed link), plus the link itself.
+    const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 9, 8, 7]);
+    const remote = Bun.serve({
+        port: 0,
+        async fetch(request) {
+            const { pathname } = new URL(request.url);
+            if (pathname === "/picture.png") {
+                return new Response(png, { headers: { "content-type": "image/png" } });
+            }
+            if (request.method !== "POST") {
+                return new Response(null, { status: 405 });
+            }
+
+            const message = await request.json() as { id?: number; method: string; params: Record<string, unknown> };
+            if (message.method === "notifications/initialized") {
+                return new Response(null, { status: 202 });
+            }
+            if (message.method === "initialize") {
+                return Response.json({
+                    jsonrpc: "2.0",
+                    id: message.id,
+                    result: {
+                        protocolVersion: message.params["protocolVersion"],
+                        capabilities: { tools: {} },
+                        serverInfo: { name: "fake-kodizm", version: "0.0.0" },
+                    },
+                });
+            }
+            if (message.method === "tools/call") {
+                const answer = {
+                    path: "web",
+                    status: "succeeded",
+                    output: { image_url: new URL("/picture.png", request.url).href, image_mime: "image/png" },
+                };
+
+                return Response.json({
+                    jsonrpc: "2.0",
+                    id: message.id,
+                    result: { content: [{ type: "text", text: JSON.stringify(answer) }] },
+                });
+            }
+
+            return Response.json({ jsonrpc: "2.0", id: message.id, error: { code: -32601, message: "unsupported" } });
+        },
+    });
+
+    const env = Object.fromEntries(
+        Object.entries(process.env)
+            .filter((e): e is [string, string] => e[1] !== undefined)
+            .filter(([k]) => k !== "KODIZM_MCP_TOKEN" && k !== "KODIZM_MCP_URL"),
+    );
+    env["KODIZM_MCP_TOKEN"] = "kdz-dummy-image";
+    env["KODIZM_MCP_URL"] = `http://127.0.0.1:${remote.port}/mcp`;
+
+    const transport = new StdioClientTransport(
+        {
+            command: "bun",
+            args: ["run", "src/index.ts", "mcp"],
+            cwd: CLI_DIR,
+            env,
+        },
+    );
+
+    const client = new Client(
+        { name: "test-client", version: "0.0.0" },
+        { capabilities: {} },
+    );
+
+    let savedPath: string | undefined;
+
+    try {
+        await client.connect(transport);
+
+        const result = await client.callTool(
+            {
+                name: "generate_image",
+                arguments: { prompt: "a lighthouse at dusk" },
+            },
+        ) as { isError?: boolean; content?: Array<{ type: string; text?: string; data?: string; mimeType?: string }> };
+
+        expect(result.isError).toBeUndefined();
+        expect(result.content?.[1]).toEqual({
+            type: "image",
+            data: Buffer.from(png).toString("base64"),
+            mimeType: "image/png",
+        });
+
+        savedPath = /saved to (\S+) \(/.exec(result.content?.[0]?.text ?? "")?.[1];
+        expect(savedPath).toBeDefined();
+        expect(existsSync(savedPath ?? "")).toBe(true);
+    } finally {
+        await client.close();
+        await remote.stop(true);
+        if (savedPath !== undefined) {
+            rmSync(savedPath, { force: true });
+        }
+    }
+}, 30_000);
+
+test("mcp proxy inlines a local reference file for the remote and refuses a bad path without calling it", async () => {
+    // The fake remote records every tools/call so the test sees what the proxy actually sent.
+    const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 9, 8, 7]);
+    const calls: Array<Record<string, unknown>> = [];
+    const remote = Bun.serve({
+        port: 0,
+        async fetch(request) {
+            if (request.method !== "POST") {
+                return new Response(null, { status: 405 });
+            }
+
+            const message = await request.json() as { id?: number; method: string; params: Record<string, unknown> };
+            if (message.method === "notifications/initialized") {
+                return new Response(null, { status: 202 });
+            }
+            if (message.method === "initialize") {
+                return Response.json({
+                    jsonrpc: "2.0",
+                    id: message.id,
+                    result: {
+                        protocolVersion: message.params["protocolVersion"],
+                        capabilities: { tools: {} },
+                        serverInfo: { name: "fake-kodizm", version: "0.0.0" },
+                    },
+                });
+            }
+            if (message.method === "tools/list") {
+                return Response.json({
+                    jsonrpc: "2.0",
+                    id: message.id,
+                    result: {
+                        tools: [{
+                            name: "generate_image",
+                            description: "remote text",
+                            inputSchema: {
+                                type: "object",
+                                properties: {
+                                    prompt: { type: "string" },
+                                    reference_image_url: { type: "string" },
+                                    reference_image_base64: { type: "string" },
+                                },
+                            },
+                        }],
+                    },
+                });
+            }
+            if (message.method === "tools/call") {
+                calls.push(message.params["arguments"] as Record<string, unknown>);
+
+                // No image_url in the answer: the proxy passes a link-less answer through untouched.
+                return Response.json({
+                    jsonrpc: "2.0",
+                    id: message.id,
+                    result: { content: [{ type: "text", text: "refused by the fake" }], isError: true },
+                });
+            }
+
+            return Response.json({ jsonrpc: "2.0", id: message.id, error: { code: -32601, message: "unsupported" } });
+        },
+    });
+
+    const directory = mkdtempSync(path.join(tmpdir(), "ac-reference-e2e-"));
+    const picture = path.join(directory, "ref.png");
+    const notes = path.join(directory, "notes.png");
+    writeFileSync(picture, png);
+    writeFileSync(notes, "not a picture");
+
+    const env = Object.fromEntries(
+        Object.entries(process.env)
+            .filter((e): e is [string, string] => e[1] !== undefined)
+            .filter(([k]) => k !== "KODIZM_MCP_TOKEN" && k !== "KODIZM_MCP_URL"),
+    );
+    env["KODIZM_MCP_TOKEN"] = "kdz-dummy-reference";
+    env["KODIZM_MCP_URL"] = `http://127.0.0.1:${remote.port}/mcp`;
+
+    const transport = new StdioClientTransport(
+        {
+            command: "bun",
+            args: ["run", "src/index.ts", "mcp"],
+            cwd: CLI_DIR,
+            env,
+        },
+    );
+
+    const client = new Client(
+        { name: "test-client", version: "0.0.0" },
+        { capabilities: {} },
+    );
+
+    try {
+        await client.connect(transport);
+
+        await client.callTool({
+            name: "generate_image",
+            arguments: { prompt: "make it green", reference_image_path: picture, reference_image_base64: "model-wrote-this" },
+        });
+
+        const refused = await client.callTool({
+            name: "generate_image",
+            arguments: { prompt: "make it green", reference_image_path: notes },
+        }) as { isError?: boolean; content?: Array<{ type: string; text?: string }> };
+
+        expect(calls).toEqual([
+            { prompt: "make it green", reference_image_base64: Buffer.from(png).toString("base64") },
+        ]);
+        expect(refused.isError).toBe(true);
+        expect(refused.content?.[0]?.text).toContain("not a PNG, JPEG or WebP picture");
+        expect(refused.content?.[0]?.text).toContain("Nothing was sent");
+        expect(calls).toHaveLength(1);
+    } finally {
+        await client.close();
+        await remote.stop(true);
+        rmSync(directory, { recursive: true, force: true });
+    }
+}, 30_000);
+
+test("mcp proxy refuses a reference when the remote's image tool does not declare one, and never calls it", async () => {
+    // A remote that predates the reference parameter would drop it and draw a fresh picture that looks like an edit.
+    const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 9, 8, 7]);
+    let generations = 0;
+    const remote = Bun.serve({
+        port: 0,
+        async fetch(request) {
+            if (request.method !== "POST") {
+                return new Response(null, { status: 405 });
+            }
+
+            const message = await request.json() as { id?: number; method: string; params: Record<string, unknown> };
+            if (message.method === "notifications/initialized") {
+                return new Response(null, { status: 202 });
+            }
+            if (message.method === "initialize") {
+                return Response.json({
+                    jsonrpc: "2.0",
+                    id: message.id,
+                    result: {
+                        protocolVersion: message.params["protocolVersion"],
+                        capabilities: { tools: {} },
+                        serverInfo: { name: "fake-kodizm", version: "0.0.0" },
+                    },
+                });
+            }
+            if (message.method === "tools/list") {
+                return Response.json({
+                    jsonrpc: "2.0",
+                    id: message.id,
+                    result: {
+                        tools: [{
+                            name: "generate_image",
+                            description: "remote text",
+                            inputSchema: { type: "object", properties: { prompt: { type: "string" } } },
+                        }],
+                    },
+                });
+            }
+            if (message.method === "tools/call") {
+                generations++;
+            }
+
+            return Response.json({ jsonrpc: "2.0", id: message.id, error: { code: -32601, message: "unsupported" } });
+        },
+    });
+
+    const directory = mkdtempSync(path.join(tmpdir(), "ac-reference-old-remote-"));
+    const picture = path.join(directory, "ref.png");
+    writeFileSync(picture, png);
+
+    const env = Object.fromEntries(
+        Object.entries(process.env)
+            .filter((e): e is [string, string] => e[1] !== undefined)
+            .filter(([k]) => k !== "KODIZM_MCP_TOKEN" && k !== "KODIZM_MCP_URL"),
+    );
+    env["KODIZM_MCP_TOKEN"] = "kdz-dummy-old-remote";
+    env["KODIZM_MCP_URL"] = `http://127.0.0.1:${remote.port}/mcp`;
+
+    const transport = new StdioClientTransport({ command: "bun", args: ["run", "src/index.ts", "mcp"], cwd: CLI_DIR, env });
+    const client = new Client({ name: "test-client", version: "0.0.0" }, { capabilities: {} });
+
+    try {
+        await client.connect(transport);
+
+        const listed = await client.listTools();
+        const image = listed.tools.find((tool) => tool.name === "generate_image");
+
+        expect(Object.keys(image?.inputSchema.properties ?? {})).toEqual(["prompt"]);
+        expect(image?.description).not.toContain("reference_image_path");
+
+        for (const args of [{ prompt: "x", reference_image_path: picture }, { prompt: "x", reference_image_url: "https://k.test/a.png" }]) {
+            const refused = await client.callTool({ name: "generate_image", arguments: args }) as {
+                isError?: boolean;
+                content?: Array<{ type: string; text?: string }>;
+            };
+
+            expect(refused.isError).toBe(true);
+            expect(refused.content?.[0]?.text).toContain("does not take a reference picture yet");
+            expect(refused.content?.[0]?.text).toContain("Nothing was sent");
+        }
+
+        expect(generations).toBe(0);
+    } finally {
+        await client.close();
+        await remote.stop(true);
+        rmSync(directory, { recursive: true, force: true });
     }
 }, 30_000);
 

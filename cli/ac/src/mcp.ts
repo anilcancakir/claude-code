@@ -10,7 +10,17 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
 import { HISTORY_TOOL_DEFINITION, HISTORY_TOOL_NAME, runHistoryTool } from "./history-tool.ts";
+import { deliverImage, describeFailure, IMAGE_TOOL_NAME, imageErrorResult } from "./image-result.ts";
 import { LOCAL_WEB_FETCH_TOOL_DEFINITION, runLocalFetch } from "./local-fetch.ts";
+import {
+    asksForReference,
+    declaresInlineReference,
+    inlineReference,
+    REFERENCE_TOOL_TEXT,
+    ReferenceImageError,
+    referenceErrorResult,
+    withLocalReference,
+} from "./reference-image.ts";
 import { isTransientRemoteError, TRANSIENT_OUTAGE_HINT, withTransientRetry } from "./remote-retry.ts";
 import { raceWebFetch } from "./web-fetch-race.ts";
 import { AC_VERSION } from "./version.ts";
@@ -28,11 +38,14 @@ const DEFAULT_REMOTE_URL = "https://mcp.kodizm.com";
 /**
  * Wire names of the kodizm utility surface ac proxies through.
  *
- * Kodizm's `KodizmServer` ships these five tool classes under canonical
+ * Kodizm's `KodizmServer` ships the first five tool classes under canonical
  * kebab-case names (see `app/Mcp/Tools/*` with `#[Name(...)]`). The
  * federated `kodizm.*` project surface lives on `/mcp/internal` behind
  * a JWT, never on the public PAT route, so the allowlist below is the
- * complete public catalogue for `/mcp/kodizm`.
+ * complete public catalogue for `/mcp/kodizm`. The image tool is the one
+ * exception: a custom Tool row the operator publishes on their own Mcp
+ * instance, which appears in the remote tools/list only for a key that
+ * holds its grant.
  */
 const ALLOWED_REMOTE_TOOLS: ReadonlySet<string> = new Set([
     "web-search",
@@ -40,12 +53,21 @@ const ALLOWED_REMOTE_TOOLS: ReadonlySet<string> = new Set([
     "search-docs",
     "resolve-library",
     "web-code-search",
+    IMAGE_TOOL_NAME,
 ]);
 
 /**
- * Model-facing text for the five proxied remote tools, replacing what the remote server ships.
+ * What `generate_image` does and how often to call it, shared by the Claude Code text and the opencode
+ * text. Only the Claude Code text points at the `ac:prompt-writer` skill, which opencode does not ship.
+ */
+const IMAGE_TOOL_TEXT = "Generate one image with Gemini from a text prompt, save it to a local file and return the "
+    + "path with the picture. It draws on a shared hourly and daily quota, so call it only for an image "
+    + "the user asked for, and once per image.";
+
+/**
+ * Model-facing text for the proxied remote tools, replacing what the remote server ships.
  *
- * The remote descriptions ran about 3,700 characters across the five and named two tools the
+ * The remote descriptions of the five utility tools ran about 3,700 characters and named two tools the
  * proxy never exposes (`code-search`, `web-fetch-result`), so the proxy owns this text instead.
  * Written the way Claude Code writes its own tool descriptions: what the tool does in one
  * sentence, one line for the behaviour that differs from what the model expects, and a unit or
@@ -94,6 +116,14 @@ const REMOTE_TOOL_TEXT: Readonly<Record<string, { description: string; params: R
         params: {
             query: "Search terms, 2 to 500 characters.",
             num_results: "3 to 20, default 10.",
+        },
+    },
+    [IMAGE_TOOL_NAME]: {
+        description: `${IMAGE_TOOL_TEXT} For the prompt, use the Gemini guidance in the ac:prompt-writer skill.`,
+        params: {
+            prompt: "What to draw.",
+            reference_image_url: "Optional reference to edit or restyle: the image_url a previous call returned, "
+                + "while its link is valid.",
         },
     },
 };
@@ -216,18 +246,26 @@ export const OPENCODE_SERVER_INSTRUCTIONS =
 /**
  * The Claude Code descriptions of the two web tools call them fallbacks for built-ins opencode
  * does not have (its websearch is disabled in favour of these), which would steer the model away
- * from its only web route.
+ * from its only web route. The image tool's Claude Code text names a skill opencode does not ship.
  */
 const OPENCODE_TOOL_DESCRIPTIONS: Readonly<Record<string, string>> = {
     "web-fetch": "Fetch a page and return its content as markdown. Use it when you need the page text "
         + "itself, including pages the plain fetch tool cannot render or is blocked from.",
     "web-search": "Search the web across several engines and return deduplicated results. This is the "
         + "web search tool; use it for current information and to find pages to fetch.",
+    [IMAGE_TOOL_NAME]: IMAGE_TOOL_TEXT,
 };
 
 function forClient(tool: Tool, client: McpClient): Tool {
     const description = client === "opencode" ? OPENCODE_TOOL_DESCRIPTIONS[tool.name] : undefined;
-    return description === undefined ? tool : { ...tool, description };
+    if (description === undefined) {
+        return tool;
+    }
+
+    // The reference sentence is added only for a remote that takes a reference, and opencode keeps it.
+    const withReference = tool.description?.includes(REFERENCE_TOOL_TEXT) === true;
+
+    return { ...tool, description: withReference ? `${description} ${REFERENCE_TOOL_TEXT}` : description };
 }
 
 /**
@@ -246,7 +284,11 @@ export function buildCatalogue(remoteTools: readonly Tool[] | null, client: McpC
         //    Never add the local web-fetch definition here, or web-fetch duplicates.
         for (const tool of remoteTools) {
             if (ALLOWED_REMOTE_TOOLS.has(tool.name)) {
-                catalogue.push(forClient(applyAlwaysLoad(applyRemoteText(tool)), client));
+                const shaped = tool.name === IMAGE_TOOL_NAME
+                    ? withLocalReference(applyRemoteText(tool))
+                    : applyRemoteText(tool);
+
+                catalogue.push(forClient(applyAlwaysLoad(shaped), client));
             }
         }
     }
@@ -278,6 +320,7 @@ export async function runMcpProxy(
     const remote = token === "" ? null : buildRemoteHandle(url, token);
 
     let cachedTools: Tool[] | undefined;
+    let remoteTakesReference: boolean | undefined;
 
     const server = new Server(
         { name: "ac", version: AC_VERSION },
@@ -301,7 +344,11 @@ export async function runMcpProxy(
         // server failed when its first tools/list throws and never lists it again. The fallback is not cached,
         // so the next tools/list tries the upstream once more.
         try {
-            cachedTools = buildCatalogue(await listUpstreamTools(remote), clientMode);
+            const upstream = await listUpstreamTools(remote);
+
+            remoteTakesReference = declaresInlineReference(upstream);
+            cachedTools = buildCatalogue(upstream, clientMode);
+
             return { tools: cachedTools };
         } catch (err) {
             const reason = err instanceof Error ? err.message : String(err);
@@ -369,6 +416,49 @@ export async function runMcpProxy(
                 ErrorCode.InvalidRequest,
                 "Remote MCP not configured; set KODIZM_MCP_TOKEN to enable kodizm tools.",
             );
+        }
+
+        // A generation draws on a quota shared with the other accounts, so it is attempted once: a retry
+        // after a timeout could draw a second picture the caller never sees, and its error carries no
+        // retry hint for the same reason. The remote answers with a signed link rather than bytes;
+        // deliverImage downloads it and hands the model the file and the picture.
+        if (requestedName === IMAGE_TOOL_NAME) {
+            try {
+                // A remote whose tool takes no reference would drop one and answer a fresh picture that looks
+                // like an edit, so a reference is refused unless the remote declares it.
+                if (asksForReference(request.params.arguments)) {
+                    if (remoteTakesReference === undefined) {
+                        try {
+                            remoteTakesReference = declaresInlineReference(await listUpstreamTools(remote));
+                        } catch (err) {
+                            throw new ReferenceImageError(
+                                `Could not check whether the connected Kodizm takes a reference picture: ${describeFailure(err)}.`,
+                            );
+                        }
+                    }
+
+                    if (!remoteTakesReference) {
+                        throw new ReferenceImageError("The connected Kodizm does not take a reference picture yet.");
+                    }
+                }
+
+                // A local reference file is read and inlined here, before the remote is reached: a refused
+                // path sends nothing, so it is the one failure that is safe to repeat once fixed.
+                const args = await inlineReference(request.params.arguments);
+
+                await remote.ensureConnected();
+
+                const generated = await remote.client.callTool(
+                    {
+                        name: requestedName,
+                        arguments: args,
+                    },
+                ) as CallToolResult;
+
+                return await deliverImage(generated);
+            } catch (err) {
+                return err instanceof ReferenceImageError ? referenceErrorResult(err) : imageErrorResult(err);
+            }
         }
 
         // Remote passthrough for docs/search tools. A connection failure OR a
