@@ -18044,6 +18044,9 @@ __export(exports_esm2, {
   uniqueSort: () => uniqueSort
 });
 
+// src/index.ts
+import { execFileSync } from "node:child_process";
+
 // node_modules/commander/index.js
 var { Argument } = require_argument();
 var { Command } = require_command();
@@ -29479,6 +29482,115 @@ async function runHistoryTool(args, overrides = {}) {
   }
 }
 
+// src/image-result.ts
+import { randomUUID } from "node:crypto";
+import { mkdir, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
+var IMAGE_TOOL_NAME = "generate_image";
+var DEFAULT_MAX_BYTES = 8 * 1024 * 1024;
+var DEFAULT_INLINE_MAX_BYTES = 3500000;
+var DOWNLOAD_TIMEOUT_MS = 30000;
+var EXTENSIONS = {
+  "image/png": "png",
+  "image/jpeg": "jpg",
+  "image/webp": "webp",
+  "image/gif": "gif"
+};
+async function deliverImage(result, options = {}) {
+  const link = imageLinkOf(result);
+  if (link === undefined) {
+    return result;
+  }
+  try {
+    return await saveImage(link, options.directory ?? path.join(tmpdir(), "ac-images"), options.maxBytes ?? DEFAULT_MAX_BYTES, options.inlineMaxBytes ?? DEFAULT_INLINE_MAX_BYTES);
+  } catch (err) {
+    return { isError: true, content: [{ type: "text", text: `image download failed: ${describeFailure(err)}` }] };
+  }
+}
+function describeFailure(err) {
+  if (!(err instanceof Error)) {
+    return String(err);
+  }
+  return err.cause instanceof Error ? `${err.message} (${err.cause.message})` : err.message;
+}
+function imageErrorResult(err) {
+  return {
+    isError: true,
+    content: [{
+      type: "text",
+      text: `remote tool call failed: ${describeFailure(err)}. A picture may already have been generated; ` + "do not call generate_image again unless the user asks for another attempt."
+    }]
+  };
+}
+function imageLinkOf(result) {
+  if (result.isError === true) {
+    return;
+  }
+  const first = result.content.find((block) => block.type === "text");
+  if (first === undefined || first.type !== "text") {
+    return;
+  }
+  let answer;
+  try {
+    answer = JSON.parse(first.text);
+  } catch {
+    return;
+  }
+  const output = answer?.output;
+  return typeof output?.image_url === "string" ? output.image_url : undefined;
+}
+async function saveImage(link, directory, maxBytes, inlineMaxBytes) {
+  const url = new URL(link);
+  if (url.protocol !== "http:" && url.protocol !== "https:") {
+    throw new Error(`refusing a ${url.protocol} link`);
+  }
+  const response = await fetch(url, { redirect: "error", signal: AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS) });
+  if (!response.ok) {
+    throw new Error(`the link answered ${response.status}`);
+  }
+  const mime = (response.headers.get("content-type") ?? "").split(";")[0]?.trim().toLowerCase() ?? "";
+  const extension = EXTENSIONS[mime];
+  if (extension === undefined) {
+    throw new Error(`the link answered ${mime === "" ? "no content type" : mime}, not an image`);
+  }
+  const bytes = await readCapped(response, maxBytes);
+  await mkdir(directory, { recursive: true, mode: 448 });
+  const file = path.join(directory, `${Date.now()}-${randomUUID().slice(0, 8)}.${extension}`);
+  await writeFile(file, bytes, { mode: 384 });
+  const saved = `Image saved to ${file} (${mime}, ${bytes.byteLength} bytes).`;
+  if (bytes.byteLength > inlineMaxBytes) {
+    return { content: [{ type: "text", text: `${saved} It is too large to show inline.` }] };
+  }
+  return {
+    content: [
+      { type: "text", text: saved },
+      { type: "image", data: bytes.toString("base64"), mimeType: mime }
+    ]
+  };
+}
+async function readCapped(response, maxBytes) {
+  if (response.body === null) {
+    throw new Error("the link answered with no body");
+  }
+  const reader = response.body.getReader();
+  const chunks = [];
+  let total = 0;
+  for (;; ) {
+    const { done, value } = await reader.read();
+    if (done) {
+      break;
+    }
+    total += value.byteLength;
+    if (total > maxBytes) {
+      await reader.cancel();
+      throw new Error(`the picture is larger than ${maxBytes} bytes`);
+    }
+    chunks.push(value);
+  }
+  return Buffer.concat(chunks);
+}
+
 // src/local-fetch.ts
 var import_readability = __toESM(require_readability(), 1);
 import { Buffer as Buffer2 } from "node:buffer";
@@ -37963,6 +38075,122 @@ function renderMarkdown(html) {
   return sanitizeMarkdownSchemes(markdown);
 }
 
+// src/reference-image.ts
+import { constants } from "node:fs";
+import { open as open2 } from "node:fs/promises";
+import { homedir as homedir3 } from "node:os";
+import path2 from "node:path";
+var REFERENCE_PATH_PARAM = "reference_image_path";
+var REFERENCE_URL_PARAM = "reference_image_url";
+var REFERENCE_BASE64_PARAM = "reference_image_base64";
+var MAX_REFERENCE_BYTES = 740000;
+var REFERENCE_TOOL_TEXT = "To edit or restyle a picture pass it as a reference: a local file " + `(${REFERENCE_PATH_PARAM}) or the image_url a previous call returned (${REFERENCE_URL_PARAM}). Each call is ` + "independent, so a follow-up edit passes the reference again.";
+var PNG_SIGNATURE = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
+
+class ReferenceImageError extends Error {
+}
+function asksForReference(args) {
+  return [REFERENCE_PATH_PARAM, REFERENCE_URL_PARAM, REFERENCE_BASE64_PARAM].some((key) => args?.[key] !== undefined && args[key] !== null);
+}
+function declaresInlineReference(remoteTools) {
+  const properties = remoteTools.find((tool) => tool.name === IMAGE_TOOL_NAME)?.inputSchema.properties;
+  return properties !== undefined && REFERENCE_BASE64_PARAM in properties;
+}
+async function inlineReference(args) {
+  if (args === undefined) {
+    return;
+  }
+  const next = { ...args };
+  const file = next[REFERENCE_PATH_PARAM];
+  const link = next[REFERENCE_URL_PARAM];
+  delete next[REFERENCE_BASE64_PARAM];
+  delete next[REFERENCE_PATH_PARAM];
+  if (file === undefined || file === null) {
+    return next;
+  }
+  if (typeof file !== "string" || file === "") {
+    throw new ReferenceImageError(`${REFERENCE_PATH_PARAM} must be a file path.`);
+  }
+  if (link !== undefined && link !== null) {
+    throw new ReferenceImageError(`Pass either ${REFERENCE_PATH_PARAM} or ${REFERENCE_URL_PARAM}, not both.`);
+  }
+  next[REFERENCE_BASE64_PARAM] = (await readPicture(file)).toString("base64");
+  return next;
+}
+function withLocalReference(tool) {
+  const properties = tool.inputSchema.properties;
+  if (properties === undefined || !(REFERENCE_BASE64_PARAM in properties)) {
+    return tool;
+  }
+  const next = {};
+  for (const [name, property] of Object.entries(properties)) {
+    if (name !== REFERENCE_BASE64_PARAM) {
+      next[name] = property;
+    }
+  }
+  next[REFERENCE_PATH_PARAM] = {
+    type: "string",
+    description: "Optional reference picture to edit or restyle: the absolute path (or ~/...) of a local PNG, " + `JPEG or WebP file of at most ${MAX_REFERENCE_BYTES} bytes. Send it or ${REFERENCE_URL_PARAM}, not both.`
+  };
+  return {
+    ...tool,
+    description: `${tool.description ?? ""} ${REFERENCE_TOOL_TEXT}`.trim(),
+    inputSchema: { ...tool.inputSchema, properties: next }
+  };
+}
+function referenceErrorResult(err) {
+  return {
+    isError: true,
+    content: [{
+      type: "text",
+      text: `${err.message} Nothing was sent, so no picture was generated or counted against the quota.`
+    }]
+  };
+}
+async function readPicture(file) {
+  const resolved = file.startsWith("~/") ? path2.join(process.env["HOME"] || homedir3(), file.slice(2)) : file;
+  if (!path2.isAbsolute(resolved)) {
+    throw new ReferenceImageError(`${REFERENCE_PATH_PARAM} must be an absolute path or start with ~/.`);
+  }
+  const handle = await open2(resolved, constants.O_RDONLY | constants.O_NONBLOCK).catch((err) => {
+    throw new ReferenceImageError(`${file} cannot be read (${err.code ?? "error"}).`);
+  });
+  try {
+    const info = await handle.stat();
+    if (!info.isFile()) {
+      throw new ReferenceImageError(`${file} is not a file.`);
+    }
+    if (info.size > MAX_REFERENCE_BYTES) {
+      throw new ReferenceImageError(`${file} is ${info.size} bytes; the limit is ${MAX_REFERENCE_BYTES} bytes.`);
+    }
+    const buffer = Buffer.alloc(MAX_REFERENCE_BYTES + 1);
+    let total = 0;
+    while (total <= MAX_REFERENCE_BYTES) {
+      const { bytesRead } = await handle.read(buffer, total, buffer.length - total, total);
+      if (bytesRead === 0) {
+        break;
+      }
+      total += bytesRead;
+    }
+    if (total > MAX_REFERENCE_BYTES) {
+      throw new ReferenceImageError(`${file} is larger than ${MAX_REFERENCE_BYTES} bytes.`);
+    }
+    const bytes = buffer.subarray(0, total);
+    if (!isPicture(bytes)) {
+      throw new ReferenceImageError(`${file} is not a PNG, JPEG or WebP picture.`);
+    }
+    return bytes;
+  } finally {
+    await handle.close();
+  }
+}
+function isPicture(bytes) {
+  const png = bytes.subarray(0, PNG_SIGNATURE.length).equals(PNG_SIGNATURE);
+  const jpeg = bytes.length >= 3 && bytes[0] === 255 && bytes[1] === 216 && bytes[2] === 255;
+  const webp = bytes.length >= 12 && bytes.toString("latin1", 0, 4) === "RIFF" && bytes.toString("latin1", 8, 12) === "WEBP";
+  return png || jpeg || webp;
+}
+
 // src/remote-retry.ts
 var TRANSIENT_STATUSES = new Set([502, 503, 504, 520, 521, 522, 524]);
 var REMOTE_RETRY_DELAYS_MS = [2000, 6000];
@@ -38113,7 +38341,7 @@ function errorMessage(error) {
 // package.json
 var package_default = {
   name: "@anilcancakir/ac-cli",
-  version: "0.44.0",
+  version: "0.45.0",
   description: "Companion CLI runtime for the ac Claude Code plugin. Serves the ac MCP tools, checks plans, prices runs and searches the local history archive.",
   private: true,
   type: "module",
@@ -38153,8 +38381,10 @@ var ALLOWED_REMOTE_TOOLS = new Set([
   "web-fetch",
   "search-docs",
   "resolve-library",
-  "web-code-search"
+  "web-code-search",
+  IMAGE_TOOL_NAME
 ]);
+var IMAGE_TOOL_TEXT = "Generate one image with Gemini from a text prompt, save it to a local file and return the " + "path with the picture. It draws on a shared hourly and daily quota, so call it only for an image " + "the user asked for, and once per image.";
 var REMOTE_TOOL_TEXT = {
   "resolve-library": {
     description: "Map a library or framework name to its documentation id for search-docs. " + "Call it first when the id is not already known; returns ranked matches with versions.",
@@ -38185,6 +38415,13 @@ var REMOTE_TOOL_TEXT = {
     params: {
       query: "Search terms, 2 to 500 characters.",
       num_results: "3 to 20, default 10."
+    }
+  },
+  [IMAGE_TOOL_NAME]: {
+    description: `${IMAGE_TOOL_TEXT} For the prompt, use the Gemini guidance in the ac:prompt-writer skill.`,
+    params: {
+      prompt: "What to draw.",
+      reference_image_url: "Optional reference to edit or restyle: the image_url a previous call returned, " + "while its link is valid."
     }
   }
 };
@@ -38236,11 +38473,16 @@ var MCP_CLIENTS = ["claude-code", "opencode"];
 var OPENCODE_SERVER_INSTRUCTIONS = "For library docs call resolve-library, then search-docs; for real usage of an API call " + "web-code-search; web-search and web-fetch are the web tools. For the user's own past work or " + "Claude Code conversations, call search-history instead of guessing.";
 var OPENCODE_TOOL_DESCRIPTIONS = {
   "web-fetch": "Fetch a page and return its content as markdown. Use it when you need the page text " + "itself, including pages the plain fetch tool cannot render or is blocked from.",
-  "web-search": "Search the web across several engines and return deduplicated results. This is the " + "web search tool; use it for current information and to find pages to fetch."
+  "web-search": "Search the web across several engines and return deduplicated results. This is the " + "web search tool; use it for current information and to find pages to fetch.",
+  [IMAGE_TOOL_NAME]: IMAGE_TOOL_TEXT
 };
 function forClient(tool, client) {
   const description = client === "opencode" ? OPENCODE_TOOL_DESCRIPTIONS[tool.name] : undefined;
-  return description === undefined ? tool : { ...tool, description };
+  if (description === undefined) {
+    return tool;
+  }
+  const withReference = tool.description?.includes(REFERENCE_TOOL_TEXT) === true;
+  return { ...tool, description: withReference ? `${description} ${REFERENCE_TOOL_TEXT}` : description };
 }
 function buildCatalogue(remoteTools, client) {
   const catalogue = [];
@@ -38249,7 +38491,8 @@ function buildCatalogue(remoteTools, client) {
   } else {
     for (const tool of remoteTools) {
       if (ALLOWED_REMOTE_TOOLS.has(tool.name)) {
-        catalogue.push(forClient(applyAlwaysLoad(applyRemoteText(tool)), client));
+        const shaped = tool.name === IMAGE_TOOL_NAME ? withLocalReference(applyRemoteText(tool)) : applyRemoteText(tool);
+        catalogue.push(forClient(applyAlwaysLoad(shaped), client));
       }
     }
   }
@@ -38262,6 +38505,7 @@ async function runMcpProxy(options) {
   const url = (options.url ?? process.env["KODIZM_MCP_URL"] ?? DEFAULT_REMOTE_URL).trim();
   const remote = token === "" ? null : buildRemoteHandle(url, token);
   let cachedTools;
+  let remoteTakesReference;
   const server = new Server({ name: "ac", version: AC_VERSION }, {
     capabilities: { tools: {} },
     instructions: clientMode === "opencode" ? OPENCODE_SERVER_INSTRUCTIONS : SERVER_INSTRUCTIONS
@@ -38275,7 +38519,9 @@ async function runMcpProxy(options) {
       return { tools: cachedTools };
     }
     try {
-      cachedTools = buildCatalogue(await listUpstreamTools(remote), clientMode);
+      const upstream = await listUpstreamTools(remote);
+      remoteTakesReference = declaresInlineReference(upstream);
+      cachedTools = buildCatalogue(upstream, clientMode);
       return { tools: cachedTools };
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);
@@ -38321,6 +38567,31 @@ async function runMcpProxy(options) {
     }
     if (remote === null) {
       throw new McpError(ErrorCode.InvalidRequest, "Remote MCP not configured; set KODIZM_MCP_TOKEN to enable kodizm tools.");
+    }
+    if (requestedName === IMAGE_TOOL_NAME) {
+      try {
+        if (asksForReference(request.params.arguments)) {
+          if (remoteTakesReference === undefined) {
+            try {
+              remoteTakesReference = declaresInlineReference(await listUpstreamTools(remote));
+            } catch (err) {
+              throw new ReferenceImageError(`Could not check whether the connected Kodizm takes a reference picture: ${describeFailure(err)}.`);
+            }
+          }
+          if (!remoteTakesReference) {
+            throw new ReferenceImageError("The connected Kodizm does not take a reference picture yet.");
+          }
+        }
+        const args = await inlineReference(request.params.arguments);
+        await remote.ensureConnected();
+        const generated = await remote.client.callTool({
+          name: requestedName,
+          arguments: args
+        });
+        return await deliverImage(generated);
+      } catch (err) {
+        return err instanceof ReferenceImageError ? referenceErrorResult(err) : imageErrorResult(err);
+      }
     }
     try {
       return await withTransientRetry(async () => {
@@ -39674,11 +39945,480 @@ function formatRunCost(report) {
 `);
 }
 
+// src/pr-watch.ts
+import { execFile } from "node:child_process";
+var GH_AUTH_REQUIRED_CODE = 4;
+var GH_MISSING_CODE = 127;
+var GH_TIMEOUT_MILLIS = 30000;
+var GH_MAX_BUFFER_BYTES = 64 * 1024 * 1024;
+var BODY_LIMIT = 300;
+var EVENTS_PER_TICK = 25;
+var FAILURE_FIRST_NOTE = 3;
+var FAILURE_NOTE_EVERY = 15;
+var FAILURE_DETAIL_LIMIT = 160;
+async function runPrWatch(options, deps) {
+  return new PrWatch(options, deps).run();
+}
+function defaultPrWatchDeps() {
+  return {
+    gh: runGh,
+    now: () => Date.now(),
+    sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+    write: (line) => {
+      process.stdout.write(`${line}
+`);
+    }
+  };
+}
+function formatBody(body) {
+  const text = body.replace(/<!--[\s\S]*?-->/g, " ").replace(/<picture\b[\s\S]*?<\/picture>/gi, " ").replace(/\s+/g, " ").trim();
+  if (text === "") {
+    return "(no text)";
+  }
+  const characters = Array.from(text);
+  return characters.length > BODY_LIMIT ? `${characters.slice(0, BODY_LIMIT).join("")}...` : text;
+}
+
+class PrWatch {
+  options;
+  deps;
+  headPath;
+  endpoints;
+  etags = new Map;
+  paginated = new Set;
+  settled = new Map;
+  seen = new Set;
+  baselines = new Map;
+  began = 0;
+  lastHead;
+  headMatched = false;
+  gateSeen = false;
+  queuedSince;
+  gateAt;
+  failures = 0;
+  sweepFailures = new Map;
+  constructor(options, deps) {
+    this.options = options;
+    this.deps = deps;
+    const slug = options.repo ?? "{owner}/{repo}";
+    this.headPath = `repos/${slug}/pulls/${options.pr}`;
+    this.endpoints = [
+      {
+        kind: "comment",
+        path: `repos/${slug}/issues/${options.pr}/comments?per_page=100`
+      },
+      {
+        kind: "inline",
+        path: `repos/${slug}/pulls/${options.pr}/comments?per_page=100`
+      },
+      {
+        kind: "review",
+        path: `repos/${slug}/pulls/${options.pr}/reviews?per_page=100`
+      }
+    ];
+  }
+  async run() {
+    this.deps.write(`WATCH pr=${this.options.pr} head=${short(this.options.head)}`);
+    this.began = this.deps.now();
+    for (;; ) {
+      const exit = await this.tick();
+      if (exit !== undefined) {
+        return exit;
+      }
+      await this.deps.sleep(this.options.intervalSeconds * 1000);
+    }
+  }
+  async tick() {
+    const outcome = await this.gateHead();
+    if (outcome !== undefined && "exit" in outcome) {
+      return outcome.exit;
+    }
+    if (outcome !== undefined && outcome.fatal !== undefined) {
+      return this.stuck(this.options.head, outcome.fatal).exit;
+    }
+    if (outcome === undefined) {
+      this.failures = 0;
+    } else {
+      this.recordFailure(outcome.failure);
+      if (!this.gateSeen && this.deps.now() - this.began >= this.options.startWaitSeconds * 1000) {
+        return this.stuck(this.options.head, "gh-failing").exit;
+      }
+    }
+    await this.sweep();
+    return;
+  }
+  async gateHead() {
+    const head = await this.readHead();
+    if (typeof head !== "string") {
+      return head;
+    }
+    if (head !== this.options.head) {
+      if (this.headMatched) {
+        return this.stuck(head, "superseded");
+      }
+      const expired = this.deps.now() - this.began >= this.options.startWaitSeconds * 1000;
+      return expired ? this.stuck(this.options.head, "head-never-appeared") : undefined;
+    }
+    this.headMatched = true;
+    const checks = await this.readChecks();
+    if ("failure" in checks) {
+      return checks;
+    }
+    return this.gate(checks);
+  }
+  async gate(checks) {
+    const now = this.deps.now();
+    for (const check of checks) {
+      this.reportCheck(check);
+    }
+    const gates = checks.filter((check) => !this.ignored(check.name));
+    if (gates.length === 0) {
+      const expired = !this.gateSeen && now - this.began >= this.options.startWaitSeconds * 1000;
+      return expired ? this.stuck(this.options.head, "no-checks") : undefined;
+    }
+    this.gateSeen = true;
+    if (gates.some((check) => check.bucket === "fail" || check.bucket === "cancel")) {
+      await this.sweep();
+      return this.settle("red");
+    }
+    const pendingGates = gates.filter((check) => check.bucket === "pending");
+    if (pendingGates.length > 0) {
+      return this.watchQueue(pendingGates, now);
+    }
+    this.queuedSince = undefined;
+    return this.settleGreen(checks, now);
+  }
+  watchQueue(pendingGates, now) {
+    const queued = pendingGates.every((check) => check.state === "QUEUED" || check.state === "WAITING");
+    if (!queued) {
+      this.queuedSince = undefined;
+      return;
+    }
+    this.queuedSince ??= now;
+    return now - this.queuedSince >= this.options.queueLimitSeconds * 1000 ? this.stuck(this.options.head, "queued") : undefined;
+  }
+  async settleGreen(checks, now) {
+    if (this.gateAt === undefined) {
+      this.deps.write("GATE green");
+      this.gateAt = now;
+    }
+    const bots = checks.filter((check) => this.ignored(check.name) && check.bucket === "pending");
+    if (bots.length > 0) {
+      if (now - this.gateAt < this.options.botsWaitSeconds * 1000) {
+        return;
+      }
+      this.deps.write(`NOTE bots still pending: ${bots.map((check) => check.name).join(", ")}`);
+    }
+    const head = await this.readHead();
+    if (typeof head !== "string") {
+      return head;
+    }
+    if (head !== this.options.head) {
+      return this.stuck(head, "superseded");
+    }
+    await this.sweep();
+    return this.settle("green");
+  }
+  reportCheck(check) {
+    const key = `${check.name}\x00${check.workflow}\x00${check.event}`;
+    if (check.bucket === "pending" || this.settled.get(key) === check.bucket) {
+      return;
+    }
+    this.settled.set(key, check.bucket);
+    const suffix = this.ignored(check.name) ? " (not a gate)" : "";
+    this.deps.write(`CHECK ${check.name}: ${check.bucket}${suffix}`);
+  }
+  ignored(name) {
+    return this.options.ignore?.test(name) ?? false;
+  }
+  async readHead() {
+    const fetched = await this.fetch(this.headPath);
+    if (fetched.kind === "failed") {
+      return { failure: fetched.detail, fatal: fetched.fatal };
+    }
+    if (fetched.kind === "ok") {
+      const body = fetched.body;
+      const sha = isRecord(body) && isRecord(body.head) ? body.head.sha : undefined;
+      if (typeof sha !== "string") {
+        return { failure: `no head.sha in gh api ${this.headPath}` };
+      }
+      this.lastHead = sha;
+    }
+    return this.lastHead ?? { failure: `no head.sha in gh api ${this.headPath}` };
+  }
+  async readChecks() {
+    const repo = this.options.repo === undefined ? [] : ["-R", this.options.repo];
+    const result = await this.deps.gh([
+      "pr",
+      "checks",
+      this.options.pr,
+      ...repo,
+      "--json",
+      "name,bucket,state,workflow,event"
+    ]);
+    if (result.code !== 0) {
+      if (unusable(result.code)) {
+        return { failure: failureDetail(result, "gh is unavailable"), fatal: "gh-unavailable" };
+      }
+      if (`${result.stdout}
+${result.stderr}`.includes("no checks reported")) {
+        return [];
+      }
+      return { failure: failureDetail(result, "gh pr checks failed") };
+    }
+    const parsed = parseJson(result.stdout);
+    if (!Array.isArray(parsed) || !parsed.every(isCheck)) {
+      return { failure: "unreadable gh pr checks reply" };
+    }
+    return parsed.map((check) => ({
+      name: check.name,
+      bucket: check.bucket,
+      state: check.state,
+      workflow: typeof check.workflow === "string" ? check.workflow : "",
+      event: typeof check.event === "string" ? check.event : ""
+    }));
+  }
+  async sweep() {
+    let shown = 0;
+    let hidden = 0;
+    for (const endpoint of this.endpoints) {
+      const fetched = await this.fetch(endpoint.path);
+      this.noteSweep(endpoint.kind, fetched);
+      if (fetched.kind !== "ok" || !Array.isArray(fetched.body)) {
+        continue;
+      }
+      const events = commentEvents(endpoint.kind, fetched.body);
+      const fresh = events.filter((event) => !this.seen.has(event.key));
+      for (const event of fresh) {
+        this.seen.add(event.key);
+      }
+      if (!this.baselines.has(endpoint.kind)) {
+        this.baselines.set(endpoint.kind, events.length);
+        if (!this.options.includeExisting) {
+          this.writeBaselineWhenComplete();
+          continue;
+        }
+      }
+      for (const event of fresh) {
+        if (shown < EVENTS_PER_TICK) {
+          this.deps.write(event.line);
+          shown += 1;
+        } else {
+          hidden += 1;
+        }
+      }
+    }
+    if (hidden > 0) {
+      this.deps.write(`NOTE ${hidden} more comment events not shown, read them with gh api`);
+    }
+  }
+  noteSweep(kind, fetched) {
+    if (fetched.kind !== "failed") {
+      this.sweepFailures.set(kind, 0);
+      return;
+    }
+    const failures = (this.sweepFailures.get(kind) ?? 0) + 1;
+    this.sweepFailures.set(kind, failures);
+    if (failures === FAILURE_FIRST_NOTE) {
+      this.deps.write(`NOTE ${kind} sweep failing: ${fetched.detail.slice(0, FAILURE_DETAIL_LIMIT)}`);
+    }
+  }
+  writeBaselineWhenComplete() {
+    if (this.baselines.size !== this.endpoints.length) {
+      return;
+    }
+    const comments = this.baselines.get("comment") ?? 0;
+    const inline = this.baselines.get("inline") ?? 0;
+    const reviews = this.baselines.get("review") ?? 0;
+    this.deps.write(`BASELINE comments=${comments} inline=${inline} reviews=${reviews}`);
+  }
+  async fetch(path) {
+    if (this.paginated.has(path)) {
+      return this.fetchAllPages(path);
+    }
+    const etag = this.etags.get(path);
+    const conditional = etag === undefined ? [] : ["-H", `If-None-Match: ${etag}`];
+    const result = await this.deps.gh(["api", "-i", ...conditional, path]);
+    if (unusable(result.code)) {
+      return { kind: "failed", detail: failureDetail(result, "gh is unavailable"), fatal: "gh-unavailable" };
+    }
+    const response = parseHttpResponse(result.stdout);
+    if (response === undefined) {
+      return { kind: "failed", detail: failureDetail(result, `no HTTP status from gh api ${path}`) };
+    }
+    if (response.status === 304) {
+      return { kind: "unchanged" };
+    }
+    if (response.status !== 200) {
+      const detail = failureDetail(result, `HTTP ${response.status} from gh api ${path}`);
+      return response.status === 404 ? { kind: "failed", detail, fatal: "pr-not-found" } : { kind: "failed", detail };
+    }
+    if (response.hasNext) {
+      this.paginated.add(path);
+      return this.fetchAllPages(path);
+    }
+    const body = parseJson(response.body);
+    if (body === undefined) {
+      return { kind: "failed", detail: `unreadable reply from gh api ${path}` };
+    }
+    if (response.etag !== undefined) {
+      this.etags.set(path, response.etag);
+    }
+    return { kind: "ok", body };
+  }
+  async fetchAllPages(path) {
+    const result = await this.deps.gh(["api", "--paginate", "--slurp", path]);
+    if (result.code !== 0) {
+      return { kind: "failed", detail: failureDetail(result, `gh api --paginate ${path} failed`) };
+    }
+    const pages = parseJson(result.stdout);
+    if (!Array.isArray(pages) || !pages.every((page) => Array.isArray(page))) {
+      return { kind: "failed", detail: `unreadable reply from gh api --paginate ${path}` };
+    }
+    return { kind: "ok", body: pages.flat() };
+  }
+  recordFailure(detail) {
+    this.failures += 1;
+    const due = this.failures === FAILURE_FIRST_NOTE || this.failures > FAILURE_FIRST_NOTE && (this.failures - FAILURE_FIRST_NOTE) % FAILURE_NOTE_EVERY === 0;
+    if (due) {
+      this.deps.write(`NOTE gh failing: ${detail.slice(0, FAILURE_DETAIL_LIMIT)}`);
+    }
+  }
+  settle(verdict) {
+    this.deps.write(`VERDICT ${verdict} head=${short(this.options.head)}`);
+    return { exit: verdict === "green" ? 0 : 1 };
+  }
+  stuck(head, reason) {
+    this.deps.write(`VERDICT stuck head=${short(head)} reason=${reason}`);
+    return { exit: 2 };
+  }
+}
+function commentEvents(kind, items) {
+  const events = [];
+  for (const item of items) {
+    if (!isRecord(item) || typeof item.id !== "number") {
+      continue;
+    }
+    const line = describeComment(kind, item.id, item);
+    if (line !== undefined) {
+      events.push({
+        id: item.id,
+        key: `${kind}:${item.id}`,
+        line
+      });
+    }
+  }
+  return events.sort((left, right) => left.id - right.id);
+}
+function describeComment(kind, id, item) {
+  const login = isRecord(item.user) && typeof item.user.login === "string" ? item.user.login : "ghost";
+  const body = typeof item.body === "string" ? item.body : "";
+  const text = formatBody(body);
+  switch (kind) {
+    case "comment":
+      return `COMMENT ${id} ${login}: ${text}`;
+    case "inline": {
+      const line = numberOrNull(item.line) ?? numberOrNull(item.original_line) ?? 0;
+      const path = typeof item.path === "string" ? item.path : "";
+      return `INLINE ${id} ${login} ${path}:${line}: ${text}`;
+    }
+    case "review": {
+      const state = typeof item.state === "string" ? item.state : "";
+      if (state === "PENDING" || state === "COMMENTED" && body.trim() === "") {
+        return;
+      }
+      return `REVIEW ${id} ${login} ${state}: ${text}`;
+    }
+  }
+}
+function parseHttpResponse(stdout) {
+  const separator = /\r?\n\r?\n/.exec(stdout);
+  const head = separator === null ? stdout : stdout.slice(0, separator.index);
+  const body = separator === null ? "" : stdout.slice(separator.index + separator[0].length);
+  const [statusLine = "", ...headers] = head.split(/\r?\n/);
+  const status = /^HTTP\/\S+\s+(\d{3})/.exec(statusLine);
+  if (status === null) {
+    return;
+  }
+  let etag;
+  let hasNext = false;
+  for (const header of headers) {
+    const match = /^([^:]+):\s*(.*)$/.exec(header);
+    const name = match?.[1]?.toLowerCase();
+    const value = match?.[2]?.trim() ?? "";
+    if (name === "etag") {
+      etag = value;
+    } else if (name === "link" && value.includes('rel="next"')) {
+      hasNext = true;
+    }
+  }
+  return {
+    status: Number(status[1]),
+    etag,
+    hasNext,
+    body
+  };
+}
+function parseJson(text) {
+  try {
+    return JSON.parse(text);
+  } catch (error) {
+    if (error instanceof SyntaxError) {
+      return;
+    }
+    throw error;
+  }
+}
+function unusable(code) {
+  return code === GH_AUTH_REQUIRED_CODE || code === GH_MISSING_CODE;
+}
+function failureDetail(result, fallback) {
+  const line = result.stderr.split(`
+`).map((part) => part.trim()).find((part) => part !== "");
+  return line ?? fallback;
+}
+function isRecord(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+function isCheck(value) {
+  return isRecord(value) && typeof value.name === "string" && typeof value.bucket === "string" && typeof value.state === "string";
+}
+function numberOrNull(value) {
+  return typeof value === "number" ? value : null;
+}
+function short(sha) {
+  return sha.slice(0, 7);
+}
+function runGh(args) {
+  return new Promise((resolve) => {
+    execFile("gh", args, {
+      encoding: "utf8",
+      timeout: GH_TIMEOUT_MILLIS,
+      maxBuffer: GH_MAX_BUFFER_BYTES
+    }, (error, stdout, stderr) => {
+      resolve({
+        code: exitCode(error),
+        stdout,
+        stderr: error?.killed === true ? `gh timed out after ${GH_TIMEOUT_MILLIS / 1000}s` : stderr
+      });
+    });
+  });
+}
+function exitCode(error) {
+  if (error === null) {
+    return 0;
+  }
+  if (typeof error.code === "number") {
+    return error.code;
+  }
+  return error.code === "ENOENT" ? 127 : 1;
+}
+
 // src/lease.ts
-import { execFile, spawn, spawnSync } from "node:child_process";
+import { execFile as execFile2, spawn, spawnSync } from "node:child_process";
 import {
   closeSync,
-  constants,
+  constants as constants2,
   lstatSync,
   mkdirSync as mkdirSync3,
   openSync,
@@ -39689,7 +40429,7 @@ import {
   unlinkSync,
   writeSync
 } from "node:fs";
-import { tmpdir } from "node:os";
+import { tmpdir as tmpdir2 } from "node:os";
 import { basename as basename5, join as join9 } from "node:path";
 var LEASE_KINDS = [
   "pid",
@@ -39745,7 +40485,7 @@ function defaultLeaseDeps() {
   const probe = psProbe();
   return {
     env: process.env,
-    leaseDir: join9(tmpdir(), "ac-leases"),
+    leaseDir: join9(tmpdir2(), "ac-leases"),
     sandboxLeaseDir: join9(process.env.CLAUDE_CODE_TMPDIR || "/tmp", `claude-${currentUid()}`, "ac-leases"),
     probe,
     findOwner: () => findClaudeAncestor(probe),
@@ -40052,7 +40792,7 @@ function appendLine(path, line) {
   if (lstatOrUndefined(path) !== undefined) {
     assertPrivate(path, "file");
   }
-  const flags = constants.O_WRONLY | constants.O_APPEND | constants.O_CREAT | constants.O_NOFOLLOW;
+  const flags = constants2.O_WRONLY | constants2.O_APPEND | constants2.O_CREAT | constants2.O_NOFOLLOW;
   const fd = openSync(path, flags, 384);
   try {
     writeSync(fd, line);
@@ -40072,7 +40812,7 @@ function writeRemaining(path, leases) {
     return;
   }
   const temporary = `${path}.${process.pid}.tmp`;
-  const flags = constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW;
+  const flags = constants2.O_WRONLY | constants2.O_CREAT | constants2.O_EXCL | constants2.O_NOFOLLOW;
   const fd = openSync(temporary, flags, 384);
   try {
     writeSync(fd, leases.map((lease) => JSON.stringify(lease) + `
@@ -40374,7 +41114,7 @@ function relaunchDetached(argv) {
 }
 function runArgv(file, args) {
   return new Promise((resolve) => {
-    execFile(file, args, { timeout: STOP_TIMEOUT_MILLIS }, (error) => {
+    execFile2(file, args, { timeout: STOP_TIMEOUT_MILLIS }, (error) => {
       if (error === null) {
         resolve({ status: "ok" });
       } else if (error.code === "ENOENT") {
@@ -40711,6 +41451,73 @@ function formatSyncReport(report) {
   ].join(`
 `);
 }
+var EX_USAGE = 64;
+var FULL_SHA = /^[0-9a-fA-F]{40}$/;
+
+class PrWatchUsageError extends Error {
+}
+program2.command("pr-watch <pr>").description("Watch a pull request: one line per settled check, new comment, inline comment and review, " + "ending in VERDICT green (exit 0), red (exit 1) or stuck (exit 2). Run it under Monitor.").option("--repo <owner/name>", "Repository of the pull request (defaults to the checkout's gh repository).").option("--head <sha>", "Full commit SHA the pull request must show (defaults to the checkout's HEAD).").option("--ignore <regex>", "Checks whose name matches are reported but are not a gate.").option("--interval <seconds>", "Seconds between polls.", "20").option("--start-wait <seconds>", "Seconds to wait for the head commit and its first check to appear.", "300").option("--queue-limit <seconds>", "Seconds every check may sit queued before the watch calls it stuck.", "900").option("--bots-wait <seconds>", "Seconds to wait for review bots after the checks settle.", "600").option("--include-existing", "Emit the comments that already exist instead of recording them as a baseline.").action(async (pr, opts) => {
+  let options;
+  try {
+    options = prWatchOptions(pr, opts);
+  } catch (error) {
+    if (!(error instanceof PrWatchUsageError)) {
+      throw error;
+    }
+    process.stderr.write(`ac pr-watch: ${error.message}
+`);
+    process.exitCode = EX_USAGE;
+    return;
+  }
+  process.exitCode = await runPrWatch(options, defaultPrWatchDeps());
+});
+function prWatchOptions(pr, opts) {
+  if (!/^[1-9][0-9]*$/.test(pr)) {
+    throw new PrWatchUsageError(`<pr> must be a pull request number, got "${pr}"`);
+  }
+  const intervalSeconds = parseSeconds("--interval", opts.interval);
+  const startWaitSeconds = parseSeconds("--start-wait", opts.startWait);
+  const queueLimitSeconds = parseSeconds("--queue-limit", opts.queueLimit);
+  const botsWaitSeconds = parseSeconds("--bots-wait", opts.botsWait);
+  return {
+    pr,
+    repo: opts.repo,
+    head: resolvePrWatchHead(opts.head),
+    ignore: opts.ignore === undefined ? undefined : compileIgnore(opts.ignore),
+    intervalSeconds,
+    startWaitSeconds,
+    queueLimitSeconds,
+    botsWaitSeconds,
+    includeExisting: opts.includeExisting === true
+  };
+}
+function parseSeconds(flag, value) {
+  const seconds = value.trim() === "" ? Number.NaN : Number(value);
+  if (!Number.isFinite(seconds) || seconds < 0) {
+    throw new PrWatchUsageError(`${flag} must be a number of seconds >= 0, got "${value}"`);
+  }
+  return seconds;
+}
+function compileIgnore(source) {
+  try {
+    return new RegExp(source);
+  } catch (error) {
+    throw new PrWatchUsageError(`--ignore is not a valid regex: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+function resolvePrWatchHead(head) {
+  if (head !== undefined) {
+    if (!FULL_SHA.test(head)) {
+      throw new PrWatchUsageError(`--head must be a full 40-character commit SHA, got "${head}"`);
+    }
+    return head.toLowerCase();
+  }
+  try {
+    return execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+  } catch {
+    throw new PrWatchUsageError("cannot resolve HEAD (not a git checkout, or no commit yet); pass --head <sha>");
+  }
+}
 await program2.parseAsync(process.argv);
 
-//# debugId=16A87C78092C668764756E2164756E21
+//# debugId=6D22CEBBDE2C86EA64756E2164756E21
