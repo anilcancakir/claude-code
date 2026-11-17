@@ -9,8 +9,8 @@
 # the edit for seconds, so the script has two modes, one registration each in hooks.json:
 #
 #   (no argument)  sync mode, PHP only: php -l, a verdict of about 0.3 s handed to Claude as
-#                  additionalContext on stdout in the same turn, exit 0. A clean run is one short line
-#                  marked "(syntax only)", since php -l cannot judge types or symbols. phpstan is not run:
+#                  additionalContext on stdout in the same turn, exit 0. A clean run prints nothing,
+#                  since php -l cannot judge types or symbols and silence is the common case. phpstan is not run:
 #                  on a real Laravel project it took 20 s and timed out edit after edit. A .dart file exits 0
 #                  at once.
 #   --async        background mode, Dart only, registered with asyncRewake: the host runs it without
@@ -296,12 +296,16 @@ command -v php >/dev/null 2>&1 || exit 0
 run "$(dirname "$file")" php -l "$file"
 report "php -l"
 
-# 2. A clean run is a single short line. php -l sees syntax only; say so, so the line is not read as refuting
-# a type diagnostic.
-if [ "$found_issues" -eq 1 ]; then
+# 2. A clean run says nothing (over 13 days its one line was injected 8,940 times against 16 real errors),
+# except the first one after a reported error on this file, which says the error is gone. It stays "syntax
+# only", so it is not read as refuting a type diagnostic.
+if [ "$clean_all" -eq 1 ]; then
+    [ -n "$issues_marker" ] && [ -f "$issues_marker" ] || exit 0
+    rm -f "$issues_marker"
+    ctx="$(printf '%s' "$ctx" | tr '\n' ' ') now (syntax only); the syntax error reported before is fixed."
+elif [ "$found_issues" -eq 1 ]; then
+    [ -z "$issues_marker" ] || : >"$issues_marker" 2>/dev/null
     ctx="${ctx}${nl}These are current; fix them or say why not."
-elif [ "$clean_all" -eq 1 ]; then
-    ctx="$(printf '%s' "$ctx" | tr '\n' ' ') (syntax only)"
 fi
 
 jq -n --arg ctx "$ctx" '{hookSpecificOutput: {hookEventName: "PostToolUse", additionalContext: $ctx}}' 2>/dev/null

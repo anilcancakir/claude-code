@@ -355,6 +355,17 @@ function editPayload(command: string, agentType?: string, sessionId = "s-edit-1"
     });
 }
 
+const SINGLE_FILE_EDITS = [
+    "sed -i 's/foo/bar/' src/app.php",
+    "sed -i '' -e 's/foo/bar/' src/app.php",
+    "sed -i.bak 's/foo/bar/' src/app.php",
+    "sed --in-place -e 's/foo/bar/' src/app.php",
+    "perl -pi -e 's/foo/bar/' src/app.php",
+    "perl -pi.bak -e 's/foo/bar/' src/app.php",
+    "perl -p -i -e 's/foo/bar/' src/app.php",
+];
+
+// A python block rewrite is how a worker edits a block too large for an exact-match Edit, so it passes.
 const PYTHON_REPLACE = [
     "python3 - <<'EOF'",
     "p='src/app.php'",
@@ -364,18 +375,10 @@ const PYTHON_REPLACE = [
     "EOF",
 ].join("\n");
 
-const SINGLE_FILE_EDITS = [
-    "sed -i 's/foo/bar/' src/app.php",
-    "sed -i '' -e 's/foo/bar/' src/app.php",
-    "sed -i.bak 's/foo/bar/' src/app.php",
-    "sed --in-place -e 's/foo/bar/' src/app.php",
-    "perl -pi -e 's/foo/bar/' src/app.php",
-    "perl -pi.bak -e 's/foo/bar/' src/app.php",
-    "perl -p -i -e 's/foo/bar/' src/app.php",
+const PYTHON_BLOCK_REWRITES = [
     PYTHON_REPLACE,
     "python3 -c \"p='a.txt'; s=open(p).read(); open(p,'w').write(s.replace('x','y'))\"",
     "cat <<'EOF' | python3 -\nfrom pathlib import Path\np=Path('a.txt')\np.write_text(p.read_text().replace('x','y'))\nEOF",
-    // The words find, for and glob in a comment or a PHP call are not a loop or a finder.
     [
         "python3 - <<'EOF'",
         "# find the old name and replace it; a fix for the bug, no glob involved",
@@ -431,22 +434,28 @@ test("a path that only starts like the temp directory is still denied, with the 
     }
 });
 
-test("an edit with an unknown python target is denied even though TMPDIR is set", () => {
-    denyReason(runEditHook(editPayload(PYTHON_REPLACE, "ac:plan-worker-junior", "s-py-tmp")));
+test("a python block rewrite passes for the plan workers, general-purpose and the main thread", () => {
+    for (const agent of ["ac:plan-worker-senior", "plan-worker-quick", "ac:plan-worker-junior", "general-purpose", undefined]) {
+        for (const command of PYTHON_BLOCK_REWRITES) {
+            expect({ agent, command, result: runEditHook(editPayload(command, agent, "s-python")) })
+                .toEqual({ agent, command, result: silent });
+        }
+    }
 });
 
 test("the identical command passes on its second attempt, and a new session is denied again", () => {
-    const first = runEditHook(editPayload(PYTHON_REPLACE, "ac:plan-worker-junior", "s-a"));
+    const command = "sed -i 's/foo/bar/' src/app.php";
+    const first = runEditHook(editPayload(command, "ac:plan-worker-junior", "s-a"));
     denyReason(first);
 
-    expect(runEditHook(editPayload(PYTHON_REPLACE, "ac:plan-worker-junior", "s-a"))).toEqual(silent);
-    denyReason(runEditHook(editPayload(PYTHON_REPLACE, "ac:plan-worker-junior", "s-b")));
+    expect(runEditHook(editPayload(command, "ac:plan-worker-junior", "s-a"))).toEqual(silent);
+    denyReason(runEditHook(editPayload(command, "ac:plan-worker-junior", "s-b")));
     denyReason(runEditHook(editPayload("sed -i 's/a/b/' other.txt", "ac:plan-worker-junior", "s-a")));
 });
 
 test("a single-file shell replace is denied once for the main thread and general-purpose too", () => {
     for (const agent of [undefined, "general-purpose"]) {
-        for (const command of ["sed -i 's/foo/bar/' src/app.php", "gsed -i 's/foo/bar/' src/app.php", PYTHON_REPLACE]) {
+        for (const command of ["sed -i 's/foo/bar/' src/app.php", "gsed -i 's/foo/bar/' src/app.php"]) {
             const session = `s-${agent ?? "main"}`;
             const reason = denyReason(runEditHook(editPayload(command, agent, session)));
 
@@ -471,7 +480,6 @@ test("a single-file shell replace passes for every agent that is not a worker or
     const shapes = [
         "sed -i 's/foo/bar/' src/app.php",
         "perl -pi -e 's/foo/bar/' src/app.php",
-        PYTHON_REPLACE,
     ];
 
     for (const agent of ["ac:oracle", "ac:explore", "ac:qa-tester", "ac:lane"]) {
@@ -519,7 +527,7 @@ test("bulk rewrites, analysis scripts and non-editing commands pass for a worker
 });
 
 test("AC_BASH_EDIT_GUARD=0 turns only the edit rule off", () => {
-    expect(runEditHook(editPayload(PYTHON_REPLACE, "ac:plan-worker-senior"), { AC_BASH_EDIT_GUARD: "0" }))
+    expect(runEditHook(editPayload("sed -i 's/foo/bar/' src/app.php", "ac:plan-worker-senior"), { AC_BASH_EDIT_GUARD: "0" }))
         .toEqual(silent);
     denyReason(runEditHook(editPayload("find / -name x", "ac:plan-worker-senior"), { AC_BASH_EDIT_GUARD: "0" }));
 });

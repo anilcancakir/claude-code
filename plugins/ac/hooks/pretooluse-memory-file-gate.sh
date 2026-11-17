@@ -11,10 +11,13 @@
 # the reason, loads the skill and retries.
 #
 # The skill counts as loaded when the transcript holds a Skill tool call for it, a Read of its
-# SKILL.md (the plan workers have no Skill tool and read the body instead), or a slash command that
-# runs it (/ac:init-project invokes ac:claude-md-rules-creator). Auto-memory, vendored trees,
-# references/, installed plugins and the skills' own templates under plugins/ac/skills/ pass. It
-# fails open on a missing tool, an unreadable payload and a transcript it cannot read.
+# SKILL.md, or a slash command that runs it (/ac:init-project invokes ac:claude-md-rules-creator).
+# Plan workers (ac:plan-worker-quick, -junior, -junior-high, -senior, namespaced or bare) pass
+# without proof: they run inside an /ac:execute or ac:flow slice whose orchestrator scoped the doc
+# edit and whose briefing already carries the change, so the deny only made each one Read an 8 to
+# 16 KB SKILL.md. Every other agent and the main thread keep the proof check. Auto-memory, vendored
+# trees, references/, installed plugins and the skills' own templates under plugins/ac/skills/ pass.
+# It fails open on a missing tool, an unreadable payload and a transcript it cannot read.
 #
 # Knob, read from the environment (settings.json `env` reaches hooks):
 #   AC_MEMORY_FILE_GATE=0          turns the hook off
@@ -64,6 +67,14 @@ case "$file" in
                 ;;
             *) exit 0 ;;
         esac
+        ;;
+esac
+
+agent_type="$(printf '%s' "$input" | jq -r '.agent_type // empty' 2>/dev/null)"
+case "$agent_type" in
+    ac:plan-worker-quick | ac:plan-worker-junior | ac:plan-worker-junior-high | ac:plan-worker-senior | \
+        plan-worker-quick | plan-worker-junior | plan-worker-junior-high | plan-worker-senior)
+        exit 0
         ;;
 esac
 

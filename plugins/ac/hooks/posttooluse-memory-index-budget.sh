@@ -15,7 +15,6 @@
 # that one check off, and anything that is not a whole number falls back to the default:
 #   AC_MEMORY_INDEX_MAX_LINES       80
 #   AC_MEMORY_INDEX_MAX_BYTES       10240
-#   AC_MEMORY_INDEX_MAX_LINE_BYTES  150
 #   AC_MEMORY_NOTE_MAX_LINES        40
 #   AC_MEMORY_NOTE_MAX_BYTES        3072
 #
@@ -68,7 +67,6 @@ headroom() {
 
 max_lines="$(limit "${AC_MEMORY_INDEX_MAX_LINES:-}" 80)"
 max_bytes="$(limit "${AC_MEMORY_INDEX_MAX_BYTES:-}" 10240)"
-max_line_bytes="$(limit "${AC_MEMORY_INDEX_MAX_LINE_BYTES:-}" 150)"
 note_max_lines="$(limit "${AC_MEMORY_NOTE_MAX_LINES:-}" 40)"
 note_max_bytes="$(limit "${AC_MEMORY_NOTE_MAX_BYTES:-}" 3072)"
 
@@ -132,9 +130,10 @@ if [ "${note:-}" = 1 ]; then
 
     reason="${file##*/} is over the memory note budget (${lines}/${note_max_lines} lines,"
     reason="${reason} ${bytes}/${note_max_bytes} bytes): ${file}."
-    reason="${reason} Condense it now, before continuing. A memory note records one durable fact that a later"
-    reason="${reason} session would get wrong without it: what was decided or found, why (the cause), and when"
-    reason="${reason} it applies; cut it to that. Move a log, an audit, a runbook or reference material into a"
+    reason="${reason} Condense it now, before continuing. A memory note records what another session or agent on"
+    reason="${reason} this project would get wrong without it: a decision and its cause, a user correction or"
+    reason="${reason} standing preference, a project-critical fact the code does not show, a dead end, or a user"
+    reason="${reason} request left for a later session (deleted once it lands); cut it to that. Move a log, an audit, a runbook or reference material into a"
     reason="${reason} document in the repository and leave the note pointing at it. If an existing note already"
     reason="${reason} covers the topic, fold this one into it instead of adding another. The MEMORY.md line for"
     reason="${reason} the note stays one short hook. Never delete a note whose facts you have not carried over."
@@ -145,22 +144,14 @@ if [ "${note:-}" = 1 ]; then
     exit 0
 fi
 
-# 2. Measure the file as the CLI will load it. LC_ALL=C makes awk count bytes, and the limit is
-#    stated to Claude in bytes too: a Turkish letter is two, so a line that looks short enough
-#    would otherwise keep failing.
+# 2. Measure the file as the CLI will load it.
 # awk rather than wc -l, which misses a last line that has no trailing newline.
 lines="$(awk 'END { print NR }' "$file" 2>/dev/null)" || exit 0
 bytes="$(wc -c < "$file" | tr -d ' ')" || exit 0
-long=""
-if [ "$max_line_bytes" -gt 0 ]; then
-    long="$(LC_ALL=C awk -v max="$max_line_bytes" \
-        'length($0) > max { printf "%s%d", sep, NR; sep = "," }' "$file" 2>/dev/null)" || exit 0
-fi
 
 over=""
 [ "$max_lines" -gt 0 ] && [ "$lines" -gt "$max_lines" ] && over=1
 [ "$max_bytes" -gt 0 ] && [ "$bytes" -gt "$max_bytes" ] && over=1
-[ -n "$long" ] && over=1
 if [ -z "$over" ]; then
     [ -n "$state" ] && rm -f "$state" 2>/dev/null
     exit 0
@@ -170,11 +161,9 @@ no_larger "$lines" "$bytes" && exit 0
 
 # 3. Over budget: say exactly what to fix and how, without deleting anything.
 reason="MEMORY.md is over its budget (${lines}/${max_lines} lines, ${bytes}/${max_bytes} bytes"
-[ -n "$long" ] && reason="${reason}; line numbers over ${max_line_bytes} bytes: ${long}"
 reason="${reason}): ${file}."
-reason="${reason} Consolidate it now, before continuing. Shorten each pointer to one hook of at most"
-reason="${reason} ${max_line_bytes} bytes (non-ASCII letters count as two); merge pointers to duplicate or"
-reason="${reason} superseded memories (fold the surviving facts into one topic file first); and when a theme"
+reason="${reason} Consolidate it now, before continuing. Keep each pointer to one short line; merge pointers"
+reason="${reason} to duplicate or superseded memories (fold the surviving facts into one topic file first); and when a theme"
 reason="${reason} holds many entries, move them to a sub-index file named _index-<theme>.md in the same"
 reason="${reason} directory, with frontmatter (name, description listing its keywords, metadata.type:"
 reason="${reason} reference), leaving one line in MEMORY.md that names the theme and its keywords. New"

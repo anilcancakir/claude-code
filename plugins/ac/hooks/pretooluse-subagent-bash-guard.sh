@@ -27,12 +27,13 @@
 #      given): grep ignores .gitignore, which is how `grep -ril x .` over a 44 GB repository ran for
 #      31 minutes. `rg` and the Grep tool honour it, so the deny points there.
 #   e. for the four plan workers, general-purpose and the main thread (they hold the Edit tool), a small in-place replace through the
-#      shell: `sed -i` or `perl -i` with exactly one file operand, or an inline python script that
-#      calls `.replace(` and writes (at most 3 write calls). Since 2026-10-01 the workers made about 7k
-#      such edits against 17k Edit calls, and each one skipped the diff, Claude Code's stale-write check
-#      and every hook matched on Edit|Write. A command that starts with `find`, `xargs`, `for`, `while`
-#      or `until`, or carries `-exec`, `git ls-files`, `git grep -l`, a glob or a directory walk, marks a
-#      rewrite across many files and passes. The deny fires once per command:
+#      shell: `sed -i` or `perl -i` with exactly one file operand. Since 2026-10-01 the workers made
+#      about 7k such edits against 17k Edit calls, and each one skipped the diff, Claude Code's
+#      stale-write check and every hook matched on Edit|Write. A python script is not judged: it is how
+#      a block too large for an exact-match Edit gets rewritten, and the deny fired several hundred
+#      times in 13 days for no gain. A command that starts with `find`, `xargs`, `for`, `while` or
+#      `until`, or carries `-exec`, `git ls-files` or `git grep -l`, marks a rewrite across many files
+#      and passes. The deny fires once per command:
 #      a marker under ${TMPDIR:-/tmp}/ac-bash-edit-guard/, keyed on session id and the command's cksum,
 #      lets the identical command through the second time. AC_BASH_EDIT_GUARD=0 turns this rule off.
 #
@@ -95,7 +96,7 @@ cmd="$(printf '%s' "$input" | jq -r '.tool_input.command // empty' 2>/dev/null)"
 # A caller outside the ac agents is judged for shell edits only, so most commands end here, before perl starts.
 if [ "$in_scope" = 0 ]; then
     case "$cmd" in
-        *sed* | *perl* | *python*) ;;
+        *sed* | *perl*) ;;
         *) exit 0 ;;
     esac
 fi
@@ -230,7 +231,7 @@ scan_src='
   # Rule e. Any sign of a rewrite across many files lets every shell edit in the command pass. Path
   # enumeration is read from the raw text on purpose, since a stray hit only allows; a loop or finder is a
   # command word of a segment (found below), so the word "find" or "for" in a comment or a PHP call is not one.
-  my $bulk = $raw =~ m{os\.(?:walk|scandir)|\b(?:r?glob|listdir|iterdir)\s*\(|-exec\b|git\s+ls-files|git\s+grep\b[^\n;|&]*\s-[A-Za-z]*l} ? 1 : 0;
+  my $bulk = $raw =~ m{-exec\b|git\s+ls-files|git\s+grep\b[^\n;|&]*\s-[A-Za-z]*l} ? 1 : 0;
 
   # The one file a sed or perl edit writes, as written in the command, or undef when that is not
   # certain: no in-place flag, an unknown option, an operand count other than one, a glob or a variable.
@@ -303,16 +304,6 @@ scan_src='
     return undef unless $inplace;
     shift @ops unless $script;
     return @ops == 1 ? one_file($ops[0]) : undef;
-  }
-
-  # An inline python script (heredoc, -c or piped) that replaces text and writes it back, with no more
-  # write calls than a single-file edit needs. An analysis script, with no write, passes.
-  sub python_edits {
-    return 0 unless index($raw, ".replace(") >= 0;
-    my $writes = () = $raw =~ /(?<!sys\.stdout)(?<!sys\.stderr)\.write(?:_text)?\(/g;
-    my $open_w = $raw =~ /\bopen\([^()]*,\s*(?:mode\s*=\s*)?["\x27]w\+?["\x27]/ ? 1 : 0;
-    return 0 unless $writes || $open_w;
-    return $writes <= 3 ? 1 : 0;
   }
 
   my (@segs, @toks);
@@ -399,10 +390,6 @@ scan_src='
     if ($cmd =~ /^g?sed$/ || $cmd eq "perl") {
       my $file = $bulk ? undef : $cmd =~ /^g?sed$/ ? sed_target(\@args) : perl_target(\@args);
       push @found, join("\t", "EDIT", $cmd, $file) if defined $file;
-      next;
-    }
-    if ($cmd =~ /^python(?:\d+(?:\.\d+)*)?$/) {
-      push @found, join("\t", "EDIT", $cmd, "-") if !$bulk && python_edits();
       next;
     }
 
@@ -539,8 +526,7 @@ Replace FILE with $path and NEEDLE with the literal text. Widen the window only 
             # The identical command a second time is a deliberate script; let it run.
             [ -e "$marker" ] && continue
             { mkdir -p "$marker_dir" && : > "$marker"; } 2>/dev/null || continue
-            [ "$path" = - ] && target="this file" || target="$path"
-            deny "ac subagent guard: make this replacement in $target with the Edit tool rather than a '$name' write. Edit shows the change as a diff, refuses to write over a file that changed since you read it, and keeps the checks that run after an edit in step; a shell write skips all three. Read the file first if you have not; the Edit tool requires it.
+            deny "ac subagent guard: make this replacement in $path with the Edit tool rather than a '$name' write. Edit shows the change as a diff, refuses to write over a file that changed since you read it, and keeps the checks that run after an edit in step; a shell write skips all three. Read the file first if you have not; the Edit tool requires it.
 
 If this writes a new file, an output elsewhere, or rewrites many files, send the same command again and it runs." ;;
     esac

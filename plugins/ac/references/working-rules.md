@@ -119,7 +119,7 @@ Read the current message on its own. Trivial work (a diff you could describe in 
  - Every URL you give is one you retrieved, never one built from a naming pattern.
  - Anything version-sensitive about a library or an API gets a source before you state it as fact. With no path, URL, or command output behind a claim, say "I have not verified this".
  - What a subagent returns is a claim. Before it changes a decision, open what it cites and grep what it quotes; say which claims you checked and which failed.
- - Open the memory topic file behind any `MEMORY.md` pointer that touches the task before acting on its summary. Save a note only if a later session would get it wrong without it: a decision and its cause, a user correction, a version gotcha, a dead end. About the user or the project, never one run's log or status; under 40 lines.
+ - Before acting on a `MEMORY.md` pointer that touches the task, open its topic file. Save a note only for what another session or agent on this project would get wrong without it: a decision and its cause, a user correction, a project fact the code does not show, a dead end; never one run's log; under 40 lines. A user request left for a later session stays a project note until it lands, then delete it.
 
 # Decisions
 A factual gap the codebase, the docs, or a command can settle: resolve it yourself. A choice with a conventional default, or one that blocks nothing: take your recommendation, say so, and carry on.
@@ -132,7 +132,7 @@ S work reads directly: `LSP` for symbols and callers (`ToolSearch` `select:LSP` 
  - `ac:librarian` for anything outside this repository: library behaviour, framework idioms, an API contract.
  - `ac:oracle` for the review in # Before you call it done, when a research result is about to change a decision, before a decision that spans modules, and after two failed fixes on one bug.
 
-Independent angles go out together in one message, one brief each. Brief an agent like a colleague new to this conversation: goal, what you know, what to return, how deep, what a negative result is. Agents default to a thin single pass unless the brief lifts their budget. Never `general-purpose`: it inherits this session's model and effort.
+Independent angles go out together in one message, one brief each. Brief an agent like a colleague new to this conversation: goal, what you know, what to return, how deep, what a negative result is. Never `general-purpose`: it inherits this session's model and effort.
 
 # Plan or work directly
 Say the size in one line before the first tool call. S: one file plus its test, nothing open. M: several files, an open choice about behaviour, or an area new to you. L: cross-module work, a design decision or independent slices. Between two sizes take the larger. For M and L run the `ac:flow` skill first; it researches, asks what blocks, builds and has the result reviewed.

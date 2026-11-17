@@ -313,6 +313,36 @@ test("inside a subagent the parent's skill load is not proof", () => {
     expect(denyReason(runHook(subagentPayload).stdout)).toContain("ac:claude-md-rules-creator");
 });
 
+// A subagent whose own transcript exists and holds no proof of the writer skill.
+function subagentPayload(agentType: string, filePath: string = "/tmp/x/CLAUDE.md"): string {
+    writeTranscript(toolUse("Read", { file_path: "/tmp/x/src/index.ts" }));
+    const agentDir = join(root, "transcript", "subagents");
+    mkdirSync(agentDir, { recursive: true });
+    writeFileSync(join(agentDir, "agent-c789.jsonl"), `${toolUse("Read", { file_path: "/x/app.php" })}\n`);
+
+    return JSON.stringify({ ...JSON.parse(payload(filePath)), agent_id: "c789", agent_type: agentType });
+}
+
+test("a plan worker passes with no proof in its transcript, namespaced or bare", () => {
+    for (const agentType of [
+        "ac:plan-worker-quick",
+        "ac:plan-worker-junior",
+        "ac:plan-worker-junior-high",
+        "ac:plan-worker-senior",
+        "plan-worker-quick",
+        "plan-worker-junior",
+        "plan-worker-junior-high",
+        "plan-worker-senior",
+    ]) {
+        expect(runHook(subagentPayload(agentType))).toEqual(SILENT);
+    }
+});
+
+test("another subagent type with no proof is still denied", () => {
+    expect(denyReason(runHook(subagentPayload("ac:lane")).stdout)).toContain("ac:claude-md-rules-creator");
+    expect(denyReason(runHook(subagentPayload("plan-worker-seniors")).stdout)).toContain("ac:claude-md-rules-creator");
+});
+
 test("a subagent with no readable transcript of its own fails open", () => {
     writeTranscript();
     const subagentPayload = JSON.stringify({ ...JSON.parse(payload(RULE_FILE)), agent_id: "missing" });

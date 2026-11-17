@@ -25,10 +25,10 @@ const HOOK = join(
 );
 
 const STALE = "LSP diagnostics on this file that disagree with this are stale.";
-const SYNTAX_ONLY = "php -l: clean (syntax only)";
 const CURRENT = "These are current; fix them or say why not.";
 const DART_ISSUES = { FAKE_DART_OUT: "  error - main.dart:1:1 - Undefined name 'x'", FAKE_DART_CODE: "3" };
 const DART_CLEAN = { FAKE_DART_OUT: "No issues found!" };
+const PHP_ERROR = { FAKE_PHP_OUT: "PHP Parse error: syntax error in Thing.php on line 3", FAKE_PHP_CODE: "255" };
 
 let root: string;
 let fakeBin: string;
@@ -239,13 +239,10 @@ test("sync mode on a Dart file prints nothing and never runs dart", () => {
     expect(existsSync(join(scratch, "ac-cli-diagnostics-dart.lock"))).toBe(false);
 });
 
-test("sync mode on PHP runs php -l only, even where vendor/bin/phpstan sits next to composer.json", () => {
+test("sync mode on PHP runs php -l only and a clean run stays silent, even next to vendor/bin/phpstan", () => {
     const ran = withPhpstanSpy();
 
-    const text = context(runHook(payload(phpFile, { session_id: "s1" })));
-
-    expect(text).toBe(`CLI check for ${phpFile}: ${SYNTAX_ONLY}`);
-    expect(text).not.toContain("phpstan");
+    expect(runHook(payload(phpFile, { session_id: "s1" }))).toEqual({ exitCode: 0, stdout: "" });
     expect(existsSync(ran)).toBe(false);
 });
 
@@ -266,13 +263,17 @@ test("a php -l syntax error is reported synchronously and phpstan stays unused",
     expect(existsSync(ran)).toBe(false);
 });
 
-test("a php -l only fix does not call LSP diagnostics stale, since php -l cannot judge types", () => {
+test("the first clean php -l after an error says it is fixed, once, without calling LSP diagnostics stale", () => {
     const edit = payload(phpFile, { session_id: "s1" });
 
-    runHook(edit, { FAKE_PHP_OUT: "PHP Parse error: syntax error in Thing.php on line 3", FAKE_PHP_CODE: "255" });
+    runHook(edit, PHP_ERROR);
     const text = context(runHook(edit));
 
-    expect(text).toBe(`CLI check for ${phpFile}: ${SYNTAX_ONLY}`);
+    expect(text).toBe(
+        `CLI check for ${phpFile}: php -l: clean now (syntax only); the syntax error reported before is fixed.`,
+    );
+    expect(text).not.toContain(STALE);
+    expect(runHook(edit)).toEqual({ exitCode: 0, stdout: "" });
 });
 
 test("a php -l that outlives the timeout is reported as timed out", () => {
@@ -291,10 +292,10 @@ test("sync mode: an unparseable payload fails open", () => {
 test("sync mode: a subagent payload passes silently unless AC_CLI_DIAGNOSTICS_SUBAGENTS=1", () => {
     const worker = payload(phpFile, { agent_id: "a1b2c3", agent_type: "ac:plan-worker-junior" });
 
-    expect(runHook(worker)).toEqual({ exitCode: 0, stdout: "" });
+    expect(runHook(worker, PHP_ERROR)).toEqual({ exitCode: 0, stdout: "" });
 
-    const text = context(runHook(worker, { AC_CLI_DIAGNOSTICS_SUBAGENTS: "1" }));
-    expect(text).toContain("php -l: clean");
+    const text = context(runHook(worker, { AC_CLI_DIAGNOSTICS_SUBAGENTS: "1", ...PHP_ERROR }));
+    expect(text).toContain("php -l: 1 issue line");
 });
 
 test("a zero-padded number in a knob does not abort the sync hook", () => {
@@ -303,21 +304,22 @@ test("a zero-padded number in a knob does not abort the sync hook", () => {
             AC_CLI_DIAGNOSTICS_TIMEOUT: "09",
             AC_CLI_DIAGNOSTICS_WAIT: "00",
             AC_CLI_DIAGNOSTICS_BACKOFF: "010",
+            ...PHP_ERROR,
         }),
     );
 
-    expect(text).toContain("php -l: clean");
+    expect(text).toContain("php -l: 1 issue line");
 });
 
 test("the hook resolves its runner from a relative invocation path", () => {
     const result = Bun.spawnSync(["sh", "hooks/posttooluse-cli-diagnostics.sh"], {
         cwd: join(dirname(HOOK), ".."),
         stdin: Buffer.from(payload(phpFile)),
-        env: { ...process.env, PATH: `${fakeBin}:${process.env.PATH ?? ""}`, TMPDIR: scratch },
+        env: { ...process.env, PATH: `${fakeBin}:${process.env.PATH ?? ""}`, TMPDIR: scratch, ...PHP_ERROR },
     });
 
     expect(result.exitCode).toBe(0);
-    expect(result.stdout.toString()).toContain("php -l: clean");
+    expect(result.stdout.toString()).toContain("php -l: 1 issue line");
 });
 
 // ---- async mode: Dart only, wakes the model through exit 2 ----

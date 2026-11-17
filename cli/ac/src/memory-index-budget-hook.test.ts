@@ -56,7 +56,6 @@ function runHook(stdin: string, env: Record<string, string> = {}): HookResult {
             ...process.env,
             AC_MEMORY_INDEX_MAX_LINES: "",
             AC_MEMORY_INDEX_MAX_BYTES: "",
-            AC_MEMORY_INDEX_MAX_LINE_BYTES: "",
             AC_MEMORY_NOTE_MAX_LINES: "",
             AC_MEMORY_NOTE_MAX_BYTES: "",
             ...env,
@@ -132,17 +131,17 @@ test("an index over the line budget blocks with the counts and the path", () => 
 });
 
 test("an index over the byte budget blocks", () => {
-    // 78 lines of 135 bytes: under the line budget and every line under 150, 10,530 bytes in all.
+    // 78 lines of 135 bytes: under the line budget, 10,530 bytes in all.
     writeFileSync(index, `${"- [x](x.md) - " + "y".repeat(120)}\n`.repeat(78));
 
     expect(blockReason(runHook(payload(index)).stdout)).toContain("78/80 lines, 10530/10240 bytes");
 });
 
-test("line length is measured in bytes, so Turkish letters count twice", () => {
-    // 80 two-byte letters are 80 characters but 160 bytes.
-    writeFileSync(index, `- [a](a.md) - ok\n- [b](b.md) - ${"ş".repeat(80)}\n`);
+test("long lines alone do not block an index under its line and byte budget", () => {
+    // 20 lines of 300 bytes: 6,000 bytes in all, well under both caps.
+    writeFileSync(index, `${"- [x](x.md) - " + "y".repeat(285)}\n`.repeat(20));
 
-    expect(blockReason(runHook(payload(index)).stdout)).toContain("line numbers over 150 bytes: 2");
+    expect(runHook(payload(index))).toEqual({ exitCode: 0, stdout: "" });
 });
 
 test("an env override tightens a limit", () => {
@@ -209,7 +208,7 @@ test("a topic note over the line ceiling blocks with the counts, the path and th
     expect(reason).toContain("60/40 lines");
     expect(reason).toContain("/3072 bytes");
     expect(reason).toContain(file);
-    expect(reason).toContain("one durable fact");
+    expect(reason).toContain("what another session or agent on this project would get wrong without it");
     expect(reason).toContain("repository");
     expect(reason).toContain("Never delete a note whose facts you have not carried over");
     expect(reason).not.toContain("_index-<theme>.md");
