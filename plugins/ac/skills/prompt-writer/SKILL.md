@@ -1,7 +1,7 @@
 ---
 name: prompt-writer
-description: "Write or audit a prompt another Claude will run: system prompts, subagent briefs, skill, command and agent bodies, CLAUDE.md and rules."
-when_to_use: "Use when authoring instruction text a model will follow, even if nobody says prompt."
+description: "Write or audit a prompt another Claude will run: system prompts, subagent briefs, skill, command and agent bodies, CLAUDE.md and rules. Also prompts for Gemini models."
+when_to_use: "Use when authoring instruction text a model will follow, even if nobody says prompt, and before writing the prompt for the generate_image tool."
 disable-model-invocation: false
 ---
 
@@ -25,6 +25,12 @@ When your built-in knowledge disagrees with the file or a fresh source, the file
 Route by what you are about to produce. Each branch points at a reference for the depth.
 
 ```
+Writing a prompt for a Gemini model, or the prompt for the generate_image tool?
+├── YES → read `${CLAUDE_SKILL_DIR}/references/gemini-tuning.md` and stop there:
+│         the text skeleton, the image rules, worked image prompts and the checklist
+│         live in that file, and the rest of this body targets Claude.
+└── NO  → continue
+        ↓
 Writing a SKILL.md body or a slash workflow (/name [args])?
 ├── YES → use this skill for the prompt body, route the skill SHAPE
 │         (frontmatter, scope, invocation, bundling, and for a typed workflow
@@ -242,6 +248,7 @@ Before shipping a prompt:
 | `${CLAUDE_SKILL_DIR}/references/opus-5-5-tuning.md` | Targeting `claude-opus-5-5`: effort, always-on thinking, forced tool use, thinking-block binding, unattended early stops, time signals, what Claude Code 2.1.280 gives it. |
 | `${CLAUDE_SKILL_DIR}/references/sonnet-5-5-tuning.md` | Targeting `claude-sonnet-5-5`: recalibrated effort, `between_tools`, check-ins, unrequested additions and self-started review by effort level, JSON answers, what Claude Code 2.1.284 gives it. |
 | `${CLAUDE_SKILL_DIR}/references/haiku-5-5-tuning.md` | Targeting `claude-haiku-5-5`: first Haiku with effort, adaptive-only thinking, early stopping in long agent prompts, the 30% tokenizer change, what Claude Code 2.1.296 gives it. |
+| `${CLAUDE_SKILL_DIR}/references/gemini-tuning.md` | Writing for a Gemini model or for `generate_image`: delimiters, placement, thinking and sampling deltas, how Gemini CLI and Antigravity prompts are built, image prompt rules with worked examples. |
 | `${CLAUDE_SKILL_DIR}/references/opus-5-tuning.md` | Tuning effort, thinking, verbosity, scope, subagent spawning, code-review re-tuning; the 4.8-to-5 inversions; per-model deltas for Sonnet 5, Haiku 4.5, Fable 5. |
 | `${CLAUDE_SKILL_DIR}/references/claude-code-conventions.md` | Writing prompts that run in the Claude Code harness: agents, slash commands, hooks, harness rules. |
 | `${CLAUDE_SKILL_DIR}/references/subagent-prompts.md` | Briefing a fresh subagent, designing a `subagent_type`, lookup vs investigation, length caps. |
