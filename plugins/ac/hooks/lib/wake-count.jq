@@ -20,8 +20,10 @@
 #     which of the endless long-running commands a stack might start. A shell with `until` or
 #     `while` anywhere in it does not count (an evidence-file wait whose file never appears never ends,
 #     and parsing where the loop condition stops is where a regex gets it wrong), nor a log
-#     follow (a Monitor can be `persistent`, with no timeout), nor anything long-lived. An unknown
-#     future task type, a monitor and a recurring cron do not count either. A wrong block here
+#     follow (a Monitor can be `persistent`, with no timeout), nor anything long-lived, unless its
+#     task id is in `monitors`: a Monitor whose transcript tool result records a deadline, which
+#     lib/wake-count.sh passes after reading it. An unknown future task type, an MCP or websocket
+#     monitor and a recurring cron do not count either. `$ARGS` needs jq 1.6 or later. A wrong block here
 #     costs one turn; a wrong allow costs the run.
 #   loose (stop-guard-announce.sh): a wrong allow costs one stop, so a wait loop and a log follow
 #     always count (a wait loop's pattern often names the server it waits on, "until grep 'Flutter
@@ -103,10 +105,15 @@ def bounded:
     and ($rest | test("[;&|\\n]") | not)
     and (test("\\[\\+[0-9]+ chars\\]$") | not);
 
+# Task ids of Monitors that expire on their own, read off the transcript by lib/wake-count.sh and
+# passed as `--argjson monitors`; absent everywhere else.
+def monitors: ($ARGS.named.monitors // []);
+
 def wakes:
   if .type == "shell" then
     (.command // "") as $c
-    | if strict then ($c | bounded)
+    | if strict then ((.id // null) as $id | $id != null and any(monitors[]; . == $id))
+        or ($c | bounded)
         or (($c | finite) and ($c | loops | not) and ($c | follows | not) and ($c | long_lived | not))
       else ($c | loops) or ($c | follows) or ($c | long_lived | not)
       end

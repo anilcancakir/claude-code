@@ -42,7 +42,10 @@ interface HookResult {
     stdout: string;
 }
 
-function runGuard(session: string = SESSION): HookResult {
+function runGuard(
+    session: string = SESSION,
+    extra: { transcript_path?: string; background_tasks?: unknown[] } = {},
+): HookResult {
     const stdin = JSON.stringify({
         hook_event_name: "Stop",
         session_id: session,
@@ -50,6 +53,7 @@ function runGuard(session: string = SESSION): HookResult {
         transcript_path: "",
         stop_hook_active: false,
         background_tasks: [],
+        ...extra,
     });
     const result = Bun.spawnSync(["sh", HOOK], {
         stdin: Buffer.from(stdin),
@@ -139,6 +143,35 @@ test("a run of another source blocks until .ac/auto/<slug>/verdict.md exists, th
     expect(closing).toContain("Phase 4");
 
     expectAllow(runGuard());
+});
+
+test("a Monitor that expires on its own lets the run wait, even when its command is an until loop", () => {
+    mkdirSync(join(project, ".ac", "auto", SLUG), { recursive: true });
+    writeAutoMarker({ source: "new" });
+    const waitLoop = { id: "bmon1", type: "shell", command: "until gh pr checks 7 | grep -q pass; do sleep 30; done" };
+    const transcript = join(root, "session.jsonl");
+    const monitorResult = (taskId: string, extra: Record<string, unknown>) =>
+        JSON.stringify({
+            type: "user",
+            message: { role: "user", content: [{ type: "tool_result", tool_use_id: "toolu_m", content: "Monitor started" }] },
+            toolUseResult: { taskId, timeoutMs: 1500000, persistent: false, ...extra },
+        });
+
+    // 1. The same loop with no Monitor record is an unbounded background shell: still blocked.
+    writeFileSync(transcript, `${monitorResult("bother", {})}\n`);
+    expect(blockReason(runGuard(SESSION, { transcript_path: transcript, background_tasks: [waitLoop] }))).toContain(
+        "verdict.md",
+    );
+
+    // 2. A persistent Monitor never expires, so it does not count either.
+    writeFileSync(transcript, `${monitorResult("bmon1", { persistent: true })}\n`);
+    expect(blockReason(runGuard(SESSION, { transcript_path: transcript, background_tasks: [waitLoop] }))).toContain(
+        "verdict.md",
+    );
+
+    // 3. A Monitor with a deadline wakes the session when it ends: the stop is allowed.
+    writeFileSync(transcript, `${monitorResult("bmon1", {})}\n`);
+    expectAllow(runGuard(SESSION, { transcript_path: transcript, background_tasks: [waitLoop] }));
 });
 
 test("an execute source whose execute marker is gone is told to gate", () => {

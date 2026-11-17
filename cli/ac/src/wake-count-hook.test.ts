@@ -43,6 +43,8 @@ const counted: string[] = [
     "timeout 60 npm run thing >&log",
     "timeout 60 npm run thing > out 2>&1",
     "timeout 3600 npm run thing",
+    "timeout 1800 node /abs/plugins/ac/cli/ac.js pr-watch 123 --ignore 'Kodizm review'",
+    "cd /repo && timeout 3600 node /abs/plugins/ac/cli/ac.js pr-watch 123",
 ];
 
 const notCounted: string[] = [
@@ -67,6 +69,7 @@ const notCounted: string[] = [
     "export F=`yes` && timeout 60 a",
     "cd\nyes && timeout 60 a",
     "export\nyes && timeout 60 a",
+    "node /abs/plugins/ac/cli/ac.js pr-watch 123 --ignore 'Kodizm review'",
 ];
 
 const ciWatches: string[] = [
@@ -110,6 +113,35 @@ test.each(counted)("strict mode counts a bounded wait: %s", (command) => {
 
 test.each(notCounted)("strict mode leaves out an unbounded or chained shell: %s", (command) => {
     expect(strictCount(command)).toBe(0);
+});
+
+test("strict mode counts a shell task whose id is passed as a Monitor that expires, and only that one", () => {
+    const payload = JSON.stringify({
+        background_tasks: [
+            { id: "bmon1", type: "shell", command: "until curl -sf localhost:8000; do sleep 2; done" },
+            { id: "bbash2", type: "shell", command: "until test -f done.txt; do sleep 5; done" },
+        ],
+    });
+    const count = (monitors?: string) =>
+        Bun.spawnSync(
+            [
+                "jq",
+                "-r",
+                "--arg",
+                "mode",
+                "strict",
+                ...(monitors === undefined ? [] : ["--argjson", "monitors", monitors]),
+                "-f",
+                WAKE_COUNT,
+            ],
+            { stdin: Buffer.from(payload) },
+        )
+            .stdout.toString()
+            .trim();
+
+    expect(count()).toBe("0");
+    expect(count('["bmon1"]')).toBe("1");
+    expect(count('["bmon1", "bbash2"]')).toBe("2");
 });
 
 test("strict mode leaves out a clipped command whose tail cannot be seen", () => {

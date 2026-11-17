@@ -136,8 +136,9 @@ Write them now and end the turn again; nothing else is needed."
 fi
 
 # 5c. Work in flight that will wake the session: ending the turn is how the run waits for it.
-wake_count="$(printf '%s' "$input" | jq -r --arg mode strict -f "$(dirname "$0")/lib/wake-count.jq" 2>/dev/null)" || exit 0
-case "$wake_count" in '' | *[!0-9]*) exit 0 ;; esac
+[ -r "$(dirname "$0")/lib/wake-count.sh" ] || exit 0
+. "$(dirname "$0")/lib/wake-count.sh"
+wake_count="$(ac_wake_count strict "$input")" || exit 0
 [ "$wake_count" -eq 0 ] || exit 0
 
 # 6. Counter, per phase with a spent latch; see the header for why.

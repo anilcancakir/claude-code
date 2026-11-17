@@ -50,7 +50,8 @@
 # count "blocks since real work" on its own. The counter therefore stores the transcript size at
 # its last block and resets when tool activity appeared after it, the same progress signal
 # stop-guard.sh uses. So at most AC_ANNOUNCE_GUARD_MAX_BLOCKS (default 1) blocks per stall and
-# AC_ANNOUNCE_GUARD_MAX_TOTAL (default 3) per prompt; the total resets only when a stop arrives
+# AC_ANNOUNCE_GUARD_MAX_TOTAL (default 1, down from 3 after an audit: of 132 continuations over 13
+# days, 45 produced only another text ending) per prompt; the total resets only when a stop arrives
 # with `stop_hook_active` false. Claude Code's own 8-block cap resets on every tool round, so it
 # is no backstop here. Headless and SDK runs are skipped, and so is the judge's own session
 # (AC_ANNOUNCE_JUDGE). The counter lives under TMPDIR, keyed by session id, so the guard writes
@@ -63,9 +64,9 @@ case "$max_blocks" in
     '' | *[!0-9]*) max_blocks=1 ;;
 esac
 [ "$max_blocks" -gt 0 ] || exit 0
-max_total="${AC_ANNOUNCE_GUARD_MAX_TOTAL:-3}"
+max_total="${AC_ANNOUNCE_GUARD_MAX_TOTAL:-1}"
 case "$max_total" in
-    '' | *[!0-9]*) max_total=3 ;;
+    '' | *[!0-9]*) max_total=1 ;;
 esac
 judge_model="${AC_ANNOUNCE_JUDGE_MODEL:-sonnet}"
 judge_timeout="${AC_ANNOUNCE_JUDGE_TIMEOUT:-20}"
@@ -251,18 +252,29 @@ blocks=$((blocks + 1))
 total=$((total + 1))
 printf '%s %s %s\n' "$blocks" "$tsize" "$total" > "$counter" 2>/dev/null || exit 0
 
+# The kind names the shape the regex caught, not a verdict: an "offer" is often a real choice the
+# user owes. The cases lead with that one, because a reason that opened "you should have
+# continued" sent the model on with a pick of its own, and the user had to stop it.
 case "$kind" in
-    offer) found="Your last message offers to continue instead of continuing." ;;
-    announce) found="Your last message announces a next step, or says you are waiting, without a tool call that does it." ;;
-    question) found="Your last message ends on a question asked in prose, which ends the turn and stalls the work until the user returns." ;;
+    offer) found="Your turn ended on an offer to continue." ;;
+    announce) found="Your turn ended on a next step or a wait, with no tool call that does it." ;;
+    question) found="Your turn ended on a question asked in prose, which stalls the work until the user returns." ;;
 esac
 
-reason="$found
+choice="- The user owes a choice or an approval (an order or priority the request left open, a merge, tag, deploy or publish it did not name): call AskUserQuestion now with your recommendation first. Do not pick one yourself or start it."
+yours="- The step is yours and the user's request covers it, including the next item of a list the user gave: take it now with its tool call."
+# An announced step is usually the model's own; an offer or a question is usually the user's choice.
+case "$kind" in
+    announce) first="$yours"; second="$choice" ;;
+    *) first="$choice"; second="$yours" ;;
+esac
 
-- If that step is yours and the user's request covers it, take it now with its tool call.
-- If the user has to decide, including an outward action (push, merge, deploy, publish) the request did not name, finish what does not depend on it and call AskUserQuestion with your recommendation first.
-- If you are waiting on CI, a deploy or a bot, nothing that will notify you is running: arm Monitor, or Bash with run_in_background under \`timeout N\`, then end the turn. Never wait with a sleep or polling loop.
-- If the next step belongs to the user or someone else, end with one line that says so. Do not repeat your report."
+reason="$found Pick the one case that fits:
+
+$first
+$second
+- You are waiting on CI, a deploy or a bot and nothing that will notify you is running: arm Monitor, or Bash with run_in_background under \`timeout N\`, then end the turn. Never wait with a sleep or polling loop.
+- Nothing new to do (the next step belongs to the user or someone else): end with one line that says so. Do not repeat your report."
 
 jq -cn \
     --arg r "$reason" \

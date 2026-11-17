@@ -165,8 +165,9 @@ fi
 # 3b. Work in flight that will wake the session (a background worker, a monitor, a finite shell):
 #     ending the turn is how the run waits for it, so allow the stop without spending budget.
 #     stop-guard.sh carries the measurement behind this; lib/wake-count.jq decides what counts.
-wake_count="$(printf '%s' "$input" | jq -r --arg mode strict -f "$(dirname "$0")/lib/wake-count.jq" 2>/dev/null)" || exit 0
-case "$wake_count" in '' | *[!0-9]*) exit 0 ;; esac
+[ -r "$(dirname "$0")/lib/wake-count.sh" ] || exit 0
+. "$(dirname "$0")/lib/wake-count.sh"
+wake_count="$(ac_wake_count strict "$input")" || exit 0
 [ "$wake_count" -eq 0 ] || exit 0
 
 # 4. A missing run directory is a malformed run: there is nowhere for a verdict to land and nowhere
