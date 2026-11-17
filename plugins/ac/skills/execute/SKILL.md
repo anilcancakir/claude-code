@@ -596,11 +596,11 @@ When the reviewer finishes first, end the turn with a one-line status; the suite
 
 **CI gate.** When `CLAUDE.md` has a `## Verification gate: ci` section, `LANE_MODE` is false and
 `.ac/state/active-auto.json` does not exist, the build above is the only local run. Commit what is uncommitted, push,
-open the pull request and start `timeout 3600 sh ${CLAUDE_PLUGIN_ROOT}/scripts/ci-watch.sh [--ignore <regex>] <number>`
-(the regex, if any, is the one the section names) with `run_in_background: true` in the same message that spawns the
-reviewer in 3b, as `verification.md` describes under
-"Projects that gate on CI". Green CI on the pushed head replaces the background suite and lint, and a red check is a
-finding that goes through 3c. 3f closes the gate.
+open the pull request and start `timeout 1800 node ${CLAUDE_PLUGIN_ROOT}/cli/ac.js pr-watch <number> [--ignore <regex>]` (the
+regex, if any, is the one the section names) under the `Monitor` tool in the same message that spawns the reviewer in
+3b; `verification.md` ("Projects that gate on CI") says how to run it, what each line means and what the exit codes
+are. A `VERDICT green` on the pushed head replaces the background suite and lint, and a red check or a review line
+(`COMMENT`, `INLINE`, `REVIEW`) is a finding that goes through 3c. 3f closes the gate.
 
 Then open this run's section of the review log, once: `Grep` `.ac/plans/<slug>/review-log.md` for
 `^## Run <marker started_at>$`, and when nothing matches, add a blank line and `## Run <marker started_at>` at the
@@ -723,12 +723,14 @@ guards cover the wait and the fix rounds, and 4a's commit then finds a clean tre
 
 1. When the review or QA fixes moved the head since 3a's push, commit them (`/ac:commit --skip-preflight --no-push`
    with `MODIFIED_FILES` as its note), `git push -u origin HEAD`, start
-   `timeout 3600 sh ${CLAUDE_PLUGIN_ROOT}/scripts/ci-watch.sh [--ignore <regex>] <number>` with `run_in_background: true`, and end the turn
-   with a one-line status. When the head did not move, the 3a watch is the result.
-2. Exit 0 on the current head: go to Phase 4. Exit 1: fix by the 3c CRITICAL rule, commit and push as in step 1, watch
-   again, three rounds at most; what is still red goes into the 4b report, never a claim of a green gate. Exit 2 or
-   124: CI cannot gate this head, so run the full suite and repo-wide lint in the foreground as 3a does without the
-   gate, and say so in the report.
+   `timeout 1800 node ${CLAUDE_PLUGIN_ROOT}/cli/ac.js pr-watch <number> [--ignore <regex>]` under the `Monitor` tool as in 3a, and
+   end the turn with a one-line status. When the head did not move, the 3a watch is the result.
+2. `VERDICT green` on the current head: go to Phase 4. `VERDICT red` (exit 1) or a review line that is a CRITICAL or
+   IMPORTANT finding: fix by the 3c CRITICAL rule, commit and push as in step 1, watch again, three rounds at most;
+   what is still red goes into the 4b report, never a claim of a green gate. `VERDICT stuck` (exit 2) or exit 124 of
+   a background `Bash` run: CI cannot gate this head, so run the full suite and repo-wide lint in the foreground as 3a
+   does without the gate, and say so in the report. A Monitor that expired without a `VERDICT` line is armed again as
+   `verification.md` says; it is not a reason to leave the gate.
 
 ## Phase 4: Deliver
 

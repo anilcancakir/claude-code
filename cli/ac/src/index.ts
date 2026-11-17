@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { Command, Option } from "commander";
 import { MCP_CLIENTS, runMcpProxy } from "./mcp.ts";
 import type { McpClient } from "./mcp.ts";
@@ -7,6 +8,8 @@ import { formatCheckResult, runPlanCheck } from "./plan-check.ts";
 import { collectPlanStats, formatPlanStats } from "./plan-stats.ts";
 import { resolveTranscriptPath, runRunStats } from "./run-stats.ts";
 import { collectRunCost, formatRunCost } from "./run-cost.ts";
+import { defaultPrWatchDeps, runPrWatch } from "./pr-watch.ts";
+import type { PrWatchOptions } from "./pr-watch.ts";
 import {
     addLease,
     defaultLeaseDeps,
@@ -514,6 +517,107 @@ function formatSyncReport(report: HistorySyncReport): string {
         `Elapsed: ${report.elapsedMillis} ms`,
         `Changed: ${report.changed ? "yes" : "no"}`,
     ].join("\n");
+}
+
+const EX_USAGE = 64;
+const FULL_SHA = /^[0-9a-fA-F]{40}$/;
+
+class PrWatchUsageError extends Error {}
+
+interface PrWatchOpts {
+    readonly repo?: string;
+    readonly head?: string;
+    readonly ignore?: string;
+    readonly interval: string;
+    readonly startWait: string;
+    readonly queueLimit: string;
+    readonly botsWait: string;
+    readonly includeExisting?: boolean;
+}
+
+program
+    .command("pr-watch <pr>")
+    .description(
+        "Watch a pull request: one line per settled check, new comment, inline comment and review, "
+            + "ending in VERDICT green (exit 0), red (exit 1) or stuck (exit 2). Run it under Monitor.",
+    )
+    .option("--repo <owner/name>", "Repository of the pull request (defaults to the checkout's gh repository).")
+    .option("--head <sha>", "Full commit SHA the pull request must show (defaults to the checkout's HEAD).")
+    .option("--ignore <regex>", "Checks whose name matches are reported but are not a gate.")
+    .option("--interval <seconds>", "Seconds between polls.", "20")
+    .option("--start-wait <seconds>", "Seconds to wait for the head commit and its first check to appear.", "300")
+    .option("--queue-limit <seconds>", "Seconds every check may sit queued before the watch calls it stuck.", "900")
+    .option("--bots-wait <seconds>", "Seconds to wait for review bots after the checks settle.", "600")
+    .option("--include-existing", "Emit the comments that already exist instead of recording them as a baseline.")
+    .action(async (pr: string, opts: PrWatchOpts): Promise<void> => {
+        let options: PrWatchOptions;
+        try {
+            options = prWatchOptions(pr, opts);
+        } catch (error) {
+            if (!(error instanceof PrWatchUsageError)) {
+                throw error;
+            }
+            process.stderr.write(`ac pr-watch: ${error.message}\n`);
+            process.exitCode = EX_USAGE;
+            return;
+        }
+        process.exitCode = await runPrWatch(options, defaultPrWatchDeps());
+    });
+
+/** Validates the pr-watch arguments; every failure is a usage error, so nothing reaches stdout. */
+function prWatchOptions(pr: string, opts: PrWatchOpts): PrWatchOptions {
+    if (!/^[1-9][0-9]*$/.test(pr)) {
+        throw new PrWatchUsageError(`<pr> must be a pull request number, got "${pr}"`);
+    }
+    const intervalSeconds = parseSeconds("--interval", opts.interval);
+    const startWaitSeconds = parseSeconds("--start-wait", opts.startWait);
+    const queueLimitSeconds = parseSeconds("--queue-limit", opts.queueLimit);
+    const botsWaitSeconds = parseSeconds("--bots-wait", opts.botsWait);
+
+    return {
+        pr,
+        repo: opts.repo,
+        head: resolvePrWatchHead(opts.head),
+        ignore: opts.ignore === undefined ? undefined : compileIgnore(opts.ignore),
+        intervalSeconds,
+        startWaitSeconds,
+        queueLimitSeconds,
+        botsWaitSeconds,
+        includeExisting: opts.includeExisting === true,
+    };
+}
+
+function parseSeconds(flag: string, value: string): number {
+    const seconds = value.trim() === "" ? Number.NaN : Number(value);
+    if (!Number.isFinite(seconds) || seconds < 0) {
+        throw new PrWatchUsageError(`${flag} must be a number of seconds >= 0, got "${value}"`);
+    }
+
+    return seconds;
+}
+
+function compileIgnore(source: string): RegExp {
+    try {
+        return new RegExp(source);
+    } catch (error) {
+        throw new PrWatchUsageError(`--ignore is not a valid regex: ${error instanceof Error ? error.message : String(error)}`);
+    }
+}
+
+function resolvePrWatchHead(head: string | undefined): string {
+    if (head !== undefined) {
+        if (!FULL_SHA.test(head)) {
+            throw new PrWatchUsageError(`--head must be a full 40-character commit SHA, got "${head}"`);
+        }
+
+        // The API reports the head in lower case, and the watch compares strings.
+        return head.toLowerCase();
+    }
+    try {
+        return execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+    } catch {
+        throw new PrWatchUsageError("cannot resolve HEAD (not a git checkout, or no commit yet); pass --head <sha>");
+    }
 }
 
 await program.parseAsync(process.argv);

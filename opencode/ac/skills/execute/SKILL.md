@@ -2,7 +2,7 @@
 name: execute
 description: "Run an approved ac plan to completion, wave by wave, with cost-tiered workers, per-wave verification and a final review. Loaded by /ac/execute; the request carries a plan slug or path plus flags."
 ---
-<!-- ported-from: plugins/ac/skills/execute/SKILL.md sha256:4af3386bd2a9b0f3e7919c5942a1f80cdb6fb721ff790ba34a2194f15004e84a -->
+<!-- ported-from: plugins/ac/skills/execute/SKILL.md sha256:0cf499d47492ea5b20a699d557335d20985cc2cdbbabd6182f1909aff80d4220 -->
 
 # /ac/execute
 
@@ -684,10 +684,11 @@ When the reviewer finishes first, end the turn with a one-line status; the suite
 
 **CI gate.** When `AGENTS.md` or `CLAUDE.md` has a `## Verification gate: ci` section, `LANE_MODE` is false and
 `.ac/state/active-auto.json` does not name this session, the build above is the only local run. Commit what is
-uncommitted, push, open the pull request and start `timeout 3600 sh references/ci-watch.sh [--ignore <regex>] <number>`
-(the regex, if any, is the one the section names) with `background: true` on the shell call in the same response that spawns the reviewer in 3b, as
-`references/verification.md` describes under "Projects that gate on CI". Green CI on the pushed head replaces the
-background suite and lint, and a red check is a finding that goes through 3c. 3f closes the gate.
+uncommitted, push, open the pull request and start `timeout 3600 node "$AC_CLI" pr-watch <number> [--ignore <regex>]`
+(the regex, if any, is the one the section names) with `background: true` on the shell call in the same response that
+spawns the reviewer in 3b; `references/verification.md` ("Projects that gate on CI") says what each line means and what
+the exit codes are. A `VERDICT green` on the pushed head replaces the background suite and lint, and a red check or a
+review line (`COMMENT`, `INLINE`, `REVIEW`) is a finding that goes through 3c. 3f closes the gate.
 
 Then open this run's section of the review log, once:
 
@@ -814,12 +815,13 @@ covers the wait and the fix rounds, and 4a's commit then finds a clean tree and 
 
 1. When the review or QA fixes moved the head since 3a's push, commit them (the `commit` skill with `--skip-preflight
    --no-push` and `MODIFIED_FILES` as its note), `git push -u origin HEAD`, start
-   `timeout 3600 sh references/ci-watch.sh [--ignore <regex>] <number>` with `background: true` on the shell call, and end the turn with a
-   one-line status. When the head did not move, the 3a watch is the result.
-2. Exit 0 on the current head: go to Phase 4. Exit 1: fix by the 3c CRITICAL rule, commit and push as in step 1, watch
-   again, three rounds at most; what is still red goes into the 4b report, never a claim of a green gate. Exit 2 or
-   124: CI cannot gate this head, so run the full suite and repo-wide lint in the foreground as 3a does without the
-   gate, and say so in the report.
+   `timeout 3600 node "$AC_CLI" pr-watch <number> [--ignore <regex>]` with `background: true` on the shell call, and end
+   the turn with a one-line status. When the head did not move, the 3a watch is the result.
+2. `VERDICT green` on the current head: go to Phase 4. `VERDICT red` (exit 1) or a review line that is a CRITICAL or
+   IMPORTANT finding: fix by the 3c CRITICAL rule, commit and push as in step 1, watch again, three rounds at most;
+   what is still red goes into the 4b report, never a claim of a green gate. `VERDICT stuck` (exit 2) or exit 124: CI
+   cannot gate this head, so run the full suite and repo-wide lint in the foreground as 3a does without the gate, and
+   say so in the report.
 
 ## Phase 4: Deliver
 

@@ -32,42 +32,37 @@ REPL sits idle, never mid-query.
 
 ## Two shapes worth keeping
 
-`description`, `timeout_ms` and `persistent` are all required by the schema, whatever defaults the
-validator carries. Both calls below pass all three; a call that omits one is rejected before it
-runs.
+The schema takes `command`, `description`, `timeout_ms` and `ws`, rejects any other key
+(`additionalProperties: false`), and requires `description` and `timeout_ms`. A `timeout_ms` above
+1800000 is capped to 1800000 (30 minutes), so a longer watch is re-armed when the monitor expires.
 
-Poll a deployment for two hours at ten-minute intervals. The one-hour `timeout_ms` ceiling is why
-this one is `persistent`, and `timeout_ms` is ignored once it is:
+Poll a deployment at ten-minute intervals for the 30 minutes one monitor lasts; the loop ends just
+before the deadline so it reports completion instead of being killed, and a watch that must go on is
+armed again:
 
 ```
-Monitor({persistent: true, timeout_ms: 3600000, description: "deploy health, 10m interval", command: '
-  end=$(( $(date +%s) + 7200 ))
+Monitor({timeout_ms: 1800000, description: "deploy health, 10m interval", command: '
+  end=$(( $(date +%s) + 1700 ))
   while [ $(date +%s) -lt $end ]; do
     curl -sf https://app.example.com/health || echo "HEALTH FAIL $(date +%H:%M)"
     kubectl get pods 2>&1 | grep -E "CrashLoop|Error|Evicted" || true
     sleep 600
   done
-  echo "2h watch complete"'})
+  echo "30m watch complete"'})
 ```
 
-Follow a pull request to its CI verdict, emitting each check as it lands and stopping when the run
-completes:
+Follow a pull request to its CI verdict, with each check, comment and review arriving as its own
+line and a `VERDICT` line at the end:
 
 ```
-Monitor({description: "PR 123 CI checks", timeout_ms: 3600000, persistent: false, command: '
-  prev=""
-  while true; do
-    s=$(gh pr checks 123 --json name,bucket) || { sleep 30; continue; }
-    cur=$(jq -r ".[] | select(.bucket != \"pending\") | \"\(.name): \(.bucket)\"" <<<"$s" | sort)
-    comm -13 <(echo "$prev") <(echo "$cur")
-    prev=$cur
-    jq -e "all(.bucket != \"pending\")" <<<"$s" >/dev/null && break
-    sleep 30
-  done'})
+Monitor({description: "PR 123 CI and reviews", timeout_ms: 1800000, command: "timeout 1800 node <plugin root>/cli/ac.js pr-watch 123 --ignore 'Kodizm review'"})
 ```
 
-The `|| { sleep 30; continue; }` is the line to copy. One failed API call should not kill a watch
-with an hour left to run, and a poll loop without it dies on the first rate limit.
+This one is a command and not a loop because `ac pr-watch` dedupes comments against what existed
+when it started, pins the pushed head, and ends with a verdict and an exit code that a hand-written
+poll loop does not give. `plugins/ac/references/verification.md` ("Projects that gate on CI") has the
+line meanings and what to do on each verdict; `<plugin root>` is the directory the calling skill names, since
+the plugin-root variable is not set in the shell.
 
 ## Two gates that change what any of this means
 
