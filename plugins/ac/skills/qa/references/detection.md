@@ -6,14 +6,15 @@ Read by `ac:qa` (to fill `Tool` and `Viewports` in `brief.md`) and by `ac:qa-tes
 
 Check markers in this order and take the first match, unless the project's `CLAUDE.md` or `.ac/qa/learnings.md` names another tool for QA.
 
-1. `Playwright Test`
-2. `Cypress`
-3. `Laravel Dusk`
-4. `Pest browser`
-5. `Flutter integration_test`
-6. `Unit runners only`, when a test runner exists but no browser tool does
-7. `Static site`, when there is no runner either and the output is plain HTML
-8. `playwright-cli fallback`, when the matched tool fails preflight or an out-of-tree run fails, and for any case the matched tool cannot express (responsive emulation, security probes)
+1. `Tapir`, a Flutter app that wires the `tapir` package. It comes first because it drives the running Flutter app through its own Semantics tree, on any device.
+2. `Playwright Test`
+3. `Cypress`
+4. `Laravel Dusk`
+5. `Pest browser`
+6. `Flutter integration_test`
+7. `Unit runners only`, when a test runner exists but no browser tool does
+8. `Static site`, when there is no runner either and the output is plain HTML
+9. `playwright-cli fallback`, when the matched tool fails preflight or an out-of-tree run fails, and for any case the matched tool cannot express (responsive emulation, security probes)
 
 Record the result in `brief.md` as the tool name plus the exact boot, suite and throwaway invocations from the section below.
 
@@ -25,6 +26,7 @@ Record the result in `brief.md` as the tool name plus the exact boot, suite and 
 |---|---|---|
 | URL server | the dev command from the tool section below | `curl` returns HTTP 200 (loop below) |
 | Project start script | the documented script | its documented ready line appears in `<run dir>/server.log`, or a documented health command exits 0 |
+| Tapir session | `dart run tapir start ...` from the Tapir section below; it detaches, so the background wrapper below does not apply | `start` exits 0 and `dart run tapir status` prints `"alive":true` |
 | Simulator or emulator | the documented launch command | the app is up on the device: its documented ready line appears in `server.log` (for example `flutter run`'s key-commands banner) or its process runs there; the device reporting booted (`xcrun simctl list devices booted`, `adb wait-for-device`) is only the precondition |
 | Desktop app | the documented launch command | its process is up (`pgrep -f <name>`), or the documented ready line appears in `server.log` |
 
@@ -56,9 +58,43 @@ Read the project's own breakpoints before choosing sizes: Tailwind `theme.screen
 | 1024x768 | tablet landscape, small laptop |
 | 1440x900 | desktop |
 
-Device emulation (user agent, touch, `isMobile`) and a bare resize are different tests: resize only changes the viewport, so only CSS media queries react. Use emulation for the phone size and resize for the rest (https://playwright.dev/docs/emulation). With playwright-cli that is `open --device="iPhone 15"` for the phone and `resize <w> <h>` for the others.
+Device emulation (user agent, touch, `isMobile`) and a bare resize are different tests: resize only changes the viewport, so only CSS media queries react. Use emulation for the phone size and resize for the rest (https://playwright.dev/docs/emulation). With playwright-cli that is `open --device="iPhone 15"` for the phone and `resize <w> <h>` for the others. With Tapir see its Responsive bullet.
 
 ## Tools
+
+### Tapir
+
+- Marker: `tapir` under `dependencies` in `pubspec.yaml` and `TapirPlugin.install()` in `lib/main.dart`. A `fluttersdk_dusk` entry instead is the predecessor package, which has no `tapir:*` commands: treat it as no match, take the next marker, and add a `## Known gaps` bullet pointing at the migration guide (https://anilcancakir.com/tapir/docs/getting-started/migrating-from-fluttersdk-dusk.md).
+- Docs: https://anilcancakir.com/tapir/docs/llms.txt lists every command page. Every command is `dart run tapir <command>` from the app's project root (the directory holding `pubspec.yaml`), about 0.4 s each.
+- Boot: first `dart run tapir status`. It is this project's own session only with `"alive":true`, `"ownedByThisProject":true` and no `booting` (it falls back to a shared pointer naming whichever app started last, which may belong to another project), and then nothing is booted. Otherwise `ac:qa` runs `dart run tapir start --device=<id> --cdp-port=<port> --port=<port> --vm-service-port=<port> --timeout=240` in one foreground Bash call with `timeout: 330000`, the wait plus the time `start` needs to clean up.
+  - Device: the one `CLAUDE.md` or `.ac/qa/learnings.md` names, else `chrome` when the project has `web/`, else a booted simulator or the host desktop from `flutter devices`. `--cdp-port` is what makes web screenshots and the viewport commands work and it removes `tapir_evaluate`, so leave it off for a native device.
+  - Ports: choose free ones (`lsof -nP -iTCP:<port> -sTCP:LISTEN`) rather than the defaults 3100 (web) and 8181 (VM service), which another session's app often holds; `--cdp-port` has no default. The session is keyed by the project root, so another project's session is not touched.
+  - `start` detaches, prints `✓ vmServiceUri=...` and exits 0 once the session is recorded. On the `--cdp-port` branch a failure stops what it launched. On a native device a first build (CocoaPods, Gradle) that outlasts `--timeout` exits 75 with `flutter run` still building and `booting: true` recorded: that is not a failure, so retry `dart run tapir status` until `booting` is gone (or boot with `--timeout=600`). Either way set `STARTED_SERVER`, because `dart run tapir stop` has to end whatever `start` launched. A cold web build can pass the 90 s default, hence `--timeout`. `dart run tapir logs` prints the captured `flutter run` log (Tapir writes no `server.log`), which a could-not-run report quotes. Never boot with `--release`: the plugin is guarded by `!kReleaseMode` and a release build registers nothing.
+- Stop: `dart run tapir stop` ends `flutter run` and its Chrome and removes the session. The detached `flutter run` outlives the shell, so lease it as a crash net with `lease add --kind pid --pid <pid from dart run tapir status> --match flutter`. A sweep signals that pid alone (it is not a process group leader), so `frontend_server` and Chrome can survive it; a web session leases `chromePid` too (`--match remote-debugging-port`, not tried). Release the leases after `dart run tapir stop`.
+- Existing suite: the project's own `flutter test` (`testing.command` in `CLAUDE.md`) as the regression case. Tapir has no suite of its own.
+- Throwaway spec: none. A case is a few commands or one `dart run tapir tapir:run "<step>" "<step>"` batch (steps are verbs such as `tap --ref=q4`, and the last step's output is printed in full); a batch worth rerunning in the retest goes in `<run dir>/specs/<case id>.sh`.
+- Preflight: `dart run tapir tapir:doctor` exits 0 with a `✓ Semantics tree forced on` row. Exit 1 means no `ext.tapir.*` is registered or the Semantics tree is off: one `dart run tapir hot-restart` and a second doctor run tell a missing `TapirPlugin.install()` from a stale session. A command that exits 75 right after a restart only needs a retry. Then `dart run tapir tapir:snap --interactiveOnly` prints refs. A failure falls back as the skill's Prepare phase says.
+- Driving, with evidence going into `<run dir>/evidence/`:
+
+  ```bash
+  dart run tapir tapir:snap --interactiveOnly            # only nodes with refs, no plain text; drop the flag, or add --grep=<regex> / --within=<eN>, to read result text
+  dart run tapir tapir:tap --ref=e8                      # a ref belongs to the snapshot that issued it
+  dart run tapir tapir:fill --ref=e1 --text="value"      # focus, clear, type in one call
+  dart run tapir tapir:find --text="Save"                # a q<N> handle that survives rebuilds
+  dart run tapir tapir:wait_for --text="Saved"           # --textGone, --timeoutMs (default 5000)
+  dart run tapir tapir:navigate --route=/settings        # tapir:get_routes prints the current location
+  dart run tapir tapir:screenshot --output=<run dir>/evidence/<case-id>-<slug>.png
+  dart run tapir tapir:exceptions --since=<iso8601>      # cumulative, so note the time before the action
+  dart run tapir tapir:console --limit=20
+  dart run tapir tapir:reset_overlays                    # between cases: pops dialogs and sheets
+  dart run tapir hot-restart                             # drops Dart state, keeps the process; persisted storage (login, prefs) survives
+  ```
+
+- Responsive: on a web session with `--cdp-port`, `dart run tapir tapir:resize_viewport --width=375 --height=812 --mobile --hold` in a background Bash call (the override ends with the command, and `--hold` kept a 375 by 812 screenshot in a live check), then snapshot and screenshot, then stop that call with `TaskStop`. `tapir:resize_viewport --reset` clears it. `tapir:device_profile --preset=<name>` emulates a device only while its own command runs and leaves just the window size behind, so use `resize_viewport` for the cases and `--reset` after a profile. A native device has no viewport command: one responsive case per device.
+- Reading the output:
+  - A `✓` line is dispatch, not effect. On a web session an unknown ref prints `✓ Tapped e99` and exits 0 (https://github.com/anilcancakir/tapir/issues/94, open when this was written), so snapshot again after every action and judge by the new snapshot. `(no observable change)` can follow a tap that opened a dialog (https://github.com/anilcancakir/tapir/issues/95). A case that expects no change (a forbidden or disabled control) needs proof that the action reached the widget: a ref from the latest snapshot and no `not_found` in the `--json` body, else the case is BLOCKED.
+  - A stale ref after a rebuild needs a new snapshot. A text field snapshots as nested `textbox` nodes: use the ref marked `typeable: true`, or `tapir:fill`.
+  - A snapshot starts with `⚠ N render error(s) captured` when the screen threw; `tapir:exceptions` has the detail, and it is a finding.
 
 ### Playwright Test
 
