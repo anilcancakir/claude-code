@@ -38341,7 +38341,7 @@ function errorMessage(error) {
 // package.json
 var package_default = {
   name: "@anilcancakir/ac-cli",
-  version: "0.45.0",
+  version: "0.46.0",
   description: "Companion CLI runtime for the ac Claude Code plugin. Serves the ac MCP tools, checks plans, prices runs and searches the local history archive.",
   private: true,
   type: "module",
@@ -39956,6 +39956,12 @@ var EVENTS_PER_TICK = 25;
 var FAILURE_FIRST_NOTE = 3;
 var FAILURE_NOTE_EVERY = 15;
 var FAILURE_DETAIL_LIMIT = 160;
+var DETAIL_LIMIT = 600;
+var DETAIL_CHECKS_PER_TICK = 5;
+var LOG_TAIL_LINES = 12;
+var LOG_LINE_LIMIT = 200;
+var THREAD_PAGE_SIZE = 100;
+var THREADS_QUERY = `query($owner:String!,$name:String!,$pr:Int!){repository(owner:$owner,name:$name){pullRequest(number:$pr){reviewThreads(first:${THREAD_PAGE_SIZE}){pageInfo{hasNextPage}nodes{id isResolved isOutdated path line originalLine comments(first:1){nodes{databaseId author{login}}}}}}}}`;
 async function runPrWatch(options, deps) {
   return new PrWatch(options, deps).run();
 }
@@ -39971,12 +39977,16 @@ function defaultPrWatchDeps() {
   };
 }
 function formatBody(body) {
+  const flat = flatten(body, BODY_LIMIT);
+  return flat.text === "" ? "(no text)" : flat.text;
+}
+function flatten(body, limit) {
   const text = body.replace(/<!--[\s\S]*?-->/g, " ").replace(/<picture\b[\s\S]*?<\/picture>/gi, " ").replace(/\s+/g, " ").trim();
-  if (text === "") {
-    return "(no text)";
-  }
   const characters = Array.from(text);
-  return characters.length > BODY_LIMIT ? `${characters.slice(0, BODY_LIMIT).join("")}...` : text;
+  if (characters.length <= limit) {
+    return { text, cut: false };
+  }
+  return { text: `${characters.slice(0, limit).join("")}...`, cut: true };
 }
 
 class PrWatch {
@@ -39997,6 +40007,7 @@ class PrWatch {
   gateAt;
   failures = 0;
   sweepFailures = new Map;
+  baselineInline = new Set;
   constructor(options, deps) {
     this.options = options;
     this.deps = deps;
@@ -40068,8 +40079,14 @@ class PrWatch {
   }
   async gate(checks) {
     const now = this.deps.now();
+    const failed = [];
     for (const check of checks) {
-      this.reportCheck(check);
+      if (this.reportCheck(check) && check.bucket === "fail") {
+        failed.push(check);
+      }
+    }
+    if (failed.length > 0) {
+      await this.explainFailures(failed);
     }
     const gates = checks.filter((check) => !this.ignored(check.name));
     if (gates.length === 0) {
@@ -40078,7 +40095,7 @@ class PrWatch {
     }
     this.gateSeen = true;
     if (gates.some((check) => check.bucket === "fail" || check.bucket === "cancel")) {
-      await this.sweep();
+      await this.sweep(true);
       return this.settle("red");
     }
     const pendingGates = gates.filter((check) => check.bucket === "pending");
@@ -40116,17 +40133,41 @@ class PrWatch {
     if (head !== this.options.head) {
       return this.stuck(head, "superseded");
     }
-    await this.sweep();
+    await this.sweep(true);
     return this.settle("green");
   }
   reportCheck(check) {
     const key = `${check.name}\x00${check.workflow}\x00${check.event}`;
     if (check.bucket === "pending" || this.settled.get(key) === check.bucket) {
-      return;
+      return false;
     }
     this.settled.set(key, check.bucket);
     const suffix = this.ignored(check.name) ? " (not a gate)" : "";
     this.deps.write(`CHECK ${check.name}: ${check.bucket}${suffix}`);
+    return true;
+  }
+  async explainFailures(failed) {
+    const slug = this.options.repo ?? "{owner}/{repo}";
+    const fetched = await this.fetch(`repos/${slug}/commits/${this.options.head}/check-runs?per_page=100`, false);
+    const runs = fetched.kind === "ok" ? checkRuns(fetched.body) : undefined;
+    const reason = fetched.kind === "failed" ? fetched.detail : "no check run list";
+    for (const check of failed.slice(0, DETAIL_CHECKS_PER_TICK)) {
+      const described = runs === undefined ? `unavailable (${reason.slice(0, FAILURE_DETAIL_LIMIT)})` : describeFailure2(check, runs, slug);
+      const text = typeof described === "string" ? described : await this.explainJob(described, slug);
+      this.deps.write(`DETAIL ${check.name}: ${text}`);
+    }
+    if (failed.length > DETAIL_CHECKS_PER_TICK) {
+      this.deps.write(`NOTE ${failed.length - DETAIL_CHECKS_PER_TICK} more failed checks without detail`);
+    }
+  }
+  async explainJob(job, slug) {
+    const read = `gh run view ${job.run} --log-failed${this.options.repo === undefined ? "" : ` -R ${this.options.repo}`}`;
+    if (job.job === undefined) {
+      return `no failure text in the check output, read the log with ${read}`;
+    }
+    const result = await this.deps.gh(["api", "--allow-escape-sequences", `repos/${slug}/actions/jobs/${job.job}/logs`]);
+    const tail = result.code === 0 ? logTail(result.stdout) : undefined;
+    return tail === undefined ? `no failure text in the check output, read the log with ${read}` : `${tail} [full: ${read}]`;
   }
   ignored(name) {
     return this.options.ignore?.test(name) ?? false;
@@ -40154,7 +40195,7 @@ class PrWatch {
       this.options.pr,
       ...repo,
       "--json",
-      "name,bucket,state,workflow,event"
+      "name,bucket,state,workflow,event,link"
     ]);
     if (result.code !== 0) {
       if (unusable(result.code)) {
@@ -40175,10 +40216,11 @@ ${result.stderr}`.includes("no checks reported")) {
       bucket: check.bucket,
       state: check.state,
       workflow: typeof check.workflow === "string" ? check.workflow : "",
-      event: typeof check.event === "string" ? check.event : ""
+      event: typeof check.event === "string" ? check.event : "",
+      link: typeof check.link === "string" ? check.link : ""
     }));
   }
-  async sweep() {
+  async sweep(final = false) {
     let shown = 0;
     let hidden = 0;
     for (const endpoint of this.endpoints) {
@@ -40194,6 +40236,9 @@ ${result.stderr}`.includes("no checks reported")) {
       }
       if (!this.baselines.has(endpoint.kind)) {
         this.baselines.set(endpoint.kind, events.length);
+        if (endpoint.kind === "inline") {
+          this.baselineInline = new Set(events.map((event) => event.id));
+        }
         if (!this.options.includeExisting) {
           this.writeBaselineWhenComplete();
           continue;
@@ -40211,6 +40256,61 @@ ${result.stderr}`.includes("no checks reported")) {
     if (hidden > 0) {
       this.deps.write(`NOTE ${hidden} more comment events not shown, read them with gh api`);
     }
+    if (final) {
+      await this.sweepThreads();
+    }
+  }
+  async sweepThreads() {
+    const page = await this.readThreads();
+    if (typeof page === "string") {
+      this.deps.write(`NOTE threads unavailable: ${page.slice(0, FAILURE_DETAIL_LIMIT)}`);
+      return;
+    }
+    const open = page.threads.filter((thread) => !thread.resolved);
+    const before = this.options.includeExisting ? [] : open.filter((thread) => this.baselineInline.has(thread.comment));
+    const listed = open.filter((thread) => !before.includes(thread));
+    for (const thread of listed.slice(0, EVENTS_PER_TICK)) {
+      this.deps.write(describeThread(thread));
+    }
+    if (listed.length > EVENTS_PER_TICK) {
+      this.deps.write(`NOTE ${listed.length - EVENTS_PER_TICK} more open threads not shown, read them with gh api graphql`);
+    }
+    if (page.threads.length > 0) {
+      const outdated = open.filter((thread) => thread.outdated).length;
+      const older = before.length > 0 ? ` before=${before.length}` : "";
+      this.deps.write(`THREADS open=${open.length} resolved=${page.threads.length - open.length} outdated=${outdated}${older}`);
+      if (page.truncated) {
+        this.deps.write(`NOTE more than ${THREAD_PAGE_SIZE} review threads, only the first ${THREAD_PAGE_SIZE} are counted`);
+      }
+    }
+  }
+  async readThreads() {
+    const flag = this.options.repo === undefined ? "-F" : "-f";
+    const [owner = "{owner}", name = "{repo}"] = this.options.repo?.split("/") ?? [];
+    const result = await this.deps.gh([
+      "api",
+      "graphql",
+      flag,
+      `owner=${owner}`,
+      flag,
+      `name=${name}`,
+      "-F",
+      `pr=${this.options.pr}`,
+      "-f",
+      `query=${THREADS_QUERY}`
+    ]);
+    if (result.code !== 0) {
+      return failureDetail(result, "gh api graphql failed");
+    }
+    const connection = pick2(parseJson(result.stdout), "data", "repository", "pullRequest", "reviewThreads");
+    const nodes = pick2(connection, "nodes");
+    if (!Array.isArray(nodes)) {
+      return "unreadable review thread reply";
+    }
+    return {
+      threads: nodes.flatMap((node) => threadFrom(node) ?? []),
+      truncated: pick2(connection, "pageInfo", "hasNextPage") === true
+    };
   }
   noteSweep(kind, fetched) {
     if (fetched.kind !== "failed") {
@@ -40232,11 +40332,11 @@ ${result.stderr}`.includes("no checks reported")) {
     const reviews = this.baselines.get("review") ?? 0;
     this.deps.write(`BASELINE comments=${comments} inline=${inline} reviews=${reviews}`);
   }
-  async fetch(path) {
+  async fetch(path, useEtag = true) {
     if (this.paginated.has(path)) {
       return this.fetchAllPages(path);
     }
-    const etag = this.etags.get(path);
+    const etag = useEtag ? this.etags.get(path) : undefined;
     const conditional = etag === undefined ? [] : ["-H", `If-None-Match: ${etag}`];
     const result = await this.deps.gh(["api", "-i", ...conditional, path]);
     if (unusable(result.code)) {
@@ -40253,7 +40353,7 @@ ${result.stderr}`.includes("no checks reported")) {
       const detail = failureDetail(result, `HTTP ${response.status} from gh api ${path}`);
       return response.status === 404 ? { kind: "failed", detail, fatal: "pr-not-found" } : { kind: "failed", detail };
     }
-    if (response.hasNext) {
+    if (response.hasNext && useEtag) {
       this.paginated.add(path);
       return this.fetchAllPages(path);
     }
@@ -40261,7 +40361,7 @@ ${result.stderr}`.includes("no checks reported")) {
     if (body === undefined) {
       return { kind: "failed", detail: `unreadable reply from gh api ${path}` };
     }
-    if (response.etag !== undefined) {
+    if (response.etag !== undefined && useEtag) {
       this.etags.set(path, response.etag);
     }
     return { kind: "ok", body };
@@ -40330,6 +40430,115 @@ function describeComment(kind, id, item) {
       return `REVIEW ${id} ${login} ${state}: ${text}`;
     }
   }
+}
+function describeThread(thread) {
+  const outdated = thread.outdated ? " (outdated)" : "";
+  return `THREAD ${thread.id} comment=${thread.comment} ${thread.path}:${thread.line} ${thread.author}${outdated}`;
+}
+function threadFrom(node) {
+  if (!isRecord(node) || typeof node.id !== "string" || typeof node.isResolved !== "boolean") {
+    return;
+  }
+  const comments = pick2(node, "comments", "nodes");
+  const root = Array.isArray(comments) ? comments[0] : undefined;
+  const login = pick2(root, "author", "login");
+  return {
+    id: node.id,
+    resolved: node.isResolved,
+    outdated: node.isOutdated === true,
+    path: typeof node.path === "string" ? node.path : "",
+    line: numberOrNull(node.line) ?? numberOrNull(node.originalLine) ?? 0,
+    comment: numberOrNull(pick2(root, "databaseId")) ?? 0,
+    author: typeof login === "string" ? login : "ghost"
+  };
+}
+function checkRuns(body) {
+  const runs = pick2(body, "check_runs");
+  if (!Array.isArray(runs)) {
+    return;
+  }
+  return runs.flatMap((run) => {
+    if (!isRecord(run) || typeof run.name !== "string" || typeof run.id !== "number") {
+      return [];
+    }
+    const summary = pick2(run, "output", "summary");
+    return [{
+      id: run.id,
+      name: run.name,
+      conclusion: typeof run.conclusion === "string" ? run.conclusion : "",
+      detailsUrl: typeof run.details_url === "string" ? run.details_url : "",
+      summary: typeof summary === "string" ? summary : ""
+    }];
+  });
+}
+function describeFailure2(check, runs, slug) {
+  const named = runs.filter((candidate) => candidate.name === check.name);
+  const run = named.find((candidate) => candidate.conclusion === "failure" && candidate.detailsUrl === check.link) ?? named.find((candidate) => candidate.conclusion === "failure") ?? named[0];
+  if (run === undefined) {
+    return "unavailable (no check run of that name on this head)";
+  }
+  const cause = failureSection(run.summary) ?? run.summary;
+  const flat = flatten(cause.replace(/^[ \t]*(?:~{3,}|`{3,})[\w-]*[ \t]*$/gm, " "), DETAIL_LIMIT);
+  if (flat.text !== "") {
+    return flat.cut ? `${flat.text} [full: gh api repos/${slug}/check-runs/${run.id} --jq .output.summary]` : flat.text;
+  }
+  const runId = /\/actions\/runs\/(\d+)/.exec(run.detailsUrl)?.[1];
+  if (runId === undefined) {
+    return "no failure text in the check output";
+  }
+  return { run: runId, job: /\/job\/(\d+)/.exec(run.detailsUrl)?.[1] };
+}
+function logTail(log) {
+  const lines = log.split(`
+`).map((line) => line.replace(/\u001b\[[0-9;?]*[ -/]*[@-~]/g, "").replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, "").replace(/^\ufeff?\d{4}-\d{2}-\d{2}T[\d:.]+Z ?/, ""));
+  let error = -1;
+  for (const [index, line] of lines.entries()) {
+    if (line.startsWith("##[error]")) {
+      error = index;
+    }
+  }
+  if (error < 0) {
+    return;
+  }
+  let start = error;
+  while (start > 0 && !/^##\[(?:end)?group\]/.test(lines[start - 1] ?? "")) {
+    start -= 1;
+  }
+  const title = lines.slice(0, start).reverse().find((line) => line.startsWith("##[group]"))?.slice("##[group]".length).trim();
+  const output = lines.slice(start, error + 1).map((line) => line.replace(/^##\[error\]/, "").trim()).filter((line) => line !== "").map((line) => Array.from(line).slice(0, LOG_LINE_LIMIT).join(""));
+  const kept = [];
+  let size = (title?.length ?? 0) + 8;
+  for (const line of output.reverse()) {
+    if (kept.length >= LOG_TAIL_LINES || kept.length > 0 && size + line.length > DETAIL_LIMIT) {
+      break;
+    }
+    kept.unshift(line);
+    size += line.length + 3;
+  }
+  if (kept.length === 0) {
+    return;
+  }
+  const dropped = kept.length < output.length ? "... | " : "";
+  return `${title === undefined ? "" : `${title}: `}${dropped}${kept.join(" | ")}`;
+}
+function failureSection(summary) {
+  const heading = /(?:^|\n)###[ \t]+Failures[^\n]*\n/.exec(summary);
+  if (heading === null) {
+    return;
+  }
+  const rest = summary.slice(heading.index + heading[0].length);
+  const next = rest.search(/\n###[ \t]/);
+  return next < 0 ? rest : rest.slice(0, next);
+}
+function pick2(value, ...keys) {
+  let current = value;
+  for (const key of keys) {
+    if (!isRecord(current)) {
+      return;
+    }
+    current = current[key];
+  }
+  return current;
 }
 function parseHttpResponse(stdout) {
   const separator = /\r?\n\r?\n/.exec(stdout);
@@ -41520,4 +41729,4 @@ function resolvePrWatchHead(head) {
 }
 await program2.parseAsync(process.argv);
 
-//# debugId=6D22CEBBDE2C86EA64756E2164756E21
+//# debugId=70DE580FBDB9D02464756E2164756E21

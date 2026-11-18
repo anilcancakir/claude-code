@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.46.0] - 2026-11-18
+
+### Added
+
+- `iterm-agent-status.sh`, registered on the ten events iTerm2's Claude Code integration listens on, drives the iTerm2 tab status dot through iTerm2's own `cc-status` with an API cookie cached in `ITERM2_COOKIE`, so `it2` no longer starts an `osascript` per hook. Each of those runs left WindowServer holding Mach ports; at about 25 a minute WindowServer hit the kernel's port-space limit after 6.7 days and macOS logged the user out. A cookie is tied to the iTerm2 process (pid and start time) that issued it, since iTerm2 keeps cookies in memory only: after each iTerm2 launch the hook asks for one reusable cookie in the background, through its own `osascript` with an hour's timeout rather than `it2 auth cookie`, which gives up after 120 s; it caches the cookie once two `it2 session get-status` calls accept it, so a single-use fallback cookie is not kept, checks a cached cookie once an hour so an expired "24 Hours" grant is replaced, and sends at most one request an hour. Opt-in: inert until `~/.config/iterm2/ac-agent-cookie` exists. `docs/terminal-setup.md` has the setup, which also removes the installer's direct `cc-status` hooks, and says what the cached cookie grants.
+- `ac pr-watch` names why a check failed: after `CHECK <name>: fail` it writes one `DETAIL <name>: <cause>` line, the `### Failures` section of the failing check run's own output (one extra REST read, cut to 600 characters with the `gh api` command that reads the rest). A GitHub Actions job, whose check run holds no text, gets the title of its failing step and the last lines of its output read from the job log (colour codes and control characters stripped), then the `gh run view <id> --log-failed` command that reads all of it.
+- `ac pr-watch` reports review threads, which only GraphQL exposes, just before the verdict: one `THREAD <PRRT id> comment=<id> <path>:<line> <author>` line for each open thread that began during the watch (`comment` is the root comment, the target of a reply, and the `PRRT` id is what `resolveReviewThread` takes), then `THREADS open=<n> resolved=<m> outdated=<k>[ before=<b>]`, where `before` counts the open threads that predate the watch without listing them again. One GraphQL point per run, no per-tick polling.
+- `ac:github-cli` gains a Review threads section in `references/write-ops.md`: list the open threads, reply to an inline comment, resolve and unresolve a thread (`gh` has no subcommand for any of them), with the rule that each is a visible write done only on the user's or the project's say.
+- `ac:qa` drives a Flutter app that wires `tapir` through Tapir instead of a browser tool: the detection reference lists it first, with the marker (`tapir` in `pubspec.yaml` plus `TapirPlugin.install()`), the boot (`dart run tapir start`, which detaches, with free ports and a cold-build timeout), the readiness and preflight checks, the command set, viewport emulation on a web session, the stop and the pid lease. `ac:qa-tester` judges each action by a new snapshot and never starts or stops the session. A project still on the predecessor package `fluttersdk_dusk` is no match and becomes a Known gap.
+
 ## [0.45.0] - 2026-11-17
 
 ### Added
