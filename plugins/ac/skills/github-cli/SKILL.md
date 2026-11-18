@@ -71,7 +71,7 @@ gh pr checks 456 -R OWNER/REPO
 gh api repos/OWNER/REPO/pulls/456/comments --paginate --jq '.[] | .path + ":" + (.line|tostring) + " " + .body'   # inline review comments
 ```
 
-`gh pr view --json comments` returns the conversation; line-level review comments live in `reviews` only as summaries, so use the `pulls/N/comments` endpoint for them. Issue and PR numbers share one number space per repository.
+`gh pr view --json comments` returns the conversation; line-level review comments live in `reviews` only as summaries, so use the `pulls/N/comments` endpoint for them. Whether a line comment's thread is resolved or outdated is GraphQL only (`reviewThreads`); listing the threads, replying to one and resolving one are under Review threads in `${CLAUDE_SKILL_DIR}/references/write-ops.md`. Issue and PR numbers share one number space per repository.
 
 ### Releases and changelogs
 

@@ -1,4 +1,4 @@
-<!-- ported-from: plugins/ac/skills/github-cli/references/write-ops.md sha256:d48a342345efb0f4f7474f95f1ddf1442a9610ee864eff52b98861eb36267688 -->
+<!-- ported-from: plugins/ac/skills/github-cli/references/write-ops.md sha256:9dca2cc380934b83547167ce3da22461877a0246173c51159c341836ea968fe9 -->
 # gh write operations
 
 Every command here changes state on GitHub and is visible to other people, so each one needs the user's request in this conversation. Pass the title, body and flags explicitly: a prompt in a non-interactive shell hangs. Pass `-R OWNER/REPO` when the working directory is not the target repository. Use `--body-file` (or `-F -` for stdin) for anything longer than a line, so quoting cannot mangle it. Flags below were checked against `gh --help` on gh 2.102.0.
@@ -89,6 +89,29 @@ gh repo delete OWNER/REPO --yes
 - `create` (alias `new`): `--public` or `--private` or `--internal`, `-d`, `-h/--homepage`, `-c/--clone`, `-s/--source` with `-r/--remote` and `--push`, `-p/--template`, `--include-all-branches`, `-g/--gitignore`, `-l/--license`, `--add-readme`, `--disable-issues`, `--disable-wiki`, `-t/--team`.
 - `edit`: `-d`, `-h`, `--default-branch`, `--visibility` (needs `--accept-visibility-change-consequences`), `--template`, `--add-topic` and `--remove-topic`, `--enable-issues`, `--enable-wiki`, `--enable-projects`, `--enable-discussions`, `--enable-merge-commit`, `--enable-squash-merge`, `--enable-rebase-merge`, `--enable-auto-merge`, `--delete-branch-on-merge`, `--allow-update-branch`, `--allow-forking`, `--squash-merge-commit-message`, `--enable-advanced-security`, `--enable-secret-scanning`, `--enable-secret-scanning-push-protection`.
 - `fork`: `--clone`, `--remote`, `--remote-name`, `--org`, `--fork-name`, `--default-branch-only`. `sync`: `-b/--branch`, `-s/--source`, `--force` (hard reset). `delete`: `--yes`; irreversible, so confirm the exact repository with the user first.
+
+## Review threads
+
+An inline review comment lives in a thread, and `gh` has no subcommand for one: `gh pr comment` and `gh pr review` write conversation comments and whole reviews only, and `gh pr view --json` has no `reviewThreads` field. Replying goes through REST; resolving exists only in GraphQL, and so does the resolved and outdated state. `ac pr-watch` prints both ids you need before its verdict: `THREAD <PRRT id> comment=<id> <path>:<line> <author>` gives the thread id and the id of the thread's root comment, the one a reply goes to (a reply to a later comment of the thread is attached to that root too).
+
+Replying and resolving are visible to other people: do them when the user asked for it in this conversation, or when the project's CLAUDE.md makes it a standing step; a fixed finding is not a trigger by itself.
+
+```bash
+# Reply: the id is the thread's root comment (the `comment=` value), REST
+gh api repos/OWNER/REPO/pulls/42/comments/4601128118/replies -f body="Fixed in 1a2b3c4."
+
+# Resolve or unresolve: the id is the PRRT_ node id, GraphQL only (there is no REST route)
+gh api graphql -f id="PRRT_kwDOxxx" -f query='mutation($id: ID!) { resolveReviewThread(input: {threadId: $id}) { thread { isResolved } } }'
+gh api graphql -f id="PRRT_kwDOxxx" -f query='mutation($id: ID!) { unresolveReviewThread(input: {threadId: $id}) { thread { isResolved } } }'
+```
+
+To list the open threads without a watch, one query (1 GraphQL point, no ETag) gives the thread id, the root comment id and where it points:
+
+```bash
+gh api graphql -F owner='{owner}' -F name='{repo}' -F pr=42 -f query='query($owner: String!, $name: String!, $pr: Int!) { repository(owner: $owner, name: $name) { pullRequest(number: $pr) { reviewThreads(first: 100) { nodes { id isResolved isOutdated path line originalLine comments(first: 1) { nodes { databaseId author { login } body } } } } } } }' --jq '.data.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved | not) | [.id, .comments.nodes[0].databaseId, "\(.path):\(.line // .originalLine)", .comments.nodes[0].author.login] | @tsv'
+```
+
+`isOutdated` means the code under the comment changed since it was written, and its `line` is then null. A resolve or reply that answers 403 or `FORBIDDEN` means the token may not write to the pull request: say so instead of retrying.
 
 ## gh api writes
 

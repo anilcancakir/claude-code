@@ -2,7 +2,7 @@
 name: github-cli
 description: "Work with GitHub repositories, issues, PRs, releases and Actions runs through the gh CLI instead of web fetches. Use when researching a GitHub repository or reading and changing its issues, PRs, releases and Actions runs; local commits and history are ac/commit."
 ---
-<!-- ported-from: plugins/ac/skills/github-cli/SKILL.md sha256:391778735cbf031d37f0bc015cdd608074a645386d1514ce84baa652fe37187c -->
+<!-- ported-from: plugins/ac/skills/github-cli/SKILL.md sha256:8d50fd266564caf5067ff4e19f560fec411d8e6f6b309950b04e7790a209e32d -->
 
 # GitHub CLI
 
@@ -71,7 +71,7 @@ gh pr checks 456 -R OWNER/REPO
 gh api repos/OWNER/REPO/pulls/456/comments --paginate --jq '.[] | .path + ":" + (.line|tostring) + " " + .body'   # inline review comments
 ```
 
-`gh pr view --json comments` returns the conversation; line-level review comments live in `reviews` only as summaries, so use the `pulls/N/comments` endpoint for them. Issue and PR numbers share one number space per repository.
+`gh pr view --json comments` returns the conversation; line-level review comments live in `reviews` only as summaries, so use the `pulls/N/comments` endpoint for them. Whether a line comment's thread is resolved or outdated is GraphQL only (`reviewThreads`); listing the threads, replying to one and resolving one are under Review threads in `references/write-ops.md`. Issue and PR numbers share one number space per repository.
 
 ### Releases and changelogs
 
