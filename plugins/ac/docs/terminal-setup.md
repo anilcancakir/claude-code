@@ -13,6 +13,7 @@ A machine setup for running one Claude Code session per iTerm2 tab, independent 
 | A two-finger horizontal swipe no longer switches tabs | In the alternate screen, iTerm2 hands a horizontal scroll to the app as a mouse report or, with alternate mouse scroll on, as `←` and `→` keys; both take priority over swipe to switch tabs | Stop reporting horizontal scrolls, and keep alternate mouse scroll off or vertical only |
 | A notification arrives every time a turn finishes | Claude Code sends `idle_prompt` ("Claude is waiting for your input") 60 seconds after a turn ends | [Notifications](#notifications): raise the idle threshold |
 | A tab waiting on a question or a permission prompt is easy to miss | The banner is the only signal outside the tab | [Notifications](#notifications): a hook that bounces the dock icon |
+| After about a week of heavy use the screen goes black and macOS asks for the password, with every app relaunched | iTerm2's `cc-status` hooks start an `osascript` per hook, and WindowServer leaks Mach ports for each one until the kernel kills it | [Tab status without the WindowServer leak](#tab-status-without-the-windowserver-leak) |
 
 ## Apply
 
@@ -136,6 +137,34 @@ The matcher lists exact notification types, not a pattern. The banner itself sti
 
 What else marks a blocked tab: iTerm2's Claude Code integration, once installed, adds hooks that run iTerm2's `cc-status` and set each tab's status dot. A tab waiting on you gets the blue "waiting" dot with a ring around it until you select it, and the dock badge counts waiting tabs while iTerm2 is in the background. iTerm2 posts no banner of its own for these status changes unless you tick Notify for a status in the Session Status tool's settings.
 
+## Tab status without the WindowServer leak
+
+Run the status dot through the plugin instead of the hooks iTerm2's installer writes. Registered directly, `cc-status` asks iTerm2 for a single-use API cookie on every hook, and on iTerm2 3.7.7 it asks through `osascript`. Every `osascript` run leaves WindowServer holding Mach ports it never gives back. On a busy machine that was about 25 ports a minute; after 6.7 days WindowServer reached the kernel's limit of 305,834 ports, the kernel killed it, and macOS logged the user out on the spot (no crash report, since the kernel kills a process that runs out of port space without one).
+
+The plugin's `iterm-agent-status.sh` hook listens on the same ten events and hands `cc-status` a cookie it cached in `ITERM2_COOKIE`, so `it2` asks iTerm2 for nothing. iTerm2 keeps cookies in memory only, so the hook ties each one to the iTerm2 process that issued it. After every iTerm2 launch the hook requests one reusable cookie in the background, and iTerm2 shows "it2 requests a reusable API cookie." in a Claude Code tab: pick Forever, which lasts until iTerm2 quits. The request waits up to an hour for your answer, and the dot stays where it was until then; a missed or denied request is retried once an hour, not once per hook. "24 Hours" works too, but the dot goes stale for up to an hour when it expires, until the hook's hourly check notices and asks again.
+
+> [!WARNING]
+> The cached cookie is a standing credential for iTerm2's API: any process running as you can read `~/.config/iterm2/ac-agent-cookie` and use it to read every tab's screen and type into any tab, without the approval each request otherwise needs. The file is readable by you only, which does not stop a script you run. That is the price of the status dot without the leak; if it is too high, drop the dot ([Revert](#revert)) instead. Do not answer the announcement with "Always Allow All Apps": it switches API authentication off for every app.
+
+The hook stays inert until its cache file exists, so turn it on and remove the installer's hooks in one go:
+
+```sh
+(umask 077; touch ~/.config/iterm2/ac-agent-cookie)
+f=$(realpath ~/.claude/settings.json); cp "$f" "$f.bak-iterm-status-$(date +%Y%m%d%H%M%S)"
+t=$(mktemp "$f.XXXX")
+jq 'if has("hooks") then .hooks |= (with_entries(.value |= (map(.hooks |= map(select(.command // ""
+  | endswith("/iterm2/cc-status") | not))) | map(select(.hooks | length > 0)))) | with_entries(select(.value | length > 0)))
+  else . end' "$f" > "$t" && mv "$t" "$f" || rm -f "$t"
+```
+
+Restart the Claude Code sessions afterwards: hook registrations are read at launch. Reinstalling iTerm2's Claude Code integration adds its hooks back, so run the `jq` line again after one.
+
+To check that it holds, watch the port count, which should stay roughly flat while Claude Code works:
+
+```sh
+top -l 1 -pid "$(pgrep -x WindowServer)" -stats pid,ports
+```
+
 Two things these settings leave alone:
 
 - A background session that finishes (`claude --bg`, `/background`) still posts "finished" (`agent_completed`). Only `preferredNotifChannel: "notifications_disabled"` silences it, and that silences the waiting banners as well.
@@ -165,6 +194,9 @@ m='permission_prompt|elicitation_dialog|elicitation_url_dialog|agent_needs_input
 f=$(realpath ~/.claude/settings.json); t=$(mktemp "$f.XXXX"); jq --arg m "$m" '.hooks.Notification |= map(select(.matcher != $m))' "$f" > "$t" && mv "$t" "$f"
 f=$(realpath ~/.claude.json); t=$(mktemp "$f.XXXX"); jq 'del(.messageIdleNotifThresholdMs)' "$f" > "$t" && chmod 600 "$t" && mv "$t" "$f"
 rm ~/.claude/hooks/needs-you.sh
+
+# Tab status: the plugin hook goes inert; rerun iTerm2's Claude Code integration installer for its own hooks.
+rm -rf ~/.config/iterm2/ac-agent-cookie ~/.config/iterm2/ac-agent-cookie.lock-*
 ```
 
 Then quit iTerm2 with Cmd+Q and open it again.

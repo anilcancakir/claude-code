@@ -24,7 +24,7 @@ Or add the marketplace and install in two steps:
 
 - `ac:flow`, the default build flow for a medium or large request: parallel research, a short interview, slices on tiered workers, one review.
 - `/ac:plan` and `/ac:execute` for a written plan run wave by wave, `/ac:auto` and `/ac:coordinate` for work that finishes while you are away, `/ac:qa` and `/ac:product` for QA and roadmaps.
-- Thirteen agents, an opt-in `ac:concise` output style, hooks (eight gated to a run you started or to an `ac` subagent, thirteen registered for every session; the list is in [`docs/hooks.md`](docs/hooks.md)), and an MCP server: local history search, plus docs, code and web lookup through the kodizm service with a token.
+- Thirteen agents, an opt-in `ac:concise` output style, hooks (eight gated to a run you started or to an `ac` subagent, thirteen registered for every session, one opt-in iTerm2 tab status hook; the list is in [`docs/hooks.md`](docs/hooks.md)), and an MCP server: local history search, plus docs, code and web lookup through the kodizm service with a token.
 
 The skill and agent tables, the hook list and the requirements are in the [repo root README](../../README.md).
 

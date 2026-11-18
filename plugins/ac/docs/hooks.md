@@ -1,8 +1,8 @@
 # Hooks
 
-The `ac` plugin registers 23 hooks in `plugins/ac/hooks/hooks.json`, backed by 20 scripts under `plugins/ac/hooks/` (`session-lease-sweep.sh` is registered three times, `posttooluse-cli-diagnostics.sh` twice). Hooks run code on your machine, so this page lists each one: when it fires, what it does, whether it can stop something, and how to turn it off.
+The `ac` plugin registers 34 hooks in `plugins/ac/hooks/hooks.json`, backed by 22 scripts under `plugins/ac/hooks/` (`iterm-agent-status.sh` is registered ten times, `session-lease-sweep.sh` three times, `posttooluse-cli-diagnostics.sh` twice). Hooks run code on your machine, so this page lists each one: when it fires, what it does, whether it can stop something, and how to turn it off.
 
-Two guarantees hold for every hook. Eight of the 23 registrations are gated to the situation they serve: they do nothing unless an `/ac:execute`, `/ac:auto` or `/ac:coordinate` run owned by the current session is active in the project, or the call comes from an `ac` subagent. The other 15 are registered for every session, among them the plan-mode block, the memory-file gate and the announce judge. Each also fails open: a missing tool (`jq`, `perl`, `rg`), an unreadable payload or marker, or any condition the script cannot evaluate lets the action through unchanged.
+Two guarantees hold for every hook. Eight of the 34 registrations are gated to the situation they serve: they do nothing unless an `/ac:execute`, `/ac:auto` or `/ac:coordinate` run owned by the current session is active in the project, or the call comes from an `ac` subagent. The ten [iTerm2 tab status](#iterm2-tab-status) registrations do nothing until you opt in. The other 16 are registered for every session, among them the plan-mode block, the memory-file gate and the announce judge. Each also fails open: a missing tool (`jq`, `perl`, `rg`), an unreadable payload or marker, or any condition the script cannot evaluate lets the action through unchanged.
 
 "Can block" means different things per event. A `PreToolUse` hook can deny the tool call. A `Stop` or `SubagentStop` hook can keep the turn going once. A `SessionStart` or `PostToolUse` hook cannot stop anything: the latter runs after the tool has finished and can only hand Claude an instruction.
 
@@ -80,6 +80,12 @@ The announce judge is an isolated `claude -p` call: no user settings or plugins 
 |---|---|---|---|---|---|
 | `session-lease-sweep.sh` | none | A session ends, except when the reason is `resume` | If this session recorded leases with `ac lease add`, runs `ac lease sweep` detached (it outlives the 1.5 second SessionEnd budget) to stop them. A lease is one of four kinds: a pid, an Android emulator, an iOS simulator or a Playwright session. Exits at once when jq, node, the bundle `cli/ac.js` or a lease file is missing | No | None |
 
+## iTerm2 tab status
+
+| Hook script | Matcher | Fires when | What it does | Can block | Switch or knob |
+|---|---|---|---|---|---|
+| `iterm-agent-status.sh` | none, on `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `PermissionRequest`, `Notification`, `Stop`, `StopFailure`, `SubagentStop` and `SessionEnd` | Every one of those events, inside iTerm2, once `~/.config/iterm2/ac-agent-cookie` exists and iTerm2's Claude Code integration has installed `~/.config/iterm2/cc-status` | Passes the payload to iTerm2's `cc-status`, which sets the tab's status dot, with the cached API cookie in `ITERM2_COOKIE`, so `it2` does not start an `osascript` per hook (each one leaks WindowServer Mach ports). When the cache does not belong to the running iTerm2 it skips `cc-status` and asks for a reusable cookie in the background, at most once an hour; it also checks a cached cookie once an hour and drops it when iTerm2 refuses it. Lock and probe stamps sit next to the cache. Setup and the cookie's security tradeoff are in [Terminal setup](terminal-setup.md#tab-status-without-the-windowserver-leak) | No | Delete `~/.config/iterm2/ac-agent-cookie` |
+
 ## Network and processes
 
 No hook script contains a `curl`, `wget` or HTTP client call. The hits for `gh` and `http` in `plugins/ac/hooks` are patterns the guards match against commands (`pretooluse-bash-guard.sh`, `lib/wake-count.jq`) and URLs in comments.
@@ -95,6 +101,7 @@ Other hooks run local programs and make no connection themselves:
 
 - `session-lease-sweep.sh` starts `node` on the bundled CLI, which signals recorded pids and runs `adb`, `xcrun simctl` and `playwright-cli` for the leases a session recorded, and signals the orphaned test runners `ac lease reap` matches. `cli/ac/src/lease.ts` imports no network module.
 - `posttooluse-cli-diagnostics.sh` runs `php -l` and `dart analyze` on the edited file, through `perl hooks/lib/run-bounded.pl`, which starts them in a process group of their own. Those tools run your project's configuration and code; whether any of them touches the network is not verified. It keeps a slot directory and a pause marker per project under `$TMPDIR` (`ac-cli-diagnostics-*`), never in your repository.
+- `iterm-agent-status.sh` runs `pgrep`, `ps`, iTerm2's own `cc-status` and `it2` (which talk to iTerm2 over its local API socket), and, at most once an hour per iTerm2 process, one `osascript` that asks iTerm2 for a cookie. It writes only under `~/.config/iterm2/`.
 - `session-start-plan-state.sh` runs `git log`; `session-start-working-rules.sh` runs `ps` (only with `AC_WORKING_RULES_APPENDED=1`) and writes `~/.claude/ac/working-rules.md`.
 - The `Bash` guards and budget hooks run `jq`, `awk`, `perl` and `rg` on the command text; none executes the command.
 
@@ -113,6 +120,7 @@ Set variables in `settings.json` under `env`; they reach hooks. `0` is the off v
 | Subagent Bash guard, shell replace rule (search denials stay on) | `AC_BASH_EDIT_GUARD=0` |
 | Question timeout answer | `AC_QUESTION_TIMEOUT=0` |
 | Working rules context | `AC_WORKING_RULES=0` |
+| iTerm2 tab status (off by default) | delete `~/.config/iterm2/ac-agent-cookie` |
 | Execute, auto and coordinate guards | `AC_STOP_GUARD_MAX_BLOCKS=0`, `AC_AUTO_MAX_BLOCKS=0`, `AC_COORDINATE_MAX_BLOCKS=0` (see the Stop table for what each leaves) |
 
 The explore call budget has only a limit (`AC_EXPLORE_MAX_CALLS`; `0` denies every call), not a switch. The other hooks have no per-hook switch: the plan-mode block, shell syntax guard, away guard, file-scope guard, subagent Bash guard search denials, explore read-only checks, subagent stop guard, plan state and lease sweep. Claude Code has no way to disable a single hook either; `"disableAllHooks": true` in settings turns off every hook, yours included, and disabling the plugin removes these.

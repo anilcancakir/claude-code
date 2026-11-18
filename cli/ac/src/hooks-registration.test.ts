@@ -60,6 +60,32 @@ test("the CLI diagnostics hook is registered twice on Write|Edit|MultiEdit: a sh
     expect(entries).toHaveLength(2);
 });
 
+test("the iTerm2 status hook is registered once, unfiltered, on each event iTerm2's cc-status handles", () => {
+    const command = `${ROOT_TOKEN}hooks/iterm-agent-status.sh`;
+    const events = Object.entries(readHooks().hooks)
+        .filter(([, groups]) => groups.some((group) => group.hooks.some((hook) => hook.command === command)))
+        .map(([event, groups]) => {
+            const owning = groups.filter((group) => group.hooks.some((hook) => hook.command === command));
+            expect(owning).toHaveLength(1);
+            expect(owning[0]?.matcher).toBeUndefined();
+
+            return event;
+        });
+
+    expect(events.sort()).toEqual([
+        "Notification",
+        "PermissionRequest",
+        "PostToolUse",
+        "PreToolUse",
+        "SessionEnd",
+        "SessionStart",
+        "Stop",
+        "StopFailure",
+        "SubagentStop",
+        "UserPromptSubmit",
+    ]);
+});
+
 test("every script hooks.json registers is executable by its owner", () => {
     const notExecutable = registeredScripts().filter((script) => (statSync(join(PLUGIN, script)).mode & 0o100) === 0);
     expect(notExecutable).toEqual([]);
