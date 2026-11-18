@@ -599,8 +599,8 @@ When the reviewer finishes first, end the turn with a one-line status; the suite
 open the pull request and start `timeout 1800 node ${CLAUDE_PLUGIN_ROOT}/cli/ac.js pr-watch <number> [--ignore <regex>]` (the
 regex, if any, is the one the section names) under the `Monitor` tool in the same message that spawns the reviewer in
 3b; `verification.md` ("Projects that gate on CI") says how to run it, what each line means and what the exit codes
-are. A `VERDICT green` on the pushed head replaces the background suite and lint, and a red check or a review line
-(`COMMENT`, `INLINE`, `REVIEW`) is a finding that goes through 3c. 3f closes the gate.
+are. A `VERDICT green` on the pushed head replaces the background suite and lint, and a red check (its `DETAIL` line names the cause) or a review line
+(`COMMENT`, `INLINE`, `REVIEW`) is a finding that goes through 3c; the `THREAD` lines before the verdict only carry the ids for answering them. 3f closes the gate.
 
 Then open this run's section of the review log, once: `Grep` `.ac/plans/<slug>/review-log.md` for
 `^## Run <marker started_at>$`, and when nothing matches, add a blank line and `## Run <marker started_at>` at the

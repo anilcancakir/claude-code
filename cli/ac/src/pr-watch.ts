@@ -53,6 +53,8 @@ interface Check {
     /** gh keeps one entry per name, workflow and event, so two entries can share a name. */
     readonly workflow: string;
     readonly event: string;
+    /** The check's details URL; it tells two failing checks of one name apart. */
+    readonly link: string;
 }
 
 interface Failure {
@@ -83,6 +85,37 @@ interface CommentEvent {
     readonly line: string;
 }
 
+/** One review thread as GraphQL reports it; `comment` is the root comment's REST id, the one a reply goes to. */
+interface Thread {
+    readonly id: string;
+    readonly resolved: boolean;
+    readonly outdated: boolean;
+    readonly path: string;
+    readonly line: number;
+    readonly comment: number;
+    readonly author: string;
+}
+
+interface ThreadPage {
+    readonly threads: readonly Thread[];
+    /** More than one page of threads exists; only the first is read. */
+    readonly truncated: boolean;
+}
+
+/** A failed GitHub Actions job whose check run holds no text: its output is in the job log. */
+interface ActionsJob {
+    readonly run: string;
+    readonly job: string | undefined;
+}
+
+interface CheckRun {
+    readonly id: number;
+    readonly name: string;
+    readonly conclusion: string;
+    readonly detailsUrl: string;
+    readonly summary: string;
+}
+
 interface HttpResponse {
     readonly status: number;
     readonly etag: string | undefined;
@@ -102,11 +135,20 @@ const EVENTS_PER_TICK = 25;
 const FAILURE_FIRST_NOTE = 3;
 const FAILURE_NOTE_EVERY = 15;
 const FAILURE_DETAIL_LIMIT = 160;
+const DETAIL_LIMIT = 600;
+const DETAIL_CHECKS_PER_TICK = 5;
+const LOG_TAIL_LINES = 12;
+const LOG_LINE_LIMIT = 200;
+const THREAD_PAGE_SIZE = 100;
+// `reviewThreads` is GraphQL only: REST comments carry no resolved or outdated state. One query costs one
+// point of the 5,000 an hour, and GraphQL answers carry no ETag, so the watch asks once, before the verdict.
+const THREADS_QUERY = `query($owner:String!,$name:String!,$pr:Int!){repository(owner:$owner,name:$name){pullRequest(number:$pr){reviewThreads(first:${THREAD_PAGE_SIZE}){pageInfo{hasNextPage}nodes{id isResolved isOutdated path line originalLine comments(first:1){nodes{databaseId author{login}}}}}}}}`;
 
 /**
  * Watches one pull request until its head commit is green, red or cannot be gated, writing one event
- * line per check settle, comment, review, gate result and verdict. The verdict line is always the last
- * line written. A gh failure is a handled result, never a throw; the caller's `timeout` bounds the run.
+ * line per check settle, failure cause, comment, review, review thread, gate result and verdict. The
+ * verdict line is always the last line written. A gh failure is a handled result, never a throw; the
+ * caller's `timeout` bounds the run.
  *
  * @returns 0 green, 1 red, 2 stuck (gh unavailable, head never appeared or superseded, no checks, queued).
  */
@@ -130,18 +172,23 @@ export function defaultPrWatchDeps(): PrWatchDeps {
  * collapsed, cut to 300 characters plus `...`. An empty result reads `(no text)`.
  */
 export function formatBody(body: string): string {
+    const flat = flatten(body, BODY_LIMIT);
+
+    return flat.text === "" ? "(no text)" : flat.text;
+}
+
+function flatten(body: string, limit: number): { readonly text: string; readonly cut: boolean } {
     const text = body
         .replace(/<!--[\s\S]*?-->/g, " ")
         .replace(/<picture\b[\s\S]*?<\/picture>/gi, " ")
         .replace(/\s+/g, " ")
         .trim();
-    if (text === "") {
-        return "(no text)";
+    const characters = Array.from(text);
+    if (characters.length <= limit) {
+        return { text, cut: false };
     }
 
-    const characters = Array.from(text);
-
-    return characters.length > BODY_LIMIT ? `${characters.slice(0, BODY_LIMIT).join("")}...` : text;
+    return { text: `${characters.slice(0, limit).join("")}...`, cut: true };
 }
 
 class PrWatch {
@@ -162,6 +209,7 @@ class PrWatch {
     private gateAt: number | undefined;
     private failures = 0;
     private readonly sweepFailures = new Map<CommentKind, number>();
+    private baselineInline = new Set<number>();
 
     constructor(options: PrWatchOptions, deps: PrWatchDeps) {
         this.options = options;
@@ -252,8 +300,14 @@ class PrWatch {
 
     private async gate(checks: readonly Check[]): Promise<Outcome> {
         const now = this.deps.now();
+        const failed: Check[] = [];
         for (const check of checks) {
-            this.reportCheck(check);
+            if (this.reportCheck(check) && check.bucket === "fail") {
+                failed.push(check);
+            }
+        }
+        if (failed.length > 0) {
+            await this.explainFailures(failed);
         }
 
         const gates = checks.filter((check) => !this.ignored(check.name));
@@ -265,7 +319,7 @@ class PrWatch {
         this.gateSeen = true;
 
         if (gates.some((check) => check.bucket === "fail" || check.bucket === "cancel")) {
-            await this.sweep();
+            await this.sweep(true);
 
             return this.settle("red");
         }
@@ -318,20 +372,61 @@ class PrWatch {
             return this.stuck(head, "superseded");
         }
 
-        await this.sweep();
+        await this.sweep(true);
 
         return this.settle("green");
     }
 
-    private reportCheck(check: Check): void {
+    /** @returns whether the check settled into a new bucket and a CHECK line was written for it. */
+    private reportCheck(check: Check): boolean {
         const key = `${check.name}\u0000${check.workflow}\u0000${check.event}`;
         if (check.bucket === "pending" || this.settled.get(key) === check.bucket) {
-            return;
+            return false;
         }
 
         this.settled.set(key, check.bucket);
         const suffix = this.ignored(check.name) ? " (not a gate)" : "";
         this.deps.write(`CHECK ${check.name}: ${check.bucket}${suffix}`);
+
+        return true;
+    }
+
+    // `gh pr checks` says a check failed, not why. The check run's own output usually says (Kodizm CI puts a
+    // `### Failures` section with file and line in it), so one unconditional GET for the pinned head names
+    // the cause on the failing tick, instead of the agent hunting for it after the verdict.
+    private async explainFailures(failed: readonly Check[]): Promise<void> {
+        const slug = this.options.repo ?? "{owner}/{repo}";
+        const fetched = await this.fetch(`repos/${slug}/commits/${this.options.head}/check-runs?per_page=100`, false);
+        const runs = fetched.kind === "ok" ? checkRuns(fetched.body) : undefined;
+        const reason = fetched.kind === "failed" ? fetched.detail : "no check run list";
+
+        for (const check of failed.slice(0, DETAIL_CHECKS_PER_TICK)) {
+            const described = runs === undefined
+                ? `unavailable (${reason.slice(0, FAILURE_DETAIL_LIMIT)})`
+                : describeFailure(check, runs, slug);
+            const text = typeof described === "string" ? described : await this.explainJob(described, slug);
+            this.deps.write(`DETAIL ${check.name}: ${text}`);
+        }
+        if (failed.length > DETAIL_CHECKS_PER_TICK) {
+            this.deps.write(`NOTE ${failed.length - DETAIL_CHECKS_PER_TICK} more failed checks without detail`);
+        }
+    }
+
+    // An Actions job's check run carries no text, but its log ends with the failing step's output and an `##[error]`
+    // line, which is what an agent would otherwise fetch with `gh run view --log-failed` after the verdict.
+    private async explainJob(job: ActionsJob, slug: string): Promise<string> {
+        const read = `gh run view ${job.run} --log-failed${this.options.repo === undefined ? "" : ` -R ${this.options.repo}`}`;
+        if (job.job === undefined) {
+            return `no failure text in the check output, read the log with ${read}`;
+        }
+
+        // The log carries ANSI colour codes, which gh refuses to print unless told to; logTail strips them.
+        const result = await this.deps.gh(["api", "--allow-escape-sequences", `repos/${slug}/actions/jobs/${job.job}/logs`]);
+        const tail = result.code === 0 ? logTail(result.stdout) : undefined;
+
+        return tail === undefined
+            ? `no failure text in the check output, read the log with ${read}`
+            : `${tail} [full: ${read}]`;
     }
 
     private ignored(name: string): boolean {
@@ -364,7 +459,7 @@ class PrWatch {
             this.options.pr,
             ...repo,
             "--json",
-            "name,bucket,state,workflow,event",
+            "name,bucket,state,workflow,event,link",
         ]);
 
         // `gh pr checks --json` exits 0 with failing checks; non-zero means the call itself went wrong,
@@ -391,10 +486,16 @@ class PrWatch {
             state: check.state,
             workflow: typeof check.workflow === "string" ? check.workflow : "",
             event: typeof check.event === "string" ? check.event : "",
+            link: typeof check.link === "string" ? check.link : "",
         }));
     }
 
-    private async sweep(): Promise<void> {
+    /**
+     * Reads the three comment endpoints and writes what is new. The `final` sweep, the one before a verdict,
+     * also reads the review threads: GraphQL only, one point of the hourly budget per run, and the ids a
+     * reply and a resolve need arrive with the verdict instead of as a second notification per inline comment.
+     */
+    private async sweep(final = false): Promise<void> {
         let shown = 0;
         let hidden = 0;
 
@@ -413,6 +514,9 @@ class PrWatch {
 
             if (!this.baselines.has(endpoint.kind)) {
                 this.baselines.set(endpoint.kind, events.length);
+                if (endpoint.kind === "inline") {
+                    this.baselineInline = new Set(events.map((event) => event.id));
+                }
                 if (!this.options.includeExisting) {
                     this.writeBaselineWhenComplete();
                     continue;
@@ -432,6 +536,76 @@ class PrWatch {
         if (hidden > 0) {
             this.deps.write(`NOTE ${hidden} more comment events not shown, read them with gh api`);
         }
+
+        if (final) {
+            await this.sweepThreads();
+        }
+    }
+
+    // THREAD lines carry the two ids a reply and a resolve need: `comment` is the id an INLINE line shows (the
+    // reply target), the PRRT id is what `resolveReviewThread` takes. A thread whose first comment predates the
+    // watch is the baseline, like the comments: it is counted on the THREADS line (`before`), not listed, since
+    // an agent that already handled it would otherwise meet it again on every round. No THREADS line means the
+    // PR has no review thread.
+    private async sweepThreads(): Promise<void> {
+        const page = await this.readThreads();
+        if (typeof page === "string") {
+            this.deps.write(`NOTE threads unavailable: ${page.slice(0, FAILURE_DETAIL_LIMIT)}`);
+
+            return;
+        }
+
+        const open = page.threads.filter((thread) => !thread.resolved);
+        const before = this.options.includeExisting ? [] : open.filter((thread) => this.baselineInline.has(thread.comment));
+        const listed = open.filter((thread) => !before.includes(thread));
+        for (const thread of listed.slice(0, EVENTS_PER_TICK)) {
+            this.deps.write(describeThread(thread));
+        }
+        if (listed.length > EVENTS_PER_TICK) {
+            this.deps.write(`NOTE ${listed.length - EVENTS_PER_TICK} more open threads not shown, read them with gh api graphql`);
+        }
+
+        if (page.threads.length > 0) {
+            const outdated = open.filter((thread) => thread.outdated).length;
+            const older = before.length > 0 ? ` before=${before.length}` : "";
+            this.deps.write(`THREADS open=${open.length} resolved=${page.threads.length - open.length} outdated=${outdated}${older}`);
+            if (page.truncated) {
+                this.deps.write(`NOTE more than ${THREAD_PAGE_SIZE} review threads, only the first ${THREAD_PAGE_SIZE} are counted`);
+            }
+        }
+    }
+
+    /** @returns the first page of review threads, or the reason they could not be read. */
+    private async readThreads(): Promise<ThreadPage | string> {
+        // `-F` expands gh's `{owner}` and `{repo}` placeholders and `-f` does not; `-f` keeps a numeric repo name a string.
+        const flag = this.options.repo === undefined ? "-F" : "-f";
+        const [owner = "{owner}", name = "{repo}"] = this.options.repo?.split("/") ?? [];
+        const result = await this.deps.gh([
+            "api",
+            "graphql",
+            flag,
+            `owner=${owner}`,
+            flag,
+            `name=${name}`,
+            "-F",
+            `pr=${this.options.pr}`,
+            "-f",
+            `query=${THREADS_QUERY}`,
+        ]);
+        if (result.code !== 0) {
+            return failureDetail(result, "gh api graphql failed");
+        }
+
+        const connection = pick(parseJson(result.stdout), "data", "repository", "pullRequest", "reviewThreads");
+        const nodes = pick(connection, "nodes");
+        if (!Array.isArray(nodes)) {
+            return "unreadable review thread reply";
+        }
+
+        return {
+            threads: nodes.flatMap((node) => threadFrom(node) ?? []),
+            truncated: pick(connection, "pageInfo", "hasNextPage") === true,
+        };
     }
 
     // A sweep that keeps failing (gh without --slurp, a 403 on one endpoint) would otherwise lose that kind of
@@ -466,12 +640,12 @@ class PrWatch {
      * no rate limit; a paginated resource is read whole from then on, since page 1 cannot vouch for the
      * pages after it.
      */
-    private async fetch(path: string): Promise<Fetched> {
+    private async fetch(path: string, useEtag = true): Promise<Fetched> {
         if (this.paginated.has(path)) {
             return this.fetchAllPages(path);
         }
 
-        const etag = this.etags.get(path);
+        const etag = useEtag ? this.etags.get(path) : undefined;
         const conditional = etag === undefined ? [] : ["-H", `If-None-Match: ${etag}`];
         const result = await this.deps.gh(["api", "-i", ...conditional, path]);
         if (unusable(result.code)) {
@@ -494,7 +668,7 @@ class PrWatch {
                 ? { kind: "failed", detail, fatal: "pr-not-found" }
                 : { kind: "failed", detail };
         }
-        if (response.hasNext) {
+        if (response.hasNext && useEtag) {
             this.paginated.add(path);
 
             return this.fetchAllPages(path);
@@ -504,7 +678,7 @@ class PrWatch {
         if (body === undefined) {
             return { kind: "failed", detail: `unreadable reply from gh api ${path}` };
         }
-        if (response.etag !== undefined) {
+        if (response.etag !== undefined && useEtag) {
             this.etags.set(path, response.etag);
         }
 
@@ -591,6 +765,153 @@ function describeComment(kind: CommentKind, id: number, item: Record<string, unk
             return `REVIEW ${id} ${login} ${state}: ${text}`;
         }
     }
+}
+
+function describeThread(thread: Thread): string {
+    const outdated = thread.outdated ? " (outdated)" : "";
+
+    return `THREAD ${thread.id} comment=${thread.comment} ${thread.path}:${thread.line} ${thread.author}${outdated}`;
+}
+
+function threadFrom(node: unknown): Thread | undefined {
+    if (!isRecord(node) || typeof node.id !== "string" || typeof node.isResolved !== "boolean") {
+        return undefined;
+    }
+
+    const comments = pick(node, "comments", "nodes");
+    const root = Array.isArray(comments) ? comments[0] : undefined;
+    const login = pick(root, "author", "login");
+
+    return {
+        id: node.id,
+        resolved: node.isResolved,
+        outdated: node.isOutdated === true,
+        path: typeof node.path === "string" ? node.path : "",
+        line: numberOrNull(node.line) ?? numberOrNull(node.originalLine) ?? 0,
+        comment: numberOrNull(pick(root, "databaseId")) ?? 0,
+        author: typeof login === "string" ? login : "ghost",
+    };
+}
+
+function checkRuns(body: unknown): readonly CheckRun[] | undefined {
+    const runs = pick(body, "check_runs");
+    if (!Array.isArray(runs)) {
+        return undefined;
+    }
+
+    return runs.flatMap((run): CheckRun[] => {
+        if (!isRecord(run) || typeof run.name !== "string" || typeof run.id !== "number") {
+            return [];
+        }
+        const summary = pick(run, "output", "summary");
+
+        return [{
+            id: run.id,
+            name: run.name,
+            conclusion: typeof run.conclusion === "string" ? run.conclusion : "",
+            detailsUrl: typeof run.details_url === "string" ? run.details_url : "",
+            summary: typeof summary === "string" ? summary : "",
+        }];
+    });
+}
+
+function describeFailure(check: Check, runs: readonly CheckRun[], slug: string): string | ActionsJob {
+    const named = runs.filter((candidate) => candidate.name === check.name);
+    const run = named.find((candidate) => candidate.conclusion === "failure" && candidate.detailsUrl === check.link)
+        ?? named.find((candidate) => candidate.conclusion === "failure")
+        ?? named[0];
+    if (run === undefined) {
+        return "unavailable (no check run of that name on this head)";
+    }
+
+    const cause = failureSection(run.summary) ?? run.summary;
+    const flat = flatten(cause.replace(/^[ \t]*(?:~{3,}|`{3,})[\w-]*[ \t]*$/gm, " "), DETAIL_LIMIT);
+    if (flat.text !== "") {
+        return flat.cut ? `${flat.text} [full: gh api repos/${slug}/check-runs/${run.id} --jq .output.summary]` : flat.text;
+    }
+
+    // A GitHub Actions job writes its output to a log, not to the check run.
+    const runId = /\/actions\/runs\/(\d+)/.exec(run.detailsUrl)?.[1];
+    if (runId === undefined) {
+        return "no failure text in the check output";
+    }
+
+    return { run: runId, job: /\/job\/(\d+)/.exec(run.detailsUrl)?.[1] };
+}
+
+/**
+ * The failing step of an Actions job log: its `##[group]` title and the last lines of its output up to the final
+ * `##[error]`, on one line. Colour codes, timestamps and control characters are dropped, since a log is untrusted
+ * text that ends up in a terminal. The lines nearest the error win when the budget runs out.
+ */
+function logTail(log: string): string | undefined {
+    const lines = log.split("\n").map((line) => line
+        .replace(/\u001b\[[0-9;?]*[ -/]*[@-~]/g, "")
+        .replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, "")
+        .replace(/^\ufeff?\d{4}-\d{2}-\d{2}T[\d:.]+Z ?/, ""));
+
+    let error = -1;
+    for (const [index, line] of lines.entries()) {
+        if (line.startsWith("##[error]")) {
+            error = index;
+        }
+    }
+    if (error < 0) {
+        return undefined;
+    }
+
+    let start = error;
+    while (start > 0 && !/^##\[(?:end)?group\]/.test(lines[start - 1] ?? "")) {
+        start -= 1;
+    }
+    const title = lines.slice(0, start).reverse().find((line) => line.startsWith("##[group]"))?.slice("##[group]".length).trim();
+    const output = lines
+        .slice(start, error + 1)
+        .map((line) => line.replace(/^##\[error\]/, "").trim())
+        .filter((line) => line !== "")
+        .map((line) => Array.from(line).slice(0, LOG_LINE_LIMIT).join(""));
+
+    const kept: string[] = [];
+    let size = (title?.length ?? 0) + 8;
+    for (const line of output.reverse()) {
+        if (kept.length >= LOG_TAIL_LINES || (kept.length > 0 && size + line.length > DETAIL_LIMIT)) {
+            break;
+        }
+        kept.unshift(line);
+        size += line.length + 3;
+    }
+    if (kept.length === 0) {
+        return undefined;
+    }
+
+    const dropped = kept.length < output.length ? "... | " : "";
+
+    return `${title === undefined ? "" : `${title}: `}${dropped}${kept.join(" | ")}`;
+}
+
+/** The body of a `### Failures` heading, up to the next `###` heading. */
+function failureSection(summary: string): string | undefined {
+    const heading = /(?:^|\n)###[ \t]+Failures[^\n]*\n/.exec(summary);
+    if (heading === null) {
+        return undefined;
+    }
+
+    const rest = summary.slice(heading.index + heading[0].length);
+    const next = rest.search(/\n###[ \t]/);
+
+    return next < 0 ? rest : rest.slice(0, next);
+}
+
+function pick(value: unknown, ...keys: readonly string[]): unknown {
+    let current = value;
+    for (const key of keys) {
+        if (!isRecord(current)) {
+            return undefined;
+        }
+        current = current[key];
+    }
+
+    return current;
 }
 
 function parseHttpResponse(stdout: string): HttpResponse | undefined {

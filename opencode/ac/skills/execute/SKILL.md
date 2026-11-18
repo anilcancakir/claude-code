@@ -2,7 +2,7 @@
 name: execute
 description: "Run an approved ac plan to completion, wave by wave, with cost-tiered workers, per-wave verification and a final review. Loaded by /ac/execute; the request carries a plan slug or path plus flags."
 ---
-<!-- ported-from: plugins/ac/skills/execute/SKILL.md sha256:0cf499d47492ea5b20a699d557335d20985cc2cdbbabd6182f1909aff80d4220 -->
+<!-- ported-from: plugins/ac/skills/execute/SKILL.md sha256:32ba9703a901c03a23bea01810527cf618d99995d741b0ffff8739688cf60781 -->
 
 # /ac/execute
 
@@ -687,8 +687,8 @@ When the reviewer finishes first, end the turn with a one-line status; the suite
 uncommitted, push, open the pull request and start `timeout 3600 node "$AC_CLI" pr-watch <number> [--ignore <regex>]`
 (the regex, if any, is the one the section names) with `background: true` on the shell call in the same response that
 spawns the reviewer in 3b; `references/verification.md` ("Projects that gate on CI") says what each line means and what
-the exit codes are. A `VERDICT green` on the pushed head replaces the background suite and lint, and a red check or a
-review line (`COMMENT`, `INLINE`, `REVIEW`) is a finding that goes through 3c. 3f closes the gate.
+the exit codes are. A `VERDICT green` on the pushed head replaces the background suite and lint, and a red check (its
+`DETAIL` line names the cause) or a review line (`COMMENT`, `INLINE`, `REVIEW`) is a finding that goes through 3c; the `THREAD` lines before the verdict only carry the ids for answering them. 3f closes the gate.
 
 Then open this run's section of the review log, once:
 

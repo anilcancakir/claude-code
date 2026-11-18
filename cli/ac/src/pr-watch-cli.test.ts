@@ -19,10 +19,13 @@ case "$1 $2" in
       echo "no checks reported on the 'x' branch" >&2
       exit 1
     fi ;;
+  "api graphql")
+    fixture threads.json '{"data":{"repository":{"pullRequest":{"reviewThreads":{"pageInfo":{"hasNextPage":false},"nodes":[]}}}}}' ;;
   "api -i")
     for path; do :; done
     printf 'HTTP/2.0 200 OK\\nEtag: W/"x"\\n\\r\\n'
     case "$path" in
+      */commits/*/check-runs*) fixture check-runs.json '{"check_runs":[]}' ;;
       */issues/*/comments*) fixture comments.json ;;
       */pulls/*/comments*) fixture inline.json ;;
       */pulls/*/reviews*) fixture reviews.json ;;
@@ -128,6 +131,53 @@ describe("ac pr-watch", () => {
 
         expect(result.lines).toContain("BASELINE comments=1 inline=0 reviews=0");
         expect(result.out).not.toContain("COMMENT 7");
+    });
+
+    test("a failed check is followed by the cause out of its check run", () => {
+        fixture("checks.json", [{ name: "ci", bucket: "fail", state: "FAILURE" }]);
+        fixture("check-runs.json", {
+            check_runs: [{ id: 9, name: "ci", conclusion: "failure", output: { summary: "### Failures\n\n- **lint** broke" } }],
+        });
+        const result = watch();
+
+        expect(result.code).toBe(1);
+        expect(result.lines).toContain("CHECK ci: fail");
+        expect(result.lines).toContain("DETAIL ci: - **lint** broke");
+        expect(result.lines.at(-1)).toStartWith("VERDICT red ");
+    });
+
+    test("an open review thread is listed with its ids before the verdict", () => {
+        fixture("checks.json", [{ name: "ci", bucket: "pass", state: "SUCCESS" }]);
+        fixture("threads.json", {
+            data: {
+                repository: {
+                    pullRequest: {
+                        reviewThreads: {
+                            pageInfo: { hasNextPage: false },
+                            nodes: [
+                                {
+                                    id: "PRRT_x",
+                                    isResolved: false,
+                                    isOutdated: false,
+                                    path: "a.php",
+                                    line: 3,
+                                    originalLine: 3,
+                                    comments: { nodes: [{ databaseId: 11, author: { login: "kodizm" } }] },
+                                },
+                            ],
+                        },
+                    },
+                },
+            },
+        });
+        const result = watch();
+
+        expect(result.code).toBe(0);
+        expect(result.lines.slice(-3)).toEqual([
+            "THREAD PRRT_x comment=11 a.php:3 kodizm",
+            "THREADS open=1 resolved=0 outdated=0",
+            "VERDICT green head=aaaaaaa",
+        ]);
     });
 
     test("exits 2 with gh-unavailable when gh is not on PATH", () => {

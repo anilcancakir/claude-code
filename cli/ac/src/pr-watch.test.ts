@@ -7,6 +7,7 @@ const HEAD_PATH = "repos/o/r/pulls/42";
 const COMMENTS_PATH = "repos/o/r/issues/42/comments?per_page=100";
 const INLINE_PATH = "repos/o/r/pulls/42/comments?per_page=100";
 const REVIEWS_PATH = "repos/o/r/pulls/42/reviews?per_page=100";
+const CHECK_RUNS_PATH = `repos/o/r/commits/${HEAD}/check-runs?per_page=100`;
 
 type Row = Record<string, unknown>;
 
@@ -56,6 +57,29 @@ function review(id: number, state: string, body: string): Row {
     };
 }
 
+function checkRun(id: number, name: string, conclusion: string, summary: string, detailsUrl = "https://github.com"): Row {
+    return {
+        id,
+        name,
+        conclusion,
+        details_url: detailsUrl,
+        output: { title: "Failed", summary },
+    };
+}
+
+function thread(id: string, commentId: number, fields: Row = {}): Row {
+    return {
+        id,
+        isResolved: false,
+        isOutdated: false,
+        path: "app/Model.php",
+        line: 12,
+        originalLine: 12,
+        comments: { nodes: [{ databaseId: commentId, author: { login: "kodizm" } }] },
+        ...fields,
+    };
+}
+
 function failed(stderr: string): GhResult {
     return {
         code: 1,
@@ -85,6 +109,11 @@ class FakeGitHub {
     comments: Row[] = [];
     inline: Row[] = [];
     reviews: Row[] = [];
+    checkRuns: Row[] = [];
+    threads: Row[] = [];
+    threadsMore = false;
+    jobLog: string | undefined;
+    readonly logPaths: string[] = [];
     pageSize = 100;
     intercept: ((args: readonly string[]) => GhResult | undefined) | undefined;
     onSleep: ((tick: number) => void) | undefined;
@@ -118,6 +147,10 @@ class FakeGitHub {
         return this.calls.filter((call) => call[0] === "api" && call[call.length - 1] === path);
     }
 
+    threadCalls(): string[][] {
+        return this.calls.filter((call) => call[0] === "api" && call[1] === "graphql");
+    }
+
     private answer(args: readonly string[]): GhResult {
         this.calls.push([...args]);
         this.linesAtFirstCall ??= this.lines.length;
@@ -130,6 +163,17 @@ class FakeGitHub {
             const checks = next(this.checks);
 
             return "code" in checks ? checks : { code: 0, stdout: JSON.stringify(checks), stderr: "" };
+        }
+        if (args[1] === "--allow-escape-sequences") {
+            this.logPaths.push(args.at(-1) ?? "");
+
+            return this.jobLog === undefined ? failed("gh: HTTP 404") : { code: 0, stdout: this.jobLog, stderr: "" };
+        }
+        if (args[1] === "graphql") {
+            const connection = { pageInfo: { hasNextPage: this.threadsMore }, nodes: this.threads };
+            const body = { data: { repository: { pullRequest: { reviewThreads: connection } } } };
+
+            return { code: 0, stdout: JSON.stringify(body), stderr: "" };
         }
 
         return this.answerApi(args);
@@ -181,6 +225,8 @@ class FakeGitHub {
                 return this.inline;
             case REVIEWS_PATH:
                 return this.reviews;
+            case CHECK_RUNS_PATH:
+                return { total_count: this.checkRuns.length, check_runs: this.checkRuns };
         }
         throw new Error(`unexpected path ${path}`);
     }
@@ -313,7 +359,7 @@ describe("rule 3: head pin", () => {
 
         expect(await watch(fake, { repo: undefined })).toBe(0);
         expect(fake.calls[0]).toEqual(["api", "-i", "repos/{owner}/{repo}/pulls/42"]);
-        expect(fake.calls[1]).toEqual(["pr", "checks", "42", "--json", "name,bucket,state,workflow,event"]);
+        expect(fake.calls[1]).toEqual(["pr", "checks", "42", "--json", "name,bucket,state,workflow,event,link"]);
     });
 });
 
@@ -323,7 +369,7 @@ describe("rule 4: checks", () => {
         fake.checks = [[check("ci", "fail", "FAILURE")]];
 
         expect(await watch(fake)).toBe(1);
-        expect(fake.calls[1]).toEqual(["pr", "checks", "42", "-R", "o/r", "--json", "name,bucket,state,workflow,event"]);
+        expect(fake.calls[1]).toEqual(["pr", "checks", "42", "-R", "o/r", "--json", "name,bucket,state,workflow,event,link"]);
     });
 
     test("a no checks reported exit is an empty list, not a failed call", async () => {
@@ -346,11 +392,13 @@ describe("rule 5: CHECK lines", () => {
             [check("ci", "pending", "IN_PROGRESS"), check("CodeRabbit", "pass", "SUCCESS")],
             [check("ci", "pass", "SUCCESS"), check("CodeRabbit", "pass", "SUCCESS")],
         ];
+        fake.checkRuns = [checkRun(1, "CodeRabbit", "failure", "rate limited")];
 
         expect(await watch(fake, { ignore: /CodeRabbit/ })).toBe(0);
         expect(fake.lines.filter((line) => !line.startsWith("BASELINE"))).toEqual([
             "WATCH pr=42 head=aaaaaaa",
             "CHECK CodeRabbit: fail (not a gate)",
+            "DETAIL CodeRabbit: rate limited",
             "CHECK CodeRabbit: pass (not a gate)",
             "CHECK ci: pass",
             "GATE green",
@@ -380,12 +428,14 @@ describe("rule 6: red", () => {
         const fake = new FakeGitHub();
         fake.checks = [[check("Kodizm CI", "fail", "FAILURE"), check("lint", "pending", "IN_PROGRESS")]];
         fake.comments = [comment(5, "fix the test")];
+        fake.checkRuns = [checkRun(1, "Kodizm CI", "failure", "### Failures\n\n- **test** t-1")];
 
         expect(await watch(fake, { ignore: /CodeRabbit/, includeExisting: true })).toBe(1);
         expect(fake.sleeps).toEqual([]);
         expect(fake.lines).toEqual([
             "WATCH pr=42 head=aaaaaaa",
             "CHECK Kodizm CI: fail",
+            "DETAIL Kodizm CI: - **test** t-1",
             "COMMENT 5 kodizm[bot]: fix the test",
             "VERDICT red head=aaaaaaa",
         ]);
@@ -760,5 +810,329 @@ describe("rule 12: loop", () => {
         expect(fake.sleeps).toEqual([7000, 7000]);
         expect(fake.lines.filter((line) => line.startsWith("VERDICT"))).toEqual(["VERDICT green head=aaaaaaa"]);
         expect(fake.lines.at(-1)).toBe("VERDICT green head=aaaaaaa");
+    });
+});
+
+describe("rule 13: failure detail", () => {
+    const SUMMARY = [
+        "| Job | Status |",
+        "| --- | --- |",
+        "| lint | failed |",
+        "",
+        "### Failures",
+        "",
+        "- **flutter-lint** lint-2",
+        "",
+        "~~~~text",
+        "info • deprecated • test/a_test.dart:4:1",
+        "~~~~",
+        "",
+        "### Coverage",
+        "",
+        "| Stack | Lines |",
+    ].join("\n");
+
+    test("a failed check is followed by the Failures section of its check run, without the fences or the next heading", async () => {
+        const fake = new FakeGitHub();
+        fake.checks = [[check("Kodizm CI", "fail", "FAILURE")]];
+        fake.checkRuns = [checkRun(9, "Kodizm CI", "failure", SUMMARY)];
+
+        expect(await watch(fake)).toBe(1);
+        expect(fake.lines).toContain("DETAIL Kodizm CI: - **flutter-lint** lint-2 info • deprecated • test/a_test.dart:4:1");
+        expect(fake.lines.indexOf("CHECK Kodizm CI: fail") + 1).toBe(fake.lines.indexOf(fake.lines.find((line) => line.startsWith("DETAIL")) ?? ""));
+        expect(fake.callsTo(CHECK_RUNS_PATH)).toHaveLength(1);
+    });
+
+    test("a long failure is cut and names the command that reads all of it", async () => {
+        const fake = new FakeGitHub();
+        fake.checks = [[check("ci", "fail", "FAILURE")]];
+        fake.checkRuns = [checkRun(9, "ci", "failure", `### Failures\n\n${"x".repeat(900)}`)];
+
+        await watch(fake);
+
+        const detail = fake.lines.find((line) => line.startsWith("DETAIL ci: ")) ?? "";
+        expect(detail).toEndWith("... [full: gh api repos/o/r/check-runs/9 --jq .output.summary]");
+        expect(detail.length).toBeLessThan(700);
+    });
+
+    test("a check run without text but with an Actions link points at the job log", async () => {
+        const fake = new FakeGitHub();
+        fake.checks = [[check("build", "fail", "FAILURE")]];
+        fake.checkRuns = [checkRun(9, "build", "failure", "", "https://github.com/o/r/actions/runs/77/job/88")];
+
+        await watch(fake);
+
+        expect(fake.lines).toContain("DETAIL build: no failure text in the check output, read the log with gh run view 77 --log-failed -R o/r");
+    });
+
+    test("a check run without text and without an Actions link says there is nothing to read", async () => {
+        const fake = new FakeGitHub();
+        fake.checks = [[check("ci", "fail", "FAILURE")]];
+        fake.checkRuns = [checkRun(9, "ci", "failure", "")];
+
+        await watch(fake);
+
+        expect(fake.lines).toContain("DETAIL ci: no failure text in the check output");
+    });
+
+    test("a check run list that cannot be read is said so and the verdict still follows", async () => {
+        const fake = new FakeGitHub();
+        fake.checks = [[check("ci", "fail", "FAILURE")]];
+        fake.intercept = (args) => (args.at(-1) === CHECK_RUNS_PATH ? failed("gh: HTTP 502") : undefined);
+
+        expect(await watch(fake)).toBe(1);
+        expect(fake.lines).toContain("DETAIL ci: unavailable (gh: HTTP 502)");
+        expect(fake.lines.at(-1)).toBe("VERDICT red head=aaaaaaa");
+    });
+
+    test("one list read serves every failing check, and only five are described", async () => {
+        const fake = new FakeGitHub();
+        const names = ["a", "b", "c", "d", "e", "f", "g"];
+        fake.checks = [names.map((name) => check(name, "fail", "FAILURE"))];
+        fake.checkRuns = names.map((name, index) => checkRun(index + 1, name, "failure", `${name} broke`));
+
+        await watch(fake);
+
+        expect(fake.callsTo(CHECK_RUNS_PATH)).toHaveLength(1);
+        expect(notes(fake, "DETAIL")).toHaveLength(5);
+        expect(notes(fake, "NOTE 2 more failed checks")).toEqual(["NOTE 2 more failed checks without detail"]);
+    });
+
+    test("two failing checks of one name each get the output of their own check run", async () => {
+        const fake = new FakeGitHub();
+        const first = { ...check("build", "fail", "FAILURE", "a.yml", "push"), link: "https://x/runs/1" };
+        const second = { ...check("build", "fail", "FAILURE", "b.yml", "pull_request"), link: "https://x/runs/2" };
+        fake.checks = [[first, second]];
+        fake.checkRuns = [
+            checkRun(1, "build", "failure", "first broke", "https://x/runs/1"),
+            checkRun(2, "build", "failure", "second broke", "https://x/runs/2"),
+        ];
+
+        await watch(fake);
+
+        expect(notes(fake, "DETAIL")).toEqual(["DETAIL build: first broke", "DETAIL build: second broke"]);
+    });
+
+    test("a watch whose checks pass never reads the check runs", async () => {
+        const fake = new FakeGitHub();
+        fake.checks = [PASS];
+
+        await watch(fake);
+
+        expect(fake.callsTo(CHECK_RUNS_PATH)).toHaveLength(0);
+    });
+});
+
+describe("rule 14: review threads", () => {
+    test("a thread that appears while the watch runs is listed once, with the ids a reply and a resolve need, before the verdict", async () => {
+        const fake = new FakeGitHub();
+        fake.checks = [RUNNING, RUNNING, PASS];
+        fake.onSleep = (tick) => {
+            if (tick === 1) {
+                fake.inline = [inlineComment(7, "app/Model.php", 12, 12)];
+                fake.threads = [thread("PRRT_a", 7)];
+            }
+        };
+
+        expect(await watch(fake)).toBe(0);
+        expect(fake.lines.indexOf("INLINE 7 coderabbitai[bot] app/Model.php:12: nit")).toBeGreaterThan(0);
+        expect(fake.lines.slice(-3)).toEqual([
+            "THREAD PRRT_a comment=7 app/Model.php:12 kodizm",
+            "THREADS open=1 resolved=0 outdated=0",
+            "VERDICT green head=aaaaaaa",
+        ]);
+    });
+
+    test("threads that predate the watch are counted as before, not listed again", async () => {
+        const fake = new FakeGitHub();
+        fake.checks = [RUNNING, PASS];
+        fake.inline = [inlineComment(1, "a.php", 1, 1), inlineComment(2, "a.php", 2, 2), inlineComment(3, "a.php", 3, 3)];
+        fake.threads = [
+            thread("PRRT_live", 1),
+            thread("PRRT_old", 2, { isOutdated: true, line: null }),
+            thread("PRRT_done", 3, { isResolved: true }),
+        ];
+
+        expect(await watch(fake)).toBe(0);
+        expect(notes(fake, "THREAD ")).toEqual([]);
+        expect(fake.lines.at(-2)).toBe("THREADS open=2 resolved=1 outdated=1 before=2");
+    });
+
+    test("only the thread that is new is listed when an older one is still open", async () => {
+        const fake = new FakeGitHub();
+        fake.checks = [RUNNING, PASS];
+        fake.inline = [inlineComment(1, "a.php", 1, 1)];
+        fake.threads = [thread("PRRT_live", 1)];
+        fake.onSleep = () => {
+            fake.inline = [inlineComment(1, "a.php", 1, 1), inlineComment(9, "b.php", 4, 4)];
+            fake.threads = [thread("PRRT_live", 1), thread("PRRT_new", 9, { path: "b.php", line: 4 })];
+        };
+
+        await watch(fake);
+
+        expect(notes(fake, "THREAD ")).toEqual(["THREAD PRRT_new comment=9 b.php:4 kodizm"]);
+        expect(fake.lines.at(-2)).toBe("THREADS open=2 resolved=0 outdated=0 before=1");
+    });
+
+    test("--include-existing lists the open threads that predate the watch, outdated ones marked", async () => {
+        const fake = new FakeGitHub();
+        fake.checks = [PASS];
+        fake.inline = [inlineComment(1, "a.php", 1, 1), inlineComment(2, "a.php", 2, 2)];
+        fake.threads = [thread("PRRT_live", 1), thread("PRRT_old", 2, { isOutdated: true })];
+
+        await watch(fake, { includeExisting: true });
+
+        expect(notes(fake, "THREAD ")).toEqual([
+            "THREAD PRRT_live comment=1 app/Model.php:12 kodizm",
+            "THREAD PRRT_old comment=2 app/Model.php:12 kodizm (outdated)",
+        ]);
+        expect(fake.lines.at(-2)).toBe("THREADS open=2 resolved=0 outdated=1");
+    });
+
+    test("a pull request without threads gets no THREADS line", async () => {
+        const fake = new FakeGitHub();
+        fake.checks = [PASS];
+
+        await watch(fake);
+
+        expect(notes(fake, "THREAD")).toEqual([]);
+    });
+
+    test("the threads are read once per watch, however many ticks it takes", async () => {
+        const fake = new FakeGitHub();
+        fake.checks = [RUNNING, RUNNING, RUNNING, RUNNING, PASS];
+
+        await watch(fake);
+
+        expect(fake.threadCalls()).toHaveLength(1);
+    });
+
+    test("a red verdict reads the threads too, and the lines stay before the verdict", async () => {
+        const fake = new FakeGitHub();
+        fake.checks = [[check("ci", "fail", "FAILURE")]];
+        fake.threads = [thread("PRRT_a", 7)];
+
+        expect(await watch(fake)).toBe(1);
+        expect(fake.lines.slice(-3)).toEqual([
+            "THREAD PRRT_a comment=7 app/Model.php:12 kodizm",
+            "THREADS open=1 resolved=0 outdated=0",
+            "VERDICT red head=aaaaaaa",
+        ]);
+    });
+
+    test("a thread read that fails is noted before the verdict and does not change it", async () => {
+        const fake = new FakeGitHub();
+        fake.checks = [PASS];
+        fake.intercept = (args) => (args[1] === "graphql" ? failed("gh: HTTP 502") : undefined);
+
+        expect(await watch(fake)).toBe(0);
+        expect(notes(fake, "NOTE threads unavailable")).toEqual(["NOTE threads unavailable: gh: HTTP 502"]);
+        expect(fake.lines.at(-1)).toBe("VERDICT green head=aaaaaaa");
+    });
+
+    test("the query names the repository with -f, and gh's placeholders with -F when none was given", async () => {
+        const named = new FakeGitHub();
+        named.checks = [PASS];
+        await watch(named);
+        expect(named.threadCalls()[0]?.join(" ")).toContain("-f owner=o -f name=r -F pr=42");
+
+        const implicit = new FakeGitHub();
+        implicit.checks = [PASS];
+        await watch(implicit, { repo: undefined });
+        expect(implicit.threadCalls()[0]?.join(" ")).toContain("-F owner={owner} -F name={repo} -F pr=42");
+    });
+
+    test("more than one page of threads is counted from the first page and said so", async () => {
+        const fake = new FakeGitHub();
+        fake.checks = [PASS];
+        fake.threads = [thread("PRRT_a", 1)];
+        fake.threadsMore = true;
+
+        await watch(fake);
+
+        expect(fake.lines.slice(-3)).toEqual([
+            "THREADS open=1 resolved=0 outdated=0",
+            "NOTE more than 100 review threads, only the first 100 are counted",
+            "VERDICT green head=aaaaaaa",
+        ]);
+    });
+
+    test("no more than 25 thread lines come out of one read", async () => {
+        const fake = new FakeGitHub();
+        fake.checks = [PASS];
+        fake.threads = Array.from({ length: 27 }, (_, index) => thread(`PRRT_${index}`, index + 1));
+
+        await watch(fake);
+
+        expect(notes(fake, "THREAD ")).toHaveLength(25);
+        expect(notes(fake, "NOTE 2 more open threads")).toHaveLength(1);
+    });
+});
+
+describe("rule 13: failure detail from an Actions job log", () => {
+    const STAMP = "2026-11-17T15:47:49.3556507Z";
+    const JOB = "https://github.com/o/r/actions/runs/77/job/88";
+
+    function logOf(...lines: string[]): string {
+        return lines.map((line) => `${STAMP} ${line}`).join("\r\n");
+    }
+
+    async function failedJob(log: string | undefined, url = JOB): Promise<FakeGitHub> {
+        const fake = new FakeGitHub();
+        fake.checks = [[check("build", "fail", "FAILURE")]];
+        fake.checkRuns = [checkRun(9, "build", "failure", "", url)];
+        fake.jobLog = log;
+        await watch(fake);
+
+        return fake;
+    }
+
+    test("the failing step's title and the last lines of its output replace the bare hint", async () => {
+        const fake = await failedJob(logOf(
+            "##[group]Run dart format --set-exit-if-changed .",
+            "dart format --set-exit-if-changed .",
+            "env:",
+            "##[endgroup]",
+            "Formatted a.dart",
+            "\u001b[31mFormatted 20 files (1 changed)\u001b[0m",
+            "##[error]Process completed with exit code 1.",
+            "Post job cleanup.",
+        ));
+
+        expect(fake.logPaths).toEqual(["repos/o/r/actions/jobs/88/logs"]);
+        expect(notes(fake, "DETAIL")).toEqual([
+            "DETAIL build: Run dart format --set-exit-if-changed .: Formatted a.dart | Formatted 20 files (1 changed) | Process completed with exit code 1. [full: gh run view 77 --log-failed -R o/r]",
+        ]);
+    });
+
+    test("a long step output keeps the lines nearest the error and marks the cut", async () => {
+        const output = Array.from({ length: 30 }, (_, index) => `line ${index + 1}`);
+        const fake = await failedJob(logOf("##[group]Run tests", "##[endgroup]", ...output, "##[error]Some tests failed."));
+        const detail = notes(fake, "DETAIL")[0] ?? "";
+
+        expect(detail).toStartWith("DETAIL build: Run tests: ... | line 20 | ");
+        expect(detail).toContain("| line 30 | Some tests failed. [full:");
+        expect(detail).not.toContain("line 19");
+    });
+
+    test("control characters of an untrusted log never reach the line", async () => {
+        const fake = await failedJob(logOf("##[group]Run x", "##[endgroup]", "bell\u0007 and \u001b[2Jclear", "##[error]boom"));
+
+        expect(notes(fake, "DETAIL")[0]).toContain("Run x: bell and clear | boom [full:");
+        expect(notes(fake, "DETAIL")[0]).not.toMatch(/[\u0000-\u0008\u000b-\u001f]/);
+    });
+
+    test("a log that cannot be read, or has no error line, falls back to the hint", async () => {
+        const hint = "DETAIL build: no failure text in the check output, read the log with gh run view 77 --log-failed -R o/r";
+
+        expect(notes(await failedJob(undefined), "DETAIL")).toEqual([hint]);
+        expect(notes(await failedJob(logOf("##[group]Run x", "##[endgroup]", "fine")), "DETAIL")).toEqual([hint]);
+    });
+
+    test("a run link without a job id gives the hint and reads no log", async () => {
+        const fake = await failedJob(logOf("##[error]boom"), "https://github.com/o/r/actions/runs/77");
+
+        expect(fake.logPaths).toEqual([]);
+        expect(notes(fake, "DETAIL")[0]).toContain("read the log with gh run view 77 --log-failed");
     });
 });
