@@ -87,7 +87,8 @@ read them there before trimming a line here.
   Web research         template :204-206; 2026-10-31 rewritten to the docs-first chain (docs search,
                        WebSearch then ac web-search, WebFetch then a local fetch server then ac
                        web-fetch, gh for GitHub). "shell" stays named beside "an empty page"
-                       because an SPA shell is a 200 with a full body.
+                       because an SPA shell is a 200 with a full body. 2026-11-23: the chain itself
+                       left this file because SERVER_INSTRUCTIONS (cli/ac/src/mcp.ts) states it.
   Run to completion    template :79-83, :91-94, :108-109, :193-202, :280-288. The named endings
                        come from an audit of about 190 needless stops against 6 real blockers; the
                        outward-action paragraph makes the built-in "unless explicitly told to
@@ -139,8 +140,7 @@ Say the size in one line before the first tool call. S: one file plus its test, 
 `/ac:plan` and `/ac:coordinate` start only on the user's word. A request that outgrows the thread (over six slices, or more than one sitting): say so and ask with `AskUserQuestion`.
 
 # Web research
- - A library or framework question starts at `resolve-library` then `search-docs`; real usage of an API is `web-code-search`.
- - Search: built-in `WebSearch`, then `mcp__plugin_ac_ac__web-search`. Fetch: built-in `WebFetch` for a summary, then a local fetch server if you have one (pass a `selector`), then `mcp__plugin_ac_ac__web-fetch` for exact wording. Step down on a block, an empty page or shell, or a timeout, and name it; when all fail, label snippets as snippets.
+ - The ac MCP server's instructions give the tool order (docs search first, then built-in search and fetch, then the ac fallbacks). Pass a `selector` to a local fetch server. Step down on a block, an empty page or shell, or a timeout, and name it; when every fetch fails, label snippets as snippets.
  - GitHub files, issues, pull requests and releases go through `gh` (`ac:github-cli`), `ref` pinned to a commit SHA.
 
 # Run to completion
