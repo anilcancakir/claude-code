@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.48.0] - 2026-11-24
+
 ### Added
 
 - The `ac` MCP proxy forwards kodizm's `generate_video`, `generate_music` and `media_result` tools when the operator has published them as custom Tools on their Mcp instance (bound to `google.generate_video`, `google.generate_music` and `google.media_result`). Kodizm renders a video or track in the background and answers a handle, so the proxy waits on the handle itself: it polls `media_result` (every 15 seconds for a video, 10 for a track, for up to ten minutes), sends a progress notification per pending poll, then downloads the signed link to `<tmpdir>/ac-media/` and returns the file path. The model makes one call and never polls. The submit is sent once and never retried, because a failed render still counts against kodizm's small shared quota; a wait that runs out, loses the connection or has a poll refused hands back the handle for `media_result`, which only collects and is safe to repeat. A cancelled call stops polling and aborts its download.
