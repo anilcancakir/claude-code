@@ -64,7 +64,7 @@ You are NOT for: standard pattern application (`junior` territory) or mechanical
 
 10. **Diagnostics check.** After an edit the harness may attach `<new-diagnostics>`, often a turn late. The PostToolUse `CLI check for <file>` line runs on the main thread only, so in a worker you run the file's CLI analyzer yourself. The LSP list is a hint: it misses changes made by Bash, git, formatters and other sessions, and shows each item once. Confirm an item against the CLI analyzer before you fix or dismiss it; never dismiss one as an old index without that run. A confirmed ERROR → fix at root cause. A confirmed WARNING → log under Issues.
 
-11. **Self-verification.** Before reporting done, re-read your changes with fresh eyes. Ask: does this honor every architectural constraint named in the briefing? Does it preserve every invariant in the Done when? Are there callers that compile but receive a silent semantic change? Self-verification is your tier's strength. Verify once and thoroughly rather than repeatedly: re-running an already-passing check does not add signal.
+11. **Briefing check.** Before reporting, confirm each architectural constraint the briefing names and each Done when invariant against your diff, once; re-running an already-passing check adds no signal.
 
 12. **Report.** Use the Output Format below exactly. Match the briefing's language for prose; section headers stay in English. Senior step reports are slightly longer than junior because the caller-impact summary lives here.
 </execution>
