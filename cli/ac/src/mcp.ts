@@ -10,8 +10,29 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
 import { HISTORY_TOOL_DEFINITION, HISTORY_TOOL_NAME, runHistoryTool } from "./history-tool.ts";
-import { deliverImage, describeFailure, IMAGE_TOOL_NAME, imageErrorResult } from "./image-result.ts";
+import {
+    declaresModel,
+    deliverFinishedImage,
+    deliverImage,
+    IMAGE_DEADLINE_MS,
+    IMAGE_FIRST_POLL_AFTER_MS,
+    IMAGE_TOOL_NAME,
+    imageErrorResult,
+    imagePollIntervalMs,
+    withDefaultModel,
+} from "./image-result.ts";
+import type { DeliverImageOptions } from "./image-result.ts";
 import { LOCAL_WEB_FETCH_TOOL_DEFINITION, runLocalFetch } from "./local-fetch.ts";
+import {
+    collectMedia,
+    describeFailure,
+    generateMedia,
+    MEDIA_RESULT_TOOL_NAME,
+    MUSIC_TOOL_NAME,
+    queuedHandleOf,
+    VIDEO_TOOL_NAME,
+} from "./media-result.ts";
+import type { MediaOptions, RemoteCall } from "./media-result.ts";
 import {
     asksForReference,
     declaresInlineReference,
@@ -42,10 +63,10 @@ const DEFAULT_REMOTE_URL = "https://mcp.kodizm.com";
  * kebab-case names (see `app/Mcp/Tools/*` with `#[Name(...)]`). The
  * federated `kodizm.*` project surface lives on `/mcp/internal` behind
  * a JWT, never on the public PAT route, so the allowlist below is the
- * complete public catalogue for `/mcp/kodizm`. The image tool is the one
- * exception: a custom Tool row the operator publishes on their own Mcp
- * instance, which appears in the remote tools/list only for a key that
- * holds its grant.
+ * complete public catalogue for `/mcp/kodizm`. The media tools are the
+ * exception: custom Tool rows the operator publishes on their own Mcp
+ * instance, which appear in the remote tools/list only for a key that
+ * holds their grant (`media_result` rides on any generator's grant).
  */
 const ALLOWED_REMOTE_TOOLS: ReadonlySet<string> = new Set([
     "web-search",
@@ -54,15 +75,35 @@ const ALLOWED_REMOTE_TOOLS: ReadonlySet<string> = new Set([
     "resolve-library",
     "web-code-search",
     IMAGE_TOOL_NAME,
+    VIDEO_TOOL_NAME,
+    MUSIC_TOOL_NAME,
+    MEDIA_RESULT_TOOL_NAME,
 ]);
 
 /**
  * What `generate_image` does and how often to call it, shared by the Claude Code text and the opencode
- * text. Only the Claude Code text points at the `ac:prompt-writer` skill, which opencode does not ship.
+ * text. Only the Claude Code text adds {@link PROMPT_GUIDE_TEXT}, since opencode does not ship that skill.
  */
 const IMAGE_TOOL_TEXT = "Generate one image with Gemini from a text prompt, save it to a local file and return the "
     + "path with the picture. It draws on a shared hourly and daily quota, so call it only for an image "
     + "the user asked for, and once per image.";
+
+/** What `generate_video` does and costs, shared like {@link IMAGE_TOOL_TEXT}. */
+const VIDEO_TOOL_TEXT = "Generate one short video (mp4, a few seconds) with Gemini from a text prompt, wait for it and "
+    + "save it to a local file; returns the path. Rendering takes a few minutes and the call waits it out. "
+    + "Video has the smallest shared quota (a handful an hour) and a failed render counts too, so call it only "
+    + "for a video the user asked for, once per video. Duration, style and audio are hints folded into the prompt; "
+    + "leave one out to let Gemini choose. There is no reference picture or start frame.";
+
+/** What `generate_music` does and costs, shared like {@link IMAGE_TOOL_TEXT}. */
+const MUSIC_TOOL_TEXT = "Generate one music track (mp3) with Gemini from a text prompt, wait for it and save it to a "
+    + "local file; returns the path. A track takes about a minute, longer when Gemini retries, and the call "
+    + "waits it out. It draws on a shared hourly and daily quota and a failed track counts too, so call it "
+    + "only for a track the user asked for, once per track. The options are hints folded into the prompt; "
+    + "leave one out to let Gemini choose.";
+
+/** The Claude Code pointer to the media prompt guide; opencode does not ship the skill. */
+const PROMPT_GUIDE_TEXT = "For the prompt, use the Gemini media guidance in the ac:prompt-writer skill.";
 
 /**
  * Model-facing text for the proxied remote tools, replacing what the remote server ships.
@@ -119,11 +160,53 @@ const REMOTE_TOOL_TEXT: Readonly<Record<string, { description: string; params: R
         },
     },
     [IMAGE_TOOL_NAME]: {
-        description: `${IMAGE_TOOL_TEXT} For the prompt, use the Gemini guidance in the ac:prompt-writer skill.`,
+        description: `${IMAGE_TOOL_TEXT} ${PROMPT_GUIDE_TEXT}`,
         params: {
             prompt: "What to draw.",
             reference_image_url: "Optional reference to edit or restyle: the image_url a previous call returned, "
                 + "while its link is valid.",
+            model: "Gemini model, hydrogen or neon. Defaults to neon, which needs a Pro account; hydrogen runs on any "
+                + "unless thinking or chat_id is set, which need Pro too.",
+            thinking: "How hard the model thinks before drawing: low, medium or high.",
+            chat_id: "Optional conversation label of 1 to 64 letters, digits, _ or -. Reuse it to continue the same "
+                + "conversation; leave it out for a one-off picture.",
+            aspect_ratio: "1:1, 9:16, 3:4, 4:3 or 16:9.",
+            style: "cinematic, y2k-stickers, technicolour, gothic-clay, sketch, steampunk, or one line of your own up "
+                + "to 300 characters.",
+            size: "WxH in pixels, mapped to the nearest supported ratio; aspect_ratio wins when both are sent.",
+        },
+    },
+    [VIDEO_TOOL_NAME]: {
+        description: `${VIDEO_TOOL_TEXT} ${PROMPT_GUIDE_TEXT}`,
+        params: {
+            prompt: "What the video shows: subject, action, setting, camera and light. Up to 8000 characters with "
+                + "the options.",
+            aspect_ratio: "16:9 (default) or 9:16.",
+            duration_seconds: "3 to 10. A hint; the clip may differ.",
+            style: "Visual style, up to 80 characters.",
+            audio: "What to hear, up to 200 characters, or none for a silent video.",
+        },
+    },
+    [MUSIC_TOOL_NAME]: {
+        description: `${MUSIC_TOOL_TEXT} ${PROMPT_GUIDE_TEXT}`,
+        params: {
+            prompt: "The track to make, genre first, then mood, instruments, tempo and theme. Up to 8000 characters "
+                + "with the options.",
+            genre: "Genre, up to 80 characters.",
+            vocals: "Voice, up to 80 characters (for example female alto), or instrumental for none.",
+            length_seconds: "10 to 180. A hint; the track may differ.",
+            mood: "Mood, up to 80 characters.",
+            instruments: "Instruments, up to 160 characters.",
+            lyrics: "Words to sing, up to 3000 characters; leave it out to let Gemini write them. Not with "
+                + "instrumental vocals.",
+        },
+    },
+    [MEDIA_RESULT_TOOL_NAME]: {
+        description: "Collect an image, video or track whose generate_image, generate_video or generate_music call "
+            + "returned a handle instead of a file: waits for it and saves it to a local file. It never generates "
+            + "anything new, so it is safe to repeat.",
+        params: {
+            handle: "The handle generate_image, generate_video or generate_music returned.",
         },
     },
 };
@@ -246,7 +329,7 @@ export const OPENCODE_SERVER_INSTRUCTIONS =
 /**
  * The Claude Code descriptions of the two web tools call them fallbacks for built-ins opencode
  * does not have (its websearch is disabled in favour of these), which would steer the model away
- * from its only web route. The image tool's Claude Code text names a skill opencode does not ship.
+ * from its only web route. The media tools' Claude Code text names a skill opencode does not ship.
  */
 const OPENCODE_TOOL_DESCRIPTIONS: Readonly<Record<string, string>> = {
     "web-fetch": "Fetch a page and return its content as markdown. Use it when you need the page text "
@@ -254,7 +337,26 @@ const OPENCODE_TOOL_DESCRIPTIONS: Readonly<Record<string, string>> = {
     "web-search": "Search the web across several engines and return deduplicated results. This is the "
         + "web search tool; use it for current information and to find pages to fetch.",
     [IMAGE_TOOL_NAME]: IMAGE_TOOL_TEXT,
+    [VIDEO_TOOL_NAME]: VIDEO_TOOL_TEXT,
+    [MUSIC_TOOL_NAME]: MUSIC_TOOL_TEXT,
 };
+
+/**
+ * The sentence added to the image description only when the remote declares `chat_id`, so a remote without
+ * conversations never tells the model a follow-up can skip its reference.
+ */
+const CHAT_TOOL_TEXT = "Calls that pass the same chat_id are turns of one Gemini conversation, so a follow-up edit "
+    + "there needs no reference. Word a follow-up as an image request (\"Generate an image: the same boat, now red\"): "
+    + "Gemini can answer a bare edit with text and draw nothing.";
+
+function withChatText(tool: Tool): Tool {
+    const properties = tool.inputSchema.properties;
+    if (properties === undefined || !("chat_id" in properties)) {
+        return tool;
+    }
+
+    return { ...tool, description: `${tool.description ?? ""} ${CHAT_TOOL_TEXT}`.trim() };
+}
 
 function forClient(tool: Tool, client: McpClient): Tool {
     const description = client === "opencode" ? OPENCODE_TOOL_DESCRIPTIONS[tool.name] : undefined;
@@ -262,10 +364,10 @@ function forClient(tool: Tool, client: McpClient): Tool {
         return tool;
     }
 
-    // The reference sentence is added only for a remote that takes a reference, and opencode keeps it.
-    const withReference = tool.description?.includes(REFERENCE_TOOL_TEXT) === true;
+    // The reference and chat sentences are added only for a remote that takes them, and opencode keeps them.
+    const kept = [REFERENCE_TOOL_TEXT, CHAT_TOOL_TEXT].filter((text) => tool.description?.includes(text) === true);
 
-    return { ...tool, description: withReference ? `${description} ${REFERENCE_TOOL_TEXT}` : description };
+    return { ...tool, description: [description, ...kept].join(" ") };
 }
 
 /**
@@ -285,7 +387,7 @@ export function buildCatalogue(remoteTools: readonly Tool[] | null, client: McpC
         for (const tool of remoteTools) {
             if (ALLOWED_REMOTE_TOOLS.has(tool.name)) {
                 const shaped = tool.name === IMAGE_TOOL_NAME
-                    ? withLocalReference(applyRemoteText(tool))
+                    ? withChatText(withLocalReference(applyRemoteText(tool)))
                     : applyRemoteText(tool);
 
                 catalogue.push(forClient(applyAlwaysLoad(shaped), client));
@@ -321,6 +423,8 @@ export async function runMcpProxy(
 
     let cachedTools: Tool[] | undefined;
     let remoteTakesReference: boolean | undefined;
+    let remoteTakesModel: boolean | undefined;
+    const chatPictures = new Map<string, Set<string>>();
 
     const server = new Server(
         { name: "ac", version: AC_VERSION },
@@ -347,6 +451,7 @@ export async function runMcpProxy(
             const upstream = await listUpstreamTools(remote);
 
             remoteTakesReference = declaresInlineReference(upstream);
+            remoteTakesModel = declaresModel(upstream);
             cachedTools = buildCatalogue(upstream, clientMode);
 
             return { tools: cachedTools };
@@ -357,7 +462,7 @@ export async function runMcpProxy(
         }
     });
 
-    server.setRequestHandler(CallToolRequestSchema, async (request) => {
+    server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
         const requestedName = request.params.name;
 
         if (requestedName === HISTORY_TOOL_NAME) {
@@ -418,18 +523,40 @@ export async function runMcpProxy(
             );
         }
 
+        const call: RemoteCall = async (name, args, signal) => {
+            await remote.ensureConnected();
+
+            return await remote.client.callTool({ name, arguments: args }, undefined, { signal }) as CallToolResult;
+        };
+        const progressToken = request.params._meta?.progressToken;
+        let progress = 0;
+        const mediaOptions: MediaOptions = {
+            signal: extra.signal,
+            onProgress: progressToken === undefined
+                ? undefined
+                : (message) => extra.sendNotification({
+                    method: "notifications/progress",
+                    params: { progressToken, progress: ++progress, message },
+                }),
+            onImage: (image) => deliverFinishedImage(image, { signal: extra.signal }),
+        };
+
         // A generation draws on a quota shared with the other accounts, so it is attempted once: a retry
         // after a timeout could draw a second picture the caller never sees, and its error carries no
-        // retry hint for the same reason. The remote answers with a signed link rather than bytes;
-        // deliverImage downloads it and hands the model the file and the picture.
+        // retry hint for the same reason. The remote answers with a signed link rather than bytes, either at once
+        // or, when kodizm queues pictures, through a handle the proxy collects itself; either way the model gets
+        // the file and the picture.
         if (requestedName === IMAGE_TOOL_NAME) {
             try {
-                // A remote whose tool takes no reference would drop one and answer a fresh picture that looks
-                // like an edit, so a reference is refused unless the remote declares it.
+                // 1. A remote whose tool takes no reference would drop one and answer a fresh picture that looks
+                //    like an edit, so a reference is refused unless the remote declares it.
                 if (asksForReference(request.params.arguments)) {
                     if (remoteTakesReference === undefined) {
                         try {
-                            remoteTakesReference = declaresInlineReference(await listUpstreamTools(remote));
+                            const upstream = await listUpstreamTools(remote);
+
+                            remoteTakesReference = declaresInlineReference(upstream);
+                            remoteTakesModel = declaresModel(upstream);
                         } catch (err) {
                             throw new ReferenceImageError(
                                 `Could not check whether the connected Kodizm takes a reference picture: ${describeFailure(err)}.`,
@@ -442,9 +569,15 @@ export async function runMcpProxy(
                     }
                 }
 
-                // A local reference file is read and inlined here, before the remote is reached: a refused
-                // path sends nothing, so it is the one failure that is safe to repeat once fixed.
-                const args = await inlineReference(request.params.arguments);
+                // 2. A local reference file is read and inlined here, before the remote is reached: a refused
+                //    path sends nothing, so it is the one failure that is safe to repeat once fixed.
+                const inlined = await inlineReference(request.params.arguments);
+
+                // 3. The default model rides only on a schema already read: clients list tools before calling, and
+                //    a remote that does not declare model would refuse it.
+                const args = inlined === undefined
+                    ? undefined
+                    : withDefaultModel(inlined, remoteTakesModel === true);
 
                 await remote.ensureConnected();
 
@@ -455,10 +588,50 @@ export async function runMcpProxy(
                     },
                 ) as CallToolResult;
 
-                return await deliverImage(generated);
+                const chatId = args?.["chat_id"];
+                const delivery: DeliverImageOptions = {
+                    chat: typeof chatId === "string" && chatId !== "" ? { id: chatId, seen: chatPictures } : undefined,
+                    signal: extra.signal,
+                };
+                const handle = generated.isError === true ? undefined : queuedHandleOf(generated);
+
+                if (handle === undefined) {
+                    return await deliverImage(generated, delivery);
+                }
+
+                return await collectMedia(call, handle, {
+                    ...mediaOptions,
+                    deadlineMs: IMAGE_DEADLINE_MS,
+                    firstPollAfterMs: IMAGE_FIRST_POLL_AFTER_MS,
+                    onImage: (image) => deliverFinishedImage(image, delivery),
+                }, imagePollIntervalMs);
             } catch (err) {
                 return err instanceof ReferenceImageError ? referenceErrorResult(err) : imageErrorResult(err);
             }
+        }
+
+        // A video or track renders in the background on kodizm and answers a handle; the proxy waits on the handle
+        // itself so the model makes one call and gets a file. Claude Code allows a stdio call 30 idle minutes and
+        // moves one past two minutes to a background task, and a progress notice per pending poll shows the wait.
+        if (requestedName === VIDEO_TOOL_NAME || requestedName === MUSIC_TOOL_NAME
+            || requestedName === MEDIA_RESULT_TOOL_NAME) {
+            const args = request.params.arguments ?? {};
+            const handle = args["handle"];
+
+            // A media_result call without a usable handle goes to the remote, which refuses it in its own words.
+            if (requestedName === MEDIA_RESULT_TOOL_NAME) {
+                if (typeof handle !== "string" || handle === "") {
+                    try {
+                        return await call(requestedName, args);
+                    } catch (err) {
+                        return toIsErrorResult(err);
+                    }
+                }
+
+                return await collectMedia(call, handle, mediaOptions);
+            }
+
+            return await generateMedia(call, requestedName, args, mediaOptions);
         }
 
         // Remote passthrough for docs/search tools. A connection failure OR a

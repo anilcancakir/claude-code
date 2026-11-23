@@ -9,6 +9,11 @@ import { StreamableHTTPError } from "@modelcontextprotocol/sdk/client/streamable
  */
 const TRANSIENT_STATUSES: ReadonlySet<number> = new Set([502, 503, 504, 520, 521, 522, 524]);
 
+/** Whether an HTTP status means the host is restarting or overloaded; see `TRANSIENT_STATUSES`. */
+export function isTransientStatus(status: number): boolean {
+    return TRANSIENT_STATUSES.has(status);
+}
+
 /**
  * Waits between attempts to a remote tool call, in milliseconds: one retry after 2 s and one more after 6 s.
  *
@@ -37,7 +42,7 @@ export const TRANSIENT_OUTAGE_HINT =
  */
 export function isTransientRemoteError(err: unknown): boolean {
     if (err instanceof StreamableHTTPError) {
-        return err.code !== undefined && TRANSIENT_STATUSES.has(err.code);
+        return err.code !== undefined && isTransientStatus(err.code);
     }
 
     return err instanceof TypeError && (err.message === "fetch failed" || err.message === "terminated");
@@ -48,17 +53,19 @@ export function isTransientRemoteError(err: unknown): boolean {
  *
  * Only idempotent reads belong here: every proxied remote tool is one. The last error is rethrown once the
  * delays are spent, and a non-transient error is rethrown at once, so the caller sees the failure that ended
- * the run, not the first one.
+ * the run, not the first one. `isTransient` defaults to `isTransientRemoteError`.
  */
 export async function withTransientRetry<T>(
     call: () => Promise<T>,
     options: {
         delaysMs?: readonly number[];
         sleep?: (ms: number) => Promise<void>;
+        isTransient?: (err: unknown) => boolean;
     } = {},
 ): Promise<T> {
     const delaysMs = options.delaysMs ?? REMOTE_RETRY_DELAYS_MS;
     const sleep = options.sleep ?? ((ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms)));
+    const isTransient = options.isTransient ?? isTransientRemoteError;
 
     for (let attempt = 0; ; attempt++) {
         try {
@@ -66,7 +73,7 @@ export async function withTransientRetry<T>(
         } catch (err) {
             const delayMs = delaysMs[attempt];
 
-            if (delayMs === undefined || !isTransientRemoteError(err)) {
+            if (delayMs === undefined || !isTransient(err)) {
                 throw err;
             }
 

@@ -27,8 +27,8 @@ export const MAX_REFERENCE_BYTES = 740_000;
  * a reference the remote drops would come back as a fresh picture that looks like an edit.
  */
 export const REFERENCE_TOOL_TEXT = "To edit or restyle a picture pass it as a reference: a local file "
-    + `(${REFERENCE_PATH_PARAM}) or the image_url a previous call returned (${REFERENCE_URL_PARAM}). Each call is `
-    + "independent, so a follow-up edit passes the reference again.";
+    + `(${REFERENCE_PATH_PARAM}) or the image_url a previous call returned (${REFERENCE_URL_PARAM}). Without a `
+    + "chat_id each call is independent, so a follow-up edit passes the reference again.";
 
 const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 

@@ -29483,30 +29483,71 @@ async function runHistoryTool(args, overrides = {}) {
 }
 
 // src/image-result.ts
+import { createHash as createHash2 } from "node:crypto";
+import { rm } from "node:fs/promises";
+import { tmpdir as tmpdir2 } from "node:os";
+import path2 from "node:path";
+
+// src/media-result.ts
 import { randomUUID } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-var IMAGE_TOOL_NAME = "generate_image";
-var DEFAULT_MAX_BYTES = 8 * 1024 * 1024;
-var DEFAULT_INLINE_MAX_BYTES = 3500000;
-var DOWNLOAD_TIMEOUT_MS = 30000;
-var EXTENSIONS = {
-  "image/png": "png",
-  "image/jpeg": "jpg",
-  "image/webp": "webp",
-  "image/gif": "gif"
+var VIDEO_TOOL_NAME = "generate_video";
+var MUSIC_TOOL_NAME = "generate_music";
+var MEDIA_RESULT_TOOL_NAME = "media_result";
+var MEDIA_TYPES = {
+  "video/mp4": {
+    extension: "mp4",
+    maxBytes: 64 * 1024 * 1024
+  },
+  "audio/mpeg": {
+    extension: "mp3",
+    maxBytes: 24 * 1024 * 1024
+  }
 };
-async function deliverImage(result, options = {}) {
-  const link = imageLinkOf(result);
-  if (link === undefined) {
-    return result;
+var MEDIA_DOWNLOAD_TIMEOUT_MS = 300000;
+var DEFAULT_DOWNLOAD_TIMEOUT_MS = 30000;
+var DEFAULT_DEADLINE_MS = 10 * 60 * 1000;
+var POLL_FAILURE_LIMIT = 3;
+var POLL_INTERVAL_MS = {
+  [VIDEO_TOOL_NAME]: 15000,
+  [MUSIC_TOOL_NAME]: 1e4,
+  [MEDIA_RESULT_TOOL_NAME]: 1e4
+};
+var MEDIA_STATUSES = ["pending", "done", "failed", "unknown"];
+
+class LinkStatusError extends Error {
+  status;
+  constructor(status) {
+    super(`the link answered ${status}`);
+    this.status = status;
   }
-  try {
-    return await saveImage(link, options.directory ?? path.join(tmpdir(), "ac-images"), options.maxBytes ?? DEFAULT_MAX_BYTES, options.inlineMaxBytes ?? DEFAULT_INLINE_MAX_BYTES);
-  } catch (err) {
-    return { isError: true, content: [{ type: "text", text: `image download failed: ${describeFailure(err)}` }] };
+}
+async function downloadMedia(link, options) {
+  const url = new URL(link);
+  if (url.protocol !== "http:" && url.protocol !== "https:") {
+    throw new Error(`refusing a ${url.protocol} link`);
   }
+  const timeout = AbortSignal.timeout(options.timeoutMs ?? DEFAULT_DOWNLOAD_TIMEOUT_MS);
+  const response = await fetch(url, {
+    redirect: "error",
+    signal: options.signal === undefined ? timeout : AbortSignal.any([options.signal, timeout])
+  });
+  if (!response.ok) {
+    throw new LinkStatusError(response.status);
+  }
+  const mime = (response.headers.get("content-type") ?? "").split(";")[0]?.trim().toLowerCase() ?? "";
+  const type = options.accept[mime];
+  if (type === undefined) {
+    const wanted = Object.keys(options.accept).join(", ");
+    throw new Error(`the link answered ${mime === "" ? "no content type" : mime}, not ${wanted}`);
+  }
+  const bytes = await readCapped(response, type.maxBytes);
+  await mkdir(options.directory, { recursive: true, mode: 448 });
+  const file = path.join(options.directory, `${Date.now()}-${randomUUID().slice(0, 8)}.${type.extension}`);
+  await writeFile(file, bytes, { mode: 384 });
+  return { file, mime, bytes };
 }
 function describeFailure(err) {
   if (!(err instanceof Error)) {
@@ -29514,19 +29555,128 @@ function describeFailure(err) {
   }
   return err.cause instanceof Error ? `${err.message} (${err.cause.message})` : err.message;
 }
-function imageErrorResult(err) {
-  return {
-    isError: true,
-    content: [{
-      type: "text",
-      text: `remote tool call failed: ${describeFailure(err)}. A picture may already have been generated; ` + "do not call generate_image again unless the user asks for another attempt."
-    }]
-  };
-}
-function imageLinkOf(result) {
-  if (result.isError === true) {
-    return;
+async function generateMedia(call, toolName, args, options = {}) {
+  let queued;
+  try {
+    queued = await call(toolName, args);
+  } catch (err) {
+    return {
+      isError: true,
+      content: [{
+        type: "text",
+        text: `remote tool call failed: ${describeFailure(err)}. A render may already be queued; do not call ` + `${toolName} again unless the user asks for another attempt.`
+      }]
+    };
   }
+  if (queued.isError === true) {
+    return queued;
+  }
+  const handle = queuedHandleOf(queued);
+  return handle === undefined ? queued : collectMedia(call, handle, options, POLL_INTERVAL_MS[toolName]);
+}
+async function collectMedia(call, handle, options = {}, interval = POLL_INTERVAL_MS[MEDIA_RESULT_TOOL_NAME] ?? 1e4) {
+  const now = options.now ?? Date.now;
+  const sleep = options.sleep ?? pause;
+  const signal = options.signal;
+  const started = now();
+  const deadline = started + (options.deadlineMs ?? DEFAULT_DEADLINE_MS);
+  const intervalAfter = typeof interval === "number" ? () => interval : interval;
+  let failures = 0;
+  if (options.firstPollAfterMs !== undefined) {
+    await sleep(options.firstPollAfterMs, signal);
+  }
+  for (;; ) {
+    if (isAborted(signal)) {
+      return cancelled(handle);
+    }
+    let answer;
+    try {
+      answer = await call(MEDIA_RESULT_TOOL_NAME, { handle }, signal);
+      failures = 0;
+    } catch (err) {
+      if (isAborted(signal)) {
+        return cancelled(handle);
+      }
+      failures++;
+      if (failures >= POLL_FAILURE_LIMIT) {
+        return failure(`Could not check on the render: ${describeFailure(err)}. It may still finish; ` + `${collectLater(handle)}`);
+      }
+    }
+    if (answer?.isError === true) {
+      return failure(`${textOf(answer)} The render itself is unaffected, so do not generate it again. ` + `${collectLater(handle)}`);
+    }
+    if (answer !== undefined) {
+      const state = stateOf(answer);
+      if (state === undefined) {
+        return answer;
+      }
+      if (state.status !== "pending") {
+        return finish(state, handle, options);
+      }
+    }
+    const waited = Math.round((now() - started) / 1000);
+    const intervalMs = intervalAfter(now() - started);
+    if (now() + intervalMs > deadline) {
+      return {
+        content: [{
+          type: "text",
+          text: `Still rendering after ${waited} seconds; nothing is lost. ${collectLater(handle)}`
+        }]
+      };
+    }
+    if (answer !== undefined) {
+      await options.onProgress?.(`Rendering, ${waited} seconds so far.`);
+    }
+    await sleep(intervalMs, signal);
+  }
+}
+async function finish(state, handle, options) {
+  if (state.status === "unknown") {
+    return failure(`No render is known under handle "${handle}": it is mistyped, belongs to another key or was ` + "never queued.");
+  }
+  if (state.status === "failed") {
+    const code = state.code ?? "no code";
+    const said = state.message === undefined ? "" : ` ${state.message}`;
+    return failure(code === "media_expired" ? `The render failed (${code}): its file has expired on kodizm and cannot be collected any more.` : `The render failed (${code}).${said} A failed render still counts against the shared quota, so ask the ` + "user before generating again.");
+  }
+  if (state.url === undefined) {
+    return failure(`The render is done but its answer carries no link. ${collectLater(handle)}`);
+  }
+  if (state.mime?.startsWith("image/") === true && options.onImage !== undefined) {
+    const delivered = await options.onImage({ link: state.url, marksRemoved: state.marksRemoved });
+    return delivered.isError === true ? failure(`${textOf(delivered)} Call ${MEDIA_RESULT_TOOL_NAME} with handle "${handle}" for a fresh link; ` + "nothing new is generated.") : delivered;
+  }
+  try {
+    const saved = await downloadMedia(state.url, {
+      directory: options.directory ?? path.join(tmpdir(), "ac-media"),
+      accept: MEDIA_TYPES,
+      timeoutMs: MEDIA_DOWNLOAD_TIMEOUT_MS,
+      signal: options.signal
+    });
+    const kind = saved.mime.startsWith("video/") ? "Video" : "Track";
+    return {
+      content: [{
+        type: "text",
+        text: `${kind} saved to ${saved.file} (${saved.mime}, ${saved.bytes.byteLength} bytes).`
+      }]
+    };
+  } catch (err) {
+    return failure(`The render is done but its download failed: ${describeFailure(err)}. Call ` + `${MEDIA_RESULT_TOOL_NAME} with handle "${handle}" for a fresh link; nothing new is generated.`);
+  }
+}
+function queuedHandleOf(result) {
+  for (const block of result.content) {
+    if (block.type !== "text") {
+      continue;
+    }
+    const match = /^handle:\s*`?([\w-]+)`?\s*$/m.exec(block.text);
+    if (match?.[1] !== undefined) {
+      return match[1];
+    }
+  }
+  return;
+}
+function stateOf(result) {
   const first = result.content.find((block) => block.type === "text");
   if (first === undefined || first.type !== "text") {
     return;
@@ -29537,37 +29687,43 @@ function imageLinkOf(result) {
   } catch {
     return;
   }
-  const output = answer?.output;
-  return typeof output?.image_url === "string" ? output.image_url : undefined;
-}
-async function saveImage(link, directory, maxBytes, inlineMaxBytes) {
-  const url = new URL(link);
-  if (url.protocol !== "http:" && url.protocol !== "https:") {
-    throw new Error(`refusing a ${url.protocol} link`);
-  }
-  const response = await fetch(url, { redirect: "error", signal: AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS) });
-  if (!response.ok) {
-    throw new Error(`the link answered ${response.status}`);
-  }
-  const mime = (response.headers.get("content-type") ?? "").split(";")[0]?.trim().toLowerCase() ?? "";
-  const extension = EXTENSIONS[mime];
-  if (extension === undefined) {
-    throw new Error(`the link answered ${mime === "" ? "no content type" : mime}, not an image`);
-  }
-  const bytes = await readCapped(response, maxBytes);
-  await mkdir(directory, { recursive: true, mode: 448 });
-  const file = path.join(directory, `${Date.now()}-${randomUUID().slice(0, 8)}.${extension}`);
-  await writeFile(file, bytes, { mode: 384 });
-  const saved = `Image saved to ${file} (${mime}, ${bytes.byteLength} bytes).`;
-  if (bytes.byteLength > inlineMaxBytes) {
-    return { content: [{ type: "text", text: `${saved} It is too large to show inline.` }] };
+  const fields = answer;
+  const status = MEDIA_STATUSES.find((known) => known === fields?.["status"]);
+  if (fields === null || status === undefined) {
+    return;
   }
   return {
-    content: [
-      { type: "text", text: saved },
-      { type: "image", data: bytes.toString("base64"), mimeType: mime }
-    ]
+    status,
+    url: typeof fields["url"] === "string" ? fields["url"] : undefined,
+    mime: typeof fields["mime"] === "string" ? fields["mime"] : undefined,
+    code: typeof fields["code"] === "string" ? fields["code"] : undefined,
+    message: typeof fields["message"] === "string" ? fields["message"] : undefined,
+    marksRemoved: typeof fields["marks_removed"] === "boolean" ? fields["marks_removed"] : undefined
   };
+}
+function collectLater(handle) {
+  return `Call ${MEDIA_RESULT_TOOL_NAME} with handle "${handle}" to collect it.`;
+}
+function cancelled(handle) {
+  return failure(`The wait was cancelled; the render goes on. ${collectLater(handle)}`);
+}
+function textOf(result) {
+  return result.content.map((block) => block.type === "text" ? block.text : "").join(" ").trim();
+}
+function isAborted(signal) {
+  return signal?.aborted === true;
+}
+function pause(ms, signal) {
+  return new Promise((resolve) => {
+    const timer = setTimeout(resolve, ms);
+    signal?.addEventListener("abort", () => {
+      clearTimeout(timer);
+      resolve();
+    }, { once: true });
+  });
+}
+function failure(text) {
+  return { isError: true, content: [{ type: "text", text }] };
 }
 async function readCapped(response, maxBytes) {
   if (response.body === null) {
@@ -29584,11 +29740,188 @@ async function readCapped(response, maxBytes) {
     total += value.byteLength;
     if (total > maxBytes) {
       await reader.cancel();
-      throw new Error(`the picture is larger than ${maxBytes} bytes`);
+      throw new Error(`the file is larger than ${maxBytes} bytes`);
     }
     chunks.push(value);
   }
   return Buffer.concat(chunks);
+}
+
+// src/remote-retry.ts
+var TRANSIENT_STATUSES = new Set([502, 503, 504, 520, 521, 522, 524]);
+function isTransientStatus(status) {
+  return TRANSIENT_STATUSES.has(status);
+}
+var REMOTE_RETRY_DELAYS_MS = [2000, 6000];
+var TRANSIENT_OUTAGE_HINT = "The kodizm remote looks temporarily unavailable (often a deploy, back within a minute or two). " + "Do not retry in a tight loop: do other work first, retry this exact call once after about 60 seconds, " + "and if it fails again continue with another source.";
+function isTransientRemoteError(err) {
+  if (err instanceof StreamableHTTPError) {
+    return err.code !== undefined && isTransientStatus(err.code);
+  }
+  return err instanceof TypeError && (err.message === "fetch failed" || err.message === "terminated");
+}
+async function withTransientRetry(call, options = {}) {
+  const delaysMs = options.delaysMs ?? REMOTE_RETRY_DELAYS_MS;
+  const sleep = options.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
+  const isTransient = options.isTransient ?? isTransientRemoteError;
+  for (let attempt = 0;; attempt++) {
+    try {
+      return await call();
+    } catch (err) {
+      const delayMs = delaysMs[attempt];
+      if (delayMs === undefined || !isTransient(err)) {
+        throw err;
+      }
+      await sleep(delayMs);
+    }
+  }
+}
+
+// src/image-result.ts
+var IMAGE_TOOL_NAME = "generate_image";
+var DEFAULT_IMAGE_MODEL = "neon";
+var DEFAULT_MAX_BYTES = 8 * 1024 * 1024;
+var DEFAULT_INLINE_MAX_BYTES = 3500000;
+var DOWNLOAD_TIMEOUT_MS = 45000;
+var DOWNLOAD_RETRY_DELAYS_MS = [2000, 5000];
+var IMAGE_FIRST_POLL_AFTER_MS = 5000;
+function imagePollIntervalMs(elapsedMs) {
+  return elapsedMs < 30000 ? 5000 : 1e4;
+}
+var IMAGE_DEADLINE_MS = 6 * 60 * 1000;
+var CONNECTION_FAILURE_CODES = new Set([
+  "UND_ERR_SOCKET",
+  "UND_ERR_CONNECT_TIMEOUT",
+  "UND_ERR_HEADERS_TIMEOUT",
+  "UND_ERR_BODY_TIMEOUT",
+  "ECONNRESET",
+  "ECONNREFUSED",
+  "ETIMEDOUT",
+  "EPIPE",
+  "EAI_AGAIN"
+]);
+var EXTENSIONS = {
+  "image/png": "png",
+  "image/jpeg": "jpg",
+  "image/webp": "webp",
+  "image/gif": "gif"
+};
+async function deliverImage(result, options = {}) {
+  const answer = imageAnswerOf(result);
+  return answer === undefined ? result : deliverFinishedImage(answer, options);
+}
+async function deliverFinishedImage(answer, options = {}) {
+  try {
+    return await saveImage(answer, options);
+  } catch (err) {
+    if (!isTransientDownloadError(err)) {
+      return { isError: true, content: [{ type: "text", text: `image download failed: ${describeFailure(err)}` }] };
+    }
+    const tries = (options.retryDelaysMs ?? DOWNLOAD_RETRY_DELAYS_MS).length + 1;
+    return {
+      isError: true,
+      content: [{
+        type: "text",
+        text: `image download failed after ${tries} tries: ${describeFailure(err)}. The picture was made and ` + `its link stays valid for an hour: ${answer.link} Fetch that link to get it; do not call ` + "generate_image again, which would draw a new picture from the quota."
+      }]
+    };
+  }
+}
+function declaresModel(remoteTools) {
+  const properties = remoteTools.find((tool) => tool.name === IMAGE_TOOL_NAME)?.inputSchema.properties;
+  return properties !== undefined && "model" in properties;
+}
+function withDefaultModel(args, takesModel) {
+  if (!takesModel || args["model"] !== undefined && args["model"] !== null) {
+    return args;
+  }
+  return { ...args, model: DEFAULT_IMAGE_MODEL };
+}
+function imageErrorResult(err) {
+  return {
+    isError: true,
+    content: [{
+      type: "text",
+      text: `remote tool call failed: ${describeFailure(err)}. A picture may already have been generated; ` + "do not call generate_image again unless the user asks for another attempt."
+    }]
+  };
+}
+function imageAnswerOf(result) {
+  if (result.isError === true) {
+    return;
+  }
+  const first = result.content.find((block) => block.type === "text");
+  if (first === undefined || first.type !== "text") {
+    return;
+  }
+  let answer;
+  try {
+    answer = JSON.parse(first.text);
+  } catch {
+    return;
+  }
+  const output = answer?.output;
+  if (typeof output?.image_url !== "string") {
+    return;
+  }
+  return {
+    link: output.image_url,
+    marksRemoved: typeof output.marks_removed === "boolean" ? output.marks_removed : undefined
+  };
+}
+function isTransientDownloadError(err) {
+  if (err instanceof LinkStatusError) {
+    return err.status === 429 || isTransientStatus(err.status);
+  }
+  if (err instanceof Error && err.name === "TimeoutError") {
+    return true;
+  }
+  const code = err instanceof TypeError ? err.cause?.code : undefined;
+  return typeof code === "string" && CONNECTION_FAILURE_CODES.has(code);
+}
+async function saveImage(answer, options) {
+  const accept = {};
+  for (const [mime, extension] of Object.entries(EXTENSIONS)) {
+    accept[mime] = { extension, maxBytes: options.maxBytes ?? DEFAULT_MAX_BYTES };
+  }
+  const download = {
+    directory: options.directory ?? path2.join(tmpdir2(), "ac-images"),
+    accept,
+    timeoutMs: options.downloadTimeoutMs ?? DOWNLOAD_TIMEOUT_MS,
+    signal: options.signal
+  };
+  const { file, mime, bytes } = await withTransientRetry(() => downloadMedia(answer.link, download), {
+    delaysMs: options.retryDelaysMs ?? DOWNLOAD_RETRY_DELAYS_MS,
+    sleep: (ms) => pause(ms, options.signal),
+    isTransient: isTransientDownloadError
+  });
+  if (options.chat !== undefined) {
+    const digest = createHash2("sha1").update(bytes).digest("hex");
+    const seen = options.chat.seen.get(options.chat.id) ?? new Set;
+    if (seen.has(digest)) {
+      await rm(file, { force: true });
+      return {
+        isError: true,
+        content: [{
+          type: "text",
+          text: `This turn of chat_id "${options.chat.id}" returned an earlier picture unchanged, so ` + "nothing was drawn (Gemini most likely answered with text). The call still counts against " + "the image quota. Check with the user before asking again; a retry with the same chat_id " + 'works best worded plainly as an image request ("Generate an image: ...").'
+        }]
+      };
+    }
+    seen.add(digest);
+    options.chat.seen.set(options.chat.id, seen);
+  }
+  const marks = answer.marksRemoved === false ? " Gemini's watermark could not be removed from it." : "";
+  const saved = `Image saved to ${file} (${mime}, ${bytes.byteLength} bytes).${marks}`;
+  if (bytes.byteLength > (options.inlineMaxBytes ?? DEFAULT_INLINE_MAX_BYTES)) {
+    return { content: [{ type: "text", text: `${saved} It is too large to show inline.` }] };
+  }
+  return {
+    content: [
+      { type: "text", text: saved },
+      { type: "image", data: bytes.toString("base64"), mimeType: mime }
+    ]
+  };
 }
 
 // src/local-fetch.ts
@@ -38079,12 +38412,12 @@ function renderMarkdown(html) {
 import { constants } from "node:fs";
 import { open as open2 } from "node:fs/promises";
 import { homedir as homedir3 } from "node:os";
-import path2 from "node:path";
+import path3 from "node:path";
 var REFERENCE_PATH_PARAM = "reference_image_path";
 var REFERENCE_URL_PARAM = "reference_image_url";
 var REFERENCE_BASE64_PARAM = "reference_image_base64";
 var MAX_REFERENCE_BYTES = 740000;
-var REFERENCE_TOOL_TEXT = "To edit or restyle a picture pass it as a reference: a local file " + `(${REFERENCE_PATH_PARAM}) or the image_url a previous call returned (${REFERENCE_URL_PARAM}). Each call is ` + "independent, so a follow-up edit passes the reference again.";
+var REFERENCE_TOOL_TEXT = "To edit or restyle a picture pass it as a reference: a local file " + `(${REFERENCE_PATH_PARAM}) or the image_url a previous call returned (${REFERENCE_URL_PARAM}). Without a ` + "chat_id each call is independent, so a follow-up edit passes the reference again.";
 var PNG_SIGNATURE = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
 
 class ReferenceImageError extends Error {
@@ -38148,8 +38481,8 @@ function referenceErrorResult(err) {
   };
 }
 async function readPicture(file) {
-  const resolved = file.startsWith("~/") ? path2.join(process.env["HOME"] || homedir3(), file.slice(2)) : file;
-  if (!path2.isAbsolute(resolved)) {
+  const resolved = file.startsWith("~/") ? path3.join(process.env["HOME"] || homedir3(), file.slice(2)) : file;
+  if (!path3.isAbsolute(resolved)) {
     throw new ReferenceImageError(`${REFERENCE_PATH_PARAM} must be an absolute path or start with ~/.`);
   }
   const handle = await open2(resolved, constants.O_RDONLY | constants.O_NONBLOCK).catch((err) => {
@@ -38189,32 +38522,6 @@ function isPicture(bytes) {
   const jpeg = bytes.length >= 3 && bytes[0] === 255 && bytes[1] === 216 && bytes[2] === 255;
   const webp = bytes.length >= 12 && bytes.toString("latin1", 0, 4) === "RIFF" && bytes.toString("latin1", 8, 12) === "WEBP";
   return png || jpeg || webp;
-}
-
-// src/remote-retry.ts
-var TRANSIENT_STATUSES = new Set([502, 503, 504, 520, 521, 522, 524]);
-var REMOTE_RETRY_DELAYS_MS = [2000, 6000];
-var TRANSIENT_OUTAGE_HINT = "The kodizm remote looks temporarily unavailable (often a deploy, back within a minute or two). " + "Do not retry in a tight loop: do other work first, retry this exact call once after about 60 seconds, " + "and if it fails again continue with another source.";
-function isTransientRemoteError(err) {
-  if (err instanceof StreamableHTTPError) {
-    return err.code !== undefined && TRANSIENT_STATUSES.has(err.code);
-  }
-  return err instanceof TypeError && (err.message === "fetch failed" || err.message === "terminated");
-}
-async function withTransientRetry(call, options = {}) {
-  const delaysMs = options.delaysMs ?? REMOTE_RETRY_DELAYS_MS;
-  const sleep = options.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
-  for (let attempt = 0;; attempt++) {
-    try {
-      return await call();
-    } catch (err) {
-      const delayMs = delaysMs[attempt];
-      if (delayMs === undefined || !isTransientRemoteError(err)) {
-        throw err;
-      }
-      await sleep(delayMs);
-    }
-  }
 }
 
 // src/web-fetch-race.ts
@@ -38382,9 +38689,15 @@ var ALLOWED_REMOTE_TOOLS = new Set([
   "search-docs",
   "resolve-library",
   "web-code-search",
-  IMAGE_TOOL_NAME
+  IMAGE_TOOL_NAME,
+  VIDEO_TOOL_NAME,
+  MUSIC_TOOL_NAME,
+  MEDIA_RESULT_TOOL_NAME
 ]);
 var IMAGE_TOOL_TEXT = "Generate one image with Gemini from a text prompt, save it to a local file and return the " + "path with the picture. It draws on a shared hourly and daily quota, so call it only for an image " + "the user asked for, and once per image.";
+var VIDEO_TOOL_TEXT = "Generate one short video (mp4, a few seconds) with Gemini from a text prompt, wait for it and " + "save it to a local file; returns the path. Rendering takes a few minutes and the call waits it out. " + "Video has the smallest shared quota (a handful an hour) and a failed render counts too, so call it only " + "for a video the user asked for, once per video. Duration, style and audio are hints folded into the prompt; " + "leave one out to let Gemini choose. There is no reference picture or start frame.";
+var MUSIC_TOOL_TEXT = "Generate one music track (mp3) with Gemini from a text prompt, wait for it and save it to a " + "local file; returns the path. A track takes about a minute, longer when Gemini retries, and the call " + "waits it out. It draws on a shared hourly and daily quota and a failed track counts too, so call it " + "only for a track the user asked for, once per track. The options are hints folded into the prompt; " + "leave one out to let Gemini choose.";
+var PROMPT_GUIDE_TEXT = "For the prompt, use the Gemini media guidance in the ac:prompt-writer skill.";
 var REMOTE_TOOL_TEXT = {
   "resolve-library": {
     description: "Map a library or framework name to its documentation id for search-docs. " + "Call it first when the id is not already known; returns ranked matches with versions.",
@@ -38418,10 +38731,44 @@ var REMOTE_TOOL_TEXT = {
     }
   },
   [IMAGE_TOOL_NAME]: {
-    description: `${IMAGE_TOOL_TEXT} For the prompt, use the Gemini guidance in the ac:prompt-writer skill.`,
+    description: `${IMAGE_TOOL_TEXT} ${PROMPT_GUIDE_TEXT}`,
     params: {
       prompt: "What to draw.",
-      reference_image_url: "Optional reference to edit or restyle: the image_url a previous call returned, " + "while its link is valid."
+      reference_image_url: "Optional reference to edit or restyle: the image_url a previous call returned, " + "while its link is valid.",
+      model: "Gemini model, hydrogen or neon. Defaults to neon, which needs a Pro account; hydrogen runs on any " + "unless thinking or chat_id is set, which need Pro too.",
+      thinking: "How hard the model thinks before drawing: low, medium or high.",
+      chat_id: "Optional conversation label of 1 to 64 letters, digits, _ or -. Reuse it to continue the same " + "conversation; leave it out for a one-off picture.",
+      aspect_ratio: "1:1, 9:16, 3:4, 4:3 or 16:9.",
+      style: "cinematic, y2k-stickers, technicolour, gothic-clay, sketch, steampunk, or one line of your own up " + "to 300 characters.",
+      size: "WxH in pixels, mapped to the nearest supported ratio; aspect_ratio wins when both are sent."
+    }
+  },
+  [VIDEO_TOOL_NAME]: {
+    description: `${VIDEO_TOOL_TEXT} ${PROMPT_GUIDE_TEXT}`,
+    params: {
+      prompt: "What the video shows: subject, action, setting, camera and light. Up to 8000 characters with " + "the options.",
+      aspect_ratio: "16:9 (default) or 9:16.",
+      duration_seconds: "3 to 10. A hint; the clip may differ.",
+      style: "Visual style, up to 80 characters.",
+      audio: "What to hear, up to 200 characters, or none for a silent video."
+    }
+  },
+  [MUSIC_TOOL_NAME]: {
+    description: `${MUSIC_TOOL_TEXT} ${PROMPT_GUIDE_TEXT}`,
+    params: {
+      prompt: "The track to make, genre first, then mood, instruments, tempo and theme. Up to 8000 characters " + "with the options.",
+      genre: "Genre, up to 80 characters.",
+      vocals: "Voice, up to 80 characters (for example female alto), or instrumental for none.",
+      length_seconds: "10 to 180. A hint; the track may differ.",
+      mood: "Mood, up to 80 characters.",
+      instruments: "Instruments, up to 160 characters.",
+      lyrics: "Words to sing, up to 3000 characters; leave it out to let Gemini write them. Not with " + "instrumental vocals."
+    }
+  },
+  [MEDIA_RESULT_TOOL_NAME]: {
+    description: "Collect an image, video or track whose generate_image, generate_video or generate_music call " + "returned a handle instead of a file: waits for it and saves it to a local file. It never generates " + "anything new, so it is safe to repeat.",
+    params: {
+      handle: "The handle generate_image, generate_video or generate_music returned."
     }
   }
 };
@@ -38474,15 +38821,25 @@ var OPENCODE_SERVER_INSTRUCTIONS = "For library docs call resolve-library, then 
 var OPENCODE_TOOL_DESCRIPTIONS = {
   "web-fetch": "Fetch a page and return its content as markdown. Use it when you need the page text " + "itself, including pages the plain fetch tool cannot render or is blocked from.",
   "web-search": "Search the web across several engines and return deduplicated results. This is the " + "web search tool; use it for current information and to find pages to fetch.",
-  [IMAGE_TOOL_NAME]: IMAGE_TOOL_TEXT
+  [IMAGE_TOOL_NAME]: IMAGE_TOOL_TEXT,
+  [VIDEO_TOOL_NAME]: VIDEO_TOOL_TEXT,
+  [MUSIC_TOOL_NAME]: MUSIC_TOOL_TEXT
 };
+var CHAT_TOOL_TEXT = "Calls that pass the same chat_id are turns of one Gemini conversation, so a follow-up edit " + 'there needs no reference. Word a follow-up as an image request ("Generate an image: the same boat, now red"): ' + "Gemini can answer a bare edit with text and draw nothing.";
+function withChatText(tool) {
+  const properties = tool.inputSchema.properties;
+  if (properties === undefined || !("chat_id" in properties)) {
+    return tool;
+  }
+  return { ...tool, description: `${tool.description ?? ""} ${CHAT_TOOL_TEXT}`.trim() };
+}
 function forClient(tool, client) {
   const description = client === "opencode" ? OPENCODE_TOOL_DESCRIPTIONS[tool.name] : undefined;
   if (description === undefined) {
     return tool;
   }
-  const withReference = tool.description?.includes(REFERENCE_TOOL_TEXT) === true;
-  return { ...tool, description: withReference ? `${description} ${REFERENCE_TOOL_TEXT}` : description };
+  const kept = [REFERENCE_TOOL_TEXT, CHAT_TOOL_TEXT].filter((text) => tool.description?.includes(text) === true);
+  return { ...tool, description: [description, ...kept].join(" ") };
 }
 function buildCatalogue(remoteTools, client) {
   const catalogue = [];
@@ -38491,7 +38848,7 @@ function buildCatalogue(remoteTools, client) {
   } else {
     for (const tool of remoteTools) {
       if (ALLOWED_REMOTE_TOOLS.has(tool.name)) {
-        const shaped = tool.name === IMAGE_TOOL_NAME ? withLocalReference(applyRemoteText(tool)) : applyRemoteText(tool);
+        const shaped = tool.name === IMAGE_TOOL_NAME ? withChatText(withLocalReference(applyRemoteText(tool))) : applyRemoteText(tool);
         catalogue.push(forClient(applyAlwaysLoad(shaped), client));
       }
     }
@@ -38506,6 +38863,8 @@ async function runMcpProxy(options) {
   const remote = token === "" ? null : buildRemoteHandle(url, token);
   let cachedTools;
   let remoteTakesReference;
+  let remoteTakesModel;
+  const chatPictures = new Map;
   const server = new Server({ name: "ac", version: AC_VERSION }, {
     capabilities: { tools: {} },
     instructions: clientMode === "opencode" ? OPENCODE_SERVER_INSTRUCTIONS : SERVER_INSTRUCTIONS
@@ -38521,6 +38880,7 @@ async function runMcpProxy(options) {
     try {
       const upstream = await listUpstreamTools(remote);
       remoteTakesReference = declaresInlineReference(upstream);
+      remoteTakesModel = declaresModel(upstream);
       cachedTools = buildCatalogue(upstream, clientMode);
       return { tools: cachedTools };
     } catch (err) {
@@ -38530,7 +38890,7 @@ async function runMcpProxy(options) {
       return { tools: buildCatalogue(null, clientMode) };
     }
   });
-  server.setRequestHandler(CallToolRequestSchema, async (request) => {
+  server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
     const requestedName = request.params.name;
     if (requestedName === HISTORY_TOOL_NAME) {
       return runHistoryTool(request.params.arguments);
@@ -38568,12 +38928,28 @@ async function runMcpProxy(options) {
     if (remote === null) {
       throw new McpError(ErrorCode.InvalidRequest, "Remote MCP not configured; set KODIZM_MCP_TOKEN to enable kodizm tools.");
     }
+    const call = async (name, args, signal) => {
+      await remote.ensureConnected();
+      return await remote.client.callTool({ name, arguments: args }, undefined, { signal });
+    };
+    const progressToken = request.params._meta?.progressToken;
+    let progress = 0;
+    const mediaOptions = {
+      signal: extra.signal,
+      onProgress: progressToken === undefined ? undefined : (message) => extra.sendNotification({
+        method: "notifications/progress",
+        params: { progressToken, progress: ++progress, message }
+      }),
+      onImage: (image) => deliverFinishedImage(image, { signal: extra.signal })
+    };
     if (requestedName === IMAGE_TOOL_NAME) {
       try {
         if (asksForReference(request.params.arguments)) {
           if (remoteTakesReference === undefined) {
             try {
-              remoteTakesReference = declaresInlineReference(await listUpstreamTools(remote));
+              const upstream = await listUpstreamTools(remote);
+              remoteTakesReference = declaresInlineReference(upstream);
+              remoteTakesModel = declaresModel(upstream);
             } catch (err) {
               throw new ReferenceImageError(`Could not check whether the connected Kodizm takes a reference picture: ${describeFailure(err)}.`);
             }
@@ -38582,16 +38958,46 @@ async function runMcpProxy(options) {
             throw new ReferenceImageError("The connected Kodizm does not take a reference picture yet.");
           }
         }
-        const args = await inlineReference(request.params.arguments);
+        const inlined = await inlineReference(request.params.arguments);
+        const args = inlined === undefined ? undefined : withDefaultModel(inlined, remoteTakesModel === true);
         await remote.ensureConnected();
         const generated = await remote.client.callTool({
           name: requestedName,
           arguments: args
         });
-        return await deliverImage(generated);
+        const chatId = args?.["chat_id"];
+        const delivery = {
+          chat: typeof chatId === "string" && chatId !== "" ? { id: chatId, seen: chatPictures } : undefined,
+          signal: extra.signal
+        };
+        const handle = generated.isError === true ? undefined : queuedHandleOf(generated);
+        if (handle === undefined) {
+          return await deliverImage(generated, delivery);
+        }
+        return await collectMedia(call, handle, {
+          ...mediaOptions,
+          deadlineMs: IMAGE_DEADLINE_MS,
+          firstPollAfterMs: IMAGE_FIRST_POLL_AFTER_MS,
+          onImage: (image) => deliverFinishedImage(image, delivery)
+        }, imagePollIntervalMs);
       } catch (err) {
         return err instanceof ReferenceImageError ? referenceErrorResult(err) : imageErrorResult(err);
       }
+    }
+    if (requestedName === VIDEO_TOOL_NAME || requestedName === MUSIC_TOOL_NAME || requestedName === MEDIA_RESULT_TOOL_NAME) {
+      const args = request.params.arguments ?? {};
+      const handle = args["handle"];
+      if (requestedName === MEDIA_RESULT_TOOL_NAME) {
+        if (typeof handle !== "string" || handle === "") {
+          try {
+            return await call(requestedName, args);
+          } catch (err) {
+            return toIsErrorResult(err);
+          }
+        }
+        return await collectMedia(call, handle, mediaOptions);
+      }
+      return await generateMedia(call, requestedName, args, mediaOptions);
     }
     try {
       return await withTransientRetry(async () => {
@@ -40638,7 +41044,7 @@ import {
   unlinkSync,
   writeSync
 } from "node:fs";
-import { tmpdir as tmpdir2 } from "node:os";
+import { tmpdir as tmpdir3 } from "node:os";
 import { basename as basename5, join as join9 } from "node:path";
 var LEASE_KINDS = [
   "pid",
@@ -40694,7 +41100,7 @@ function defaultLeaseDeps() {
   const probe = psProbe();
   return {
     env: process.env,
-    leaseDir: join9(tmpdir2(), "ac-leases"),
+    leaseDir: join9(tmpdir3(), "ac-leases"),
     sandboxLeaseDir: join9(process.env.CLAUDE_CODE_TMPDIR || "/tmp", `claude-${currentUid()}`, "ac-leases"),
     probe,
     findOwner: () => findClaudeAncestor(probe),
@@ -41729,4 +42135,4 @@ function resolvePrWatchHead(head) {
 }
 await program2.parseAsync(process.argv);
 
-//# debugId=566BC57B1DF405A464756E2164756E21
+//# debugId=E071C347EAC2113064756E2164756E21

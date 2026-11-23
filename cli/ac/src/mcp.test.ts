@@ -7,7 +7,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { StreamableHTTPError } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { LOCAL_WEB_FETCH_TOOL_DEFINITION } from "./local-fetch.ts";
@@ -210,6 +210,43 @@ test("buildCatalogue offers a local reference path where the remote takes inline
     expect(image?.description).toContain("reference_image_path");
 });
 
+test("buildCatalogue describes the image bridge options and explains chat_id only when the remote takes it", () => {
+    const remoteImage: Tool = {
+        ...makeTool("generate_image"),
+        inputSchema: {
+            type: "object",
+            properties: {
+                prompt: { type: "string" },
+                model: { type: "string", enum: ["hydrogen", "neon"] },
+                thinking: { type: "string", enum: ["low", "medium", "high"] },
+                chat_id: { type: "string", maxLength: 64 },
+                aspect_ratio: { type: "string" },
+                style: { type: "string" },
+                size: { type: "string" },
+            },
+        },
+    };
+
+    for (const client of ["claude-code", "opencode"] as const) {
+        const image = buildCatalogue([...REMOTE_SURFACE, remoteImage], client)
+            .find((tool) => tool.name === "generate_image");
+        const properties = image?.inputSchema.properties as Record<string, { description?: string; enum?: string[] }>;
+
+        expect(image?.description).toContain("same chat_id");
+        expect(properties["model"]?.enum).toEqual(["hydrogen", "neon"]);
+        expect(properties["model"]?.description).toContain("Defaults to neon");
+        expect(properties["thinking"]?.description).toContain("low, medium or high");
+        expect(properties["chat_id"]?.description).toContain("1 to 64");
+        expect(properties["aspect_ratio"]?.description).toContain("16:9");
+        expect(properties["style"]?.description).toContain("cinematic");
+        expect(properties["size"]?.description).toContain("aspect_ratio wins");
+    }
+
+    const plain = buildCatalogue([...REMOTE_SURFACE, makeTool("generate_image")], "claude-code")
+        .find((tool) => tool.name === "generate_image");
+    expect(plain?.description).not.toContain("chat_id");
+});
+
 test("buildCatalogue (opencode client) keeps the image description but drops the Claude Code skill pointer", () => {
     const tools = buildCatalogue([...REMOTE_SURFACE, makeTool("generate_image")], "opencode");
     const image = tools.find((tool) => tool.name === "generate_image");
@@ -217,6 +254,27 @@ test("buildCatalogue (opencode client) keeps the image description but drops the
     expect(image?.description).toContain("Gemini");
     expect(image?.description).toContain("once per image");
     expect(image?.description).not.toContain("prompt-writer");
+});
+
+test("buildCatalogue passes kodizm's video, music and collection tools through with the proxy's own text", () => {
+    const remote = ["generate_video", "generate_music", "media_result"].map((name) => makeTool(name));
+
+    for (const client of ["claude-code", "opencode"] as const) {
+        const tools = buildCatalogue([...REMOTE_SURFACE, ...remote], client);
+        const byName = new Map(tools.map((tool) => [tool.name, tool]));
+
+        expect(byName.get("generate_video")?.description).toContain("save it to a local file");
+        expect(byName.get("generate_music")?.description).toContain("save it to a local file");
+        expect(byName.get("media_result")?.description).toContain("never generates");
+        // The proxy waits on the handle itself, so the model is never told to poll.
+        for (const name of ["generate_video", "generate_music"]) {
+            expect(byName.get(name)?.description).not.toMatch(/poll/i);
+            expect(byName.get(name)?._meta).toBeUndefined();
+            // opencode does not ship the skill the Claude Code text points at.
+            expect(byName.get(name)?.description?.includes("ac:prompt-writer")).toBe(client === "claude-code");
+        }
+        expect(tools.at(-1)?.name).toBe("search-history");
+    }
 });
 
 test("buildCatalogue (opencode client) describes the web tools without naming Claude Code built-ins", () => {
@@ -640,6 +698,352 @@ test("mcp proxy turns kodizm's image link into a saved file and an inline pictur
         await remote.stop(true);
         if (savedPath !== undefined) {
             rmSync(savedPath, { force: true });
+        }
+    }
+}, 30_000);
+
+test("mcp proxy runs a music render to a saved file: submit, collect through media_result, download", async () => {
+    // A hand-rolled streamable-HTTP remote answering the way kodizm's Tools do: generate_music queues and answers
+    // prose with a handle line, media_result answers JSON with a signed link, and the link serves the track.
+    const mp3 = new Uint8Array([0x49, 0x44, 0x33, 4, 0, 0, 0, 0, 0, 0, 7, 7]);
+    const calls: Array<[string, unknown]> = [];
+    const remote = Bun.serve({
+        port: 0,
+        async fetch(request) {
+            const { pathname } = new URL(request.url);
+            if (pathname === "/track.mp3") {
+                return new Response(mp3, { headers: { "content-type": "audio/mpeg" } });
+            }
+            if (request.method !== "POST") {
+                return new Response(null, { status: 405 });
+            }
+
+            const message = await request.json() as { id?: number; method: string; params: Record<string, unknown> };
+            if (message.method === "notifications/initialized") {
+                return new Response(null, { status: 202 });
+            }
+            if (message.method === "initialize") {
+                return Response.json({
+                    jsonrpc: "2.0",
+                    id: message.id,
+                    result: {
+                        protocolVersion: message.params["protocolVersion"],
+                        capabilities: { tools: {} },
+                        serverInfo: { name: "fake-kodizm", version: "0.0.0" },
+                    },
+                });
+            }
+            if (message.method === "tools/call") {
+                const name = message.params["name"] as string;
+                calls.push([name, message.params["arguments"]]);
+                const text = name === "generate_music"
+                    ? "The track is now generating in the background.\n\nhandle: 0b7e-42\n\nCall `google.media_result`."
+                    : JSON.stringify({
+                        status: "done",
+                        handle: "0b7e-42",
+                        url: new URL("/track.mp3", request.url).href,
+                        mime: "audio/mpeg",
+                        bytes: mp3.length,
+                    });
+
+                return Response.json({ jsonrpc: "2.0", id: message.id, result: { content: [{ type: "text", text }] } });
+            }
+
+            return Response.json({ jsonrpc: "2.0", id: message.id, error: { code: -32601, message: "unsupported" } });
+        },
+    });
+
+    const env = Object.fromEntries(
+        Object.entries(process.env)
+            .filter((e): e is [string, string] => e[1] !== undefined)
+            .filter(([k]) => k !== "KODIZM_MCP_TOKEN" && k !== "KODIZM_MCP_URL"),
+    );
+    env["KODIZM_MCP_TOKEN"] = "kdz-dummy-music";
+    env["KODIZM_MCP_URL"] = `http://127.0.0.1:${remote.port}/mcp`;
+
+    const client = new Client(
+        { name: "test-client", version: "0.0.0" },
+        { capabilities: {} },
+    );
+
+    let savedPath: string | undefined;
+
+    try {
+        await client.connect(new StdioClientTransport({
+            command: "bun",
+            args: [
+                "run",
+                "src/index.ts",
+                "mcp",
+            ],
+            cwd: CLI_DIR,
+            env,
+        }));
+
+        const result = await client.callTool({
+            name: "generate_music",
+            arguments: { prompt: "a jazz loop", vocals: "instrumental" },
+        }) as { isError?: boolean; content?: Array<{ type: string; text?: string }> };
+
+        expect(result.isError).toBeUndefined();
+        expect(calls).toEqual([
+            ["generate_music", { prompt: "a jazz loop", vocals: "instrumental" }],
+            ["media_result", { handle: "0b7e-42" }],
+        ]);
+
+        savedPath = /saved to (\S+) \(/.exec(result.content?.[0]?.text ?? "")?.[1];
+        expect(savedPath?.endsWith(".mp3")).toBe(true);
+        expect(new Uint8Array(readFileSync(savedPath ?? ""))).toEqual(mp3);
+    } finally {
+        await client.close();
+        await remote.stop(true);
+        if (savedPath !== undefined) {
+            rmSync(savedPath, { force: true });
+        }
+    }
+}, 30_000);
+
+test("mcp proxy collects a queued picture through media_result and presents it like an inline one", async () => {
+    // kodizm with GEMINI_WEB_IMAGE_QUEUE on: generate_image answers prose with a handle line, media_result answers the
+    // finished picture's signed link with marks_removed, and the link serves the PNG.
+    const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 4, 2]);
+    const calls: Array<[string, unknown]> = [];
+    const remote = Bun.serve({
+        port: 0,
+        async fetch(request) {
+            const { pathname } = new URL(request.url);
+            if (pathname === "/picture.png") {
+                return new Response(png, { headers: { "content-type": "image/png" } });
+            }
+            if (request.method !== "POST") {
+                return new Response(null, { status: 405 });
+            }
+
+            const message = await request.json() as { id?: number; method: string; params: Record<string, unknown> };
+            if (message.method === "notifications/initialized") {
+                return new Response(null, { status: 202 });
+            }
+            if (message.method === "initialize") {
+                return Response.json({
+                    jsonrpc: "2.0",
+                    id: message.id,
+                    result: {
+                        protocolVersion: message.params["protocolVersion"],
+                        capabilities: { tools: {} },
+                        serverInfo: { name: "fake-kodizm", version: "0.0.0" },
+                    },
+                });
+            }
+            if (message.method === "tools/call") {
+                const name = message.params["name"] as string;
+                calls.push([name, message.params["arguments"]]);
+                const text = name === "generate_image"
+                    ? "The picture is now generating in the background.\n\nhandle: 5c2a-9\n\nCall `google.media_result`."
+                    : JSON.stringify({
+                        status: "done",
+                        handle: "5c2a-9",
+                        url: new URL("/picture.png", request.url).href,
+                        mime: "image/png",
+                        bytes: png.length,
+                        marks_removed: false,
+                    });
+
+                return Response.json({ jsonrpc: "2.0", id: message.id, result: { content: [{ type: "text", text }] } });
+            }
+
+            return Response.json({ jsonrpc: "2.0", id: message.id, error: { code: -32601, message: "unsupported" } });
+        },
+    });
+
+    const env = Object.fromEntries(
+        Object.entries(process.env)
+            .filter((e): e is [string, string] => e[1] !== undefined)
+            .filter(([k]) => k !== "KODIZM_MCP_TOKEN" && k !== "KODIZM_MCP_URL"),
+    );
+    env["KODIZM_MCP_TOKEN"] = "kdz-dummy-queued-image";
+    env["KODIZM_MCP_URL"] = `http://127.0.0.1:${remote.port}/mcp`;
+
+    const client = new Client(
+        { name: "test-client", version: "0.0.0" },
+        { capabilities: {} },
+    );
+
+    let savedPath: string | undefined;
+
+    try {
+        await client.connect(new StdioClientTransport({
+            command: "bun",
+            args: [
+                "run",
+                "src/index.ts",
+                "mcp",
+            ],
+            cwd: CLI_DIR,
+            env,
+        }));
+
+        const result = await client.callTool({
+            name: "generate_image",
+            arguments: { prompt: "a red paper boat" },
+        }) as { isError?: boolean; content?: Array<{ type: string; text?: string; data?: string }> };
+
+        expect(result.isError).toBeUndefined();
+        expect(calls).toEqual([
+            ["generate_image", { prompt: "a red paper boat" }],
+            ["media_result", { handle: "5c2a-9" }],
+        ]);
+
+        const saved = result.content?.[0]?.text ?? "";
+        savedPath = /saved to (\S+) \(/.exec(saved)?.[1];
+        expect(savedPath?.endsWith(".png")).toBe(true);
+        expect(saved).toContain("watermark could not be removed");
+        expect(result.content?.[1]?.type).toBe("image");
+        expect(result.content?.[1]?.data).toBe(Buffer.from(png).toString("base64"));
+
+        // A handle the model collects itself, after a wait ran out, is presented the same way.
+        const collected = await client.callTool({
+            name: "media_result",
+            arguments: { handle: "5c2a-9" },
+        }) as { isError?: boolean; content?: Array<{ type: string; text?: string }> };
+
+        expect(collected.isError).toBeUndefined();
+        expect(collected.content?.[1]?.type).toBe("image");
+        rmSync(/saved to (\S+) \(/.exec(collected.content?.[0]?.text ?? "")?.[1] ?? "", { force: true });
+    } finally {
+        await client.close();
+        await remote.stop(true);
+        if (savedPath !== undefined) {
+            rmSync(savedPath, { force: true });
+        }
+    }
+}, 30_000);
+
+test("mcp proxy sends model neon when a call names none and refuses a chat turn that repeats its picture", async () => {
+    // The fake remote declares model and chat_id, records what each tools/call carried and always answers the same
+    // picture, the way the bridge hands back an earlier picture on a turn Gemini answered with text.
+    const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 5, 5, 5]);
+    const calls: Array<Record<string, unknown>> = [];
+    const remote = Bun.serve({
+        port: 0,
+        async fetch(request) {
+            const { pathname } = new URL(request.url);
+            if (pathname === "/picture.png") {
+                return new Response(png, { headers: { "content-type": "image/png" } });
+            }
+            if (request.method !== "POST") {
+                return new Response(null, { status: 405 });
+            }
+
+            const message = await request.json() as { id?: number; method: string; params: Record<string, unknown> };
+            if (message.method === "notifications/initialized") {
+                return new Response(null, { status: 202 });
+            }
+            if (message.method === "initialize") {
+                return Response.json({
+                    jsonrpc: "2.0",
+                    id: message.id,
+                    result: {
+                        protocolVersion: message.params["protocolVersion"],
+                        capabilities: { tools: {} },
+                        serverInfo: { name: "fake-kodizm", version: "0.0.0" },
+                    },
+                });
+            }
+            if (message.method === "tools/list") {
+                return Response.json({
+                    jsonrpc: "2.0",
+                    id: message.id,
+                    result: {
+                        tools: [{
+                            name: "generate_image",
+                            description: "remote text",
+                            inputSchema: {
+                                type: "object",
+                                properties: {
+                                    prompt: { type: "string" },
+                                    model: { type: "string", enum: ["hydrogen", "neon"] },
+                                    chat_id: { type: "string" },
+                                },
+                            },
+                        }],
+                    },
+                });
+            }
+            if (message.method === "tools/call") {
+                calls.push(message.params["arguments"] as Record<string, unknown>);
+                const answer = {
+                    path: "web",
+                    status: "succeeded",
+                    output: { image_url: new URL("/picture.png", request.url).href },
+                };
+
+                return Response.json({
+                    jsonrpc: "2.0",
+                    id: message.id,
+                    result: { content: [{ type: "text", text: JSON.stringify(answer) }] },
+                });
+            }
+
+            return Response.json({ jsonrpc: "2.0", id: message.id, error: { code: -32601, message: "unsupported" } });
+        },
+    });
+
+    const env = Object.fromEntries(
+        Object.entries(process.env)
+            .filter((e): e is [string, string] => e[1] !== undefined)
+            .filter(([k]) => k !== "KODIZM_MCP_TOKEN" && k !== "KODIZM_MCP_URL"),
+    );
+    env["KODIZM_MCP_TOKEN"] = "kdz-dummy-chat";
+    env["KODIZM_MCP_URL"] = `http://127.0.0.1:${remote.port}/mcp`;
+
+    const client = new Client(
+        { name: "test-client", version: "0.0.0" },
+        { capabilities: {} },
+    );
+    const saved: string[] = [];
+
+    try {
+        await client.connect(new StdioClientTransport({
+            command: "bun",
+            args: [
+                "run",
+                "src/index.ts",
+                "mcp",
+            ],
+            cwd: CLI_DIR,
+            env,
+        }));
+        await client.listTools();
+
+        type Answer = { isError?: boolean; content?: Array<{ type: string; text?: string }> };
+        const call = async (args: Record<string, unknown>): Promise<Answer> => {
+            const result = await client.callTool({ name: "generate_image", arguments: args }) as Answer;
+            const file = /saved to (\S+) \(/.exec(result.content?.[0]?.text ?? "")?.[1];
+            if (file !== undefined) {
+                saved.push(file);
+            }
+
+            return result;
+        };
+
+        const first = await call({ prompt: "a boat", chat_id: "boat" });
+        const repeat = await call({ prompt: "make it red", chat_id: "boat" });
+        const explicit = await call({ prompt: "a boat", model: "hydrogen" });
+
+        expect(first.isError).toBeUndefined();
+        expect(repeat.isError).toBe(true);
+        expect(repeat.content?.[0]?.text).toContain("earlier picture");
+        expect(explicit.isError).toBeUndefined();
+        expect(calls).toEqual([
+            { prompt: "a boat", chat_id: "boat", model: "neon" },
+            { prompt: "make it red", chat_id: "boat", model: "neon" },
+            { prompt: "a boat", model: "hydrogen" },
+        ]);
+    } finally {
+        await client.close();
+        await remote.stop(true);
+        for (const file of saved) {
+            rmSync(file, { force: true });
         }
     }
 }, 30_000);

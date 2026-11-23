@@ -1,9 +1,16 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { deliverImage, describeFailure, IMAGE_TOOL_NAME, imageErrorResult } from "./image-result.ts";
+import {
+    declaresModel,
+    deliverImage,
+    IMAGE_TOOL_NAME,
+    imageErrorResult,
+    isTransientDownloadError,
+    withDefaultModel,
+} from "./image-result.ts";
 
 // Bearer-free and deterministic: a local Bun server stands in for the signed media link that
 // kodizm's google.generate_image answers with, so the download, the size cap and every refusal
@@ -13,6 +20,7 @@ const PNG_BYTES = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a
 
 let server: ReturnType<typeof Bun.serve>;
 let directory: string;
+const hits = new Map<string, number>();
 
 beforeAll(() => {
     directory = mkdtempSync(path.join(tmpdir(), "ac-image-result-"));
@@ -32,6 +40,25 @@ beforeAll(() => {
             }
             if (pathname === "/big.png") {
                 return new Response(new Uint8Array(2048), { headers: { "content-type": "image/png" } });
+            }
+
+            const seen = (hits.get(pathname) ?? 0) + 1;
+            hits.set(pathname, seen);
+
+            if (pathname === "/slow-once.png" && seen === 1) {
+                return Bun.sleep(500).then(() => new Response(PNG_BYTES, { headers: { "content-type": "image/png" } }));
+            }
+            if (pathname === "/busy-once.png" && seen === 1) {
+                return new Response("busy", { status: 503 });
+            }
+            if (pathname === "/slow-once.png" || pathname === "/busy-once.png") {
+                return new Response(PNG_BYTES, { headers: { "content-type": "image/png" } });
+            }
+            if (pathname === "/busy.png" || pathname === "/busy-cancel.png") {
+                return new Response("busy", { status: 503 });
+            }
+            if (pathname === "/broken.png") {
+                return new Response("bug", { status: 500 });
             }
 
             return new Response("gone", { status: 404 });
@@ -92,6 +119,73 @@ test("deliverImage saves the picture and returns its path with an inline image b
     }
 });
 
+test("deliverImage says when kodizm could not remove Gemini's watermark", async () => {
+    const kept = await deliverImage(remoteResult({ image_url: linkTo("/ok.png"), marks_removed: false }), { directory });
+    const clean = await deliverImage(remoteResult({ image_url: linkTo("/ok.png"), marks_removed: true }), { directory });
+
+    expect(kept.isError).toBeUndefined();
+    expect(textOf(kept)).toContain("watermark could not be removed");
+    expect(textOf(clean)).not.toContain("watermark");
+});
+
+test("deliverImage tries a slow or busy link again and saves the picture", async () => {
+    const retry = { downloadTimeoutMs: 100, retryDelaysMs: [0, 0] };
+
+    const slow = await deliverImage(remoteResult({ image_url: linkTo("/slow-once.png") }), { directory, ...retry });
+    const busy = await deliverImage(remoteResult({ image_url: linkTo("/busy-once.png") }), { directory, ...retry });
+
+    expect(slow.isError).toBeUndefined();
+    expect(busy.isError).toBeUndefined();
+    expect(hits.get("/slow-once.png")).toBe(2);
+    expect(hits.get("/busy-once.png")).toBe(2);
+});
+
+test("deliverImage hands back the link when every try fails in transit, and never retries a refusal", async () => {
+    const retry = { downloadTimeoutMs: 100, retryDelaysMs: [0, 0] };
+
+    const busy = await deliverImage(remoteResult({ image_url: linkTo("/busy.png") }), { directory, ...retry });
+    expect(busy.isError).toBe(true);
+    expect(hits.get("/busy.png")).toBe(3);
+    expect(textOf(busy)).toContain("503");
+    expect(textOf(busy)).toContain(linkTo("/busy.png"));
+    expect(textOf(busy)).toContain("do not call generate_image again");
+
+    const gone = await deliverImage(remoteResult({ image_url: linkTo("/missing.png") }), { directory, ...retry });
+    expect(gone.isError).toBe(true);
+    expect(hits.get("/missing.png")).toBe(1);
+    expect(textOf(gone)).not.toContain(linkTo("/missing.png"));
+
+    // A plain 500 is as likely a bug as a busy host, so it is not repeated.
+    const broken = await deliverImage(remoteResult({ image_url: linkTo("/broken.png") }), { directory, ...retry });
+    expect(broken.isError).toBe(true);
+    expect(hits.get("/broken.png")).toBe(1);
+});
+
+test("isTransientDownloadError retries a dropped connection but not a certificate or DNS failure", () => {
+    const failed = (code: string): TypeError => new TypeError("fetch failed", { cause: Object.assign(new Error(code), { code }) });
+
+    expect(isTransientDownloadError(failed("UND_ERR_SOCKET"))).toBe(true);
+    expect(isTransientDownloadError(failed("ECONNRESET"))).toBe(true);
+    expect(isTransientDownloadError(new DOMException("timed out", "TimeoutError"))).toBe(true);
+    expect(isTransientDownloadError(failed("CERT_HAS_EXPIRED"))).toBe(false);
+    expect(isTransientDownloadError(failed("ENOTFOUND"))).toBe(false);
+    expect(isTransientDownloadError(new TypeError("fetch failed", { cause: new Error("unexpected redirect") }))).toBe(false);
+});
+
+test("deliverImage stops trying once the call is cancelled", async () => {
+    const cancel = new AbortController();
+    const pending = deliverImage(
+        remoteResult({ image_url: linkTo("/busy-cancel.png") }),
+        { directory, retryDelaysMs: [60_000, 60_000], signal: cancel.signal },
+    );
+    setTimeout(() => cancel.abort(), 50);
+
+    const result = await pending;
+
+    expect(result.isError).toBe(true);
+    expect(hits.get("/busy-cancel.png")).toBe(1);
+});
+
 test("deliverImage returns only the path for a picture above the inline limit", async () => {
     const result = await deliverImage(
         remoteResult({ image_url: linkTo("/ok.png") }),
@@ -104,12 +198,49 @@ test("deliverImage returns only the path for a picture above the inline limit", 
     expect(textOf(result)).toContain("too large to show inline");
 });
 
-test("describeFailure appends the cause that undici hides behind 'fetch failed'", () => {
-    const err = new TypeError("fetch failed", { cause: new Error("connect ECONNREFUSED 127.0.0.1:1") });
+test("deliverImage refuses a chat turn that returns any earlier picture again and keeps no copy", async () => {
+    const chats = new Map<string, Set<string>>();
+    chats.set("boat", new Set(["an-older-turn"]));
+    const answer = remoteResult({ image_url: linkTo("/ok.png") });
 
-    expect(describeFailure(err)).toBe("fetch failed (connect ECONNREFUSED 127.0.0.1:1)");
-    expect(describeFailure(new Error("plain"))).toBe("plain");
-    expect(describeFailure("boom")).toBe("boom");
+    const first = await deliverImage(answer, { directory, chat: { id: "boat", seen: chats } });
+    expect(first.isError).toBeUndefined();
+
+    const before = readdirSync(directory).length;
+    const repeat = await deliverImage(answer, { directory, chat: { id: "boat", seen: chats } });
+
+    expect(repeat.isError).toBe(true);
+    expect(textOf(repeat)).toContain("earlier picture");
+    expect(textOf(repeat)).toContain("boat");
+    expect(readdirSync(directory)).toHaveLength(before);
+    // Turn 1's digest stays known after turn 2 lands, so a later stale turn returning turn 1 is caught too.
+    expect(chats.get("boat")?.has("an-older-turn")).toBe(true);
+
+    // Another conversation, or a call outside any, may legitimately draw the same bytes.
+    expect((await deliverImage(answer, { directory, chat: { id: "other", seen: chats } })).isError).toBeUndefined();
+    expect((await deliverImage(answer, { directory })).isError).toBeUndefined();
+});
+
+test("withDefaultModel sends neon when the remote takes a model and the call names none", () => {
+    const takesModel: Tool = {
+        name: IMAGE_TOOL_NAME,
+        inputSchema: {
+            type: "object",
+            properties: {
+                prompt: { type: "string" },
+                model: { type: "string", enum: ["hydrogen", "neon"] },
+            },
+        },
+    };
+    const noModel: Tool = { name: IMAGE_TOOL_NAME, inputSchema: { type: "object", properties: { prompt: {} } } };
+
+    expect(declaresModel([takesModel])).toBe(true);
+    expect(declaresModel([noModel])).toBe(false);
+    expect(withDefaultModel({ prompt: "x" }, true)).toEqual({ prompt: "x", model: "neon" });
+    expect(withDefaultModel({ prompt: "x", model: "hydrogen" }, true)).toEqual({ prompt: "x", model: "hydrogen" });
+    expect(withDefaultModel({ prompt: "x", model: null }, true)).toEqual({ prompt: "x", model: "neon" });
+    // A remote that does not declare model would refuse it as an undeclared argument.
+    expect(withDefaultModel({ prompt: "x" }, false)).toEqual({ prompt: "x" });
 });
 
 test("imageErrorResult warns that a picture may exist and never invites a retry", () => {
