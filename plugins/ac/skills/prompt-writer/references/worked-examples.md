@@ -134,6 +134,8 @@ Under 500 words. Cite Postgres docs or behavior specifics."
 - **Asks for citations:** Postgres docs or specific behaviors. Reduces hallucination.
 - **Does not say "based on your findings, fix the migration."** Synthesis is not delegated.
 
+A shorter pair of canonical briefs is in `subagent-prompts.md`, Worked examples (canonical patterns).
+
 ## Example 3: Custom agent definition (.claude/agents/code-reviewer.md)
 
 Reusable across the project.
@@ -170,7 +172,7 @@ You are a senior code reviewer with deep experience in [project's primary stack]
 
 ## Coverage rule
 
-Report every issue you find, including ones you are uncertain about or consider low-severity. Do not filter for importance or confidence at this stage; the user will filter downstream. Coverage beats precision here.
+Report every issue you find, including uncertain and low-severity ones; the user filters downstream, so coverage beats precision here. Copy-paste form: `snippets.md`, Code review.
 
 For each finding:
 - `file_path:line_number`
@@ -213,7 +215,7 @@ If there are no issues, say so explicitly: "No issues found. The change is consi
 - **Description is bounded:** it names the capability and the return shape, then draws the line ("an edit whose whole diff you have already read does not need it"). The boundary is what keeps it from firing on every diff, and it does the job a list of phrasings cannot.
 - **Tool list is explicit.**
 - **Approach is numbered and decisional.** Not "do a thorough review."
-- **Coverage rule counters the filtering tendency** modern Claude shows in code review contexts (see https://platform.claude.com/docs/en/about-claude/models/migration-guide.md > Behavior changes > Code review).
+- **Coverage rule counters the filtering tendency** Claude shows in code review contexts.
 - **Output contract is specific.** Markdown report with numbered sections, fields per finding.
 - **Constraints repeat the most important rules** at the end.
 
@@ -390,4 +392,4 @@ Return the prompt inside `<inner_prompt>` tags. Do not include any explanation o
 
 Pick the example closest to your task. Adapt the persona, the schema, the examples, the reminders. Do not copy verbatim; copy the structure. The examples are scaffolds, not templates.
 
-If your task does not match any example, build it from the 7-component architecture in `${CLAUDE_SKILL_DIR}/references/architecture.md` and pull snippets from `${CLAUDE_SKILL_DIR}/references/snippets.md`.
+If your task does not match any example, build it from the 7-component architecture in `architecture.md` and pull snippets from `snippets.md`.

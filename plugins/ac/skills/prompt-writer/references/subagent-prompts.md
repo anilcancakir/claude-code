@@ -7,7 +7,6 @@ Primary sources (raw markdown via the `.md` suffix on `platform.claude.com` for 
 - Anthropic Claude Code subagents page: https://code.claude.com/docs/en/sub-agents.md
 - Claude Code skills (for the `context: fork` pattern and skill-as-subagent): https://code.claude.com/docs/en/skills.md
 - Anthropic prompt engineering best practices: https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/claude-prompting-best-practices.md
-- Anthropic migration guide (4.7 subagent behavior changes): https://platform.claude.com/docs/en/about-claude/models/migration-guide.md
 
 The guidance below mirrors the canonical "Writing the prompt" section embedded in Claude Code's live system prompt (the section the harness uses to brief the orchestrator when it considers spawning an Agent). When the live system prompt and this reference disagree, the live system prompt wins.
 
@@ -103,9 +102,7 @@ Not every task warrants a subagent. Spawning has a cost: the agent must rebuild 
 - Sequential work that needs to maintain main-context state.
 - The total cost of context-building plus run plus result-summarization exceeds doing it directly.
 
-**Default behavior on Opus 5.** Delegates to subagents MORE readily than prior models. This inverts the Opus 4.8 default, where the model spawned fewer subagents unprompted and prompts had to encourage fan-out. On Opus 5 the useful steering is the opposite: name when NOT to spawn ("complete work directly when you can already see what needs to change; spawn only when the work needs its own context window"). A prompt still carrying 4.8-era fan-out encouragement pushes an already-eager default. Source: https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/prompting-claude-opus-5.md > Controlling subagent spawning.
-
-**Opus 5.5.** No documented reversal; Anthropic calls the Opus 5 patterns the starting point. Inside Claude Code the host drops the line that suppressed Agent use on Opus 5. The 2.1.314 Agent description is cautionary ("When in doubt, don't spawn"), where the 2.1.280 text encouraged delegation, so a 5.5 prompt that holds the Agent tool still carries its own when-not-to-spawn line. For a lead agent fanning out to subagents, 5.5 also paces to an elapsed-time signal (`elapsed 340s / 1200s` appended by the harness), which Anthropic reports finishes teams sooner; see `opus-5-5-tuning.md`.
+Some models delegate readily. Say when not to spawn in the prompt that holds the Agent tool; Anthropic's damping paragraph and the Claude Code caps are in `opus-5-5-tuning.md`. The Claude Code Agent tool description is cautionary ("When in doubt, don't spawn"), see `claude-code-builtin-prompts.md`, section 6.
 
 ## Foreground vs background
 
@@ -119,15 +116,13 @@ In Claude Code, an agent can run foreground (default) or background.
 
 Source: https://code.claude.com/docs/en/sub-agents.md > Spawning agents (foreground vs background section).
 
-## Forking variant (no `subagent_type`)
+## Forking variant (`subagent_type: "fork"`)
 
-When the orchestrator calls Agent without specifying `subagent_type`, CC may create a fork: a background subagent that runs concurrently in an isolated context. The harness's forking-variant prompt says:
+The Agent tool description in 2.1.318 says: "specify a subagent_type to select an agent: `"fork"` forks yourself (the fork inherits your full conversation context and always runs on your model \u2014 a `model` override is ignored); any other type \u2014 or omitting it \u2014 starts a fresh agent (general-purpose by default)." So a fork is the one case where the brief can be short, because the fork already has the conversation; every other call starts from nothing and needs the full brief above. A `model` override on a fork is ignored.
 
-> "Calling Agent without a subagent_type creates a fork, which runs in the background and keeps its tool output out of your context, so you can keep chatting with the user while it works. Reach for it when research or multi-step implementation work would otherwise fill your context with raw output you won't need again. If you ARE the fork, execute directly; do not re-delegate."
+A fork that spawns another fork multiplies context cost, so tell a fork to execute directly. Whether the harness also adds fork-specific prompt text depends on a feature gate and was not captured on 2.1.318.
 
-The "if you are the fork, do not re-delegate" line is important: a fork that calls Agent again spawns a sub-fork, multiplying context cost. Stay direct.
-
-Source: https://code.claude.com/docs/en/sub-agents.md > Forking subagent context (or the most current section name; the forking variant is gated by a feature flag in the harness).
+Source: https://code.claude.com/docs/en/sub-agents.md; the Agent tool text in `claude-code-builtin-prompts.md`, section 6.
 
 ## Worked examples (canonical patterns)
 
@@ -171,18 +166,7 @@ Three independent reads, one orchestrator turn, three parallel runs.
 
 ## Fresh general-purpose agent
 
-When delegating to the bundled `general-purpose` subagent (a built-in Claude Code subagent for researching complex questions, searching for code, and executing multi-step tasks), match the shape its system prompt expects.
-
-The bundled body sets these expectations (paraphrased from the harness's behavior, documented in https://code.claude.com/docs/en/sub-agents.md):
-
-- Concise report covering what was done and key findings; the caller will relay it.
-- Do not gold-plate, but do not leave the task half-done.
-- Search broadly when the file is unknown; Read when the path is known.
-- Start broad, narrow down. Use multiple search strategies if the first does not yield results.
-- Do not create files unless absolutely necessary. Prefer editing an existing file.
-- Do not proactively create documentation files (`*.md`).
-
-Briefings that fight these defaults waste turns. Match the agent's shape.
+When delegating to the bundled `general-purpose` subagent (a built-in Claude Code subagent for researching complex questions, searching for code, and executing multi-step tasks), match the shape its system prompt expects: a concise report of what was done and the key findings, no gold-plating, no half-done work. Verbatim default prompt: `claude-code-builtin-prompts.md`, section 5. Briefings that fight these defaults waste turns.
 
 ```text
 Find unused exports in `packages/*/src/**/*.ts`. Project is a TypeScript monorepo. "Unused" means zero imports across the monorepo. Use ts-prune or your own grep-based check. Return a list of `file_path:line_number` entries grouped by package. Under 500 words. If you cannot find unused exports with confidence, say so and explain what tooling you tried.
@@ -220,13 +204,11 @@ The orchestrator decides whether to delegate based on the description. Both fail
 
 ## Quick checklist for subagent prompts
 
-- [ ] States goal and motivation.
-- [ ] Includes context the agent needs (what was learned, ruled out, assumed).
-- [ ] Includes specifics (file paths, line numbers, exact commands when applicable).
-- [ ] Does not say "based on your findings" or "decide what makes sense".
-- [ ] Caps length explicitly.
-- [ ] Defines the output shape.
-- [ ] Right shape for the work (lookup gets a command; investigation gets a question).
-- [ ] Independent agents in the same turn use parallel Agent calls.
-- [ ] Foreground/background choice is intentional.
+- [ ] States the goal, the motivation and what was already learned or ruled out.
+- [ ] Includes specifics (file paths, line numbers, exact commands) and never says "based on your findings" or "decide what makes sense".
+- [ ] Right shape for the work: a lookup gets a command, an investigation gets a question.
+- [ ] Caps the length and defines the output shape.
+- [ ] Independent agents go out in one turn as parallel Agent calls; the foreground or background choice is intentional.
 - [ ] After return: verify the diff or output, do not trust the summary blindly.
+
+General checklist: `SKILL.md`; per-model: `claude-models.md`.

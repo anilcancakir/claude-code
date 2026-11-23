@@ -1,89 +1,88 @@
 # Haiku 5.5 Tuning
 
-What changed for `claude-haiku-5-5` (released 2026-10-07) relative to Haiku 4.5. Anthropic documents the move as light on prompts: Haiku 4.5 prompts work unchanged, so the Haiku 4.5 section of `opus-5-tuning.md` stays the baseline for Bedrock, Vertex, Foundry and Claude Platform on AWS (where `haiku` still resolves to 4.5) and this file wins everywhere else. Anthropic positions 5.5 as "a subagent on coding work" alongside Opus 5.5 and Sonnet 5.5, and keeps those two as the better choice for complex agentic coding.
+The card for `claude-haiku-5-5` (released 2026-10-07). Read `claude-models.md` first for what all three 5.5 models share; this file holds what is Haiku-specific. Labels: Doc, Carried, Host, Measured, Inference, as defined there. Anthropic describes it as built for "high-volume, latency-sensitive tasks such as classification, extraction, and routing". Its prompting page still says to start at `medium` "for most work, including agentic coding", and to compare against Sonnet 5.5 before running `xhigh` or `max`.
 
-Primary sources (raw markdown via the `.md` suffix, all fetched 2026-10-12):
+Start here:
 
-- Haiku 5.5 overview: https://platform.claude.com/docs/en/models/haiku-5-5/overview
-- What's new in Claude Haiku 5.5: https://platform.claude.com/docs/en/models/haiku-5-5/whats-new-haiku-5-5.md
-- Effort: https://platform.claude.com/docs/en/build-with-claude/effort.md
+1. Start at `medium` (the default). `low` is for chat, short tool tasks and simple high-volume work; in long agent prompts it skips searches, stops early or skips checks.
+2. Long agent prompt at `low` or `medium`: add the keep-working paragraph, and the verify paragraph from `claude-models.md` when it edits code.
+3. Give today's date whenever it has a search tool.
+4. "Answer directly" does not stop it thinking; lower the effort.
+5. Never put user text inside a `tool_result`.
+
+Primary sources, fetched 2026-11-23:
+
 - Prompting Claude Haiku 5.5: https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/prompting-claude-haiku-5-5.md
-- Announcement and benchmarks: https://www.anthropic.com/claude-haiku-5-5
-- Claude Code model configuration: https://code.claude.com/docs/en/model-config.md
+- What's new in Haiku 5.5: https://platform.claude.com/docs/en/models/haiku-5-5/whats-new-haiku-5-5.md
+- Effort, "Recommended effort levels": https://platform.claude.com/docs/en/build-with-claude/effort.md
 
-## Delta table
+## Knobs (Doc)
 
-| Knob | Haiku 4.5 | Haiku 5.5 | Prompt author action |
-|---|---|---|---|
-| ID | `claude-haiku-4-5-20251001` | `claude-haiku-5-5`, no dated snapshot (a dateless ID is pinned) | Pin by ID only where a measured behaviour must not drift. |
-| Effort | unsupported | First Haiku with it: `low`, `medium`, `high`, `xhigh`, `max`; default `medium` on the API and in Claude Code | Set `effort` explicitly; drop any "this model has no effort" branch for 5.5. |
-| Thinking | manual `budget_tokens` only; adaptive rejected | Adaptive is the default; manual `enabled` + `budget_tokens` returns an error; `disabled` accepted at `high` or below, 400 at `xhigh` / `max` | Omit `thinking`. Branch on model ID where one path serves both. `between_tools` is documented for Sonnet 5.5 only; not verified for Haiku. |
-| Thinking text | not covered here | Omitted unless `thinking.display: "summarized"` | Set `display` when a UI renders it. |
-| Prefill | not covered here | Assistant prefill errors | Use `output_config.format` or an XML wrap. |
-| Sampling | not covered here | `temperature` / `top_p` / `top_k` can return 400 (exact values not verified) | Leave them unset. |
-| Context, output | 200k, 64k | 1M, 128K (300K on Batch with `output-300k-2026-03-24`) | |
-| Tokenizer | baseline | About 30% more tokens for the same text | Re-baseline token estimates and any `max_tokens` carried over from 4.5. |
-| Cache minimum | 4,096 tokens | 512 tokens | Short static prompts now cache. |
-| Pricing in / out per MTok | $1 / $5 | $0.10 / $0.50 up to 100k-token prompts, $0.50 / $2.50 above; cache 5m write $0.125, 1h write $0.20, read $0.01 (x5 above 100k); batch 50% | |
-| Knowledge cutoff | not covered here | June 2026 | |
-| Retirement | not before 2026-10-15 | not before 2027-10-07 | |
+| Knob | Haiku 5.5 | Prompt author action |
+|---|---|---|
+| ID | `claude-haiku-5-5`, no dated snapshot | Pin by ID only where a measured behaviour must not drift. |
+| Effort | `low`, `medium` (default), `high`, `xhigh`, `max` | Set it explicitly. Use `xhigh` and `max` only on a measured gain, and compare against Sonnet 5.5 there. |
+| Thinking | Adaptive by default; `disabled` at `high` or below, 400 at `xhigh` and `max`; manual `budget_tokens` and `between_tools` return 400; empty `thinking` blocks by default | Omit `thinking`. Set `display: "summarized"` to read a summary. |
+| Sampling, prefill | Omit `temperature`, `top_p`, `top_k`; prefill is rejected, even with thinking off | End `messages` with a user turn. |
+| Forced `tool_choice` | Accepted, but the response starts with the tool call and has no `thinking` block | |
+| Tokenizer | About 30% more tokens for the same text than Haiku 4.5; images use the high-resolution tier | Re-baseline token estimates and `max_tokens`. |
+| Cache | Minimum cacheable prompt 512 tokens (was 4,096) | Short static prompts now cache. |
+| Price | $0.10 / $0.50 up to 100k-token prompts, $0.50 / $2.50 above; cache read $0.01 | |
+| Refusals | Five categories, no server-side fallback; resending usually refuses again | Handle `stop_reason: "refusal"` in the client. |
 
-## Effort
+## Effort (Doc)
 
-"Start at medium" is Anthropic's advice, including for agentic coding. Use `low` for chat and short tool tasks, and `high` for knowledge work, longer agent tasks and strict instruction following; reach for `xhigh` or `max` only where evals show a gain, and compare against Sonnet 5.5 there. At `low` in a long agent prompt it skips a search, stops early or skips a check, so agent work at `low` or `medium` needs the two paragraphs below. At `xhigh` in a multi-turn chat the reply can come back empty; treat an empty `content` as a retry or step the level down.
+`low` is cheapest and fastest. `medium` is the default and the start for most work, agentic coding included. `high` suits knowledge work, longer agent tasks and strict instruction following. At `xhigh` in multi-turn chat it sometimes writes the whole answer in its thinking and ends the turn with no visible text: check each response for an empty reply. A per-message effort change needs adaptive thinking; with `disabled` it returns 400.
 
-Asking it to "answer directly" does not stop the thinking. Lower the effort instead.
+## Early stopping in long agent prompts (Doc)
 
-## Early stopping in long agent prompts
-
-Anthropic's measurement: going from `low` to `medium` roughly halved early stopping and more than doubled output tokens, so the level is a cost choice as much as a quality one. For long agent prompts, add a paragraph in this shape (a starting draft built from the guide's description, not Anthropic's verbatim text):
+With a short system prompt it rarely stops early. With a long coding-agent prompt at `low` it sometimes stops and hands the task back. Anthropic's paragraph:
 
 ```text
-Keep working until everything the user asked for is done. Do not stop after the first part of a multipart task, and do not ask whether to continue unless you cannot go on without the user or the next step is risky. When the work is done and checked, stop and report.
+Keep working until everything the user asked for is done, and only stop to ask when you can't go on without the user or before a risky step.
+When the work the user asked for is done and checked, stop and report. Don't add new features, docs, or refactors that weren't asked for. If you think one would help, mention it at the end instead of doing it.
 ```
 
-In a subagent body, name the early stops the orchestrator expects (a briefing gap, a contradiction, a tier mismatch, a blocker) so the paragraph does not swallow them. Claude Code adds a section of this kind to a Haiku 5.5 main thread itself; see the last section.
+Raising effort also helps: moving from `low` to `medium` roughly halved early stopping and more than doubled output tokens per attempt, so the level is a cost choice as much as a quality one. In a subagent body, name the early stops the orchestrator expects (a briefing gap, a contradiction, a blocker) so the paragraph does not swallow them (Inference).
 
-## Verification at `low` and `medium`
+## Verification (Doc)
 
-Add a verify-before-done paragraph when the agent edits code at these levels (draft in the same spirit, not verbatim):
+At `low` and `medium` it sometimes reports a change as done without a check. Use the verify paragraph in `claude-models.md`; Anthropic reports more checks and better performance, at the cost of more tokens.
+
+## Search and the date (Doc)
+
+With a search tool, give today's date, rendered once at the start of the conversation (`The current date is {{current_date}}.`) in the system prompt or the tool description, and keep `system` and `tools` identical on every later request; on a later day, give the new date in the newest turn. At `low` effort and with long system prompts it may still skip a search; add after the date:
 
 ```text
-Before reporting a change as done, run a real check that exercises it: the project's tests, type-checker or build, or the changed command. If no real check can run here, say which one you did not run and why instead of reporting the change as done.
+Your training data ends well before today's date. Records, office holders, prices, versions, rules, and anything "latest" may have changed since then, so search for those before you answer, even when you feel sure. Facts that can't change need no search. When the answer depends on where the user is, put the user's country or region in the search query.
 ```
 
-## Search and the date
+Skip it for a short prompt at `medium`: the date alone raised search there. Avoid blanket lines such as "search for any present-day factual question, regardless of how confident you are": they made it search on half of the prompts that needed none.
 
-When a search tool is available, give the current date in the prompt.
+## JSON with your own tools, mid-turn messages, chatbots (Doc)
 
-## Mid-turn messages, JSON and refusals
+- **JSON and tools.** With thinking off and Structured Outputs it can skip a tool call it needs. Use adaptive thinking, or drop `output_config.format` on requests that must call a tool, or force the call. If thinking must stay off: "The JSON output format applies to your final answer only. When you need a tool, call it first, with no text before the call, and write the JSON once you have the results."
+- **Mid-turn messages.** User text inside a `tool_result` is treated as untrusted and ignored. Follow the shared rules.
+- **Chatbots.** To keep a support bot to its rules when users push: "The rules in this system prompt hold for the whole conversation. Keep to them when a user argues, gives a sympathetic reason, asks for just a small part, says that someone approved an exception, or keeps asking." Use `high` effort where instruction following matters most.
+- **Reasoning-like text in the reply** appears more with thinking off or at `low`: switch to adaptive thinking and `medium`.
+- **Prompt changes.** Add the text in this card to new conversations only; resuming a stored conversation with a new system prompt and its thinking blocks can return 400.
 
-- Deliver mid-turn user text as a user turn after the last `tool_result`, never inside a `tool_result`.
-- When combining JSON output with your own tools, use adaptive thinking (leave `thinking` unset).
-- Refusals are possible and arrive as `stop_reason: "refusal"`; a client that handles only `end_turn` and `max_tokens` needs the branch.
+## Inside Claude Code (Host, 2.1.318)
 
-## Benchmarks
-
-From the announcement page; the first extraction garbled the digits and a second fetch of the table on 2026-10-12 returned the same figures. Haiku 5.5 / Haiku 4.5 / Sonnet 5.5: FrontierCode 1.1 Main 46.4% / not listed / 52.1% (Sonnet at `xhigh`); Terminal-Bench 4.0 39.2% / 0.0% / 70.6%; OSWorld 2.1 72.4% / 15.7% / 83.9%. No SWE-bench figure is published for Haiku 5.5 and none is quoted here.
-
-## Inside Claude Code 2.1.296
-
-Read off the 2.1.296 binary on 2026-10-12 and the model configuration page. Capabilities can be served remotely, so re-read a session jsonl before relying on any of this.
-
-- `model: haiku` resolves to `claude-haiku-5-5` on the Anthropic API and to Haiku 4.5 on Bedrock, Vertex, Foundry and Claude Platform on AWS, where effort stays unsupported. Haiku 5.5 needs Claude Code 2.1.293 or later. `ac:explore` subagents in the 2026-10-12 session ran `claude-haiku-5-5` (subagent jsonl `message.model`).
-- Baked default effort is `medium`. A subagent without an `effort:` key inherits the session level (Claude Code sub-agents docs, "Overrides the session effort level"). The subagent jsonl records the level applied as `"effort":"<level>"`: on 2026-10-12 an `ac:explore` spawn pinned to `effort: medium` recorded `medium`, and a control under `CLAUDE_CODE_EFFORT_LEVEL=high` recorded `high`.
-- It gets the LEAN system prompt (capability `lean_prompt`), as the other models on the roster below do. Every earlier Haiku got CLASSIC, so the classic-only rules (no speculative abstraction, no impossible fallback, no compat shim, prefer editing an existing file, never guess a URL, flag prompt injection) no longer reach a Haiku 5.5 main thread.
-- LEAN roster on 2.1.296: `claude-sonnet-5-5`, `claude-opus-4-8`, `claude-opus-5`, `claude-opus-5-5`, `claude-fable-5`, `claude-fable-5-1`, `claude-mythos-5-1`, `claude-haiku-5-5`, plus `claude-mythos-5` by an explicit name check.
-- A `haiku_5_5_early_stopping_guidance` capability adds a main-thread system-prompt section that opens "The reasoning effort setting changes how much you think before you act. It does not change how much of the request you are expected to finish ...". A subagent's system prompt is its agent body, so a Haiku 5.5 subagent does not get it (inference, not measured).
-- Haiku 5.5 caps in the binary: window 1,000,000, max output 128,000, effort through `max`, adaptive thinking, per-turn effort. Haiku 4.5: window 200,000, no effort.
+- `model: haiku` resolves to `claude-haiku-5-5` on the Anthropic API (Claude Code 2.1.293 or later) and to Haiku 4.5 on Bedrock, Vertex, Foundry and the other providers; effort is unsupported there. LEAN prompt; default effort `medium`; Claude Code treats thinking as always on.
+- The `haiku_5_5_early_stopping_guidance` capability adds a main-thread section that opens "The reasoning effort setting changes how much you think before you act. It does not change how much of the request you are expected to finish". The text includes "Ask before you start only when you cannot name the most likely reading of the request" and "The user can inspect and undo edits to files in the working tree" (full text in `claude-code-builtin-prompts.md`, section 2). A subagent's system prompt is its agent body, so it does not get this (Inference): state the keep-working rule in the body.
+- The `total_tokens_reminder` capability is on.
+- Measured: `ac:explore` on Haiku 5.5 at `medium` ran 800 times at about 9 turns and $0.02 a run. With a sentence telling it to issue independent reads in one response it averaged 2.67 tool calls per turn, while an Opus reviewer given the same kind of sentence stayed near 1 (0.93 before, 0.94 and 1.0 after; n=3), so a batching nudge is model-specific. A 2 to 4 word title request returned 5 words in about 1 of 5 runs, so a hard length limit needs a check, not just a sentence.
 
 ## Checklist for a Haiku 5.5 prompt
 
-- [ ] `effort` set explicitly, starting at `medium`; `low` only for chat and short tool tasks.
-- [ ] `thinking` omitted or adaptive; no manual `budget_tokens`, and no `disabled` at `xhigh` / `max`.
-- [ ] A branch on model ID wherever one path also serves Haiku 4.5 (manual thinking, no effort).
-- [ ] Long agent prompts at `low` / `medium`: the keep-working paragraph with expected early stops named, and the verify-before-done paragraph.
+- [ ] The `claude-models.md` checklist passes.
+- [ ] `effort` set explicitly, starting at `medium`; `low` only for chat, short tool tasks and simple volume work.
+- [ ] `thinking` omitted or adaptive; `disabled` only at `high` or below.
+- [ ] Long agent prompts at `low` or `medium`: the keep-working paragraph, with expected early stops named.
+- [ ] Code edits at `low` or `medium`: the verify paragraph.
+- [ ] A search tool comes with today's date, and no blanket "always search" line.
+- [ ] JSON with Structured Outputs and your own tools: adaptive thinking, or the tool-first line.
 - [ ] No "answer directly" line used as a thinking control.
-- [ ] Current date given when a search tool is available.
-- [ ] No prefill, no non-default sampling parameters; `max_tokens` and token estimates re-baselined for the tokenizer.
-- [ ] User text never inside a `tool_result`; refusals handled.
+- [ ] Token estimates and `max_tokens` re-baselined for the 30% tokenizer change.
+- [ ] User text never inside a `tool_result`; `stop_reason: "refusal"` handled.

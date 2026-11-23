@@ -9,7 +9,6 @@ Primary sources (raw markdown via the `.md` suffix on `platform.claude.com` for 
 - Extended thinking: https://platform.claude.com/docs/en/build-with-claude/extended-thinking.md
 - Prompt caching: https://platform.claude.com/docs/en/build-with-claude/prompt-caching.md
 - Context compaction: https://platform.claude.com/docs/en/build-with-claude/compaction.md
-- Migration guide (4.7 behavior changes): https://platform.claude.com/docs/en/about-claude/models/migration-guide.md
 
 ## Verbosity and length
 
@@ -25,29 +24,15 @@ Provide concise, focused responses. Skip non-essential context, and keep example
 Respond in under 150 words. If the answer would be longer, lead with a 3-sentence executive summary and put details in a `<details>` tag.
 ```
 
-### Increase tool-use visibility
+### Updates at set points
 
 ```text
-After completing a task that involves tool use, provide a quick summary of the work you have done. One sentence per tool call.
+Before your first tool call, say in one sentence what you're about to do. While working, give a brief update only when you find something important or change direction. When you finish, lead with the outcome: your first sentence should answer "what happened" or "what did you find," with supporting detail after it for readers who want it.
 ```
 
-## Effort and thinking
+Positive examples of the cadence you want beat prohibitions. Opus 5.5 and Sonnet 5.5 already write updates between tool calls; Haiku 5.5 is not documented to.
 
-### Reduce thinking when system prompts are large
-
-```text
-Thinking adds latency and should only be used when it will meaningfully improve answer quality, typically for problems that require multi-step reasoning. When in doubt, respond directly.
-```
-
-On Opus 5.5, lower effort first: Anthropic reports it cuts thinking more reliably than prompt instructions. Keep this line only if time to first token still matters at `low`, and measure quality when you add it.
-
-### Force step-by-step reasoning at low effort
-
-```text
-This task involves multi-step reasoning. Think carefully through the problem before responding.
-```
-
-Do not ask for the reasoning to be written into `<thinking>` and `<answer>` tags on current Opus (5 and 5.5), Sonnet (5.5) or Fable (5 and 5.1) models. They run with adaptive or always-on thinking, and a prompt that pushes the model to reproduce its reasoning in the response text risks being declined with the `reasoning_extraction` refusal category. Raise effort, and read reasoning from `display: "summarized"` thinking blocks when you need it.
+## Self-check and commitment
 
 ### Self-check pattern
 
@@ -59,6 +44,8 @@ Before you finish, verify your answer against the following criteria:
 
 If verification fails, revise and verify again. Only return when all criteria pass.
 ```
+
+Not for Opus 5.5: Anthropic's Opus 5 page says to remove explicit verification and double-check instructions because the model verifies on its own (Carried; the 5.5 page does not retract it). For code at `low` effort on Sonnet 5.5, or `low` and `medium` on Haiku 5.5, use the real-check paragraph in `claude-models.md` instead; this snippet suits answers checked against criteria you name.
 
 ### Commit to one approach
 
@@ -107,16 +94,12 @@ If you intend to call multiple tools and there are no dependencies between the t
 </use_parallel_tool_calls>
 ```
 
+Add it to API prompts and subagent bodies only; the Claude Code lean prompt already carries it.
+
 ### Reduce parallel execution (when stability matters)
 
 ```text
 Execute operations sequentially with brief pauses between each step to ensure stability.
-```
-
-### Prefer dedicated tools over shell commands
-
-```text
-Prefer the dedicated file/search tools (Read, Edit, Write, Grep, Glob) over shell commands when one fits. Bash is for shell-only operations, not for reading files (use Read), searching content (use Grep), or finding files by name pattern (use Glob).
 ```
 
 ## Hallucination control
@@ -183,19 +166,13 @@ Format your response in plain text only. Do not use LaTeX, MathJax, or any marku
 
 ## Subagent control
 
-### Steer subagent spawning toward fan-out
-
-```text
-Use subagents when tasks can run in parallel, require isolated context, or involve independent workstreams that do not need to share state. Spawn multiple subagents in the same turn when fanning out across items or reading multiple files.
-
-Do not spawn a subagent for work you can complete directly in a single response (e.g., refactoring a function you can already see, or running a single command).
-```
-
 ### Reduce subagent overuse
 
 ```text
-Work directly rather than delegating to subagents for: simple tasks, sequential operations, single-file edits, or tasks where you need to maintain context across steps. Reserve subagents for parallel fan-out or work that produces large output you do not want in your context.
+Use subagents when tasks can run in parallel, require isolated context, or involve independent workstreams that don't need to share state. For simple tasks, sequential operations, single-file edits, or tasks where you need to maintain context across steps, work directly rather than delegating.
 ```
+
+The stronger Opus damping paragraph is in `opus-5-5-tuning.md`, in its "Carried" section.
 
 ## Code review
 
@@ -250,14 +227,6 @@ Use git as your primary state tracking mechanism. Commit early and often with de
 
 ## Frontend
 
-### Escape default house style
-
-```text
-<frontend_aesthetics>
-Pick a font family that is not Inter, Roboto, Arial, or a system default. Pick a color scheme that is not a purple gradient on white or dark. Pick a layout that has at least one signature element (an unusual grid, an asymmetric hero, a custom motion treatment). Use micro-interaction animations on hover and focus states. Build around one specific brand prior (a single reference site, a stated mood word, or three palette anchors) rather than a generic minimalist baseline.
-</frontend_aesthetics>
-```
-
 ### Propose-then-pick (forces variety)
 
 ```text
@@ -292,16 +261,10 @@ Search for this information in a structured way. As you gather data, develop sev
 ### Specify model identity
 
 ```text
-The assistant is Claude, created by Anthropic. The current model is Claude Opus 5.5. The exact model string is `claude-opus-5-5`. When asked, identify yourself as Claude Opus 5.5.
+The assistant is Claude, created by Anthropic. The current model is {{model_name}}, with the exact model string {{model_id}}. When asked, identify yourself by that name.
 ```
 
-### Specify model string for downstream calls
-
-```text
-When an LLM is needed for a downstream call, default to Claude Opus 5.5 unless the user requests otherwise. The exact model string for Claude Opus 5.5 is `claude-opus-5-5`. Sonnet companion: `claude-sonnet-5-5`. Haiku companion: `claude-haiku-5-5`.
-```
-
-Source: https://platform.claude.com/docs/en/about-claude/models/overview.md (latest-models comparison table for IDs).
+Fill `{{model_id}}` with `claude-opus-5-5`, `claude-sonnet-5-5` or `claude-haiku-5-5`. Model IDs and aliases: `claude-models.md`.
 
 ## Tone
 
@@ -318,6 +281,8 @@ Use a direct, efficient tone. Skip pleasantries, lead with the answer. Acknowled
 ```
 
 ## Engineering scope
+
+The over-engineering, comment and abstraction rules are in the CLASSIC Claude Code prompt only; the lean prompt that the 5.5 models get does not carry them, so a body for those models states what it needs. The general-purpose and temporary-file snippets come from Anthropic's best-practices page, not from the host prompt.
 
 ### Minimize over-engineering
 
@@ -348,33 +313,8 @@ If you create any temporary new files, scripts, or helper files for iteration, c
 
 Snippets compose. The most useful prompts combine 2 to 4 of the above. Examples:
 
-**A coding agent with low hallucination, parallel tools, action-by-default:**
-
-```text
-[role]
-[investigate-before-answering snippet]
-[parallel-tool-calls snippet]
-[default-to-action snippet]
-[reversibility gate snippet]
-[over-engineering snippet]
-```
-
-**A code reviewer:**
-
-```text
-[role: senior reviewer]
-[coverage-first snippet]
-[output format: list of findings with file_path:line_number]
-[minimize markdown snippet]
-```
-
-**A research agent:**
-
-```text
-[role: research analyst]
-[structured research approach snippet]
-[quote-grounded long-document answer snippet]
-[length cap]
-```
+- A coding agent with low hallucination, parallel tools, action-by-default: role, investigate-before-answering, parallel tool calls, default to action, reversibility gate, minimize over-engineering.
+- A code reviewer: role (senior reviewer), coverage-first, output format (list of findings with `file_path:line_number`), minimize markdown.
+- A research agent: role (research analyst), structured research approach, quote-grounded long-document answer, length cap.
 
 Mix them to fit the task. Each snippet is a building block, not a finished prompt.

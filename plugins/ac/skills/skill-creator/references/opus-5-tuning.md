@@ -1,6 +1,6 @@
 # Opus 5 Tuning for Skill Bodies
 
-Skill-specific tuning for the current Claude family. Default target is Opus 5 (`claude-opus-5`, released 2026-07-24). Sonnet 5 (`claude-sonnet-5`) follows the same patterns; Haiku 5.5 (`claude-haiku-5-5`) supports effort and adaptive thinking; Haiku 4.5 (`claude-haiku-4-5-20251001`) differs on effort and thinking. This reference focuses on the knobs that matter when authoring the body of a skill; for prompt-architecture tuning beyond skills, route through `ac:prompt-writer` and read its `references/opus-5-tuning.md`.
+Skill-specific tuning for the current Claude family. Default target is Opus 5 (`claude-opus-5`, released 2026-07-24). Sonnet 5 (`claude-sonnet-5`) follows the same patterns; Haiku 5.5 (`claude-haiku-5-5`) supports effort and adaptive thinking; Haiku 4.5 (`claude-haiku-4-5-20251001`) differs on effort and thinking. This reference focuses on the knobs that matter when authoring the body of a skill; for prompt-architecture tuning beyond skills, route through `ac:prompt-writer` and read its `references/claude-models.md` and the card of the target model.
 
 For `claude-opus-5-5`, the current `model: opus`, this file stays the baseline and `ac:prompt-writer`'s `references/opus-5-5-tuning.md` carries what changed: default effort `medium`, thinking that cannot be disabled, effort labels that do not port from Opus 5, and no reasoning-in-reply scaffolds. For `claude-sonnet-5-5`, the current `model: sonnet`, the same holds with `ac:prompt-writer`'s `references/sonnet-5-5-tuning.md`.
 
@@ -105,7 +105,7 @@ Claude Code skills enable extended thinking on invoke if the body contains the l
 - Long-horizon planning
 - Skills that benefit from chain-of-thought before action
 
-For API-level skills (not Claude Code), thinking on Opus 5 is on by default. `{ type: "adaptive" }` remains valid and is equivalent to the default, so setting it explicitly is redundant rather than required; this is the change from 4.8, where thinking was off unless requested. The legacy `{ type: "enabled", budget_tokens: N }` shape returns a 400 error on Opus 4.7, Opus 4.8, Opus 5, and Sonnet 5. Disabling thinking with `{ type: "disabled" }` returns a 400 error at effort `xhigh` or `max` on Opus 5; disable only at `high` or below. On Haiku 4.5 the situation is inverted: manual extended thinking is the only accepted shape and adaptive is rejected. Detail in `ac:prompt-writer`'s `references/opus-5-tuning.md`.
+For API-level skills (not Claude Code), thinking on Opus 5 is on by default. `{ type: "adaptive" }` remains valid and is equivalent to the default, so setting it explicitly is redundant rather than required; this is the change from 4.8, where thinking was off unless requested. The legacy `{ type: "enabled", budget_tokens: N }` shape returns a 400 error on Opus 4.7, Opus 4.8, Opus 5, and Sonnet 5. Disabling thinking with `{ type: "disabled" }` returns a 400 error at effort `xhigh` or `max` on Opus 5; disable only at `high` or below. On Haiku 4.5 the situation is inverted: manual extended thinking is the only accepted shape and adaptive is rejected. Detail for the 5.5 models is in `ac:prompt-writer`'s `references/claude-models.md`; Haiku 4.5 is outside that skill's scope.
 
 ## Model overrides, when to set `model:`
 

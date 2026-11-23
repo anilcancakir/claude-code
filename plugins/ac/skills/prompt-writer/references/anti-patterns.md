@@ -5,7 +5,7 @@ Common prompt-writing failures, the why, and the fix. Read this when auditing an
 Primary sources (raw markdown via the `.md` suffix on `platform.claude.com` for API docs and `code.claude.com` for Claude Code docs):
 
 - Anthropic prompt engineering best practices: https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/claude-prompting-best-practices.md
-- Migration guide (4.7 breaking changes and behavior shifts): https://platform.claude.com/docs/en/about-claude/models/migration-guide.md
+- Per-model prompting pages: https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/prompting-claude-opus-5-5.md (and the `sonnet-5-5` and `haiku-5-5` siblings); effort: https://platform.claude.com/docs/en/build-with-claude/effort.md; structured outputs: https://platform.claude.com/docs/en/build-with-claude/structured-outputs.md
 - System prompts guide: https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/claude-prompting-best-practices.md#give-claude-a-role
 - Subagents page: https://code.claude.com/docs/en/sub-agents.md
 - Extended thinking: https://platform.claude.com/docs/en/build-with-claude/extended-thinking.md
@@ -18,7 +18,7 @@ Primary sources (raw markdown via the `.md` suffix on `platform.claude.com` for 
 
 **Why it fails.** Modern Claude follows aggressive language too literally. "CRITICAL: you MUST use this tool when researching" causes overtriggering; the model uses the tool even when reasoning would be faster.
 
-Source: https://platform.claude.com/docs/en/about-claude/models/migration-guide.md > Behavior changes (tool triggering on 4.7).
+Source: https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/claude-prompting-best-practices.md > Tool usage, and Migration considerations item 6 (tune anti-laziness prompting: the newer models "might overtrigger on instructions that were needed for previous models").
 
 **The fix.** Plain instruction.
 
@@ -28,11 +28,17 @@ Source: https://platform.claude.com/docs/en/about-claude/models/migration-guide.
 | "ALWAYS write tests before code." | "Write tests before code." |
 | "NEVER skip the validation step." | "Validate before processing." |
 
-The model is smart enough. Aggressive language signals "this might not be true" and causes weird compliance behaviors.
+The model is smart enough. Aggressive language signals "this might not be true" and causes weird compliance behaviors. Caps inside an ordinary sentence do the same at a smaller scale, so reserve them for the genuinely critical (one or two phrases per prompt, max).
 
-### Caps for emphasis
+### Anti-laziness scaffolding written for older models
 
-Same problem at a smaller scale. CAPS in a sentence shift the model into "this is a special instruction" mode. Reserve for the genuinely critical (one or two phrases per prompt, max).
+**The mistake.** Prompts carry "after every 3 tool calls, summarize progress" or "if in doubt, search the codebase."
+
+**Why it fails.** Current models are proactive: they write good interim updates natively and trigger tools appropriately. Blanket "always use the tool" lines overtrigger.
+
+Source: https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/prompting-claude-sonnet-5-5.md > User-facing progress updates ("remove older instructions such as 'hold all findings for the final response'"), and the best-practices Migration considerations item 6.
+
+**The fix.** Remove the scaffolding. Trust the defaults.
 
 ## Negative-only instructions
 
@@ -49,10 +55,8 @@ Source: https://platform.claude.com/docs/en/build-with-claude/prompt-engineering
 | Anti-pattern | Pattern |
 |---|---|
 | "Do not be verbose." | "Provide concise, focused responses. Skip non-essential context, and keep examples minimal." |
-| "Avoid jargon." | "Use plain language. Define any technical term on first use." |
-| "Do not use markdown." | "Respond in flowing prose paragraphs." |
 
-Show one short response you like rather than writing "do not be verbose." Examples beat negative instructions.
+Copy-paste forms: `snippets.md`, Verbosity and length.
 
 ## Vague scope
 
@@ -60,9 +64,9 @@ Show one short response you like rather than writing "do not be verbose." Exampl
 
 **The mistake.** Asking for a generalization without saying what to generalize over.
 
-**Why it fails.** Modern Claude takes instructions literally. It will not silently generalize from the example you showed to other things in the file.
+**Why it fails.** Claude does better with clear, explicit instructions and does not reliably infer more than the task strictly requires, so it may not generalize from the example you showed to other things in the file.
 
-Source: https://platform.claude.com/docs/en/about-claude/models/migration-guide.md > Behavior changes > Literal interpretation.
+Source: https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/claude-prompting-best-practices.md > Be clear and direct.
 
 **The fix.** State scope explicitly.
 
@@ -74,103 +78,57 @@ Source: https://platform.claude.com/docs/en/about-claude/models/migration-guide.
 
 This is verbose. The compensation is precision: the model does exactly what you asked.
 
-The mirror-image failure is leaving the scope's UPPER bound unstated. Opus 5 can widen a task on its own and re-verify finished work, so a prompt that says which files to change should also say that nothing else changes: "Change only the files listed. If you find an adjacent problem, report it in one line; do not fix it here." Source: https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/prompting-claude-opus-5.md > Task scope and over-verification.
+The mirror-image failure is leaving the scope's upper bound unstated. Some 5.5 models add work nobody asked for (the Sonnet 5.5 card documents it), so state the upper bound: "Change only the files listed. If you find an adjacent problem, report it in one line; do not fix it here."
 
 ## Subagent prompt failures
 
 ### "Based on your findings, fix the bug"
 
-**The mistake.** Delegating synthesis the orchestrator owes.
+**The mistake.** Delegating synthesis the orchestrator owes. The agent has less context, cannot ask the user, and returns shallow generic work.
 
-**Why it fails.** The agent has less context than the orchestrator. It does not know the user's goals, cannot ask the user, and has not seen the previous turns of the conversation. The result is shallow generic work.
+**The fix.** Prove you understood. Replace "Based on your findings, fix the auth bug." with "In `src/auth/middleware.ts:42`, JWT verification skips the `nbf` claim. Reject tokens whose `nbf` is in the future and cover it in `src/auth/middleware.test.ts`."
 
 Source: https://code.claude.com/docs/en/sub-agents.md > Writing prompts for subagents > Never delegate understanding.
 
-**The fix.** Prove you understood. Include specifics.
-
-| Anti-pattern | Pattern |
-|---|---|
-| "Based on your findings, fix the auth bug." | "In `src/auth/middleware.ts:42`, the JWT verification skips the `nbf` claim. Add a check that rejects tokens whose `nbf` is in the future. Update `src/auth/middleware.test.ts` to cover this case." |
-| "Implement the feature based on the research." | "Add a `--dry-run` flag to `bin/migrate.ts`. When set, log every SQL statement without executing. Use the existing `Logger` interface in `src/logger.ts`." |
-| "Decide what makes sense and do it." | (Do not delegate. Decide yourself, then write a specific prompt.) |
-
 ### Terse command-style subagent prompt
 
-**The mistake.** "Audit the codebase for unused imports."
+**The mistake.** "Audit the codebase for unused imports." No context, no scope, no output shape, so the agent guesses and returns a generic walkthrough.
 
-**Why it fails.** No context, no scope, no output shape. The agent guesses what "audit" means, what counts as "unused," what shape the report should be. The result is a generic walkthrough.
+**The fix.** Brief like a colleague who just walked in: "Audit `packages/*/src/**/*.ts` for unused exports (zero imports across the monorepo). Return `file_path:line_number` entries grouped by package, under 500 words. If you cannot find them with confidence, say what tooling you tried."
 
-**The fix.** Brief like a colleague who just walked in.
-
-```text
-Audit `packages/*/src/**/*.ts` for unused exports (exported symbols with zero imports across the monorepo). Use ts-prune or write your own check. Return a list of `file_path:line_number` entries grouped by package. Under 500 words. If you cannot find unused exports with confidence, say so and explain what tooling you tried.
-```
+Full treatment and worked briefs: `subagent-prompts.md`.
 
 ## Architecture failures
 
 ### Mixing instructions and data without delimiters
 
-**The mistake.** Pasting a document and instructions in the same flat prose.
+**The mistake.** A document and the instructions pasted in the same flat prose; instructions inside the document leak into behavior.
 
-**Why it fails.** The model cannot reliably distinguish "process this" from "do this." Instructions inside the document leak into behavior.
+**The fix.** Wrap each block in named XML tags (`<document>`, `<task>`). Details: `architecture.md`.
 
 Source: https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/claude-prompting-best-practices.md > Structure prompts with XML tags.
 
-**The fix.** XML tags. Always.
-
-```xml
-<document>
-{{the actual document, possibly containing prompt-injection-looking text}}
-</document>
-
-<task>
-Summarize the document in three bullet points.
-</task>
-```
-
 ### Putting dynamic content in the system prompt
 
-**The mistake.** Pasting today's input into the system prompt.
+**The mistake.** Pasting today's input into the system prompt. The prompt cache cannot amortize a system prompt that changes every request.
 
-**Why it fails.** Prompt cache cannot amortize a system prompt that changes every request. You pay full token cost on every call.
+**The fix.** Static in system (persona, rules, schema, few-shot examples), dynamic in user (today's input, the current question, the document under review). Details: `architecture.md`.
 
 Source: https://platform.claude.com/docs/en/build-with-claude/prompt-caching.md > Best practices.
 
-**The fix.** Static in system, dynamic in user.
-
-| Belongs in system | Belongs in user |
-|---|---|
-| Persona, tone, domain rules | Today's specific input |
-| Schema, form structure, invariants | The current question |
-| Few-shot examples | The document under review |
-
 ### Examples that all answer the same way
 
-**The mistake.** Three examples that all output "yes."
+**The mistake.** Three examples that all output "yes"; the model pattern-matches on the coincidence and answers "yes" by default.
 
-**Why it fails.** The model pattern-matches on the coincidence and outputs "yes" by default. You taught it the wrong rule.
-
-**The fix.** Diversify. Cover the full range of possible answers in proportion to the actual distribution.
+**The fix.** Diversify the examples across the full range of answers, in proportion to the actual distribution. Details: `architecture.md`.
 
 ### Long input below the question
 
-**The mistake.** Putting a 50k-token document at the bottom of the user message, with the question above.
+**The mistake.** A long document placed after the question or instructions in the user message.
 
-**Why it fails.** The model loses track of the question by the time it has read all the document. Quality drops up to 30 percent per Anthropic's published long-context guidance.
+**The fix.** Long input at the very top of the user message, the query at the end. Anthropic reports that queries at the end can improve response quality by up to 30 percent in tests, especially on multi-document inputs. Details: `architecture.md`.
 
-Source: https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/claude-prompting-best-practices.md > Long context prompting tips.
-
-**The fix.** Long inputs at the very top of the user message, question at the bottom.
-
-```xml
-<documents>
-  <document index="1">{{50k-token document}}</document>
-</documents>
-
-<task>
-[The actual question, at the end of the user message]
-</task>
-```
+Source: https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/claude-prompting-best-practices.md > Long context prompting.
 
 ## Output format failures
 
@@ -180,7 +138,7 @@ Source: https://platform.claude.com/docs/en/build-with-claude/prompt-engineering
 
 **Why it fails.** Returns a 400 error on Claude 4.6 and later. Prefills on the last assistant turn are no longer supported.
 
-Source: https://platform.claude.com/docs/en/about-claude/models/migration-guide.md > Breaking changes > Prefill removal.
+Source: https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/claude-prompting-best-practices.md > Migrating away from prefilled responses.
 
 **The fix.** Use Structured Outputs, tool calls with enums, or direct instruction:
 
@@ -224,44 +182,15 @@ Return your response as JSON conforming to the schema provided. Do not wrap the 
 | "Can you suggest some changes?" | "Change this function to improve its performance." |
 | "What would make this better?" | "Make these edits to the authentication flow:" |
 
-## Thinking-parameter failures (model migration)
+## Thinking and effort failures
 
-### `thinking: { type: "enabled", budget_tokens: N }`
+### Legacy thinking shape, reasoning in the reply, copied effort labels
 
-**The mistake.** Using the legacy thinking-budget shape on a model that has moved to adaptive thinking.
+**The mistake.** Sending `thinking: {type: "enabled", budget_tokens: N}`, asking the model to write its reasoning into the reply, or copying an effort label from one model to another.
 
-**Why it fails.** Adaptive thinking replaces `budget_tokens`. The legacy shape returns a 400 error on Opus 4.7, Opus 4.8, Opus 5, Opus 5.5, Sonnet 5, and Sonnet 5.5. Haiku 5.5 behaves the same way (manual `enabled` errors, adaptive is the default). The legacy shape remains the only accepted one on Haiku 4.5, which rejects adaptive; branch on model ID when a code path serves both. Source: https://platform.claude.com/docs/en/build-with-claude/extended-thinking.md > Migrating to adaptive thinking.
+**Why it fails.** Adaptive thinking replaced `budget_tokens`, and each model reacts to effort differently.
 
-**The fix.**
-
-```python
-# On Opus 5 / Sonnet 5 / Sonnet 5.5 / Fable 5 thinking is already on by default; this is the
-# explicit equivalent, not a requirement.
-thinking={"type": "adaptive"}
-output_config={"effort": "high"}  # max, xhigh, high, medium, low
-```
-
-If you need to display thinking content in your UI, add `"display": "summarized"` on the thinking config.
-
-### `thinking: { type: "disabled" }` at effort `xhigh` or `max`
-
-**The mistake.** Turning thinking off on an Opus 5 request that also asks for top-end effort.
-
-**Why it fails.** New constraint in Opus 5: disabling thinking is only permitted at effort `high` or below. Above that it returns a 400 error. Source: https://platform.claude.com/docs/en/about-claude/models/migration-guide.md > Migrating from Claude Opus 4.8 to Claude Opus 5.
-
-**The fix.** Drop effort to `high` when thinking must be off, or leave thinking on. Note that running with thinking disabled has its own documented artifacts (tool calls leaking into the text response, stray XML tags), so budget for mitigation rather than assuming clean output.
-
-On Opus 5.5 there is no level at which this works: `disabled` returns 400 at every effort. Start at `low` and measure instead, and remove any instruction that had the model write its reasoning into the reply in place of thinking, since on 5.5 that can draw a `reasoning_extraction` refusal. See `opus-5-5-tuning.md`.
-
-Sonnet 5.5 rejects `disabled` too, but offers `thinking: {"type": "between_tools"}` as its floor, at `low` to `high` only and with no other field. Remove any "do not think" line when you switch, since with `between_tools` it makes stray XML tags in the visible output more likely. See `sonnet-5-5-tuning.md`.
-
-### Carrying an explicit thinking enable forward from 4.8
-
-**The mistake.** Keeping `thinking={"type": "adaptive"}` as a required line because a 4.8 integration needed it.
-
-**Why it fails.** Nothing breaks, but the line is now noise: thinking is on by default on Opus 5, Sonnet 5, Sonnet 5.5, and Fable 5. Keeping it implies a toggle that no longer exists, which misleads the next reader.
-
-**The fix.** Drop it unless you are also setting `display`.
+**The fix.** Omit `thinking` or send `adaptive`; set effort by measurement; do not ask for reasoning in the reply. Per-model shapes: `claude-models.md` and the three cards.
 
 ### Using `output_format` instead of `output_config.format`
 
@@ -269,142 +198,43 @@ Sonnet 5.5 rejects `disabled` too, but offers `thinking: {"type": "between_tools
 
 **Why it fails.** `output_format` is deprecated and will be removed. The supported parameter is `output_config.format` (`output_config={"format": {...}}` in Python, the equivalent shape in other SDKs).
 
-Source: https://platform.claude.com/docs/en/about-claude/models/migration-guide.md > Migrate `output_format` to `output_config.format`.
+Source: https://platform.claude.com/docs/en/build-with-claude/structured-outputs.md ("The request carries the schema in `output_config.format` with `type: "json_schema"`").
 
 **The fix.** Move the format field into `output_config`.
 
 ```python
 # old
-client.messages.create(model="claude-opus-5", output_format={...}, ...)
+client.messages.create(model="claude-opus-5-5", output_format={...}, ...)
 
 # new
-client.messages.create(model="claude-opus-5", output_config={"format": {...}}, ...)
+client.messages.create(model="claude-opus-5-5", output_config={"format": {...}}, ...)
 ```
 
 ### Carrying over `effort-2025-11-24` beta header
 
 **The mistake.** Keeping `betas=["effort-2025-11-24"]` in requests after upgrading to a current model.
 
-**Why it fails.** The effort parameter is GA. The beta header is a no-op and is being phased out.
+**Why it fails.** The current effort page documents `output_config.effort` with no beta header, so the header does nothing useful and ties the request to the beta client.
 
-**The fix.** Drop the beta header. Use `client.messages.create` (not `client.beta.messages.create`).
+**The fix.** Drop the beta header. Use `client.messages.create` (not `client.beta.messages.create`) unless you use another beta feature.
 
-Source: https://platform.claude.com/docs/en/about-claude/models/migration-guide.md > Migration checklist > "Remove `effort-2025-11-24` beta header".
+Source: https://platform.claude.com/docs/en/build-with-claude/effort.md > Set the effort level.
 
-### Image-coordinate scale-factor math
+## Claude Code host-rule failures
 
-**The mistake.** Multiplying pointing or bounding-box coordinates by a scale factor on the client.
+These come from the CLASSIC Claude Code system prompt and from Anthropic's coding-agent guidance. The 5.5 models (LEAN shape) and every custom subagent do not receive the CLASSIC text, so state the ones a prompt needs.
 
-**Why it fails.** Coordinates are 1:1 with actual image pixels, the convention since Opus 4.7 and unchanged on Opus 5. The conversion was removed. Source: https://platform.claude.com/docs/en/about-claude/models/migration-guide.md > Breaking changes > Image coordinates.
+- Compatibility shims (`_var` renames, `// removed` markers, re-exports): delete unused code after a search.
+- Error handling for impossible scenarios: validate only at system boundaries.
+- Multi-paragraph docstrings on internal helpers: one short line, only when the why is non-obvious.
+- Confirming once, assuming forever: confirm each risky action unless CLAUDE.md authorizes the category.
+- Destructive shortcuts to clear obstacles (`--no-verify`): fix the cause, ask before bypassing.
+- Retrying a denied tool call verbatim: change the approach or ask for authorization.
 
-**The fix.** Remove the client-side conversion. Use the raw coordinates.
+Verbatim host text and rules: `claude-code-conventions.md`.
 
-## Code-style failures (Claude Code specific)
+## Checklists
 
-These come from the live Claude Code system prompt's "Doing tasks" section. Custom agents inherit them; restating them is noise.
-
-### Adding compatibility shims
-
-**The mistake.** Renaming an unused variable to `_var`, adding a `// removed` comment, re-exporting a deleted type.
-
-**Why it fails.** Claude Code's default is to delete unused code completely. Compat shims accumulate cruft.
-
-**The fix.** Delete unused code. If something might be used elsewhere, search first (`Grep`), confirm, then delete.
-
-### Adding error handling for impossible scenarios
-
-**The mistake.** Wrapping every function call in try/catch, validating that an internally-typed object has the field the type system already guarantees.
-
-**Why it fails.** Trust internal code and framework guarantees. The error handling is dead code, makes the real error paths harder to find, and signals lack of confidence in the type system.
-
-**The fix.** Validate only at system boundaries (user input, external APIs). Trust the type system everywhere else.
-
-### Multi-paragraph docstrings on every function
-
-**The mistake.** Verbose JSDoc/PHPDoc/Python docstrings on internal helpers.
-
-**Why it fails.** Claude Code default is no comments unless the WHY is non-obvious. Long docstrings on simple helpers add noise.
-
-**The fix.** One short line max. Only when the WHY is non-obvious.
-
-## Behavioral failures
-
-### Confirming once, assuming forever
-
-**The mistake.** The user approved a `git push`, so the model pushes again next time without asking.
-
-**Why it fails.** Authorization scope is exact. Approving one push does not authorize all future pushes.
-
-**The fix.** Confirm each risky action separately, unless the user explicitly authorized the category in CLAUDE.md ("you may push to my own branches without asking").
-
-### Using destructive shortcuts to clear obstacles
-
-**The mistake.** A pre-commit hook fails, so the model uses `git commit --no-verify` to bypass it.
-
-**Why it fails.** The hook exists for a reason. Bypassing it is a short-term win that creates long-term debt.
-
-**The fix.** Investigate what the hook checks, fix the underlying issue. If the hook is wrong, ask the user before bypassing.
-
-### Retrying denied tool calls verbatim
-
-**The mistake.** A tool call is denied. The model retries the same call.
-
-**Why it fails.** Denied = the user declined. Retrying ignores the signal.
-
-**The fix.** Adjust the approach. If the denial is a permission issue, ask the user to authorize. If it is a logic issue (wrong file path, wrong command), fix the call.
-
-## Migration failures (older models to current)
-
-### Keeping anti-laziness scaffolding
-
-**The mistake.** Old prompts had "after every 3 tool calls, summarize progress" or "if in doubt, search the codebase."
-
-**Why it fails.** Modern Claude produces high-quality interim updates natively and triggers tools appropriately. The scaffolding causes overtriggering.
-
-Source: https://platform.claude.com/docs/en/about-claude/models/migration-guide.md > Behavior changes > Progress updates.
-
-**The fix.** Remove the scaffolding. Trust the defaults.
-
-### Keeping aggressive tool-use language
-
-**The mistake.** Old prompts had "CRITICAL: you MUST use the analysis tool" because earlier models undertriggered.
-
-**Why it fails.** Modern Claude overtriggers on aggressive language.
-
-**The fix.** Plain phrasing. "Use the analysis tool when..."
-
-### Keeping prefill patterns
-
-**The mistake.** Old code uses prefilled assistant messages to force output format.
-
-**Why it fails.** Returns 400 on Claude 4.6 and later.
-
-**The fix.** Migrate to Structured Outputs, tool calls, or direct instructions.
-
-## Quick audit checklist
-
-When reviewing an existing prompt:
-
-- [ ] No "CRITICAL: MUST" or aggressive caps for emphasis.
-- [ ] No negative-only instructions ("don't X" without "do Y").
-- [ ] Scope is stated explicitly (modern Claude will not generalize).
-- [ ] Static content in system, dynamic in user.
-- [ ] Every distinct block is in named XML tags.
-- [ ] Examples are diverse, not all giving the same answer.
-- [ ] Long input is at the top of the user turn.
-- [ ] No prefill on the last assistant turn.
-- [ ] Output format is locked (Structured Outputs > tool > XML > prose).
-- [ ] No "based on your findings, do X" in subagent prompts.
-- [ ] No anti-laziness scaffolding from older models.
-- [ ] No compat hacks, no impossible-scenario error handling, no multi-paragraph docstrings. These are CC classic-prompt defaults; on Opus 5 / 5.5 and Sonnet 5.5 (lean prompt) and in subagent bodies the prompt must state them itself.
-- [ ] Thinking is left at its default on Opus 5.5 / Opus 5 / Sonnet 5.5 / Sonnet 5 / Fable 5 (on); manual `enabled` + `budget_tokens` is used only on Haiku 4.5, which rejects adaptive (Haiku 5.5 is adaptive like the rest).
-- [ ] No `thinking: { type: "disabled" }` on Opus 5.5 or Sonnet 5.5 at all, and on Opus 5 not with effort `xhigh` or `max` (400).
-- [ ] On Opus 5.5: no `tool_choice` `any` / `tool`, no reasoning-in-reply scaffold, effort re-swept rather than copied from Opus 5.
-- [ ] No `effort` set for Haiku 4.5 (unsupported on that model); Haiku 5.5 supports it, see `haiku-5-5-tuning.md`.
-- [ ] Length controlled by an explicit target, not by lowering effort (effort is not a length lever on Opus 5).
-- [ ] Scope's upper bound stated, not just its span (Opus 5 widens scope on its own).
-- [ ] No 4.8-era subagent fan-out encouragement (Opus 5 already delegates readily).
-- [ ] No image-coordinate scale-factor conversion.
-- [ ] Output format uses `output_config.format`, not deprecated `output_format`.
-- [ ] No `effort-2025-11-24` beta header carried over (effort is GA).
-- [ ] `client.messages.create`, not `client.beta.messages.create`.
+- The canonical pre-flight checklist is in `SKILL.md`, one directory up.
+- The per-model checklists are at the end of `claude-models.md` and at the end of each card.
+- The subagent and Claude Code checklists sit at the end of `subagent-prompts.md` and `claude-code-conventions.md`.

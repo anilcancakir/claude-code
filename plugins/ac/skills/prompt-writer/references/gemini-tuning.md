@@ -18,7 +18,7 @@ Primary sources, all fetched 2026-11-16. The `ai.google.dev` pages redirect to a
 - Antigravity "Fast" prompt, unofficial: https://github.com/x1xhlol/system-prompts-and-models-of-ai-tools/blob/162db92f54d717d8ebd12292e155aeef32bb4b3c/Google/Antigravity/Fast%20Prompt.txt
 - Antigravity planning-mode prompt, unofficial: https://github.com/x1xhlol/system-prompts-and-models-of-ai-tools/blob/162db92f54d717d8ebd12292e155aeef32bb4b3c/Google/Antigravity/planning-mode.txt
 
-Not verified: Gemini 4 prompting guidance (its developer guide is a JavaScript page), any benchmark ranking XML above Markdown, and whether capitals or emphasis change Gemini's compliance.
+Not verified: Gemini 4 prompting guidance (its developer guide is a JavaScript page), any benchmark ranking XML above Markdown, and whether capitals or emphasis change Gemini's compliance. For Gemini 4 Neon read `gemini-4-neon-tuning.md` as well; it records what Google has and has not published for Gemini 4.
 
 ## Delta table (text and agent models)
 
@@ -74,7 +74,7 @@ Based on the information above, <the one thing to do>.
 
 ## How Google writes Gemini agent prompts
 
-Gemini CLI is Google's own repository (`packages/core/src/prompts/snippets.ts`, commit `4ed06ed`). The Antigravity files are community extractions of a closed product; treat their details as corroborated, not confirmed.
+Gemini CLI is Google's own repository (`packages/core/src/prompts/snippets.ts`, commit `4ed06ed`). The Antigravity files are community extractions of a closed product; treat their details as corroborated, not confirmed. Gemini CLI is a Gemini 3 era harness (its own README says it is not tuned for Gemini 4), and the Antigravity extractions run up to Argon, not Neon.
 
 | Trait | Gemini CLI (official) | Antigravity (unofficial) |
 |---|---|---|

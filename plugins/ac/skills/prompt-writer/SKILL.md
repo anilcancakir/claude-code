@@ -7,16 +7,35 @@ disable-model-invocation: false
 
 # Prompt Writer
 
-You are about to write or edit a prompt another Claude will execute. Primary target is Claude Opus 5.5 (`model: opus` on Claude Code 2.1.280), whose documented baseline is Opus 5; the same shapes work on Sonnet 5.5 (`model: sonnet` on 2.1.284) at lower cost and on Fable above it.
+You are about to write or edit a prompt another Claude will execute. The Claude models covered are Opus 5.5, Sonnet 5.5 and Haiku 5.5 (the `opus`, `sonnet` and `haiku` aliases on the Anthropic API). Pick the reference below, read the card of the target model, fill in the template, validate against the checklist.
 
-Skim this body, jump to the matching reference, fill in the template, validate against the checklist. The references in `${CLAUDE_SKILL_DIR}/references/` carry the depth.
+## References
+
+| File | Load when... |
+|---|---|
+| `${CLAUDE_SKILL_DIR}/references/claude-models.md` | Any Claude prompt, first: the model matrix, rules all three 5.5 models share (effort, thinking, sampling, prefill, append-only history), what Claude Code adds, a porting table, the checklist. |
+| `${CLAUDE_SKILL_DIR}/references/opus-5-5-tuning.md` | Target `claude-opus-5-5`: effort from `medium`, the unattended four-stop paragraph, progress updates, time signals, pasted-content tags, and the length, scope and subagent rules carried from Opus 5. |
+| `${CLAUDE_SKILL_DIR}/references/sonnet-5-5-tuning.md` | Target `claude-sonnet-5-5`: check-ins at `low` and `medium`, unrequested additions, self-started review at `xhigh`, `between_tools`, JSON answers, search, tolerant tool calls. |
+| `${CLAUDE_SKILL_DIR}/references/haiku-5-5-tuning.md` | Target `claude-haiku-5-5`: early stopping in long agent prompts, the verify paragraph, search with the date, JSON with your own tools, chatbot rules. |
+| `${CLAUDE_SKILL_DIR}/references/claude-code-builtin-prompts.md` | Anything that runs inside Claude Code: verbatim built-in prompt text per shape and model, CLAUDE.md wrapper, subagent defaults, Agent tool text, patterns worth copying. |
+| `${CLAUDE_SKILL_DIR}/references/claude-code-conventions.md` | Prompts for the Claude Code harness: agents, slash commands, hooks, harness rules. |
+| `${CLAUDE_SKILL_DIR}/references/subagent-prompts.md` | Briefing a fresh subagent, designing a `subagent_type`, lookup vs investigation, length caps. |
+| `${CLAUDE_SKILL_DIR}/references/architecture.md` | Message structure, XML tag names, long-context layout, example design. |
+| `${CLAUDE_SKILL_DIR}/references/snippets.md` | A copy-paste building block (verbosity, parallel tools, hallucination control, output format, scope). |
+| `${CLAUDE_SKILL_DIR}/references/anti-patterns.md` | Auditing or debugging a prompt that produces wrong output. |
+| `${CLAUDE_SKILL_DIR}/references/worked-examples.md` | A complete prompt as a starting template (extraction, code review, custom agent, long-document RAG, slash command, meta-prompt). |
+| `${CLAUDE_SKILL_DIR}/references/gemini-tuning.md` | A Gemini model or `generate_image`: delimiters, placement, thinking and sampling deltas, how Gemini CLI and Antigravity prompts are built, image prompt rules. |
+| `${CLAUDE_SKILL_DIR}/references/gemini-model-cards.md` | A specific Gemini model: the per-model matrix and cards for 3.8 Flash, Hydrogen, Carbon, Argon, older Flash and 3.1 Pro, plus a porting table. |
+| `${CLAUDE_SKILL_DIR}/references/gemini-4-neon-tuning.md` | `gemini-4-neon`, any Gemini 4 model, or Antigravity rules, skills and Orchestrator: thinking levels, pre-tool text, turn state, reported failure modes. |
+
+Source material is Anthropic's documentation; append `.md` to a URL for raw markdown. API and model docs: `https://platform.claude.com/docs/en/<path>.md`; Claude Code docs: `https://code.claude.com/docs/en/<path>.md` (the former `docs.claude.com` host redirects to the first and does not serve the Claude Code pages). When the docs conflict with observed CLI behavior, trust the live binary.
 
 ## Ground before you write
 
 Do not author a prompt from built-in knowledge alone: it is frozen at the training cutoff and the world the prompt runs in is not. Two grounding passes come before the first line, every time.
 
 - **Read the actual target.** When the prompt names an existing file, agent, skill, command, or symbol, open it first with Read, Grep, Glob, or `ac:explore`. Editing an existing prompt means reading its current body and the references it points at, not recalling what it likely says.
-- **Verify against fresh sources.** Model behavior, effort and thinking parameter shapes, API surfaces, SDK signatures, and library or framework features shift between versions, so built-in knowledge goes stale. Confirm anything version-sensitive against current docs through `ac:librarian` or the `ac` MCP web tools (`web-search`, `web-fetch`, `search-docs`) before you state it as fact, and cite what you found.
+- **Verify against fresh sources.** Model behavior, effort and thinking parameter shapes, API surfaces, SDK signatures, and library or framework features shift between versions. Confirm anything version-sensitive against current docs through `ac:librarian` or the `ac` MCP web tools (`web-search`, `web-fetch`, `search-docs`) before you state it as fact, and cite what you found.
 
 When your built-in knowledge disagrees with the file or a fresh source, the file and the source win.
 
@@ -26,9 +45,14 @@ Route by what you are about to produce. Each branch points at a reference for th
 
 ```
 Writing a prompt for a Gemini model, or the prompt for the generate_image tool?
-├── YES → read `${CLAUDE_SKILL_DIR}/references/gemini-tuning.md` and stop there:
-│         the text skeleton, the image rules, worked image prompts and the checklist
-│         live in that file, and the rest of this body targets Claude.
+├── YES → read `${CLAUDE_SKILL_DIR}/references/gemini-tuning.md` and read nothing
+│         else in this body: the text skeleton, the image rules, worked image prompts
+│         and the checklist live in that file, and the rest of this body targets Claude.
+│         For a text or agent prompt, also read the target model's card in
+│         `${CLAUDE_SKILL_DIR}/references/gemini-model-cards.md` (3.8 Flash, Hydrogen,
+│         Carbon, Argon, older Flash, 3.1 Pro); for Neon, any Gemini 4 model and for
+│         Antigravity work, also `${CLAUDE_SKILL_DIR}/references/gemini-4-neon-tuning.md`.
+│         Both win where they differ from the generic file.
 └── NO  → continue
         ↓
 Writing a SKILL.md body or a slash workflow (/name [args])?
@@ -55,8 +79,10 @@ Briefing a fresh Agent tool call (no custom subagent_type)?
 Auditing or improving an existing prompt?
 ├── YES → `${CLAUDE_SKILL_DIR}/references/anti-patterns.md` FIRST,
 │         then `${CLAUDE_SKILL_DIR}/references/architecture.md`.
-└── NO  → use the Quick template below; validate against the Quick checklist.
+└── NO  → use the Quick template below; validate against the checklist.
 ```
+
+Every Claude branch also reads `claude-models.md` and the card of the model that will run the prompt.
 
 ## Core principles
 
@@ -64,8 +90,8 @@ The ten rules that change outcomes the most.
 
 1. **Static in system, dynamic in user.** Persona, schema, examples, invariants go in the system prompt so prompt caching amortizes them; per-request data (the document, the question, the file under review) goes in user messages.
 2. **Wrap every distinct block in XML tags.** Tag boundaries are the reliable way to separate instructions from data. Use descriptive, consistent names: `<role>`, `<context>`, `<examples>`, `<input>`, `<output_format>`. In a Claude Code body, markdown headings may mark the instruction sections instead; data still goes in tags.
-3. **Tell the model what to do; to move it off a default, name the exact behavior.** "Provide concise responses" beats "do not be verbose." When a default must go, a category swaps one default for another; a named list works (5.5 responds to instructions naming the specific early stops, such as "a summary that announces the next step instead of taking it").
-4. **State scope explicitly, in both directions.** Where a rule must span, say so: "apply to every X, not just the first." Where the task must not widen, say that too: current Opus models can expand scope and over-verify on their own, so name the boundary ("change only these files; report adjacent problems instead of fixing them").
+3. **Tell the model what to do; to move it off a default, name the exact behavior.** "Provide concise responses" beats "do not be verbose." A named list works: Anthropic says Opus 5.5 responds to instructions that name the specific early stop to avoid ("a summary that announces the next step instead of taking it"); treat the same move for Sonnet and Haiku as this skill's extension.
+4. **State scope explicitly, in both directions.** Where a rule must span, say so: "apply to every X, not just the first." Where the task must not widen, say that too: Sonnet 5.5 adds unrequested tests and docs, and Opus 5's page reports scope widening that the 5.5 page does not retract (Carried), so name the boundary ("change only these files; report adjacent problems instead of fixing them").
 5. **Examples are the highest-leverage tool for gray areas.** 3 to 5 diverse, labeled examples beat any abstract instruction. Wrap each in `<example>` inside `<examples>`. Cover edge cases.
 6. **Repeat the top constraint right before generation.** Recency wins. End the prompt with the one or two rules the model must not break.
 7. **No "CRITICAL: you MUST" language.** Modern Claude overtriggers on aggressive wording. Plain instructions work; if a rule needs weight, explain the why.
@@ -87,7 +113,7 @@ Place components in this order. Skipping any is a choice, not a default.
 | 6 | End-of-prompt reminders | user (last lines) | Top 1 to 3 constraints, for recency. |
 | 7 | Output format lock | user (last) or Structured Outputs | Final shape of the response. |
 
-For inputs above 20k tokens the order inside the user turn flips: long documents at the very top, instructions and the actual question at the bottom. Full detail in `${CLAUDE_SKILL_DIR}/references/architecture.md`.
+For inputs above 20k tokens the order inside the user turn flips: long documents at the very top, instructions and the actual question at the bottom. Full detail in `architecture.md`.
 
 ## Quick template
 
@@ -132,41 +158,28 @@ You are [persona, one sentence: who, domain, tone].
 </reminders>
 ```
 
-## Model tuning knobs (Opus 5.5 first)
+## The three models at a glance
 
-Anthropic documents `claude-opus-5-5` as a delta over Opus 5: Opus 5 patterns hold unless noted. Per-model delta tables (max_tokens, pricing, context, safeguards) live in the `*-tuning.md` files under References: Opus 5.5, Sonnet 5.5, Haiku 5.5, and `opus-5-tuning.md` (Opus 5 baseline, Sonnet 5, Haiku 4.5, Fable).
+Detail, sources and the porting table are in `claude-models.md`; each card carries the model's own paragraphs.
 
-| Knob | Opus 5.5 | Opus 5 | Sonnet 5.5 | Haiku 5.5 |
-|---|---|---|---|---|
-| Default effort | `medium` | `high` | `high` on the API, `medium` in Claude Code; levels recalibrated from Sonnet 5 | low to max, default medium; first Haiku with effort |
-| Thinking | always on; `disabled` and manual `budget_tokens` both 400 | on; `disabled` only at `high` or below | always on; `disabled` and manual 400; `between_tools` at `high` or below is the floor | adaptive by default; manual `budget_tokens` errors; `disabled` at `high` or below only |
-| `tool_choice` `any` / `tool` | 400; use `auto` plus `strict: true`, or Structured Outputs | accepted | 400, same fix | not verified |
+| Knob | Opus 5.5 | Sonnet 5.5 | Haiku 5.5 |
+|---|---|---|---|
+| Default effort | `medium` | `high` on the API, `medium` in Claude Code | `medium` |
+| Thinking | always on; `disabled`, manual and `between_tools` 400 | adaptive; `between_tools` at `high` or below; `disabled` and manual 400 | adaptive; `disabled` at `high` or below; manual and `between_tools` 400 |
+| `tool_choice` `any` or `tool` | 400 | 400 | accepted, no text before the call |
+| Watch for | unattended loops that end on a progress report | check-ins at `low` and `medium`, unrequested additions | early stops in long agent prompts at `low` |
 
-**Effort is the cost lever, and labels do not port.** Opus 5.5 at `medium` matches Opus 5 at `high`, and at any given label it thinks more. Start at `medium`, try `low` for scoped work, step up only on a measured gain. Lower effort before writing "think less" prose, and drop "think carefully" lines. Change effort per turn with a per-message `output_config`; changing the top-level value breaks the cache.
-
-**Sonnet 5.5 steers by effort level.** At `low` and `medium` it checks in before agentic work is done; at every level it adds tests, docs and small files nobody asked for; at `xhigh` and `max` it starts its own review rounds. Each has a one-paragraph fix in `sonnet-5-5-tuning.md`.
-
-**Keep the prefix append-only.** Cache reads are 0.05x input on both 5.5 models (512-token minimum), so a long static system prompt is cheap and an edited one is expensive. Editing `system` or `tools` mid-session also invalidates earlier thinking blocks on both. Late rules go in a mid-conversation system message.
-
-**Verbosity.** Not documented for 5.5's general replies. Keep the Opus 5 practice: a positive length target, and deliverable length stated separately from chat length. Effort is not a length lever.
-
-**Scope and delegation.** Opus 5 widens scope, re-verifies finished work, and delegates readily; 5.5 documents no reversal. Name the upper bound, and say when NOT to spawn.
-
-**Unattended runs (5.5).** A progress report can end the turn with no tool call. For loops with no human, name the early stops you do not want (the four-stop paragraph in `opus-5-5-tuning.md`) at the end of the system prompt from turn one. An interactive setup that measured these stops may adopt it as a stated override.
-
-**No reasoning in the reply (5.5).** "Explain your reasoning, then answer" and `<thinking>` / `<answer>` scaffolds can draw a `reasoning_extraction` refusal. Read `display: "summarized"` thinking instead.
-
-**Assumed unchanged.** Last-turn prefill and non-default sampling parameters return 400 (assume so for 5.5). 1M context, 128k output.
+**Effort is the depth and cost lever; labels do not port.** Set it explicitly and test levels on your own evals. Lower effort before writing "think less" prose, and drop "think carefully" lines. **Keep the prefix append-only:** editing `system` or `tools` mid-session invalidates earlier thinking blocks, so a late rule goes in a mid-conversation system message. **No reasoning in the reply:** "explain your reasoning, then answer" can draw a `reasoning_extraction` refusal; read `display: "summarized"` thinking instead.
 
 ## When the prompt runs inside Claude Code
 
-What the host already says depends on the model's prompt shape; restate only what that shape lacks. Verbatim inventory in `${CLAUDE_SKILL_DIR}/references/claude-code-conventions.md`.
+What the host already says depends on the model's prompt shape; restate only what that shape lacks.
 
-- **LEAN shape (Opus 5.5, Opus 5, Fable, Mythos) already carries:** markdown rendering, permission denials as signal, hook output as user feedback, mid-conversation system turns as harness, `<pasted_content>` handling, dedicated tools over shell, parallel independent calls, `file_path:line_number`, matching the surrounding code's idiom, confirming hard-to-reverse actions, faithful outcome reports, acting without re-deriving settled facts. Do not restate these.
-- **LEAN does not carry** the CLASSIC-only rules: no comments unless the why is non-obvious, no speculative abstraction, no compatibility shims, no handling for impossible cases, no unasked planning files, the exploratory-question rule, UI verification, and the tool-use communication contract. A body that needs one on 5.5 states it in one line.
+- **All three 5.5 models get the LEAN shape.** It already carries markdown rendering, permission denials as signal, hook output as user feedback, mid-conversation system turns as harness, `<pasted_content>` handling, dedicated tools over shell, parallel independent calls, `file_path:line_number`, confirming hard-to-reverse actions, faithful outcome reports, acting without re-deriving settled facts. Do not restate these.
+- **LEAN does not carry** the CLASSIC-only rules: the software-engineering frame, matching the surrounding code's style (sent by 2.1.314, absent from the 2.1.318 captures), no comments unless the why is non-obvious, no speculative abstraction, no compatibility shims, no handling for impossible cases, prefer editing a file, never guess a URL, flag injection (`claude-code-conventions.md` lists them). A body that needs one states it in one line.
 - **Custom subagents get neither shape.** Their system prompt is the agent body plus environment notes, so every rule the agent follows lives in the body.
-- **Delegation on 5.5.** The host's 2.1.314 Agent description is cautionary ("When in doubt, don't spawn"); a prompt that holds the Agent tool still says when not to spawn.
-- **Official examples: match the host's register.** `${CLAUDE_SKILL_DIR}/references/claude-code-builtin-prompts.md` holds Claude Code's own prompt text verbatim, with a Patterns section: `#` headings over short plain sentences, the reason in the same sentence as the rule, named behaviors, the wanted exception stated with the rule, no caps. Write standing instructions that way and check a body against it so it neither repeats nor contradicts the host. Section markers can be headings or XML tags (follow the target's family); data always sits inside XML tags.
+- **Delegation.** The Agent tool description is cautionary ("When in doubt, don't spawn"); a prompt that holds the Agent tool still says when not to spawn.
+- **Match the host's register.** `claude-code-builtin-prompts.md` holds Claude Code's own prompt text verbatim, with a Patterns section: `#` headings over short plain sentences, the reason in the same sentence as the rule, named behaviors, no caps. Section markers can be headings or XML tags (follow the target's family); data always sits inside XML tags.
 
 ## Sibling skills (route the surrounding shape)
 
@@ -180,40 +193,35 @@ This skill owns the prompt text; the shape around it routes through a sibling sk
 
 When the request implies one of these, invoke the matching creator for shape and keep this skill for the prompt body.
 
-## Quick template for common shapes
+## Common shapes
 
-**Subagent briefing** (Agent tool call). Brief like a smart colleague who just walked in: goal, what you already learned, surrounding context, length cap, response shape. A worked briefing and the full detail: `${CLAUDE_SKILL_DIR}/references/subagent-prompts.md`.
+**Subagent briefing** (Agent tool call). Brief like a smart colleague who just walked in: goal, what you already learned, surrounding context, length cap, response shape. A worked briefing and the full detail: `subagent-prompts.md`.
 
-**Custom subagent definition** (`.claude/agents/<name>.md`): bounded description, explicit tools, decisional steps, a locked output contract, and every rule the agent needs restated in its body. For a reviewer or advisor on 5.5, ask for coverage-first findings that each carry their evidence or say "unverified" (the 5.5 system card's top epistemic issue is unverified inference asserted as fact). Full template in `${CLAUDE_SKILL_DIR}/references/worked-examples.md` Example 3, alongside document extraction, code-review briefing, long-document RAG, slash command body and meta-prompt.
+**Custom subagent definition** (`.claude/agents/<name>.md`): bounded description, explicit tools, decisional steps, a locked output contract, and every rule the agent needs restated in its body. For a reviewer or advisor, ask for coverage-first findings that each carry their evidence or say "unverified". Full template in `worked-examples.md` Example 3.
 
-## Snippet library
+Copy-paste fragments (hallucination control, verification, verbosity, action defaults, output lock, code review) live in `snippets.md`. Inside Claude Code the lean prompt already carries parallel tool use and context compaction, so add those only to API prompts or subagent bodies.
 
-Copy-paste fragments (hallucination control, verification, verbosity, action defaults, output lock, subagent control, code review) live in `${CLAUDE_SKILL_DIR}/references/snippets.md`. Inside Claude Code the lean prompt already carries parallel tool use and context compaction (`# Harness`, `# Context management`), so add those only to API prompts or subagent bodies.
+## Anti-patterns
 
-## Anti-patterns (audit existing prompts for these)
-
-The full audit checklist with the why behind each fix is in `${CLAUDE_SKILL_DIR}/references/anti-patterns.md`.
+The full audit checklist with the why behind each fix is in `anti-patterns.md`.
 
 | Anti-pattern | Fix |
 |---|---|
 | Negative-only instructions ("do not be verbose") | Positive scope: "Provide concise, focused responses." Naming the exact default to avoid is different and works (principle 3). |
 | Aggressive "CRITICAL / MUST / ALWAYS" wording | Plain instructions; explain the why if a rule needs weight. |
 | Prefilled last assistant message | Use Structured Outputs or wrap output in XML tags. |
-| Unstated scope: "apply this rule" | "Apply to every X, not just the first." |
-| No upper bound on scope | Name the boundary; current Opus models widen scope and over-verify on their own. |
+| Unstated scope, or no upper bound | "Apply to every X, not just the first", and name the boundary. |
 | Vague verbs: "format properly", "handle errors" | State the format and the error contract exactly. |
 | Hidden context (prompt relies on chat history) | Restate load-bearing facts inside the prompt itself. |
 | Static and dynamic mixed in user message | Move static to system; dynamic stays in user. |
 | Long documents at the bottom of the user turn | Move documents to the top for inputs over 20k tokens. |
 | "Based on your findings, fix the bug" (in subagent prompts) | Specify file paths, line numbers, exact change; do not delegate synthesis. |
-| Stale anti-laziness scaffolding from older models | Remove; trust current Opus defaults. |
-| 4.8-era fan-out encouragement | Invert it; Opus 5 and 5.5 already delegate readily. Say when NOT to spawn. |
-| Lowering `effort` to shorten output | Effort is not a length lever. State a length target instead. |
-| Effort labels copied across models; "think carefully" or reasoning-in-reply scaffolds on 5.5 | Re-sweep effort; remove the lines (the scaffold can draw a `reasoning_extraction` refusal). |
-| `thinking` `enabled` + `budget_tokens`, `disabled`, or forced `tool_choice` on a model that returns 400 | Per-model shapes are in the knob table and the pre-flight checklist; omit `thinking` or send `adaptive`, and use `auto` plus `strict: true`. |
+| "Think less" or "answer directly" used as a depth control | Lower `effort`; the docs say prose does not reliably reduce thinking. |
+| Effort labels copied across models; reasoning-in-reply scaffolds | Re-sweep effort; remove the lines. |
+| `thinking` `enabled` + `budget_tokens`, `disabled` or forced `tool_choice` on a model that returns 400 | Omit `thinking` or send `adaptive`; use `auto` plus a prompt line, or Structured Outputs. |
 | Editing `system` or `tools` mid-session | Append a mid-conversation system message instead. |
-| A body that assumes CC's classic code-style rules on 5.5 | State the rule in one line; the lean prompt does not carry it. |
-| Top-level `output_format`, the `effort-2025-11-24` beta header, `client.beta.messages.create` | Use `output_config.format`; drop the header (effort is GA); use `client.messages.create`. |
+| A body that assumes Claude Code's classic code-style rules | State the rule in one line; the lean prompt does not carry it. |
+| Top-level `output_format`, the `effort-2025-11-24` beta header, `client.beta.messages.create` | Use `output_config.format`; drop the header; use `client.messages.create`. |
 
 ## Pre-flight checklist
 
@@ -223,37 +231,12 @@ Before shipping a prompt:
 - [ ] Static content (schema, examples, invariants) in system; dynamic in user.
 - [ ] Every data block in named XML tags; instruction sections marked consistently (tags or headings).
 - [ ] 3 to 5 diverse examples covering edge cases.
-- [ ] Instructions ordered: process structured input first, ambiguous second.
-- [ ] End-of-prompt reminders restate the top 1 to 3 constraints.
-- [ ] Scope stated explicitly ("every X, not just the first").
-- [ ] No "CRITICAL / MUST / ALWAYS" language.
-- [ ] If input above 20k tokens: documents at top, question at bottom.
-- [ ] Effort set explicitly via `output_config={"effort": ...}`, chosen by measurement (from `medium` on Opus 5.5, by a fresh sweep on Sonnet 5.5), never copied across models.
-- [ ] Thinking shape matches the model: omitted or `adaptive` on Opus 5.5, Opus 5, Sonnet 5.5, Sonnet 5 and Fable; `disabled` and `between_tools` only where the knob table allows them; manual `budget_tokens` only on Haiku 4.5.
-- [ ] On 5.5: no forced `tool_choice`, no reasoning-in-reply scaffold, `max_tokens` sized for thinking.
+- [ ] Instructions ordered: process structured input first, ambiguous second; input above 20k tokens: documents at top, question at bottom.
+- [ ] End-of-prompt reminders restate the top 1 to 3 constraints; no "CRITICAL / MUST / ALWAYS" language.
+- [ ] Scope stated in both directions: the span ("every X, not just the first") and the boundary.
+- [ ] The target model's `claude-models.md` checklist passes: effort chosen by measurement, thinking shape valid, no sampling parameters, no prefill, no forced `tool_choice` on Opus or Sonnet, `max_tokens` sized for thinking.
 - [ ] Main-thread text (skill, command, CLAUDE.md) restates what the reader's shape lacks and nothing it carries. An agent body restates every rule it needs, except what the subagent Notes already give it (`claude-code-builtin-prompts.md`, section 5).
-- [ ] No `effort` set for Haiku 4.5 (unsupported there, and on every provider where `haiku` still resolves to it); Haiku 5.5 gets one, starting at `medium`.
-- [ ] Every fenced command in the body has been run, in the shell it will actually run in, and its output matches what the surrounding prose claims (see `${CLAUDE_SKILL_DIR}/references/claude-code-conventions.md`).
+- [ ] Every fenced command in the body has been run, in the shell it will actually run in, and its output matches what the surrounding prose claims (`claude-code-conventions.md`).
 - [ ] Length controlled by an explicit target, not by lowering effort.
-- [ ] Scope boundary named, not just scope span.
-- [ ] Output shape lock uses `output_config.format` (Structured Outputs), tool call with enum, or XML wrap; not top-level `output_format` or last-assistant prefill. No `effort-2025-11-24` beta header; `client.messages.create` (not `client.beta`).
+- [ ] Output shape lock uses `output_config.format`, a tool call with an enum, or an XML wrap.
 - [ ] Colleague test passes.
-
-## References
-
-| File | Load when... |
-|---|---|
-| `${CLAUDE_SKILL_DIR}/references/architecture.md` | Designing message structure, XML tag names, long-context layout, example design. |
-| `${CLAUDE_SKILL_DIR}/references/claude-code-builtin-prompts.md` | Official examples and the duplicate check for anything that runs inside Claude Code: verbatim 2.1.314 prompt text per shape and model, CLAUDE.md wrapper, subagent defaults, Agent tool text, patterns worth copying. |
-| `${CLAUDE_SKILL_DIR}/references/opus-5-5-tuning.md` | Targeting `claude-opus-5-5`: effort, always-on thinking, forced tool use, thinking-block binding, unattended early stops, time signals, what Claude Code 2.1.280 gives it. |
-| `${CLAUDE_SKILL_DIR}/references/sonnet-5-5-tuning.md` | Targeting `claude-sonnet-5-5`: recalibrated effort, `between_tools`, check-ins, unrequested additions and self-started review by effort level, JSON answers, what Claude Code 2.1.284 gives it. |
-| `${CLAUDE_SKILL_DIR}/references/haiku-5-5-tuning.md` | Targeting `claude-haiku-5-5`: first Haiku with effort, adaptive-only thinking, early stopping in long agent prompts, the 30% tokenizer change, what Claude Code 2.1.296 gives it. |
-| `${CLAUDE_SKILL_DIR}/references/gemini-tuning.md` | Writing for a Gemini model or for `generate_image`: delimiters, placement, thinking and sampling deltas, how Gemini CLI and Antigravity prompts are built, image prompt rules with worked examples. |
-| `${CLAUDE_SKILL_DIR}/references/opus-5-tuning.md` | Tuning effort, thinking, verbosity, scope, subagent spawning, code-review re-tuning; the 4.8-to-5 inversions; per-model deltas for Sonnet 5, Haiku 4.5, Fable 5. |
-| `${CLAUDE_SKILL_DIR}/references/claude-code-conventions.md` | Writing prompts that run in the Claude Code harness: agents, slash commands, hooks, harness rules. |
-| `${CLAUDE_SKILL_DIR}/references/subagent-prompts.md` | Briefing a fresh subagent, designing a `subagent_type`, lookup vs investigation, length caps. |
-| `${CLAUDE_SKILL_DIR}/references/snippets.md` | Need a copy-paste building block (verbosity, parallel tools, hallucination control, output format, frontend, identity, scope). |
-| `${CLAUDE_SKILL_DIR}/references/anti-patterns.md` | Auditing or debugging a prompt that produces wrong output. |
-| `${CLAUDE_SKILL_DIR}/references/worked-examples.md` | Want a complete prompt as a starting template (document extraction, code review, custom agent, long-document RAG, slash command, meta-prompt). |
-
-Source material is Anthropic's canonical documentation; append `.md` to a URL for raw markdown. API and model docs: `https://platform.claude.com/docs/en/<path>.md`; Claude Code docs: `https://code.claude.com/docs/en/<path>.md` (the former `docs.claude.com` host redirects to the first and does not serve the Claude Code pages). When canonical docs conflict with observed CLI behavior, trust the live binary.

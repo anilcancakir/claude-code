@@ -159,7 +159,7 @@ Source: https://platform.claude.com/docs/en/build-with-claude/prompt-engineering
 
 **Rules for long-context.**
 
-1. **Long documents at the very top of the user turn.** Above the query, instructions, and examples in the user message. Quality improves up to 30 percent on multi-document tasks per Anthropic's published guidance.
+1. **Long documents at the very top of the user turn.** Above the query, instructions, and examples in the user message. Anthropic's guidance: "Queries at the end can improve response quality by up to 30 percent in tests, especially with complex, multidocument inputs."
 2. **Wrap each document in metadata tags.** Use `<document>` containing `<source>` and `<document_content>`.
 3. **Ground responses in quotes.** Ask the model to extract relevant quotes first, then answer based on those quotes. This cuts through noise.
 
@@ -204,7 +204,7 @@ The two-step output (quotes first, conclusion second) reduces hallucination beca
 
 Lock the output shape. Four tools available, in order of strength:
 
-1. **Structured Outputs.** Define a JSON schema; the model conforms. Use for classification, extraction, any structured data. Replaces prefill on Claude 4.6+. Source: https://platform.claude.com/docs/en/build-with-claude/structured-outputs.md.
+1. **Structured Outputs.** Define a JSON schema; the model conforms. Use for classification, extraction, any structured data. Replaces prefill, which is unsupported on Claude 4.6 and later. Source: https://platform.claude.com/docs/en/build-with-claude/structured-outputs.md.
 2. **Tool call with enum.** For classification, define a tool whose only param is an enum of valid labels. The model has to pick one.
 3. **XML tag wrapping.** Tell the model to put the answer in `<answer>` tags. Easy to parse.
 4. **Direct instruction.** "Respond in plain text only, no markdown." Works most of the time, easiest to specify.
@@ -282,13 +282,7 @@ Source: Anthropic prompt-engineering best practices > Be clear and direct > Prov
 
 ## Self-check pattern
 
-For coding and math, ask the model to verify its own answer before finishing:
-
-```text
-Before you finish, verify your answer against [test criteria]. If verification fails, revise the answer and verify again. Only return when verification passes.
-```
-
-This catches errors reliably. The verification clause must be specific (test cases, invariants, expected output shape), not "double-check it." Source: Anthropic prompt-engineering best practices > Ask Claude to self-check.
+Copy-paste form: `snippets.md`, Self-check and commitment.
 
 ## Prompt chaining
 
@@ -323,15 +317,4 @@ Source: https://platform.claude.com/docs/en/build-with-claude/prompt-caching.md 
 
 ## Quick checklist for architecture
 
-- [ ] Persona, domain, tone in system prompt.
-- [ ] Static rules and examples in system, dynamic input in user.
-- [ ] Every block wrapped in named XML tags.
-- [ ] 3 to 5 examples covering edge cases, inside `<examples>` parent.
-- [ ] Long input (above 20k tokens) at the top of the user turn.
-- [ ] Step-by-step instructions force structured-first ordering.
-- [ ] Top constraints repeated as `<reminders>` at the end.
-- [ ] Output format locked (Structured Outputs > tool call > XML tag > prose).
-- [ ] Positive instructions ("do this") not negative ("do not do that").
-- [ ] Scope stated explicitly in both directions (where the rule spans, and where the task stops).
-- [ ] No tag-name collisions with the CC reserved tags listed above.
-- [ ] Cache breakpoints placed at stable boundaries (system block, conversation history).
+The pre-flight checklist is in `SKILL.md`; the per-model checklists are in `claude-models.md` and the three cards.
