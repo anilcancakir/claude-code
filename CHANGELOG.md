@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.47.0] - 2026-11-23
+
 ### Changed
 
 - `ac:prompt-writer` now covers only Claude Opus 5.5, Sonnet 5.5 and Haiku 5.5 on the Claude side, rebuilt from Anthropic's current pages, Claude Code 2.1.318 and live `claude -p` captures. New `references/claude-models.md` holds what all three share (model matrix, effort and thinking rules, sampling, prefill, append-only history, what Claude Code adds, a porting table, the checklist); `opus-5-5-tuning.md`, `sonnet-5-5-tuning.md` and `haiku-5-5-tuning.md` are rewritten as one card per model, each with a start-here list, a knob table, Anthropic's verbatim paragraphs, a Claude Code section and measured numbers from this repo's own runs. `opus-5-tuning.md` is deleted: the Opus 5 page rules that still matter (response and deliverable length, scope, subagent spawning, self-correction, code review) moved into the Opus card as Carried, and the Opus 5, Sonnet 5, Haiku 4.5, Opus 4.x and Fable material is gone. `SKILL.md` drops from 23.7 KB to 19.7 KB and puts the references table first, inside the 5,000 tokens that survive compaction.
