@@ -1,7 +1,7 @@
 ---
 name: prompt-writer
-description: "Write or audit a prompt another Claude will run: system prompts, subagent briefs, skill, command and agent bodies, CLAUDE.md and rules. Also prompts for Gemini models."
-when_to_use: "Use when authoring instruction text a model will follow, even if nobody says prompt, and before writing the prompt for the generate_image tool."
+description: "Write or audit a prompt another Claude will run: system prompts, subagent briefs, skill, command and agent bodies, CLAUDE.md and rules. Also Gemini prompts."
+when_to_use: "Use when authoring instruction text a model will follow, even if nobody says prompt, and before writing a generate_image, generate_video or generate_music prompt."
 disable-model-invocation: false
 ---
 
@@ -24,7 +24,8 @@ You are about to write or edit a prompt another Claude will execute. The Claude 
 | `${CLAUDE_SKILL_DIR}/references/snippets.md` | A copy-paste building block (verbosity, parallel tools, hallucination control, output format, scope). |
 | `${CLAUDE_SKILL_DIR}/references/anti-patterns.md` | Auditing or debugging a prompt that produces wrong output. |
 | `${CLAUDE_SKILL_DIR}/references/worked-examples.md` | A complete prompt as a starting template (extraction, code review, custom agent, long-document RAG, slash command, meta-prompt). |
-| `${CLAUDE_SKILL_DIR}/references/gemini-tuning.md` | A Gemini model or `generate_image`: delimiters, placement, thinking and sampling deltas, how Gemini CLI and Antigravity prompts are built, image prompt rules. |
+| `${CLAUDE_SKILL_DIR}/references/gemini-tuning.md` | A Gemini text or agent model: delimiters, placement, thinking and sampling deltas, how Gemini CLI and Antigravity prompts are built. |
+| `${CLAUDE_SKILL_DIR}/references/gemini-media-prompts.md` | The prompt for `generate_image`, `generate_video` or `generate_music`: the chat-model hop, which options are fields and which are text, image, edit, video and music rules, worked prompts. |
 | `${CLAUDE_SKILL_DIR}/references/gemini-model-cards.md` | A specific Gemini model: the per-model matrix and cards for 3.8 Flash, Hydrogen, Carbon, Argon, older Flash and 3.1 Pro, plus a porting table. |
 | `${CLAUDE_SKILL_DIR}/references/gemini-4-neon-tuning.md` | `gemini-4-neon`, any Gemini 4 model, or Antigravity rules, skills and Orchestrator: thinking levels, pre-tool text, turn state, reported failure modes. |
 
@@ -44,11 +45,16 @@ When your built-in knowledge disagrees with the file or a fresh source, the file
 Route by what you are about to produce. Each branch points at a reference for the depth.
 
 ```
-Writing a prompt for a Gemini model, or the prompt for the generate_image tool?
+Writing the prompt for generate_image, generate_video or generate_music?
+├── YES → read `${CLAUDE_SKILL_DIR}/references/gemini-media-prompts.md` and nothing
+│         else: its rules, worked prompts and checklist cover the whole call, and the
+│         rest of this body targets Claude.
+└── NO  → continue
+        ↓
+Writing a prompt for a Gemini text or agent model?
 ├── YES → read `${CLAUDE_SKILL_DIR}/references/gemini-tuning.md` and read nothing
-│         else in this body: the text skeleton, the image rules, worked image prompts
-│         and the checklist live in that file, and the rest of this body targets Claude.
-│         For a text or agent prompt, also read the target model's card in
+│         else in this body: the text skeleton and the checklist live in that file,
+│         and the rest of this body targets Claude. Also read the target model's card in
 │         `${CLAUDE_SKILL_DIR}/references/gemini-model-cards.md` (3.8 Flash, Hydrogen,
 │         Carbon, Argon, older Flash, 3.1 Pro); for Neon, any Gemini 4 model and for
 │         Antigravity work, also `${CLAUDE_SKILL_DIR}/references/gemini-4-neon-tuning.md`.

@@ -1,18 +1,14 @@
 # Gemini Tuning
 
-How to write a prompt a Gemini model understands best: Gemini 3.x text and agent models, and the Gemini image models behind the `ac` MCP `generate_image` tool. Every other file in this skill targets Claude; this one lists where Gemini differs and what Google's own prompts look like. For a text or agent prompt, the Core principles in SKILL.md still apply wherever this file is silent. An image prompt needs only this file.
+How to write a prompt a Gemini model understands best: Gemini 3.x text and agent models. Every other file in this skill targets Claude; this one lists where Gemini differs and what Google's own prompts look like. The Core principles in SKILL.md still apply wherever this file is silent. A prompt for the `generate_image`, `generate_video` or `generate_music` tool belongs to `gemini-media-prompts.md` instead.
 
 Primary sources, all fetched 2026-11-16. The `ai.google.dev` pages redirect to a JavaScript shell; the raw markdown copies below carry the text:
 
 - Prompt design strategies: https://aistudio.google.com/docs/prompting-strategies.md
 - Long context: https://aistudio.google.com/docs/long-context.md
 - What's new in Gemini 3.6: https://aistudio.google.com/docs/whats-new-gemini-3.6.md
-- Image generation: https://aistudio.google.com/docs/image-generation.md
 - Gemini 3 on Vertex AI: https://docs.cloud.google.com/vertex-ai/generative-ai/docs/start/get-started-with-gemini-3
 - Vertex prompt design strategies: https://docs.cloud.google.com/vertex-ai/generative-ai/docs/learn/prompts/prompt-design-strategies
-- Vertex image generation best practices: https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/capabilities/gemini-image-generation-best-practices
-- Google developers blog, prompting Gemini 2.5 Flash Image (Aug 2025): https://developers.googleblog.com/en/how-to-prompt-gemini-2-5-flash-image-generation-for-the-best-results/
-- Google blog, Nano Banana Pro prompting tips (Nov 2025): https://blog.google/products-and-platforms/products/gemini/prompting-tips-nano-banana-pro/
 - Gemini CLI system prompt (Google's repository): https://github.com/google-gemini/gemini-cli/blob/4ed06ed0ddc523a6d356a4ad35ddfea331041888/packages/core/src/prompts/snippets.ts
 - Antigravity IDE prompt, an unofficial extraction Google has not confirmed: https://github.com/asgeirtj/system_prompts_leaks/blob/5102c93cb2e73fedfeaee0461a68926364fcd1dc/Google/antigravity/gemini-4-argon-antigravity-ide.md
 - Antigravity "Fast" prompt, unofficial: https://github.com/x1xhlol/system-prompts-and-models-of-ai-tools/blob/162db92f54d717d8ebd12292e155aeef32bb4b3c/Google/Antigravity/Fast%20Prompt.txt
@@ -89,67 +85,9 @@ Gemini CLI is Google's own repository (`packages/core/src/prompts/snippets.ts`, 
 
 What to take from them: identity in one or two sentences, sections named by purpose, rules as labelled bullets with a number where a limit exists, the workflow stated as a short named sequence, and an explicit rule for the failure that hurts most (an empty reply, a wrong channel). What not to copy into a Claude prompt: the capitals, the emoji and "UNACCEPTABLE" style. They are Google's house style for Gemini, and the Claude baseline says plain rules with a reason beat shouting.
 
-## Image prompts (`generate_image`)
+## Media prompts
 
-The tool takes one `prompt` of up to 8000 characters and no size, ratio, seed or model parameter. When the remote declares it (it does since kodizm PR #296), the proxy adds one optional reference picture, `reference_image_path` (see "Editing with a reference picture" below). Measured through the kodizm MCP on 2026-11-16: the default output was 1408x768 (landscape); adding "Vertical 9:16" to the prompt gave 768x1376; a call takes about 13 to 15 seconds and draws on a shared quota, so write the prompt once and call once per wanted image. An empty prompt is refused at once. The model id reports as `gemini-image`; which generation it is has not been verified.
-
-Rules from Google's image guide (`aistudio.google.com/docs/image-generation.md`, Best Practices and Limitations) and the Google pages named per bullet:
-
-- **Describe the scene as prose, not a keyword list.** The developers blog says a "narrative, descriptive paragraph" beats disconnected words. Cover subject, action, setting, composition and style in one or two connected sentences. (A Google Cloud blog formula, subject plus action plus location plus composition plus style, is secondary and was not re-fetched.)
-- **Open with a creation verb** such as "Generate an image of" or "Create an image of". Vertex's best practices say that without such a phrase the model "might respond with text instead of the image".
-- **Be hyper-specific and give intent.** "Ornate elven plate armor, etched with silver leaf patterns" beats "fantasy armor"; "a logo for a high-end, minimalist skincare brand" beats "a logo".
-- **Control the camera with photographic words.** The guide names `wide-angle shot`, `macro shot` and `low-angle perspective`; its photorealistic template adds the light and the lens: "A photorealistic [type of shot] of a [subject description] in a [setting description]. [Description of the light]. Shot from a [camera angle] with a [lens type]."
-- **Put the aspect ratio in the prompt as plain words**, last: the guide's own samples end "Aspect ratio 16:9." Without it the tool returned landscape.
-- **Phrase exclusions as a scene.** Not "no cars" but "an empty, deserted street with no signs of traffic".
-- **Quote text to be rendered** and name the font style and position: `the headline "EMBER" in bold white sans-serif at the top`. The image guide says text works best when you first generate the wording and then ask for the image with it, and the Nano Banana Pro blog warns that "small text, fine details" and accurate spellings may not work perfectly. Keep rendered text to a few words.
-- **Break a crowded scene into steps**: "First, create a background of ... Then, in the foreground, add ... Finally, place ..."
-- **Write in English** where you can; it is the first language on the guide's best-performance list (Limitations).
-
-Worked prompts (drafts, not tested for quality):
-
-```
-Generate an image of a small red origami boat floating on calm blue water at sunrise. The sky is soft
-peach and violet, low hills sit on the horizon, and the sun leaves a faint reflection on the water.
-Minimalist flat illustration built from flat colour shapes. Wide 16:9 composition with the boat just
-below the centre.
-```
-
-```
-Create a poster for a small coffee roastery. The headline "EMBER" in bold white sans-serif at the top,
-a steaming cup of dark coffee centred below it, warm amber backlight, deep brown background with fine
-film grain. Clean editorial layout with generous empty space around the cup. Vertical 9:16 poster.
-```
-
-```
-Generate an image of a high-resolution, studio-lit product photograph of a matte black stainless steel
-water bottle on a pale grey seamless backdrop. Soft three-point softbox lighting, shot from a slightly
-low angle to show the cap, sharp focus on the cap texture. Aspect ratio 4:5.
-```
-
-## Editing with a reference picture
-
-Without a reference the guide's editing and style-transfer templates cannot be used. With one they can. The facts, from `cli/ac/src/reference-image.ts` and the kodizm session that built the remote side (the multi-turn and model points are its report, not measured here):
-
-- `reference_image_path`: the absolute path (or `~/...`) of one local PNG, JPEG or WebP of at most 740,000 bytes; the type is read off the bytes. A picture a previous call saved fits (the ones measured here were 60 to 150 KB). `reference_image_url` takes the signed `image_url` of a previous result instead, while its link is valid. Pass one of the two, never both.
-- Only one reference per call. The guide's up-to-14-reference mixing is not reachable.
-- Each call is independent: there is no conversation, so a follow-up edit passes the reference again and carries the full instruction. The guide's "follow up with ... make the lighting a bit warmer" advice does not apply; write a new, fuller prompt.
-- The image path has no model, thinking, aspect ratio or seed choice; say any ratio in words, as for any image.
-- A reference the proxy refuses (bad path, wrong type, too big) generates and counts nothing; fix it and call again.
-
-Templates from the guide (Prompts for editing images), to fill in with the picture's own subject:
-
-- Add, remove or modify: "Using the provided image of [subject], please [add/remove/modify] [element] to/from the scene. Ensure the change is [description of how the change should integrate]."
-- Change one thing only: "Using the provided image, change only the [specific element] to [new element/description]. Keep everything else in the image exactly the same, preserving the original style, lighting, and composition."
-- Style transfer: "Transform the provided photograph of [subject] into the artistic style of [artist/art style]. Preserve the original composition but render it with [description of stylistic elements]."
-- To keep a face or logo, "describe them in great detail along with your edit request."
-
-Worked edit prompt (draft, not tested for quality), sent with `reference_image_path` set to the saved origami-boat picture:
-
-```
-Using the provided image, change only the sky to a deep teal night with a thin crescent moon. Keep
-everything else in the image exactly the same, preserving the original flat illustration style, the
-boat, the hills and the composition.
-```
+The prompt for `generate_image`, `generate_video` and `generate_music` lives in `gemini-media-prompts.md`. Those prompts reach a Gemini chat model in the web app before the image, video or music model, which changes how they are written, so nothing in this file applies to them.
 
 ## Checklist before sending a Gemini prompt
 
@@ -157,5 +95,3 @@ boat, the hills and the composition.
 - [ ] Role, constraints and output format at the top; data before the question; the question last.
 - [ ] Plain goal sentences with no flattery or pressure; no "think step by step" scaffold unless the task proved it needs one.
 - [ ] No `temperature`, `top_p` or `top_k` set; no prefilled model turn.
-- [ ] For an image: a creation verb, a prose scene, the aspect ratio last and any quoted text written into the prompt; camera and light terms when the image is a photograph.
-- [ ] For an edit: the reference passed on every call, one change named, and what must stay the same stated in the same prompt.
